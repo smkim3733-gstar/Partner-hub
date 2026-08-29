@@ -216,6 +216,18 @@ type DiagnosisCheck = {
   detail: string;
 };
 
+type AiIntegrationReadiness = {
+  provider: string;
+  directProjectConnection: boolean;
+  instructionImported: boolean;
+  instructionVersion: string;
+  apiKeyConfigured: boolean;
+  modelConfigured: boolean;
+  sourceStorageConfigured: boolean;
+  generationEnabled: boolean;
+  nextAction: string;
+};
+
 function partnerTypeOf(member: TraineeMember): PartnerType {
   const rawType = (member as { memberType?: string }).memberType;
   if (rawType === '타사 컨설턴트' || rawType === '보험설계사' || rawType === '기타' || rawType === '한기평 컨설턴트') return rawType;
@@ -760,6 +772,8 @@ function DiagnosisPreflight({
   notify: (message: string) => void;
 }) {
   const [selectedId, setSelectedId] = useState(assessments[0]?.id ?? '');
+  const [integrationReadiness, setIntegrationReadiness] = useState<AiIntegrationReadiness | null>(null);
+  const [integrationStatus, setIntegrationStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const selected = assessments.find((assessment) => assessment.id === selectedId) ?? assessments[0];
   const levelMeta: Record<DiagnosisLevel, { label: string; tone: string; panel: string; guidance: string }> = {
     A: {
@@ -781,6 +795,28 @@ function DiagnosisPreflight({
       guidance: '동의·마스킹·기업 식별정보 중 차단 항목이 있습니다. 해소 전에는 외부 AI로 자료를 전송하지 않습니다.',
     },
   };
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadIntegrationReadiness() {
+      try {
+        const response = await fetch('/api/ai-diagnosis/readiness', { cache: 'no-store' });
+        const payload = await response.json() as AiIntegrationReadiness & { error?: string };
+        if (!response.ok) throw new Error(payload.error || 'AI 연동 준비상태를 확인하지 못했습니다.');
+        if (!active) return;
+        setIntegrationReadiness(payload);
+        setIntegrationStatus('ready');
+      } catch {
+        if (active) setIntegrationStatus('error');
+      }
+    }
+
+    void loadIntegrationReadiness();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   if (!selected) {
     return <Card><CardContent className="py-12 text-center text-sm text-slate-500">등록된 가상 사전점검이 없습니다.</CardContent></Card>;
@@ -816,6 +852,40 @@ function DiagnosisPreflight({
         <BrainCircuit className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" />
         <div><strong>현재는 가상 시뮬레이션입니다.</strong> 실제 기업자료를 외부 AI로 전송하거나 보고서를 생성하지 않습니다. 다음 단계에서 동의·마스킹·대표 승인 게이트를 통과한 건만 자동화 대상으로 연결합니다.</div>
       </div>
+
+      <Card className="mb-5 border-0 shadow-sm ring-1 ring-slate-200">
+        <CardHeader className="border-b border-slate-100">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+            <div><CardTitle>Claude 상담 FLOW 연동 준비</CardTitle><CardDescription className="mt-1">Claude 웹 프로젝트를 직접 호출하지 않고, 확인된 지침을 서버 프롬프트로 이식해 Anthropic API로 연결합니다.</CardDescription></div>
+            <Pill tone={integrationReadiness?.generationEnabled ? 'green' : integrationStatus === 'error' ? 'red' : 'amber'}>{integrationReadiness?.generationEnabled ? '생성 준비완료' : integrationStatus === 'error' ? '상태 확인 오류' : integrationStatus === 'loading' ? '확인 중' : '연결 준비중'}</Pill>
+          </div>
+        </CardHeader>
+        <CardContent className="py-5">
+          {integrationStatus === 'error' ? (
+            <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">연동 준비상태를 불러오지 못했습니다. 로그인 권한과 서버 연결을 확인해 주세요.</div>
+          ) : (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                {[
+                  { label: '상담 FLOW 지침', ready: Boolean(integrationReadiness?.instructionImported), readyText: '서버 이식 완료', waitText: '이식 대기' },
+                  { label: 'Anthropic API 키', ready: Boolean(integrationReadiness?.apiKeyConfigured), readyText: '보안 연결됨', waitText: '연결 필요' },
+                  { label: '사용 모델', ready: Boolean(integrationReadiness?.modelConfigured), readyText: '모델 지정됨', waitText: '모델 지정 필요' },
+                  { label: '기업 원본파일 저장소', ready: Boolean(integrationReadiness?.sourceStorageConfigured), readyText: '격리 저장소 연결됨', waitText: '저장소 연결 필요' },
+                ].map((item) => (
+                  <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="flex items-center justify-between gap-2"><p className="text-xs font-bold text-slate-500">{item.label}</p><span className={`grid size-7 place-items-center rounded-full ${item.ready ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{item.ready ? <Check className="size-4" aria-hidden="true" /> : <Clock3 className="size-4" aria-hidden="true" />}</span></div>
+                    <p className="mt-3 text-sm font-bold text-slate-900">{item.ready ? item.readyText : item.waitText}</p>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 flex flex-col justify-between gap-3 rounded-2xl border border-blue-100 bg-blue-50/70 p-4 sm:flex-row sm:items-center">
+                <div><p className="text-sm font-bold text-[#15375b]">다음 연결 작업</p><p className="mt-1 text-xs leading-5 text-slate-600">{integrationReadiness?.nextAction ?? '서버 설정을 확인하고 있습니다.'} · 웹 프로젝트 직접호출은 지원되지 않아 지침 이식 방식으로 진행합니다.</p></div>
+                {integrationReadiness?.instructionVersion ? <Pill tone="blue">지침 {integrationReadiness.instructionVersion}</Pill> : null}
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <section aria-label="가상 판정 요약" className="mb-5 grid gap-3 md:grid-cols-3">
         {(['A', 'B', 'C'] as DiagnosisLevel[]).map((level) => {
