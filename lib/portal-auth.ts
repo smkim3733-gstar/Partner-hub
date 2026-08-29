@@ -1,0 +1,224 @@
+type PortalPermissions = {
+  sharedSchedule: boolean;
+  collaborationApply: boolean;
+  ownCases: boolean;
+  fileUpload: boolean;
+  quoteContract: boolean;
+};
+
+type PortalMember = {
+  id: string;
+  name: string;
+  email: string;
+  status: '활성' | '초대대기' | '정지';
+  permissions: PortalPermissions;
+  [key: string]: unknown;
+};
+
+type PortalRecord = Record<string, unknown>;
+
+type PortalStateRecord = {
+  version: number;
+  consultationNumber: number;
+  timeline: PortalRecord[];
+  schedule: PortalRecord[];
+  tasks: PortalRecord[];
+  companyDocuments: PortalRecord[];
+  cases: PortalRecord[];
+  members: PortalMember[];
+};
+
+export type PortalUser = {
+  id: string;
+  email: string;
+  displayName: string;
+  role: 'admin' | 'trainee';
+  memberId: string | null;
+  memberName: string | null;
+  permissions: PortalPermissions | null;
+};
+
+const OWNER_EMAIL = 'smkim3733@gmail.com';
+const LOCAL_OWNER_EMAIL = 'seedy@sites.test';
+
+export class PortalAccessError extends Error {
+  public readonly status: 401 | 403;
+
+  constructor(
+    message: string,
+    status: 401 | 403,
+  ) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function asPortalState(value: unknown): PortalStateRecord | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const state = value as Partial<PortalStateRecord>;
+  if (!Array.isArray(state.timeline)
+    || !Array.isArray(state.schedule)
+    || !Array.isArray(state.tasks)
+    || !Array.isArray(state.companyDocuments)
+    || !Array.isArray(state.cases)
+    || !Array.isArray(state.members)) return null;
+  return state as PortalStateRecord;
+}
+
+function headerDisplayName(request: Request, email: string) {
+  const encoded = request.headers.get('oai-authenticated-user-full-name');
+  const encoding = request.headers.get('oai-authenticated-user-full-name-encoding');
+  if (!encoded || encoding !== 'percent-encoded-utf-8') return email;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return email;
+  }
+}
+
+export function normalizedMemberName(name: string) {
+  return name.replace('(가상)', '').trim();
+}
+
+export function requirePortalUser(request: Request, rawState: unknown): PortalUser {
+  const id = request.headers.get('oai-authenticated-user-id')?.trim();
+  const email = request.headers.get('oai-authenticated-user-email')?.trim().toLowerCase();
+  if (!id || !email) {
+    throw new PortalAccessError('로그인 정보를 확인할 수 없습니다.', 401);
+  }
+
+  const isLocalOwner = new URL(request.url).hostname === 'localhost' && email === LOCAL_OWNER_EMAIL;
+  if (email === OWNER_EMAIL || isLocalOwner) {
+    return {
+      id,
+      email,
+      displayName: isLocalOwner ? '김성민 대표(로컬)' : '김성민 대표',
+      role: 'admin',
+      memberId: null,
+      memberName: null,
+      permissions: null,
+    };
+  }
+
+  const state = asPortalState(rawState);
+  const member = state?.members.find((item) => item.email.trim().toLowerCase() === email);
+  if (!member || member.status !== '활성') {
+    throw new PortalAccessError('등록되었거나 활성화된 교육생 계정이 아닙니다.', 403);
+  }
+
+  const memberName = normalizedMemberName(member.name);
+  return {
+    id,
+    email,
+    displayName: headerDisplayName(request, email),
+    role: 'trainee',
+    memberId: member.id,
+    memberName,
+    permissions: member.permissions,
+  };
+}
+
+function field(record: PortalRecord, key: string) {
+  const value = record[key];
+  return typeof value === 'string' ? value : '';
+}
+
+function ownedRecords(records: PortalRecord[], key: string, owner: string) {
+  return records.filter((record) => field(record, key) === owner);
+}
+
+function timelineCaseId(record: PortalRecord) {
+  return field(record, 'caseId') || 'case-1';
+}
+
+function sanitizeScheduleForTrainee(record: PortalRecord, traineeName: string): PortalRecord | null {
+  if (field(record, 'shareMode') === 'private') return null;
+  const canSeeDetails = field(record, 'shareMode') === 'all_with_assignee'
+    && field(record, 'assignedTrainee') === traineeName
+    && record.private !== true;
+  if (canSeeDetails) return record;
+
+  return {
+    ...record,
+    company: field(record, 'source') === 'google' ? '대표 일정 예약됨' : '협업 상담 예약됨',
+    service: field(record, 'source') === 'google' ? '상세 내용 비공개' : '담당 교육생만 상세 확인',
+    method: '시간만 공유',
+    status: '예약됨',
+    tone: 'slate',
+    assignedTrainee: undefined,
+  };
+}
+
+export function stateForPortalUser(rawState: unknown, user: PortalUser): unknown {
+  const state = asPortalState(rawState);
+  if (!state || user.role === 'admin') return rawState;
+
+  const traineeName = user.memberName ?? '';
+  const ownCases = ownedRecords(state.cases, 'trainee', traineeName);
+  const ownCaseIds = new Set(ownCases.map((record) => field(record, 'id')));
+
+  return {
+    ...state,
+    cases: ownCases,
+    tasks: ownedRecords(state.tasks, 'assignee', traineeName),
+    companyDocuments: ownedRecords(state.companyDocuments, 'assignedTrainee', traineeName),
+    schedule: state.schedule
+      .map((record) => sanitizeScheduleForTrainee(record, traineeName))
+      .filter((record): record is PortalRecord => record !== null),
+    timeline: state.timeline.filter((record) => ownCaseIds.has(timelineCaseId(record))),
+    members: state.members
+      .filter((member) => member.id === user.memberId)
+      .map((member) => ({ ...member, permissions: { ...member.permissions } })),
+  };
+}
+
+function mergeOwnedRecords(
+  existing: PortalRecord[],
+  incoming: PortalRecord[],
+  ownerKey: string,
+  owner: string,
+) {
+  const incomingOwned = incoming.filter((record) => field(record, ownerKey) === owner);
+  const incomingById = new Map(incomingOwned.map((record) => [field(record, 'id'), record]));
+  const existingIds = new Set(existing.map((record) => field(record, 'id')));
+  const merged = existing.map((record) => {
+    if (field(record, ownerKey) !== owner) return record;
+    const replacement = incomingById.get(field(record, 'id'));
+    return replacement ? { ...replacement, [ownerKey]: owner } : record;
+  });
+  for (const record of incomingOwned) {
+    if (!existingIds.has(field(record, 'id'))) merged.push({ ...record, [ownerKey]: owner });
+  }
+  return merged;
+}
+
+export function mergeStateForPortalUser(currentRaw: unknown, incomingRaw: unknown, user: PortalUser): unknown {
+  if (user.role === 'admin') return incomingRaw;
+  const current = asPortalState(currentRaw);
+  const incoming = asPortalState(incomingRaw);
+  if (!current || !incoming) throw new PortalAccessError('저장 데이터 형식이 올바르지 않습니다.', 403);
+
+  const traineeName = user.memberName ?? '';
+  const ownCaseIds = new Set(
+    current.cases.filter((record) => field(record, 'trainee') === traineeName).map((record) => field(record, 'id')),
+  );
+  const incomingTimeline = incoming.timeline.filter((record) => ownCaseIds.has(timelineCaseId(record)));
+  const timelineByKey = new Map(incomingTimeline.map((record) => [`${timelineCaseId(record)}:${field(record, 'date')}:${field(record, 'title')}`, record]));
+  const existingTimelineKeys = new Set(current.timeline.map((record) => `${timelineCaseId(record)}:${field(record, 'date')}:${field(record, 'title')}`));
+  const mergedTimeline = current.timeline.map((record) => timelineByKey.get(`${timelineCaseId(record)}:${field(record, 'date')}:${field(record, 'title')}`) ?? record);
+  for (const record of incomingTimeline) {
+    const key = `${timelineCaseId(record)}:${field(record, 'date')}:${field(record, 'title')}`;
+    if (!existingTimelineKeys.has(key)) mergedTimeline.push(record);
+  }
+
+  return {
+    ...current,
+    consultationNumber: Math.max(current.consultationNumber, incoming.consultationNumber),
+    cases: mergeOwnedRecords(current.cases, incoming.cases, 'trainee', traineeName),
+    tasks: mergeOwnedRecords(current.tasks, incoming.tasks, 'assignee', traineeName),
+    companyDocuments: mergeOwnedRecords(current.companyDocuments, incoming.companyDocuments, 'assignedTrainee', traineeName),
+    schedule: mergeOwnedRecords(current.schedule, incoming.schedule, 'assignedTrainee', traineeName),
+    timeline: mergedTimeline,
+    members: current.members,
+  };
+}
