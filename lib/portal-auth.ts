@@ -1,3 +1,5 @@
+import { hasDuplicateLoginEmail, isValidLoginEmail } from '@/lib/member-email';
+
 type PortalPermissions = {
   sharedSchedule: boolean;
   collaborationApply: boolean;
@@ -193,10 +195,22 @@ function mergeOwnedRecords(
 }
 
 export function mergeStateForPortalUser(currentRaw: unknown, incomingRaw: unknown, user: PortalUser): unknown {
-  if (user.role === 'admin') return incomingRaw;
-  const current = asPortalState(currentRaw);
   const incoming = asPortalState(incomingRaw);
-  if (!current || !incoming) throw new PortalAccessError('저장 데이터 형식이 올바르지 않습니다.', 403);
+  if (!incoming) throw new PortalAccessError('저장 데이터 형식이 올바르지 않습니다.', 403);
+
+  if (user.role === 'admin') {
+    const invalidEmail = incoming.members.find((member) => !isValidLoginEmail(member.email));
+    if (invalidEmail) throw new PortalAccessError('교육생 로그인 이메일 형식이 올바르지 않습니다.', 403);
+
+    const duplicateEmail = incoming.members.find((member) =>
+      hasDuplicateLoginEmail(incoming.members, member.email, member.id),
+    );
+    if (duplicateEmail) throw new PortalAccessError('이미 등록된 교육생 로그인 이메일입니다.', 403);
+    return incoming;
+  }
+
+  const current = asPortalState(currentRaw);
+  if (!current) throw new PortalAccessError('저장 데이터 형식이 올바르지 않습니다.', 403);
 
   const traineeName = user.memberName ?? '';
   const ownCaseIds = new Set(

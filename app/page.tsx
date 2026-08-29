@@ -29,6 +29,7 @@ import {
   Send,
   Share2,
   ShieldCheck,
+  Trash2,
   Upload,
   UserCog,
   UserPlus,
@@ -45,6 +46,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { hasDuplicateLoginEmail, isValidLoginEmail } from '@/lib/member-email';
 
 type View =
   | 'admin'
@@ -1441,7 +1443,13 @@ function AccessManagement({
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteName, setInviteName] = useState('');
   const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteEmailError, setInviteEmailError] = useState('');
   const [inviteCohort, setInviteCohort] = useState('13기');
+  const [selectedEmail, setSelectedEmail] = useState('');
+  const [selectedEmailError, setSelectedEmailError] = useState('');
+  const [deleteConfirming, setDeleteConfirming] = useState(false);
+  const selectedEmailRef = useRef<HTMLInputElement>(null);
+  const inviteEmailRef = useRef<HTMLInputElement>(null);
 
   const filteredMembers = members.filter((member) => {
     const keywordMatch = `${member.name} ${member.email} ${member.cohort}`.toLowerCase().includes(query.toLowerCase());
@@ -1449,6 +1457,26 @@ function AccessManagement({
     return keywordMatch && statusMatch;
   });
   const selectedMember = members.find((member) => member.id === selectedId) ?? null;
+
+  function validateEmail(email: string, excludedMemberId?: string) {
+    if (!isValidLoginEmail(email)) return '올바른 이메일 형식으로 입력해 주세요.';
+    if (hasDuplicateLoginEmail(members, email, excludedMemberId)) return '이미 등록된 로그인 이메일입니다.';
+    return '';
+  }
+
+  function openMemberSettings(member: TraineeMember) {
+    setSelectedId(member.id);
+    setSelectedEmail(member.email);
+    setSelectedEmailError('');
+    setDeleteConfirming(false);
+  }
+
+  function closeMemberSettings() {
+    setSelectedId(null);
+    setSelectedEmail('');
+    setSelectedEmailError('');
+    setDeleteConfirming(false);
+  }
 
   function togglePermission(key: keyof TraineeMember['permissions']) {
     if (!selectedId) return;
@@ -1463,6 +1491,12 @@ function AccessManagement({
   function prepareInvite() {
     if (!inviteName.trim() || !inviteEmail.trim()) {
       notify('이름과 이메일을 입력해 주세요.');
+      return;
+    }
+    const emailError = validateEmail(inviteEmail);
+    if (emailError) {
+      setInviteEmailError(emailError);
+      inviteEmailRef.current?.focus();
       return;
     }
     setMembers((current) => [
@@ -1480,8 +1514,32 @@ function AccessManagement({
     ]);
     setInviteName('');
     setInviteEmail('');
+    setInviteEmailError('');
     setInviteOpen(false);
     notify('교육생 로그인 이메일을 초대대기로 등록했습니다. 실제 사이트 접근 초대는 별도 승인 후 진행합니다.');
+  }
+
+  function saveSelectedMember() {
+    if (!selectedMember) return;
+    const emailError = validateEmail(selectedEmail, selectedMember.id);
+    if (emailError) {
+      setSelectedEmailError(emailError);
+      selectedEmailRef.current?.focus();
+      return;
+    }
+    const nextEmail = selectedEmail.trim();
+    setMembers((current) => current.map((member) =>
+      member.id === selectedMember.id ? { ...member, email: nextEmail } : member,
+    ));
+    closeMemberSettings();
+    notify(`${selectedMember.name} 계정 정보를 저장했습니다.`);
+  }
+
+  function deleteSelectedMember() {
+    if (!selectedMember || selectedMember.status === '활성' || selectedMember.companies > 0) return;
+    setMembers((current) => current.filter((member) => member.id !== selectedMember.id));
+    closeMemberSettings();
+    notify(`${selectedMember.name} 계정을 삭제했습니다.`);
   }
 
   return (
@@ -1534,7 +1592,7 @@ function AccessManagement({
                     </div>
                     <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-3 text-center"><div><p className="text-xs text-slate-500">기수</p><p className="mt-1 text-sm font-bold text-slate-800">{member.cohort}</p></div><div><p className="text-xs text-slate-500">담당기업</p><p className="mt-1 text-sm font-bold tabular-nums text-slate-800">{member.companies}개</p></div><div><p className="text-xs text-slate-500">권한</p><p className="mt-1 text-sm font-bold tabular-nums text-slate-800">{granted}/5</p></div></div>
                     <div className="mt-4 flex flex-wrap gap-2"><Pill tone="navy">{member.role}</Pill>{member.permissions.sharedSchedule ? <Pill tone="blue">대표 일정 공유</Pill> : <Pill tone="slate">일정 미공개</Pill>}</div>
-                    <SecondaryButton className="mt-4 w-full" onClick={() => setSelectedId(member.id)}><UserCog className="size-4 text-[#0877b8]" aria-hidden="true" /> 권한 설정</SecondaryButton>
+                    <SecondaryButton className="mt-4 w-full" onClick={() => openMemberSettings(member)}><UserCog className="size-4 text-[#0877b8]" aria-hidden="true" /> 계정·권한 설정</SecondaryButton>
                   </article>
                 );
               })}
@@ -1550,8 +1608,23 @@ function AccessManagement({
       {selectedMember ? (
         <dialog open className="fixed inset-0 z-50 m-0 grid h-screen max-h-none w-screen max-w-none place-items-center border-0 bg-slate-950/40 p-4 backdrop-blur-sm" aria-labelledby="permission-modal-title">
           <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">{selectedMember.cohort} · {selectedMember.role}</p><h2 id="permission-modal-title" className="mt-1 text-xl font-bold">{selectedMember.name} 권한 설정</h2><p className="mt-1 text-sm text-slate-500">허용된 기능만 교육생 메뉴에 표시됩니다.</p></div><button type="button" onClick={() => setSelectedId(null)} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="권한 설정 닫기"><X className="size-5" /></button></div>
+            <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">{selectedMember.cohort} · {selectedMember.role}</p><h2 id="permission-modal-title" className="mt-1 text-xl font-bold">{selectedMember.name} 계정·권한 설정</h2><p className="mt-1 text-sm text-slate-500">로그인 이메일과 허용 기능을 함께 관리합니다.</p></div><button type="button" onClick={closeMemberSettings} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="계정·권한 설정 닫기"><X className="size-5" /></button></div>
             <div className="max-h-[65vh] space-y-3 overflow-y-auto p-5">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <Field label="로그인 이메일" required hint="교육생이 ChatGPT에 로그인하는 이메일과 정확히 일치해야 합니다.">
+                  <input
+                    ref={selectedEmailRef}
+                    type="email"
+                    value={selectedEmail}
+                    onChange={(event) => { setSelectedEmail(event.target.value); setSelectedEmailError(''); }}
+                    onBlur={() => setSelectedEmailError(validateEmail(selectedEmail, selectedMember.id))}
+                    className={`${inputClass} ${selectedEmailError ? 'border-red-400 focus:border-red-500 focus:ring-red-100' : ''}`}
+                    aria-invalid={Boolean(selectedEmailError)}
+                    aria-describedby={selectedEmailError ? 'selected-email-error' : undefined}
+                  />
+                </Field>
+                {selectedEmailError ? <p id="selected-email-error" role="alert" className="mt-2 text-sm font-semibold text-red-700">{selectedEmailError}</p> : null}
+              </div>
               <div className="grid gap-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-4 sm:grid-cols-2">
                 <Field label="로그인 상태"><select value={selectedMember.status} onChange={(event) => updateSelectedMember({ status: event.target.value as TraineeMember['status'] })} className={inputClass}><option>초대대기</option><option>활성</option><option>정지</option></select></Field>
                 <Field label="교육생 역할"><select value={selectedMember.role} onChange={(event) => updateSelectedMember({ role: event.target.value as TraineeMember['role'] })} className={inputClass}><option>교육생</option><option>리더 교육생</option></select></Field>
@@ -1562,8 +1635,18 @@ function AccessManagement({
                   <div key={key} className="flex items-center justify-between gap-4 rounded-2xl border border-slate-100 p-4"><div><p className="text-sm font-bold text-slate-800">{label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p></div><button type="button" role="switch" aria-checked={enabled} aria-label={`${label} 권한`} onClick={() => togglePermission(key)} className={`relative h-11 w-[68px] shrink-0 rounded-full p-1 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200 ${enabled ? 'bg-[#0877b8]' : 'bg-slate-300'}`}><span className={`block size-9 rounded-full bg-white shadow-sm transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0'}`} /></button></div>
                 );
               })}
+              <div className="rounded-2xl border border-red-200 bg-red-50/70 p-4">
+                <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+                  <div><p className="text-sm font-bold text-red-800">계정 삭제</p><p className="mt-1 text-xs leading-5 text-red-700">활성 계정이나 담당기업이 있는 계정은 먼저 정리한 뒤 삭제할 수 있습니다.</p></div>
+                  {!deleteConfirming ? (
+                    <button type="button" onClick={() => setDeleteConfirming(true)} disabled={selectedMember.status === '활성' || selectedMember.companies > 0} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-red-300 bg-white px-4 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-100 disabled:cursor-not-allowed disabled:opacity-50"><Trash2 className="size-4" aria-hidden="true" /> 계정 삭제</button>
+                  ) : (
+                    <div role="alert" className="flex flex-col gap-2 sm:items-end"><p className="text-sm font-bold text-red-800">정말 삭제하시겠습니까?</p><div className="flex gap-2"><button type="button" onClick={() => setDeleteConfirming(false)} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200">취소</button><button type="button" onClick={deleteSelectedMember} className="min-h-11 rounded-xl bg-red-700 px-3 text-sm font-semibold text-white hover:bg-red-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-200">이 계정 삭제</button></div></div>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setSelectedId(null)}>취소</SecondaryButton><PrimaryButton onClick={() => { setSelectedId(null); notify(`${selectedMember.name} 권한 변경사항을 저장했습니다.`); }}><Check className="size-4" aria-hidden="true" /> 권한 저장</PrimaryButton></div>
+            <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={closeMemberSettings}>취소</SecondaryButton><PrimaryButton onClick={saveSelectedMember}><Check className="size-4" aria-hidden="true" /> 계정·권한 저장</PrimaryButton></div>
           </div>
         </dialog>
       ) : null}
@@ -1572,7 +1655,7 @@ function AccessManagement({
         <dialog open className="fixed inset-0 z-50 m-0 grid h-screen max-h-none w-screen max-w-none place-items-center border-0 bg-slate-950/40 p-4 backdrop-blur-sm" aria-labelledby="invite-modal-title">
           <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">신규 계정</p><h2 id="invite-modal-title" className="mt-1 text-xl font-bold">교육생 로그인 등록</h2><p className="mt-1 text-sm text-slate-500">ChatGPT 로그인에 사용할 이메일을 먼저 등록합니다.</p></div><button type="button" onClick={() => setInviteOpen(false)} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="초대창 닫기"><X className="size-5" /></button></div>
-            <div className="space-y-5 p-5"><Field label="교육생 이름" required><input value={inviteName} onChange={(event) => setInviteName(event.target.value)} className={inputClass} placeholder="예: 홍길동" /></Field><Field label="로그인 이메일" required hint="사이트에서 로그인할 ChatGPT 계정 이메일과 정확히 일치해야 합니다."><input type="email" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} className={inputClass} placeholder="name@example.com" /></Field><Field label="교육기수" required><select value={inviteCohort} onChange={(event) => setInviteCohort(event.target.value)} className={inputClass}><option>11기</option><option>12기</option><option>13기</option><option>기타</option></select></Field><div className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-xs leading-5 text-amber-900">여기서는 로그인 허용명단만 준비합니다. 실제 사이트 접근 초대와 이메일 전송은 대표님의 별도 승인 후 진행합니다.</div></div>
+            <div className="space-y-5 p-5"><Field label="교육생 이름" required><input value={inviteName} onChange={(event) => setInviteName(event.target.value)} className={inputClass} placeholder="예: 홍길동" /></Field><div><Field label="로그인 이메일" required hint="사이트에서 로그인할 ChatGPT 계정 이메일과 정확히 일치해야 합니다."><input ref={inviteEmailRef} type="email" value={inviteEmail} onChange={(event) => { setInviteEmail(event.target.value); setInviteEmailError(''); }} onBlur={() => inviteEmail && setInviteEmailError(validateEmail(inviteEmail))} className={`${inputClass} ${inviteEmailError ? 'border-red-400 focus:border-red-500 focus:ring-red-100' : ''}`} placeholder="name@example.com" aria-invalid={Boolean(inviteEmailError)} aria-describedby={inviteEmailError ? 'invite-email-error' : undefined} /></Field>{inviteEmailError ? <p id="invite-email-error" role="alert" className="mt-2 text-sm font-semibold text-red-700">{inviteEmailError}</p> : null}</div><Field label="교육기수" required><select value={inviteCohort} onChange={(event) => setInviteCohort(event.target.value)} className={inputClass}><option>11기</option><option>12기</option><option>13기</option><option>기타</option></select></Field><div className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-xs leading-5 text-amber-900">여기서는 로그인 허용명단만 준비합니다. 실제 사이트 접근 초대와 이메일 전송은 대표님의 별도 승인 후 진행합니다.</div></div>
             <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setInviteOpen(false)}>취소</SecondaryButton><PrimaryButton onClick={prepareInvite}><MailPlus className="size-4" aria-hidden="true" /> 초대대기 등록</PrimaryButton></div>
           </div>
         </dialog>
