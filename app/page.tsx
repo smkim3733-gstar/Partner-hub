@@ -2000,7 +2000,7 @@ function CaseDetail({
   canQuoteContract: boolean;
 }) {
   const [tab, setTab] = useState('timeline');
-  const [bulkDueDate, setBulkDueDate] = useState('');
+  const bulkDueDateRef = useRef<HTMLInputElement>(null);
   const consultationEvents = timeline.filter((item) => item.type === '상담');
   const documentEvents = timeline.filter((item) => item.type === '서류');
   const quoteEvents = timeline.filter((item) => item.type === '견적');
@@ -2110,10 +2110,10 @@ function CaseDetail({
                   <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50/70 p-4">
                     <p className="text-sm font-bold text-amber-900">제출기한이 누락된 요청서류 {missingDueDateDocuments.length}건</p>
                     <p className="mt-1 text-xs leading-5 text-amber-800">기존 요청에 날짜가 저장되지 않은 경우 한 번에 보정할 수 있습니다.</p>
-                    <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                      <label className="min-w-0 flex-1"><span className="sr-only">미등록 요청서류 제출기한</span><input type="date" value={bulkDueDate} onChange={(event) => setBulkDueDate(event.target.value)} className={inputClass} /></label>
-                      <PrimaryButton disabled={!bulkDueDate} onClick={() => { onSetDocumentDueDates(missingDueDateDocuments.map((document) => document.id), bulkDueDate); setBulkDueDate(''); }}><Check className="size-4" /> 기한 일괄 저장</PrimaryButton>
-                    </div>
+                    <form className="mt-3 flex flex-col gap-2 sm:flex-row" onSubmit={(event) => { event.preventDefault(); const dueDate = bulkDueDateRef.current?.value ?? ''; if (!dueDate) return; onSetDocumentDueDates(missingDueDateDocuments.map((document) => document.id), dueDate); event.currentTarget.reset(); }}>
+                      <label className="min-w-0 flex-1"><span className="sr-only">미등록 요청서류 제출기한</span><input ref={bulkDueDateRef} name="bulkDueDate" type="date" required className={inputClass} /></label>
+                      <PrimaryButton type="submit"><Check className="size-4" /> 기한 일괄 저장</PrimaryButton>
+                    </form>
                   </div>
                 ) : null}
                 {caseDocuments.length ? (
@@ -2294,7 +2294,7 @@ function DocumentRequest({ caseItem, onSave, onCancel }: { caseItem: Collaborati
     { name: '부가가치세 과세표준증명', required: false },
   ]);
   const [newItem, setNewItem] = useState('');
-  const [dueDate, setDueDate] = useState('');
+  const dueDateRef = useRef<HTMLInputElement>(null);
   const [formError, setFormError] = useState('');
 
   function addItem() {
@@ -2304,6 +2304,7 @@ function DocumentRequest({ caseItem, onSave, onCancel }: { caseItem: Collaborati
   }
 
   function saveRequest() {
+    const dueDate = dueDateRef.current?.value ?? '';
     if (!dueDate) {
       setFormError('제출기한을 선택해 주세요.');
       return;
@@ -2333,7 +2334,7 @@ function DocumentRequest({ caseItem, onSave, onCancel }: { caseItem: Collaborati
             <Field label="전달 담당자" required><select className={inputClass}><option>{caseItem.trainee} 파트너</option><option>김성민 대표</option></select></Field>
             <Field label="관련 서비스"><select className={inputClass}>{caseItem.service.split(' · ').filter(Boolean).map((service) => <option key={service}>{service}</option>)}<option>전체</option></select></Field>
             <Field label="관련 상담" hint="상담과 무관한 요청이면 선택하지 않아도 됩니다."><select className={inputClass}><option>연결하지 않음</option><option>상담 #1</option><option>상담 #2</option><option>상담 #3</option></select></Field>
-            <Field label="제출기한" required><input type="date" value={dueDate} onChange={(event) => { setDueDate(event.target.value); setFormError(''); }} aria-describedby={formError ? 'document-request-error' : undefined} className={inputClass} /></Field>
+            <Field label="제출기한" required><input ref={dueDateRef} type="date" onChange={() => setFormError('')} aria-describedby={formError ? 'document-request-error' : undefined} className={inputClass} /></Field>
             <Field label="공유범위"><select className={inputClass}><option>담당 파트너와 내부 담당자</option><option>내부 담당자만</option></select></Field>
           </div>
 
