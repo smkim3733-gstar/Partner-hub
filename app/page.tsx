@@ -46,6 +46,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { hasDuplicateLoginEmail, isValidLoginEmail } from '@/lib/member-email';
 
 type View =
@@ -1448,6 +1449,7 @@ function AccessManagement({
   const [selectedEmail, setSelectedEmail] = useState('');
   const [selectedEmailError, setSelectedEmailError] = useState('');
   const [deleteConfirming, setDeleteConfirming] = useState(false);
+  const [activationChecks, setActivationChecks] = useState({ email: false, siteAccess: false, notice: false });
   const selectedEmailRef = useRef<HTMLInputElement>(null);
   const inviteEmailRef = useRef<HTMLInputElement>(null);
 
@@ -1457,6 +1459,7 @@ function AccessManagement({
     return keywordMatch && statusMatch;
   });
   const selectedMember = members.find((member) => member.id === selectedId) ?? null;
+  const activationReady = Object.values(activationChecks).every(Boolean);
 
   function validateEmail(email: string, excludedMemberId?: string) {
     if (!isValidLoginEmail(email)) return '올바른 이메일 형식으로 입력해 주세요.';
@@ -1469,6 +1472,7 @@ function AccessManagement({
     setSelectedEmail(member.email);
     setSelectedEmailError('');
     setDeleteConfirming(false);
+    setActivationChecks({ email: false, siteAccess: false, notice: false });
   }
 
   function closeMemberSettings() {
@@ -1476,6 +1480,7 @@ function AccessManagement({
     setSelectedEmail('');
     setSelectedEmailError('');
     setDeleteConfirming(false);
+    setActivationChecks({ email: false, siteAccess: false, notice: false });
   }
 
   function togglePermission(key: keyof TraineeMember['permissions']) {
@@ -1535,6 +1540,22 @@ function AccessManagement({
     notify(`${selectedMember.name} 계정 정보를 저장했습니다.`);
   }
 
+  function activateSelectedMember() {
+    if (!selectedMember || !activationReady) return;
+    const emailError = validateEmail(selectedEmail, selectedMember.id);
+    if (emailError) {
+      setSelectedEmailError(emailError);
+      selectedEmailRef.current?.focus();
+      return;
+    }
+    const nextEmail = selectedEmail.trim();
+    setMembers((current) => current.map((member) =>
+      member.id === selectedMember.id ? { ...member, email: nextEmail, status: '활성' } : member,
+    ));
+    closeMemberSettings();
+    notify(`${selectedMember.name} 내부 계정을 활성화했습니다. 사이트 공유 대상에도 같은 이메일이 등록되어 있어야 접속할 수 있습니다.`);
+  }
+
   function deleteSelectedMember() {
     if (!selectedMember || selectedMember.status === '활성' || selectedMember.companies > 0) return;
     setMembers((current) => current.filter((member) => member.id !== selectedMember.id));
@@ -1554,8 +1575,8 @@ function AccessManagement({
       <section aria-label="교육생 계정 요약" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           ['등록 교육생', members.length, Users, '전체 등록계정'],
-          ['활성 계정', members.filter((member) => member.status === '활성').length, UserRoundCheck, '현재 접속 가능'],
-          ['초대 대기', members.filter((member) => member.status === '초대대기').length, MailPlus, '이메일 승인 전'],
+          ['내부권한 활성', members.filter((member) => member.status === '활성').length, UserRoundCheck, '사이트 공유 완료 후 접속 가능'],
+          ['접속 승인 대기', members.filter((member) => member.status === '초대대기').length, MailPlus, '이메일·사이트 공유 확인 전'],
           ['일정 공유', members.filter((member) => member.permissions.sharedSchedule).length, CalendarDays, '대표 공유일정 열람'],
         ].map(([label, value, Icon, hint]) => {
           const MetricIcon = Icon as IconType;
@@ -1566,6 +1587,22 @@ function AccessManagement({
             </Card>
           );
         })}
+      </section>
+
+      <section aria-label="교육생 접속 승인 순서" className="mt-6 rounded-2xl border border-sky-100 bg-gradient-to-r from-[#edf7fd] to-white p-5 shadow-[0_8px_30px_rgb(15_23_42/4%)]">
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+          <div>
+            <div className="flex items-center gap-2"><ShieldCheck className="size-5 text-[#0877b8]" aria-hidden="true" /><h2 className="text-base font-bold text-[#15375b]">교육생 접속 승인 3단계</h2></div>
+            <p className="mt-2 text-xs leading-5 text-slate-600">실제 접속은 사이트 공유와 내부 계정 활성화가 모두 완료되어야 합니다. 이 화면에서는 외부 초대나 이메일을 자동 발송하지 않습니다.</p>
+          </div>
+          <div className="grid gap-2 text-sm sm:grid-cols-3 lg:min-w-[600px]">
+            {[
+              ['1', '로그인 이메일 확인', 'ChatGPT 계정과 일치'],
+              ['2', '사이트 공유 완료', '대표 승인 후 별도 처리'],
+              ['3', '내부 계정 활성화', '권한·일정범위 최종 확인'],
+            ].map(([step, label, detail]) => <div key={step} className="rounded-xl border border-white bg-white/90 p-3 shadow-sm"><div className="flex items-center gap-2"><span className="grid size-6 place-items-center rounded-full bg-[#0877b8] text-xs font-bold text-white">{step}</span><p className="font-bold text-slate-800">{label}</p></div><p className="mt-2 pl-8 text-xs text-slate-500">{detail}</p></div>)}
+          </div>
+        </div>
       </section>
 
       <Card className="mt-6 border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
@@ -1626,9 +1663,29 @@ function AccessManagement({
                 {selectedEmailError ? <p id="selected-email-error" role="alert" className="mt-2 text-sm font-semibold text-red-700">{selectedEmailError}</p> : null}
               </div>
               <div className="grid gap-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-4 sm:grid-cols-2">
-                <Field label="로그인 상태"><select value={selectedMember.status} onChange={(event) => updateSelectedMember({ status: event.target.value as TraineeMember['status'] })} className={inputClass}><option>초대대기</option><option>활성</option><option>정지</option></select></Field>
+                <Field label="로그인 상태" hint="신규 활성화는 아래 3단계 확인 후 가능합니다."><select value={selectedMember.status} onChange={(event) => updateSelectedMember({ status: event.target.value as TraineeMember['status'] })} className={inputClass}><option>초대대기</option><option disabled={selectedMember.status !== '활성'}>활성</option><option>정지</option></select></Field>
                 <Field label="교육생 역할"><select value={selectedMember.role} onChange={(event) => updateSelectedMember({ role: event.target.value as TraineeMember['role'] })} className={inputClass}><option>교육생</option><option>리더 교육생</option></select></Field>
               </div>
+              {selectedMember.status !== '활성' ? (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
+                  <div className="flex items-start gap-3"><UserRoundCheck className="mt-0.5 size-5 shrink-0 text-emerald-700" aria-hidden="true" /><div><p className="text-sm font-bold text-emerald-900">접속 승인 확인</p><p className="mt-1 text-xs leading-5 text-emerald-800">세 항목을 실제로 완료한 뒤 내부 계정을 활성화하세요. 사이트 공유가 빠지면 교육생은 로그인할 수 없습니다.</p></div></div>
+                  <div className="mt-4 space-y-3">
+                    {[
+                      ['email', '교육생의 ChatGPT 로그인 이메일과 일치함을 확인했습니다.'],
+                      ['siteAccess', '사이트 공유 대상에 동일한 이메일을 등록했습니다.'],
+                      ['notice', '교육생에게 접속방법과 본인 담당기업만 열람한다는 점을 안내했습니다.'],
+                    ].map(([key, label]) => (
+                      <label key={key} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-emerald-100 bg-white px-3 text-sm font-semibold text-slate-700">
+                        <Checkbox checked={activationChecks[key as keyof typeof activationChecks]} onCheckedChange={(checked) => setActivationChecks((current) => ({ ...current, [key]: Boolean(checked) }))} aria-label={label} />
+                        <span>{label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <PrimaryButton className="mt-4 w-full sm:w-auto" disabled={!activationReady} onClick={activateSelectedMember}><UserRoundCheck className="size-4" aria-hidden="true" /> 3단계 확인 후 내부 계정 활성화</PrimaryButton>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-emerald-700" aria-hidden="true" /><div><p className="text-sm font-bold text-emerald-900">내부 계정 활성 상태</p><p className="mt-1 text-xs leading-5 text-emerald-800">사이트 공유 대상에 같은 이메일이 유지되어 있는지 함께 확인해 주세요.</p></div></div></div>
+              )}
               {permissionLabels.map(({ key, label, detail }) => {
                 const enabled = selectedMember.permissions[key];
                 return (
