@@ -230,9 +230,10 @@ export function mergeStateForPortalUser(currentRaw: unknown, incomingRaw: unknow
   if (!current) throw new PortalAccessError('저장 데이터 형식이 올바르지 않습니다.', 403);
 
   const traineeName = user.memberName ?? '';
-  const ownCaseIds = new Set(
-    current.cases.filter((record) => field(record, 'trainee') === traineeName).map((record) => field(record, 'id')),
-  );
+  const ownCaseIds = new Set([
+    ...current.cases.filter((record) => field(record, 'trainee') === traineeName).map((record) => field(record, 'id')),
+    ...incoming.cases.filter((record) => field(record, 'trainee') === traineeName).map((record) => field(record, 'id')),
+  ]);
   const incomingTimeline = incoming.timeline.filter((record) => ownCaseIds.has(timelineCaseId(record)));
   const timelineByKey = new Map(incomingTimeline.map((record) => [`${timelineCaseId(record)}:${field(record, 'date')}:${field(record, 'title')}`, record]));
   const existingTimelineKeys = new Set(current.timeline.map((record) => `${timelineCaseId(record)}:${field(record, 'date')}:${field(record, 'title')}`));
