@@ -1,4 +1,5 @@
 'use client';
+/* oxlint-disable next/no-html-link-for-pages -- Sites authentication routes require native top-level navigation. */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -1449,7 +1450,7 @@ function AccessManagement({
   const [selectedEmail, setSelectedEmail] = useState('');
   const [selectedEmailError, setSelectedEmailError] = useState('');
   const [deleteConfirming, setDeleteConfirming] = useState(false);
-  const [activationChecks, setActivationChecks] = useState({ email: false, siteAccess: false, notice: false });
+  const [activationChecks, setActivationChecks] = useState({ email: false, permissions: false, notice: false });
   const selectedEmailRef = useRef<HTMLInputElement>(null);
   const inviteEmailRef = useRef<HTMLInputElement>(null);
 
@@ -1472,7 +1473,7 @@ function AccessManagement({
     setSelectedEmail(member.email);
     setSelectedEmailError('');
     setDeleteConfirming(false);
-    setActivationChecks({ email: false, siteAccess: false, notice: false });
+    setActivationChecks({ email: false, permissions: false, notice: false });
   }
 
   function closeMemberSettings() {
@@ -1480,7 +1481,7 @@ function AccessManagement({
     setSelectedEmail('');
     setSelectedEmailError('');
     setDeleteConfirming(false);
-    setActivationChecks({ email: false, siteAccess: false, notice: false });
+    setActivationChecks({ email: false, permissions: false, notice: false });
   }
 
   function togglePermission(key: keyof TraineeMember['permissions']) {
@@ -1553,7 +1554,7 @@ function AccessManagement({
       member.id === selectedMember.id ? { ...member, email: nextEmail, status: '활성' } : member,
     ));
     closeMemberSettings();
-    notify(`${selectedMember.name} 내부 계정을 활성화했습니다. 사이트 공유 대상에도 같은 이메일이 등록되어 있어야 접속할 수 있습니다.`);
+    notify(`${selectedMember.name} 내부 계정을 활성화했습니다. 교육생이 같은 이메일의 ChatGPT 계정으로 로그인하면 접속할 수 있습니다.`);
   }
 
   function deleteSelectedMember() {
@@ -1575,8 +1576,8 @@ function AccessManagement({
       <section aria-label="교육생 계정 요약" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           ['등록 교육생', members.length, Users, '전체 등록계정'],
-          ['내부권한 활성', members.filter((member) => member.status === '활성').length, UserRoundCheck, '사이트 공유 완료 후 접속 가능'],
-          ['접속 승인 대기', members.filter((member) => member.status === '초대대기').length, MailPlus, '이메일·사이트 공유 확인 전'],
+          ['내부권한 활성', members.filter((member) => member.status === '활성').length, UserRoundCheck, 'ChatGPT 로그인 후 접속 가능'],
+          ['접속 승인 대기', members.filter((member) => member.status === '초대대기').length, MailPlus, '이메일·권한범위 확인 전'],
           ['일정 공유', members.filter((member) => member.permissions.sharedSchedule).length, CalendarDays, '대표 공유일정 열람'],
         ].map(([label, value, Icon, hint]) => {
           const MetricIcon = Icon as IconType;
@@ -1593,13 +1594,13 @@ function AccessManagement({
         <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
           <div>
             <div className="flex items-center gap-2"><ShieldCheck className="size-5 text-[#0877b8]" aria-hidden="true" /><h2 className="text-base font-bold text-[#15375b]">교육생 접속 승인 3단계</h2></div>
-            <p className="mt-2 text-xs leading-5 text-slate-600">실제 접속은 사이트 공유와 내부 계정 활성화가 모두 완료되어야 합니다. 이 화면에서는 외부 초대나 이메일을 자동 발송하지 않습니다.</p>
+            <p className="mt-2 text-xs leading-5 text-slate-600">실제 접속은 ChatGPT 로그인과 내부 계정 활성화가 모두 완료되어야 합니다. 이 화면에서는 외부 초대나 이메일을 자동 발송하지 않습니다.</p>
           </div>
           <div className="grid gap-2 text-sm sm:grid-cols-3 lg:min-w-[600px]">
             {[
               ['1', '로그인 이메일 확인', 'ChatGPT 계정과 일치'],
-              ['2', '사이트 공유 완료', '대표 승인 후 별도 처리'],
-              ['3', '내부 계정 활성화', '권한·일정범위 최종 확인'],
+              ['2', '내부 권한 승인', '열람·등록 범위 최종 확인'],
+              ['3', 'ChatGPT 로그인', '교육생이 직접 접속'],
             ].map(([step, label, detail]) => <div key={step} className="rounded-xl border border-white bg-white/90 p-3 shadow-sm"><div className="flex items-center gap-2"><span className="grid size-6 place-items-center rounded-full bg-[#0877b8] text-xs font-bold text-white">{step}</span><p className="font-bold text-slate-800">{label}</p></div><p className="mt-2 pl-8 text-xs text-slate-500">{detail}</p></div>)}
           </div>
         </div>
@@ -1668,11 +1669,11 @@ function AccessManagement({
               </div>
               {selectedMember.status !== '활성' ? (
                 <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
-                  <div className="flex items-start gap-3"><UserRoundCheck className="mt-0.5 size-5 shrink-0 text-emerald-700" aria-hidden="true" /><div><p className="text-sm font-bold text-emerald-900">접속 승인 확인</p><p className="mt-1 text-xs leading-5 text-emerald-800">세 항목을 실제로 완료한 뒤 내부 계정을 활성화하세요. 사이트 공유가 빠지면 교육생은 로그인할 수 없습니다.</p></div></div>
+                  <div className="flex items-start gap-3"><UserRoundCheck className="mt-0.5 size-5 shrink-0 text-emerald-700" aria-hidden="true" /><div><p className="text-sm font-bold text-emerald-900">접속 승인 확인</p><p className="mt-1 text-xs leading-5 text-emerald-800">세 항목을 실제로 확인한 뒤 내부 계정을 활성화하세요. 등록 이메일과 ChatGPT 로그인 이메일이 다르면 접속할 수 없습니다.</p></div></div>
                   <div className="mt-4 space-y-3">
                     {[
                       ['email', '교육생의 ChatGPT 로그인 이메일과 일치함을 확인했습니다.'],
-                      ['siteAccess', '사이트 공유 대상에 동일한 이메일을 등록했습니다.'],
+                      ['permissions', '허용권한과 대표 일정 공유범위를 확인했습니다.'],
                       ['notice', '교육생에게 접속방법과 본인 담당기업만 열람한다는 점을 안내했습니다.'],
                     ].map(([key, label]) => (
                       <label key={key} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-xl border border-emerald-100 bg-white px-3 text-sm font-semibold text-slate-700">
@@ -1684,7 +1685,7 @@ function AccessManagement({
                   <PrimaryButton className="mt-4 w-full sm:w-auto" disabled={!activationReady} onClick={activateSelectedMember}><UserRoundCheck className="size-4" aria-hidden="true" /> 3단계 확인 후 내부 계정 활성화</PrimaryButton>
                 </div>
               ) : (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-emerald-700" aria-hidden="true" /><div><p className="text-sm font-bold text-emerald-900">내부 계정 활성 상태</p><p className="mt-1 text-xs leading-5 text-emerald-800">사이트 공유 대상에 같은 이메일이 유지되어 있는지 함께 확인해 주세요.</p></div></div></div>
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-emerald-700" aria-hidden="true" /><div><p className="text-sm font-bold text-emerald-900">내부 계정 활성 상태</p><p className="mt-1 text-xs leading-5 text-emerald-800">등록 이메일과 교육생의 ChatGPT 로그인 이메일이 계속 일치하는지 확인해 주세요.</p></div></div></div>
               )}
               {permissionLabels.map(({ key, label, detail }) => {
                 const enabled = selectedMember.permissions[key];
@@ -2251,6 +2252,7 @@ export default function Home() {
   const [dataStatus, setDataStatus] = useState<'loading' | 'saving' | 'saved' | 'error'>('loading');
   const [currentUser, setCurrentUser] = useState<PortalUser | null>(null);
   const [accessError, setAccessError] = useState('');
+  const [accessStatus, setAccessStatus] = useState<number | null>(null);
   const saveTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -2260,7 +2262,10 @@ export default function Home() {
       try {
         const response = await fetch('/api/state', { cache: 'no-store' });
         const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; error?: string };
-        if (!response.ok) throw new Error(payload.error || '로그인 정보를 확인하지 못했습니다.');
+        if (!response.ok) {
+          if (active) setAccessStatus(response.status);
+          throw new Error(payload.error || '로그인 정보를 확인하지 못했습니다.');
+        }
         if (!payload.currentUser) throw new Error('로그인 사용자 정보가 없습니다.');
         if (!active) return;
 
@@ -2276,6 +2281,7 @@ export default function Home() {
         }
 
         setCurrentUser(payload.currentUser);
+        setAccessStatus(null);
         if (payload.currentUser.role === 'trainee') {
           setView('trainee');
           setScheduleAudience('trainee');
@@ -2320,7 +2326,10 @@ export default function Home() {
         });
         if (!response.ok) {
           const payload = await response.json() as { error?: string };
-          if (response.status === 401 || response.status === 403) setAccessError(payload.error || '저장 권한이 없습니다.');
+          if (response.status === 401 || response.status === 403) {
+            setAccessStatus(response.status);
+            setAccessError(payload.error || '저장 권한이 없습니다.');
+          }
           throw new Error('Failed to save portal state');
         }
         setDataStatus('saved');
@@ -2359,7 +2368,25 @@ export default function Home() {
   const activeLabel = useMemo(() => navItems.find((item) => item.view === view)?.label ?? '파트너 허브', [view]);
 
   if (accessError) {
-    return <div className="grid min-h-screen place-items-center bg-slate-50 p-5"><Card className="w-full max-w-xl border-0 text-center shadow-xl ring-slate-200"><CardContent className="py-10"><span className="mx-auto grid size-14 place-items-center rounded-2xl bg-red-50 text-red-700"><LockKeyhole className="size-7" aria-hidden="true" /></span><h1 className="mt-5 text-xl font-bold text-slate-950">파트너 허브 접근 확인 필요</h1><p className="mt-3 text-sm leading-6 text-slate-600">{accessError}</p><p className="mt-3 text-xs leading-5 text-slate-500">교육생은 대표님이 등록한 로그인 이메일과 활성 권한이 모두 일치해야 접속할 수 있습니다.</p></CardContent></Card></div>;
+    const needsSignIn = accessStatus === 401;
+    const deniedAccount = accessStatus === 403;
+    return (
+      <div className="grid min-h-screen place-items-center bg-[radial-gradient(circle_at_top,#edf7fd_0,#f8fafc_45%,#f8fafc_100%)] p-5">
+        <Card className="w-full max-w-xl border-0 text-center shadow-xl ring-slate-200">
+          <CardContent className="py-10 sm:px-10">
+            <span className={`mx-auto grid size-14 place-items-center rounded-2xl ${needsSignIn ? 'bg-sky-50 text-[#0877b8]' : 'bg-red-50 text-red-700'}`}><LockKeyhole className="size-7" aria-hidden="true" /></span>
+            <p className="mt-5 text-xs font-bold tracking-[0.18em] text-[#0877b8]">KEVE PARTNER HUB</p>
+            <h1 className="mt-2 text-2xl font-bold text-slate-950">{needsSignIn ? '교육생 로그인' : '파트너 허브 접근 확인 필요'}</h1>
+            <p className="mt-3 text-sm leading-6 text-slate-600">{accessError}</p>
+            <p className="mt-3 text-xs leading-5 text-slate-500">교육생은 대표님이 등록한 이메일과 동일한 ChatGPT 계정으로 로그인하고, 내부 계정이 활성 상태여야 접속할 수 있습니다.</p>
+            {needsSignIn ? <a href="/signin-with-chatgpt?return_to=/" target="_top" className="mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#0877b8] px-5 text-sm font-bold text-white transition-colors hover:bg-[#06679f] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200"><ShieldCheck className="size-4" aria-hidden="true" /> ChatGPT로 로그인</a> : null}
+            {deniedAccount ? <a href="/signout-with-chatgpt?return_to=/" target="_top" className="mt-6 inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200">다른 ChatGPT 계정으로 다시 로그인</a> : null}
+            {!needsSignIn && !deniedAccount ? <button type="button" onClick={() => window.location.reload()} className="mt-6 min-h-12 w-full rounded-xl bg-[#15375b] px-5 text-sm font-bold text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200">다시 확인</button> : null}
+            <div className="mt-6 rounded-xl border border-slate-100 bg-slate-50 p-4 text-left"><p className="text-xs font-bold text-slate-700">개인정보 보호</p><p className="mt-1 text-xs leading-5 text-slate-500">로그인 전에는 기업·상담·서류 정보가 제공되지 않으며, 로그인 후에도 본인에게 배정된 진행만 열람할 수 있습니다.</p></div>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   if (!currentUser) {
