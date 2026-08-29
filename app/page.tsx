@@ -49,6 +49,7 @@ import {
 
 type View =
   | 'admin'
+  | 'pipeline'
   | 'schedule'
   | 'tasks'
   | 'files'
@@ -63,6 +64,7 @@ type IconType = typeof LayoutDashboard;
 
 const navItems: Array<{ view: View; label: string; icon: IconType }> = [
   { view: 'admin', label: '대표 대시보드', icon: LayoutDashboard },
+  { view: 'pipeline', label: '전체 진행현황', icon: ClipboardList },
   { view: 'schedule', label: '대표 상담일정', icon: CalendarDays },
   { view: 'tasks', label: '업무·알림', icon: ClipboardCheck },
   { view: 'files', label: '기업자료함', icon: FolderOpen },
@@ -145,6 +147,21 @@ type CompanyDocument = {
   sensitive: boolean;
 };
 
+type PipelineStage = '접수' | '기업진단' | '상담예약' | '상담진행' | '계약' | '사후관리';
+
+type CollaborationCase = {
+  id: string;
+  company: string;
+  service: string;
+  trainee: string;
+  stage: PipelineStage;
+  consultationCount: number;
+  nextAction: string;
+  updatedAt: string;
+  idleDays: number;
+  urgent: boolean;
+};
+
 const sampleTrainees: TraineeMember[] = [
   {
     id: 'trainee-1',
@@ -205,6 +222,30 @@ const sampleDocuments: CompanyDocument[] = [
   { id: 'file-4', company: '미래에코(가상)', title: '기업부설연구소 인정서', category: '인증·특허', fileName: '연구소_인정서.pdf', status: '보완필요', assignedTrainee: '박지현', submittedBy: '박지현', updatedAt: '08.28 17:40', version: 'V1', sensitive: false },
   { id: 'file-5', company: '가온푸드(가상)', title: '사업자등록증', category: '사업자등록증', fileName: '가온푸드_사업자등록증.jpg', status: '제출완료', assignedTrainee: '이준호', submittedBy: '이준호', updatedAt: '08.29 11:20', version: 'V1', sensitive: true },
   { id: 'file-6', company: '더원로지스(가상)', title: '법인전환 검토자료', category: '계약자료', status: '요청중', assignedTrainee: '이준호', submittedBy: '기업대표 요청', updatedAt: '09.02 제출기한', version: '-', sensitive: true },
+];
+
+const pipelineStages: PipelineStage[] = ['접수', '기업진단', '상담예약', '상담진행', '계약', '사후관리'];
+
+const stageNextActions: Record<PipelineStage, string> = {
+  접수: '담당자 배정 및 기본자료 확인',
+  기업진단: '기업진단보고서 준비',
+  상담예약: '김성민 대표 상담일 확정',
+  상담진행: '다음 상담·서류·견적 판단',
+  계약: '경영자문용역계약 조건 확정',
+  사후관리: '정기점검 및 추가 제안',
+};
+
+const sampleCases: CollaborationCase[] = [
+  { id: 'case-1', company: '세림테크(가상)', service: '정책자금 · 특허', trainee: '박지현', stage: '상담진행', consultationCount: 3, nextAction: '견적서 V1 대표 승인', updatedAt: '오늘', idleDays: 2, urgent: true },
+  { id: 'case-2', company: '미래에코(가상)', service: '기업인증', trainee: '박지현', stage: '기업진단', consultationCount: 0, nextAction: '진단보고서 초안 확인', updatedAt: '어제', idleDays: 6, urgent: false },
+  { id: 'case-3', company: '한빛솔루션(가상)', service: '부동산 프로젝트', trainee: '박지현', stage: '접수', consultationCount: 0, nextAction: '기본자료 수신 확인', updatedAt: '오늘', idleDays: 1, urgent: false },
+  { id: 'case-4', company: '가온푸드(가상)', service: '기업인증', trainee: '이준호', stage: '상담예약', consultationCount: 0, nextAction: '대표 일정 3개 전달', updatedAt: '08.20', idleDays: 9, urgent: true },
+  { id: 'case-5', company: '더원로지스(가상)', service: '영업권·법인전환', trainee: '이준호', stage: '상담진행', consultationCount: 2, nextAction: '추가상담 일정 확정', updatedAt: '08.27', idleDays: 3, urgent: false },
+  { id: 'case-6', company: '네오바이오(가상)', service: '특허·지식재산', trainee: '이준호', stage: '계약', consultationCount: 4, nextAction: '계약조건 최종 확인', updatedAt: '08.17', idleDays: 12, urgent: true },
+  { id: 'case-7', company: '씨앤에프(가상)', service: 'CEO 자산관리', trainee: '박지현', stage: '사후관리', consultationCount: 2, nextAction: '분기 점검일 등록', updatedAt: '08.24', idleDays: 5, urgent: false },
+  { id: 'case-8', company: '진성산업(가상)', service: '정책자금', trainee: '이준호', stage: '기업진단', consultationCount: 0, nextAction: '부채현황 보완자료 요청', updatedAt: '08.19', idleDays: 10, urgent: true },
+  { id: 'case-9', company: '스마트랩(가상)', service: '기업부설연구소', trainee: '박지현', stage: '상담진행', consultationCount: 1, nextAction: '연구전담요원 요건 확인', updatedAt: '08.21', idleDays: 8, urgent: true },
+  { id: 'case-10', company: '온유테크(가상)', service: '보험 법인영업', trainee: '이준호', stage: '접수', consultationCount: 0, nextAction: '기업대표 연락처 확인', updatedAt: '어제', idleDays: 2, urgent: false },
 ];
 
 function documentCategoryFromFileName(fileName: string): CompanyDocument['category'] {
@@ -952,6 +993,101 @@ function TraineeDashboard({
   );
 }
 
+function PipelineBoard({
+  cases,
+  setCases,
+  members,
+  isAdmin,
+  currentName,
+  notify,
+  onOpenCase,
+}: {
+  cases: CollaborationCase[];
+  setCases: React.Dispatch<React.SetStateAction<CollaborationCase[]>>;
+  members: TraineeMember[];
+  isAdmin: boolean;
+  currentName: string;
+  notify: (message: string) => void;
+  onOpenCase: () => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [traineeFilter, setTraineeFilter] = useState('전체 담당자');
+  const [serviceFilter, setServiceFilter] = useState('전체 서비스');
+  const [staleOnly, setStaleOnly] = useState(false);
+
+  const accountCases = isAdmin ? cases : cases.filter((item) => item.trainee === currentName);
+  const serviceOptions = ['전체 서비스', ...Array.from(new Set(accountCases.map((item) => item.service)))];
+  const visibleCases = accountCases.filter((item) => {
+    const keywordMatch = `${item.company} ${item.service} ${item.trainee} ${item.nextAction}`.toLowerCase().includes(query.toLowerCase());
+    const traineeMatch = traineeFilter === '전체 담당자' || item.trainee === traineeFilter;
+    const serviceMatch = serviceFilter === '전체 서비스' || item.service === serviceFilter;
+    const staleMatch = !staleOnly || item.idleDays >= 7;
+    return keywordMatch && traineeMatch && serviceMatch && staleMatch;
+  });
+  const staleCount = accountCases.filter((item) => item.idleDays >= 7).length;
+  const consultationCount = accountCases.filter((item) => item.stage === '상담예약' || item.stage === '상담진행').length;
+  const contractCount = accountCases.filter((item) => item.stage === '계약').length;
+
+  function moveCase(item: CollaborationCase, stage: PipelineStage) {
+    setCases((current) => current.map((record) => record.id === item.id ? { ...record, stage, nextAction: stageNextActions[stage], updatedAt: '방금 전', idleDays: 0, urgent: false } : record));
+    notify(`${item.company} 진행단계를 ${stage}(으)로 변경했습니다.`);
+  }
+
+  return (
+    <>
+      <PageIntro
+        eyebrow={isAdmin ? '전체 협업 통제판' : '담당기업 진행판'}
+        title="전체 협업사건 진행현황"
+        description={isAdmin ? '교육생별 협업기업을 단계별로 확인하고 장기 미진행 사건의 다음 행동을 바로 결정합니다.' : '본인이 담당하는 기업만 표시되며 드래그 없이 단계 선택으로 진행상태를 변경할 수 있습니다.'}
+        action={<Pill tone={staleCount ? 'red' : 'green'}>7일 이상 정체 {staleCount}건</Pill>}
+      />
+
+      <section aria-label="협업 파이프라인 요약" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          ['전체 진행기업', accountCases.length, BriefcaseBusiness, '현재 계정 조회범위'],
+          ['상담 전·진행', consultationCount, MessageSquarePlus, '예약과 반복상담 포함'],
+          ['계약 진행', contractCount, FileText, '조건협의·계약작성'],
+          ['장기 미진행', staleCount, AlertCircle, '7일 이상 정체'],
+        ].map(([label, value, Icon, hint]) => {
+          const MetricIcon = Icon as IconType;
+          return <Card key={String(label)} className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80"><CardHeader><CardTitle className="text-sm font-semibold text-slate-600">{String(label)}</CardTitle><CardAction className="grid size-10 place-items-center rounded-xl bg-sky-50 text-[#0877b8]"><MetricIcon className="size-5" aria-hidden="true" /></CardAction></CardHeader><CardContent><p className="text-3xl font-bold tabular-nums text-[#15375b]">{String(value)}</p><p className="mt-2 text-xs text-slate-500">{String(hint)}</p></CardContent></Card>;
+        })}
+      </section>
+
+      <Card className="mt-6 border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
+        <CardHeader className="border-b border-slate-100">
+          <div className="grid gap-3 lg:grid-cols-[minmax(220px,1fr)_200px_240px_auto]">
+            <label className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-slate-500"><Search className="size-4" aria-hidden="true" /><span className="sr-only">협업기업 검색</span><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none" placeholder="기업·서비스·다음행동 검색" /></label>
+            {isAdmin ? <label><span className="sr-only">담당자 필터</span><select value={traineeFilter} onChange={(event) => setTraineeFilter(event.target.value)} className={inputClass}><option>전체 담당자</option>{members.filter((member) => member.status === '활성').map((member) => <option key={member.id}>{member.name.replace('(가상)', '')}</option>)}</select></label> : <div className="flex min-h-11 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm font-semibold text-slate-700">담당자 {currentName}</div>}
+            <label><span className="sr-only">서비스 필터</span><select value={serviceFilter} onChange={(event) => setServiceFilter(event.target.value)} className={inputClass}>{serviceOptions.map((service) => <option key={service}>{service}</option>)}</select></label>
+            <button type="button" aria-pressed={staleOnly} onClick={() => setStaleOnly((value) => !value)} className={`min-h-11 rounded-xl border px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${staleOnly ? 'border-red-300 bg-red-50 text-red-800' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>7일 이상만 보기</button>
+          </div>
+        </CardHeader>
+      </Card>
+
+      <section aria-label="단계별 협업사건" className="mt-6 grid items-start gap-5 md:grid-cols-2 xl:grid-cols-3">
+        {pipelineStages.map((stage, stageIndex) => {
+          const stageCases = visibleCases.filter((item) => item.stage === stage);
+          return <section key={stage} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/70">
+            <header className="flex min-h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4"><div className="flex items-center gap-3"><span className="grid size-8 place-items-center rounded-full bg-[#15375b] text-xs font-bold text-white">{stageIndex + 1}</span><h2 className="font-bold text-slate-900">{stage}</h2></div><Pill tone={stageCases.length ? 'blue' : 'slate'}>{stageCases.length}건</Pill></header>
+            <div className="min-h-32 space-y-3 p-3">
+              {stageCases.length ? stageCases.map((item) => <article key={item.id} className={`rounded-xl border bg-white p-4 shadow-sm ${item.idleDays >= 7 ? 'border-red-200' : 'border-slate-200'}`}>
+                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-bold text-slate-950">{item.company}</p><p className="mt-1 text-xs leading-5 text-slate-500">{item.service}</p></div>{item.idleDays >= 7 ? <Pill tone="red">{item.idleDays}일 정체</Pill> : <Pill tone={item.urgent ? 'amber' : 'slate'}>{item.updatedAt}</Pill>}</div>
+                <div className="mt-3 rounded-lg bg-slate-50 p-3"><p className="text-[11px] font-semibold text-slate-500">다음 행동</p><p className="mt-1 text-sm font-bold leading-5 text-slate-800">{item.nextAction}</p></div>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-semibold text-slate-600">담당 {item.trainee}</span>{item.consultationCount ? <Pill tone="violet">상담 {item.consultationCount}회</Pill> : null}</div>
+                <label className="mt-4 block"><span className="mb-2 block text-xs font-semibold text-slate-600">진행단계 변경</span><select value={item.stage} onChange={(event) => moveCase(item, event.target.value as PipelineStage)} className={inputClass}>{pipelineStages.map((option) => <option key={option}>{option}</option>)}</select></label>
+                <SecondaryButton className="mt-3 w-full" onClick={onOpenCase}>기업·사건 상세 <ChevronRight className="size-4" aria-hidden="true" /></SecondaryButton>
+              </article>) : <div className="grid min-h-28 place-items-center rounded-xl border border-dashed border-slate-200 bg-white/60 p-4 text-center text-xs text-slate-400">현재 조건의 사건이 없습니다.</div>}
+            </div>
+          </section>;
+        })}
+      </section>
+
+      <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">진행단계 운영원칙</p><p className="mt-1 text-xs leading-5 text-slate-600">상담은 횟수 제한 없이 사건 안에 누적하고, 서류요청·견적·계약은 어느 단계에서도 별도로 생성합니다. 단계변경은 드래그가 아닌 선택메뉴로도 가능해 키보드와 모바일에서 동일하게 사용할 수 있습니다.</p></div></div></div>
+    </>
+  );
+}
+
 function WorkManagement({
   tasks,
   setTasks,
@@ -1395,10 +1531,11 @@ function AccessManagement({
   );
 }
 
-function ApplicationForm({ onDone, onCancel }: { onDone: (files: string[]) => void; onCancel: () => void }) {
+function ApplicationForm({ onDone, onCancel }: { onDone: (files: string[], companyName: string, selectedServices: string[]) => void; onCancel: () => void }) {
   const [step, setStep] = useState(1);
   const [selectedServices, setSelectedServices] = useState<string[]>(['정책자금']);
   const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [companyName, setCompanyName] = useState('세림테크(가상)');
   const stepLabels = ['신청자', '기업정보', '요청서비스', '자료·동의'];
 
   function toggleService(service: string) {
@@ -1458,7 +1595,7 @@ function ApplicationForm({ onDone, onCancel }: { onDone: (files: string[]) => vo
 
           {step === 2 ? (
             <div className="grid gap-5 md:grid-cols-2">
-              <Field label="기업명" required><input className={inputClass} defaultValue="세림테크(가상)" /></Field>
+              <Field label="기업명" required><input className={inputClass} value={companyName} onChange={(event) => setCompanyName(event.target.value)} /></Field>
               <Field label="사업자등록번호" required hint="중복기업 여부는 관리자에게만 상세 표시됩니다.">
                 <div className="flex gap-2"><input className={inputClass} placeholder="000-00-00000" /><SecondaryButton className="shrink-0">중복확인</SecondaryButton></div>
               </Field>
@@ -1538,7 +1675,7 @@ function ApplicationForm({ onDone, onCancel }: { onDone: (files: string[]) => vo
           </SecondaryButton>
           <div className="flex gap-3">
             <SecondaryButton className="flex-1 sm:flex-none">임시저장</SecondaryButton>
-            <PrimaryButton className="flex-1 sm:flex-none" onClick={step === 4 ? () => onDone(selectedFiles) : () => setStep((value) => Math.min(4, value + 1))}>
+            <PrimaryButton className="flex-1 sm:flex-none" onClick={step === 4 ? () => onDone(selectedFiles, companyName, selectedServices) : () => setStep((value) => Math.min(4, value + 1))}>
               {step === 4 ? '협업신청 제출' : '다음'}
               {step < 4 ? <ChevronRight className="size-4" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
             </PrimaryButton>
@@ -1966,6 +2103,7 @@ export default function Home() {
   const [schedule, setSchedule] = useState<ScheduleItem[]>(sampleSchedule);
   const [tasks, setTasks] = useState<WorkTask[]>(sampleTasks);
   const [companyDocuments, setCompanyDocuments] = useState<CompanyDocument[]>(sampleDocuments);
+  const [cases, setCases] = useState<CollaborationCase[]>(sampleCases);
   const [members, setMembers] = useState<TraineeMember[]>(sampleTrainees);
   const [currentAccountId, setCurrentAccountId] = useState('admin');
   const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);
@@ -1983,6 +2121,7 @@ export default function Home() {
     return navItems.filter((item) => {
       if (item.view === 'trainee') return true;
       if (item.view === 'tasks') return true;
+      if (item.view === 'pipeline') return currentMember.permissions.ownCases;
       if (item.view === 'files') return currentMember.permissions.fileUpload;
       if (item.view === 'schedule') return currentMember.permissions.sharedSchedule;
       if (item.view === 'application') return currentMember.permissions.collaborationApply;
@@ -2046,6 +2185,10 @@ export default function Home() {
         tone: 'green',
       },
     ]);
+    if (payload.status !== '취소') {
+      const nextStage: PipelineStage = payload.status === '일정 요청' || payload.status === '일정 확정' ? '상담예약' : '상담진행';
+      setCases((current) => current.map((item) => item.company === '세림테크(가상)' ? { ...item, stage: nextStage, consultationCount: payload.status === '상담 완료' ? item.consultationCount + 1 : item.consultationCount, nextAction: payload.followUps.length ? payload.followUps.join(' · ') : stageNextActions[nextStage], updatedAt: '방금 전', idleDays: 0 } : item));
+    }
     if (payload.calendarSync && payload.status === '일정 확정' && payload.startsAt) {
       const start = new Date(payload.startsAt);
       const end = new Date(start.getTime() + 60 * 60 * 1000);
@@ -2149,12 +2292,13 @@ export default function Home() {
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
           {view === 'admin' ? <AdminDashboard onOpenCase={() => navigate('case')} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} /> : null}
+          {view === 'pipeline' ? <PipelineBoard cases={cases} setCases={setCases} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} onOpenCase={() => navigate('case')} /> : null}
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}
           {view === 'tasks' ? <WorkManagement tasks={tasks} setTasks={setTasks} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} /> : null}
           {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} /> : null}
           {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} /> : null}
           {view === 'access' ? <AccessManagement notify={notify} members={members} setMembers={setMembers} /> : null}
-          {view === 'application' ? <ApplicationForm onCancel={() => navigate('trainee')} onDone={(files) => { if (files.length) { setCompanyDocuments((current) => [...files.map((fileName, index): CompanyDocument => { const category = documentCategoryFromFileName(fileName); return { id: `file-application-${Date.now()}-${index}`, company: '세림테크(가상)', title: category === '기타자료' ? fileName : category, category, fileName, status: '제출완료', assignedTrainee: traineeName, submittedBy: isAdmin ? '김성민 대표' : traineeName, updatedAt: '방금 전', version: 'V1', sensitive: ['사업자등록증', '크레탑', '재무제표', '계약자료'].includes(category) }; }), ...current]); } notify(files.length ? `협업신청과 가상 제출파일 ${files.length}건을 등록했습니다.` : '협업신청이 접수되었습니다.'); navigate(files.length && allowedViews.has('files') ? 'files' : 'trainee'); }} /> : null}
+          {view === 'application' ? <ApplicationForm onCancel={() => navigate('trainee')} onDone={(files, companyName, selectedServices) => { const company = companyName.trim() || '신규기업(가상)'; setCases((current) => current.some((item) => item.company === company) ? current : [{ id: `case-${Date.now()}`, company, service: selectedServices.join(' · ') || '기업컨설팅', trainee: traineeName, stage: '접수', consultationCount: 0, nextAction: stageNextActions.접수, updatedAt: '방금 전', idleDays: 0, urgent: false }, ...current]); if (files.length) { setCompanyDocuments((current) => [...files.map((fileName, index): CompanyDocument => { const category = documentCategoryFromFileName(fileName); return { id: `file-application-${Date.now()}-${index}`, company, title: category === '기타자료' ? fileName : category, category, fileName, status: '제출완료', assignedTrainee: traineeName, submittedBy: isAdmin ? '김성민 대표' : traineeName, updatedAt: '방금 전', version: 'V1', sensitive: ['사업자등록증', '크레탑', '재무제표', '계약자료'].includes(category) }; }), ...current]); } notify(files.length ? `협업신청과 가상 제출파일 ${files.length}건을 등록했습니다.` : '협업신청을 진행현황에 접수했습니다.'); navigate(allowedViews.has('pipeline') ? 'pipeline' : 'trainee'); }} /> : null}
           {view === 'case' ? <CaseDetail timeline={timeline} onConsult={() => navigate('consultation')} onDocuments={() => navigate('documents')} onDocumentModal={(type) => { if (isAdmin || currentMember?.permissions.quoteContract) setModal(type); else notify('현재 가상 계정에는 견적·계약 권한이 없습니다.'); }} canFileUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} canQuoteContract={isAdmin || Boolean(currentMember?.permissions.quoteContract)} assignedTrainee={isAdmin ? '박지현' : traineeName} /> : null}
           {view === 'consultation' ? <ConsultationForm number={consultationNumber} onCancel={() => navigate('case')} onSave={saveConsultation} /> : null}
           {view === 'documents' ? <DocumentRequest onCancel={() => navigate('case')} onSave={(items) => { setTimeline((current) => [...current, { date: '방금 전', title: '서류요청 #2 등록', detail: `요청서류 ${items.length}건 / 전달 담당자: ${traineeName} 교육생`, type: '서류', tone: 'amber' }]); setCompanyDocuments((current) => [...items.map((item, index): CompanyDocument => ({ id: `file-request-${Date.now()}-${index}`, company: '세림테크(가상)', title: item.name, category: '요청서류', status: '요청중', assignedTrainee: traineeName, submittedBy: '기업대표 요청', updatedAt: '09.05 제출기한', version: '-', sensitive: true })), ...current]); setTasks((current) => [{ id: `task-request-${Date.now()}`, company: '세림테크(가상)', title: `요청서류 ${items.length}건 제출 확인`, kind: '서류요청', assignee: traineeName, due: '09.05', dueState: 'upcoming', status: '대기', priority: '보통', related: '서류요청 #2' }, ...current]); notify(`서류요청 ${items.length}건을 자료함과 업무목록에 등록했습니다.`); navigate('files'); }} /> : null}
