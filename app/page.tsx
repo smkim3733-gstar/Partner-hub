@@ -50,6 +50,7 @@ import {
 type View =
   | 'admin'
   | 'schedule'
+  | 'tasks'
   | 'trainee'
   | 'access'
   | 'application'
@@ -62,6 +63,7 @@ type IconType = typeof LayoutDashboard;
 const navItems: Array<{ view: View; label: string; icon: IconType }> = [
   { view: 'admin', label: '대표 대시보드', icon: LayoutDashboard },
   { view: 'schedule', label: '대표 상담일정', icon: CalendarDays },
+  { view: 'tasks', label: '업무·알림', icon: ClipboardCheck },
   { view: 'trainee', label: '교육생 화면', icon: Users },
   { view: 'access', label: '교육생 권한관리', icon: UserCog },
   { view: 'application', label: '새 협업신청', icon: FilePlus2 },
@@ -114,6 +116,19 @@ type TraineeMember = {
   };
 };
 
+type WorkTask = {
+  id: string;
+  company: string;
+  title: string;
+  kind: '서류요청' | '상담' | '견적서' | '계약서' | '사후관리' | '내부업무';
+  assignee: string;
+  due: string;
+  dueState: 'overdue' | 'today' | 'upcoming';
+  status: '대기' | '진행' | '완료';
+  priority: '긴급' | '보통';
+  related: string;
+};
+
 const sampleTrainees: TraineeMember[] = [
   {
     id: 'trainee-1',
@@ -155,6 +170,16 @@ const sampleTrainees: TraineeMember[] = [
     companies: 2,
     permissions: { sharedSchedule: false, collaborationApply: false, ownCases: true, fileUpload: false, quoteContract: false },
   },
+];
+
+const sampleTasks: WorkTask[] = [
+  { id: 'task-1', company: '세림테크(가상)', title: '최근 재무제표 제출 여부 확인', kind: '서류요청', assignee: '박지현', due: '오늘 16:00', dueState: 'today', status: '진행', priority: '긴급', related: '서류요청 #1' },
+  { id: 'task-2', company: '미래에코(가상)', title: '대표 상담 가능시간 3개 전달', kind: '상담', assignee: '박지현', due: '09.01', dueState: 'upcoming', status: '대기', priority: '보통', related: '상담 일정 요청' },
+  { id: 'task-3', company: '가온푸드(가상)', title: '기업인증 보완서류 2건 검토', kind: '서류요청', assignee: '이준호', due: '오늘 18:00', dueState: 'today', status: '대기', priority: '긴급', related: '서류요청 #2' },
+  { id: 'task-4', company: '세림테크(가상)', title: '견적서 V1 범위·금액 승인', kind: '견적서', assignee: '김성민 대표', due: '오늘', dueState: 'today', status: '대기', priority: '긴급', related: '상담 #3' },
+  { id: 'task-5', company: '더원로지스(가상)', title: '법인전환 추가상담 일정 확정', kind: '상담', assignee: '이준호', due: '09.02', dueState: 'upcoming', status: '진행', priority: '보통', related: '상담 #2' },
+  { id: 'task-6', company: '한빛솔루션(가상)', title: '계약서 내부 검토 의견 반영', kind: '계약서', assignee: '김성민 대표', due: '08.28', dueState: 'overdue', status: '대기', priority: '긴급', related: '계약서 V1' },
+  { id: 'task-7', company: '세림테크(가상)', title: '상담 후 요청자료 목록 발송', kind: '서류요청', assignee: '박지현', due: '08.29', dueState: 'today', status: '완료', priority: '보통', related: '상담 #2' },
 ];
 
 const sampleSchedule: ScheduleItem[] = [
@@ -892,6 +917,158 @@ function TraineeDashboard({
   );
 }
 
+function WorkManagement({
+  tasks,
+  setTasks,
+  members,
+  isAdmin,
+  currentName,
+  notify,
+}: {
+  tasks: WorkTask[];
+  setTasks: React.Dispatch<React.SetStateAction<WorkTask[]>>;
+  members: TraineeMember[];
+  isAdmin: boolean;
+  currentName: string;
+  notify: (message: string) => void;
+}) {
+  const [filter, setFilter] = useState<'all' | 'urgent' | 'today' | 'progress' | 'complete'>('all');
+  const [query, setQuery] = useState('');
+  const [addOpen, setAddOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newCompany, setNewCompany] = useState('세림테크(가상)');
+  const [newKind, setNewKind] = useState<WorkTask['kind']>('내부업무');
+  const [newAssignee, setNewAssignee] = useState(isAdmin ? '박지현' : currentName);
+  const [newDue, setNewDue] = useState('09.05');
+  const [newDueState, setNewDueState] = useState<WorkTask['dueState']>('upcoming');
+
+  const accountTasks = isAdmin ? tasks : tasks.filter((task) => task.assignee === currentName);
+  const visibleTasks = accountTasks.filter((task) => {
+    const keywordMatch = `${task.company} ${task.title} ${task.kind} ${task.assignee}`.toLowerCase().includes(query.toLowerCase());
+    const filterMatch = filter === 'all'
+      || (filter === 'urgent' && task.priority === '긴급' && task.status !== '완료')
+      || (filter === 'today' && task.dueState === 'today' && task.status !== '완료')
+      || (filter === 'progress' && task.status === '진행')
+      || (filter === 'complete' && task.status === '완료');
+    return keywordMatch && filterMatch;
+  });
+
+  const counts = {
+    pending: accountTasks.filter((task) => task.status !== '완료').length,
+    overdue: accountTasks.filter((task) => task.status !== '완료' && task.dueState === 'overdue').length,
+    today: accountTasks.filter((task) => task.status !== '완료' && task.dueState === 'today').length,
+    complete: accountTasks.filter((task) => task.status === '완료').length,
+  };
+
+  function toggleComplete(task: WorkTask) {
+    const nextStatus: WorkTask['status'] = task.status === '완료' ? '진행' : '완료';
+    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: nextStatus } : item));
+    notify(nextStatus === '완료' ? `${task.title} 업무를 완료 처리했습니다.` : `${task.title} 업무를 다시 진행 상태로 변경했습니다.`);
+  }
+
+  function addTask() {
+    if (!newTitle.trim()) {
+      notify('업무명을 입력해 주세요.');
+      return;
+    }
+    setTasks((current) => [
+      {
+        id: `task-${Date.now()}`,
+        company: newCompany.trim() || '내부업무',
+        title: newTitle.trim(),
+        kind: newKind,
+        assignee: newAssignee,
+        due: newDue.trim() || '미정',
+        dueState: newDueState,
+        status: '대기',
+        priority: newDueState === 'today' || newDueState === 'overdue' ? '긴급' : '보통',
+        related: '직접 등록',
+      },
+      ...current,
+    ]);
+    setNewTitle('');
+    setAddOpen(false);
+    notify('새 업무를 등록했습니다. 담당자 업무·알림에 즉시 표시됩니다.');
+  }
+
+  return (
+    <>
+      <PageIntro
+        eyebrow={isAdmin ? '누락 방지 통합관리' : '내 담당업무'}
+        title={isAdmin ? '업무·알림 관리' : `${currentName} 교육생 업무·알림`}
+        description={isAdmin ? '상담 뒤 생성되는 후속조치와 직접 등록한 업무를 담당자·마감일 기준으로 추적합니다.' : '본인에게 배정된 기업 업무만 표시되며 완료 여부가 대표 화면에도 함께 반영됩니다.'}
+        action={<PrimaryButton onClick={() => setAddOpen(true)}><Plus className="size-4" aria-hidden="true" /> 업무 추가</PrimaryButton>}
+      />
+
+      <section aria-label="업무 현황 요약" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          ['미완료 업무', counts.pending, ClipboardCheck, '대기·진행 전체', 'navy'],
+          ['기한 지연', counts.overdue, AlertCircle, '즉시 확인 필요', 'red'],
+          ['오늘 마감', counts.today, Clock3, '오늘 처리 대상', 'amber'],
+          ['완료 업무', counts.complete, Check, '현재 화면 기준', 'green'],
+        ].map(([label, value, Icon, hint, tone]) => {
+          const MetricIcon = Icon as IconType;
+          return (
+            <Card key={String(label)} className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
+              <CardHeader><CardTitle className="text-sm font-semibold text-slate-600">{String(label)}</CardTitle><CardAction className="grid size-10 place-items-center rounded-xl bg-sky-50 text-[#0877b8]"><MetricIcon className="size-5" aria-hidden="true" /></CardAction></CardHeader>
+              <CardContent><div className="flex items-end justify-between gap-3"><p className="text-3xl font-bold tabular-nums text-[#15375b]">{String(value)}</p><Pill tone={String(tone)}>{String(hint)}</Pill></div></CardContent>
+            </Card>
+          );
+        })}
+      </section>
+
+      <Card className="mt-6 border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
+        <CardHeader className="border-b border-slate-100">
+          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+            <div><CardTitle className="text-lg font-bold">업무 목록</CardTitle><CardDescription className="mt-1">긴급도와 마감일을 먼저 확인한 뒤 완료 처리하세요.</CardDescription></div>
+            <label className="flex min-h-11 w-full items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-slate-500 lg:max-w-xs"><Search className="size-4" aria-hidden="true" /><span className="sr-only">업무 검색</span><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none" placeholder="기업·업무·담당자 검색" /></label>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2" aria-label="업무 상태 필터">
+            {[
+              ['all', '전체'],
+              ['urgent', '긴급'],
+              ['today', '오늘 마감'],
+              ['progress', '진행 중'],
+              ['complete', '완료'],
+            ].map(([value, label]) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value as typeof filter)} className={`min-h-11 rounded-xl border px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${filter === value ? 'border-[#0877b8] bg-sky-50 text-[#075f93]' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>{label}</button>)}
+          </div>
+        </CardHeader>
+        <CardContent className="pt-1">
+          {visibleTasks.length ? <div className="grid gap-4 xl:grid-cols-2">
+            {visibleTasks.map((task) => {
+              const completed = task.status === '완료';
+              const dueTone = task.dueState === 'overdue' ? 'red' : task.dueState === 'today' ? 'amber' : 'blue';
+              return (
+                <article key={task.id} className={`rounded-2xl border p-5 ${completed ? 'border-slate-200 bg-slate-50/70' : task.dueState === 'overdue' ? 'border-red-200 bg-red-50/40' : 'border-slate-200 bg-white'}`}>
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><Pill tone={task.priority === '긴급' ? 'red' : 'slate'}>{task.priority}</Pill><Pill tone="blue">{task.kind}</Pill></div><p className="mt-3 text-xs font-semibold text-slate-500">{task.company}</p><h2 className={`mt-1 text-base font-bold leading-6 ${completed ? 'text-slate-500 line-through' : 'text-slate-950'}`}>{task.title}</h2></div><button type="button" aria-pressed={completed} aria-label={`${task.title} ${completed ? '다시 진행' : '완료 처리'}`} onClick={() => toggleComplete(task)} className={`grid size-11 shrink-0 place-items-center rounded-xl border transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${completed ? 'border-emerald-200 bg-emerald-100 text-emerald-800' : 'border-slate-200 bg-white text-slate-400 hover:border-emerald-300 hover:text-emerald-700'}`}><Check className="size-5" aria-hidden="true" /></button></div>
+                  <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-white/80 p-3 text-xs sm:grid-cols-3"><div><p className="text-slate-500">담당자</p><p className="mt-1 font-bold text-slate-800">{task.assignee}</p></div><div><p className="text-slate-500">마감</p><div className="mt-1"><Pill tone={dueTone}>{task.due}</Pill></div></div><div className="col-span-2 sm:col-span-1"><p className="text-slate-500">관련 업무</p><p className="mt-1 font-bold text-slate-800">{task.related}</p></div></div>
+                </article>
+              );
+            })}
+          </div> : <div className="rounded-2xl border border-dashed border-slate-200 p-10 text-center"><ClipboardCheck className="mx-auto size-9 text-slate-300" aria-hidden="true" /><p className="mt-3 text-sm font-bold text-slate-700">조건에 맞는 업무가 없습니다.</p><button type="button" onClick={() => { setFilter('all'); setQuery(''); }} className="mt-3 min-h-11 rounded-xl px-4 text-sm font-semibold text-[#0877b8] hover:bg-sky-50">필터 초기화</button></div>}
+        </CardContent>
+      </Card>
+
+      <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5"><div className="flex items-start gap-3"><Bell className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">가상 알림 작동방식</p><p className="mt-1 text-xs leading-5 text-slate-600">오늘 마감·기한 지연 업무는 상단 알림 숫자에 포함됩니다. 상담 저장 시 선택한 후속조치도 자동으로 이 목록에 추가됩니다.</p></div></div></div>
+
+      {addOpen ? <dialog open className="fixed inset-0 z-50 m-0 grid h-screen max-h-none w-screen max-w-none place-items-center border-0 bg-slate-950/45 p-4 backdrop-blur-sm" aria-labelledby="task-modal-title">
+        <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">독립 업무 등록</p><h2 id="task-modal-title" className="mt-1 text-xl font-bold">새 업무 추가</h2><p className="mt-1 text-sm text-slate-500">상담 단계와 무관하게 필요한 업무를 즉시 만들 수 있습니다.</p></div><button type="button" onClick={() => setAddOpen(false)} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="업무 추가 닫기"><X className="size-5" aria-hidden="true" /></button></div>
+          <div className="grid max-h-[65vh] gap-5 overflow-y-auto p-5 md:grid-cols-2">
+            <div className="md:col-span-2"><Field label="업무명" required><input value={newTitle} onChange={(event) => setNewTitle(event.target.value)} className={inputClass} placeholder="예: 추가서류 제출 여부 확인" /></Field></div>
+            <Field label="기업명" required><input value={newCompany} onChange={(event) => setNewCompany(event.target.value)} className={inputClass} /></Field>
+            <Field label="업무유형" required><select value={newKind} onChange={(event) => setNewKind(event.target.value as WorkTask['kind'])} className={inputClass}><option>서류요청</option><option>상담</option><option>견적서</option><option>계약서</option><option>사후관리</option><option>내부업무</option></select></Field>
+            <Field label="담당자" required><select value={newAssignee} onChange={(event) => setNewAssignee(event.target.value)} className={inputClass} disabled={!isAdmin}>{isAdmin ? <option>김성민 대표</option> : null}{members.filter((member) => member.status === '활성').map((member) => <option key={member.id}>{member.name.replace('(가상)', '')}</option>)}</select></Field>
+            <Field label="마감일" required><input value={newDue} onChange={(event) => setNewDue(event.target.value)} className={inputClass} placeholder="예: 09.05 또는 오늘 16:00" /></Field>
+            <div className="md:col-span-2"><Field label="마감 구분" required><div className="grid gap-2 sm:grid-cols-3">{[['upcoming', '예정'], ['today', '오늘 마감'], ['overdue', '기한 지연']].map(([value, label]) => <button key={value} type="button" aria-pressed={newDueState === value} onClick={() => setNewDueState(value as WorkTask['dueState'])} className={`min-h-11 rounded-xl border px-4 text-sm font-semibold ${newDueState === value ? 'border-[#0877b8] bg-sky-50 text-[#075f93]' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>{label}</button>)}</div></Field></div>
+          </div>
+          <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setAddOpen(false)}>취소</SecondaryButton><PrimaryButton onClick={addTask}><Check className="size-4" aria-hidden="true" /> 업무 등록</PrimaryButton></div>
+        </div>
+      </dialog> : null}
+    </>
+  );
+}
+
 const permissionLabels: Array<{ key: keyof TraineeMember['permissions']; label: string; detail: string }> = [
   { key: 'sharedSchedule', label: '대표 공유일정', detail: '대표의 예약 가능·불가 시간과 담당기업 상담 확인' },
   { key: 'collaborationApply', label: '협업신청 등록', detail: '새 기업 협업신청 작성 및 임시저장' },
@@ -1613,6 +1790,7 @@ export default function Home() {
   const [consultationNumber, setConsultationNumber] = useState(4);
   const [timeline, setTimeline] = useState(baseTimeline);
   const [schedule, setSchedule] = useState<ScheduleItem[]>(sampleSchedule);
+  const [tasks, setTasks] = useState<WorkTask[]>(sampleTasks);
   const [members, setMembers] = useState<TraineeMember[]>(sampleTrainees);
   const [currentAccountId, setCurrentAccountId] = useState('admin');
   const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);
@@ -1629,6 +1807,7 @@ export default function Home() {
     if (!currentMember || currentMember.status !== '활성') return [];
     return navItems.filter((item) => {
       if (item.view === 'trainee') return true;
+      if (item.view === 'tasks') return true;
       if (item.view === 'schedule') return currentMember.permissions.sharedSchedule;
       if (item.view === 'application') return currentMember.permissions.collaborationApply;
       if (item.view === 'case' || item.view === 'consultation') return currentMember.permissions.ownCases;
@@ -1638,6 +1817,8 @@ export default function Home() {
   }, [currentMember, isAdmin]);
   const allowedViews = useMemo(() => new Set(availableNavItems.map((item) => item.view)), [availableNavItems]);
   const activeLabel = useMemo(() => navItems.find((item) => item.view === view)?.label ?? '파트너 허브', [view]);
+  const accountTasks = isAdmin ? tasks : tasks.filter((task) => task.assignee === traineeName);
+  const notificationCount = accountTasks.filter((task) => task.status !== '완료' && (task.dueState === 'today' || task.dueState === 'overdue')).length;
 
   function navigate(next: View) {
     if (!allowedViews.has(next)) {
@@ -1713,6 +1894,31 @@ export default function Home() {
         },
       ]);
     }
+    if (payload.followUps.length) {
+      const taskAssignee = isAdmin ? '박지현' : traineeName;
+      const kindMap: Record<string, WorkTask['kind']> = {
+        '다음 상담 등록': '상담',
+        '서류요청': '서류요청',
+        '견적서 작성': '견적서',
+        '계약서 작성': '계약서',
+        '내부업무 등록': '내부업무',
+      };
+      setTasks((current) => [
+        ...payload.followUps.map((followUp, index): WorkTask => ({
+          id: `task-${Date.now()}-${index}`,
+          company: '세림테크(가상)',
+          title: `상담 후 ${followUp}`,
+          kind: kindMap[followUp] ?? '내부업무',
+          assignee: taskAssignee,
+          due: '09.05',
+          dueState: 'upcoming',
+          status: '대기',
+          priority: '보통',
+          related: `상담 #${number}`,
+        })),
+        ...current,
+      ]);
+    }
     setConsultationNumber((value) => value + 1);
     notify(payload.calendarSync && payload.status === '일정 확정' ? `상담 #${number}이 대표 일정과 Google Calendar 등록대상으로 저장되었습니다.` : `상담 #${number}과 후속조치가 저장되었습니다.`);
     if (payload.calendarSync && payload.status === '일정 확정') {
@@ -1760,7 +1966,7 @@ export default function Home() {
           <div className="ml-auto flex items-center gap-2">
             <Pill tone="slate">가상 시안</Pill>
             <button type="button" onClick={() => setAccountSwitcherOpen(true)} aria-haspopup="dialog" aria-expanded={accountSwitcherOpen} className="flex min-h-11 max-w-[190px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100"><span className="grid size-7 shrink-0 place-items-center rounded-full bg-[#eaf1f7] text-xs font-bold text-[#15375b]">{isAdmin ? '김' : currentMember?.name.slice(0, 1)}</span><span className="hidden min-w-0 truncate sm:block">{isAdmin ? '김성민 대표' : currentMember?.name}</span><ChevronDown className="size-4 shrink-0 text-slate-400" aria-hidden="true" /></button>
-            <button type="button" className="hidden size-11 place-items-center rounded-xl text-slate-600 hover:bg-slate-100 xl:grid" aria-label="알림 5건"><Bell /></button>
+            <button type="button" onClick={() => navigate('tasks')} className="relative hidden size-11 place-items-center rounded-xl text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 sm:grid" aria-label={`확인할 업무 알림 ${notificationCount}건`}><Bell aria-hidden="true" />{notificationCount ? <span className="absolute right-0.5 top-0.5 grid min-h-5 min-w-5 place-items-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">{notificationCount}</span> : null}</button>
             {isAdmin || currentMember?.permissions.collaborationApply ? <PrimaryButton onClick={() => navigate('application')}><Plus className="size-4" aria-hidden="true" /> <span className="hidden md:inline">새 협업신청</span><span className="md:hidden">신청</span></PrimaryButton> : null}
           </div>
         </header>
@@ -1768,6 +1974,7 @@ export default function Home() {
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
           {view === 'admin' ? <AdminDashboard onOpenCase={() => navigate('case')} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} /> : null}
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}
+          {view === 'tasks' ? <WorkManagement tasks={tasks} setTasks={setTasks} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} /> : null}
           {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} /> : null}
           {view === 'access' ? <AccessManagement notify={notify} members={members} setMembers={setMembers} /> : null}
           {view === 'application' ? <ApplicationForm onCancel={() => navigate('trainee')} onDone={() => { notify('협업신청이 접수되었습니다.'); navigate('trainee'); }} /> : null}
