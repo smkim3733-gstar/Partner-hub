@@ -19,14 +19,17 @@ import {
   FileText,
   FolderOpen,
   LayoutDashboard,
+  LockKeyhole,
   Menu,
   MessageSquarePlus,
   Plus,
   RefreshCw,
   Search,
   Send,
+  Share2,
   ShieldCheck,
   Upload,
+  UserRoundCheck,
   Users,
   X,
 } from 'lucide-react';
@@ -74,6 +77,8 @@ type ScheduleItem = {
   tone: string;
   source: 'partner' | 'google';
   private?: boolean;
+  assignedTrainee?: string;
+  shareMode: 'all_with_assignee' | 'all_busy' | 'private';
 };
 
 type ConsultationPayload = {
@@ -83,6 +88,7 @@ type ConsultationPayload = {
   startsAt: string;
   method: string;
   status: string;
+  shareMode: 'all_with_assignee' | 'all_busy' | 'private';
 };
 
 const sampleSchedule: ScheduleItem[] = [
@@ -98,6 +104,8 @@ const sampleSchedule: ScheduleItem[] = [
     status: '확정',
     tone: 'green',
     source: 'partner',
+    assignedTrainee: '박지현',
+    shareMode: 'all_with_assignee',
   },
   {
     id: 'schedule-2',
@@ -111,6 +119,8 @@ const sampleSchedule: ScheduleItem[] = [
     status: '확정',
     tone: 'blue',
     source: 'partner',
+    assignedTrainee: '이준호',
+    shareMode: 'all_with_assignee',
   },
   {
     id: 'schedule-3',
@@ -125,6 +135,7 @@ const sampleSchedule: ScheduleItem[] = [
     tone: 'slate',
     source: 'google',
     private: true,
+    shareMode: 'all_busy',
   },
   {
     id: 'schedule-4',
@@ -138,6 +149,8 @@ const sampleSchedule: ScheduleItem[] = [
     status: '일정요청',
     tone: 'amber',
     source: 'partner',
+    assignedTrainee: '박지현',
+    shareMode: 'all_with_assignee',
   },
   {
     id: 'schedule-5',
@@ -152,6 +165,7 @@ const sampleSchedule: ScheduleItem[] = [
     tone: 'slate',
     source: 'google',
     private: true,
+    shareMode: 'all_busy',
   },
 ];
 
@@ -325,7 +339,22 @@ function googleCalendarUrl(item: ScheduleItem) {
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
 
-function ScheduleRow({ item, compact = false }: { item: ScheduleItem; compact?: boolean }) {
+function scheduleForTrainee(item: ScheduleItem, trainee = '박지현'): ScheduleItem | null {
+  if (item.shareMode === 'private') return null;
+  const canSeeDetails = item.shareMode === 'all_with_assignee' && item.assignedTrainee === trainee && !item.private;
+  if (canSeeDetails) return item;
+
+  return {
+    ...item,
+    company: item.source === 'google' ? '대표 일정 예약됨' : '협업 상담 예약됨',
+    service: item.source === 'google' ? '상세 내용 비공개' : '담당 교육생만 상세 확인',
+    method: '시간만 공유',
+    status: '예약됨',
+    tone: 'slate',
+  };
+}
+
+function ScheduleRow({ item, compact = false, traineeView = false }: { item: ScheduleItem; compact?: boolean; traineeView?: boolean }) {
   return (
     <div className={`grid items-center gap-3 ${compact ? 'grid-cols-[72px_minmax(0,1fr)] py-3' : 'grid-cols-[76px_minmax(0,1fr)_auto] rounded-2xl border border-slate-100 bg-white p-4'}`}>
       <div className="text-center">
@@ -339,7 +368,7 @@ function ScheduleRow({ item, compact = false }: { item: ScheduleItem; compact?: 
         </div>
         <p className="mt-1 truncate text-xs text-slate-500">{item.service} · {item.method}</p>
       </div>
-      {!compact && item.source === 'partner' ? (
+      {!compact && item.source === 'partner' && !traineeView ? (
         <a
           href={googleCalendarUrl(item)}
           target="_blank"
@@ -482,31 +511,52 @@ function SchedulePage({
   schedule,
   onNewConsultation,
   notify,
+  audience,
+  onAudienceChange,
 }: {
   schedule: ScheduleItem[];
   onNewConsultation: () => void;
   notify: (message: string) => void;
+  audience: 'admin' | 'trainee';
+  onAudienceChange: (audience: 'admin' | 'trainee') => void;
 }) {
   const [filter, setFilter] = useState<'all' | 'partner' | 'google'>('all');
-  const visibleSchedule = schedule.filter((item) => filter === 'all' || item.source === filter);
+  const audienceSchedule = audience === 'admin' ? schedule : schedule.map((item) => scheduleForTrainee(item)).filter((item): item is ScheduleItem => item !== null);
+  const visibleSchedule = audienceSchedule.filter((item) => filter === 'all' || item.source === filter);
   const days = ['09.01|화', '09.02|수', '09.03|목', '09.04|금', '09.05|토', '09.06|일', '09.07|월'];
 
   return (
     <>
       <PageIntro
-        eyebrow="대표 일정관리"
+        eyebrow={audience === 'admin' ? '대표 일정관리' : '교육생 공유일정'}
         title="김성민 대표 상담일정"
-        description="기업상담 일정과 Google Calendar의 바쁜 시간을 한 화면에서 확인하고 중복 예약을 예방합니다."
+        description={audience === 'admin' ? '기업상담 일정과 Google Calendar의 바쁜 시간을 한 화면에서 확인하고 중복 예약을 예방합니다.' : '교육생은 대표님의 상담 가능시간을 확인하고, 본인이 담당하는 기업의 상담만 상세하게 볼 수 있습니다.'}
         action={
-          <PrimaryButton onClick={onNewConsultation}>
-            <Plus className="size-4" aria-hidden="true" /> 새 상담 예약
-          </PrimaryButton>
+          audience === 'admin' ? (
+            <PrimaryButton onClick={onNewConsultation}>
+              <Plus className="size-4" aria-hidden="true" /> 새 상담 예약
+            </PrimaryButton>
+          ) : <Pill tone="green">교육생 공유 ON</Pill>
         }
       />
 
       <section className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.72fr)]">
         <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
           <CardHeader className="border-b border-slate-100">
+            <div className="mb-4 flex flex-col justify-between gap-3 rounded-2xl border border-blue-100 bg-blue-50/70 p-4 sm:flex-row sm:items-center">
+              <div className="flex items-center gap-3">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-[#0877b8] shadow-sm"><Share2 className="size-5" aria-hidden="true" /></span>
+                <div><p className="text-sm font-bold text-[#15375b]">공개화면 미리보기</p><p className="mt-1 text-xs text-slate-600">역할별로 보이는 정보가 다릅니다.</p></div>
+              </div>
+              <div className="flex gap-2" aria-label="일정 공개화면 선택">
+                {[
+                  ['admin', '대표 상세'],
+                  ['trainee', '교육생 공유'],
+                ].map(([value, label]) => (
+                  <button key={value} type="button" aria-pressed={audience === value} onClick={() => onAudienceChange(value as 'admin' | 'trainee')} className={`min-h-11 rounded-xl border px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${audience === value ? 'border-[#0877b8] bg-white text-[#075f93] shadow-sm' : 'border-transparent bg-transparent text-slate-600 hover:bg-white/70'}`}>{label}</button>
+                ))}
+              </div>
+            </div>
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
               <div>
                 <CardTitle className="text-lg font-bold">2026년 9월 1주</CardTitle>
@@ -536,7 +586,7 @@ function SchedulePage({
               {visibleSchedule.length ? visibleSchedule.map((item) => (
                 <div key={item.id}>
                   <p className="mb-2 text-xs font-bold text-slate-500">{item.date}({item.weekday})</p>
-                  <ScheduleRow item={item} />
+                  <ScheduleRow item={item} traineeView={audience === 'trainee'} />
                 </div>
               )) : (
                 <div className="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">선택한 조건의 일정이 없습니다.</div>
@@ -572,7 +622,7 @@ function SchedulePage({
         </Card>
 
         <div className="space-y-6">
-          <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
+          {audience === 'admin' ? <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
             <CardHeader className="border-b border-slate-100">
               <CardTitle className="flex items-center gap-2 text-lg font-bold">
                 <RefreshCw className="size-5 text-[#0877b8]" aria-hidden="true" /> Google Calendar
@@ -598,7 +648,21 @@ function SchedulePage({
                 </SecondaryButton>
               </div>
             </CardContent>
-          </Card>
+          </Card> : (
+            <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
+              <CardHeader className="border-b border-slate-100">
+                <CardTitle className="flex items-center gap-2 text-lg font-bold"><UserRoundCheck className="size-5 text-[#0877b8]" aria-hidden="true" /> 교육생 공개범위</CardTitle>
+                <CardDescription>박지현 교육생 화면 기준입니다.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4 pt-1">
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4"><p className="text-sm font-bold text-emerald-900">김성민 대표 일정 공유 중</p><p className="mt-1 text-xs leading-5 text-emerald-800">예약 가능·불가 시간은 전체 교육생에게 표시됩니다.</p></div>
+                <div className="space-y-3 text-sm">
+                  <div className="flex items-start gap-3"><Check className="mt-0.5 size-4 shrink-0 text-emerald-700" aria-hidden="true" /><p className="text-slate-700"><strong>내 담당기업:</strong> 기업명·상담목적·방식 확인</p></div>
+                  <div className="flex items-start gap-3"><LockKeyhole className="mt-0.5 size-4 shrink-0 text-slate-500" aria-hidden="true" /><p className="text-slate-700"><strong>다른 상담·개인일정:</strong> 시간만 ‘예약됨’으로 표시</p></div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
             <CardHeader><CardTitle className="text-lg font-bold">연동 운영 원칙</CardTitle></CardHeader>
@@ -622,7 +686,18 @@ function SchedulePage({
   );
 }
 
-function TraineeDashboard({ onOpenCase, onNew }: { onOpenCase: () => void; onNew: () => void }) {
+function TraineeDashboard({
+  onOpenCase,
+  onNew,
+  onOpenSchedule,
+  schedule,
+}: {
+  onOpenCase: () => void;
+  onNew: () => void;
+  onOpenSchedule: () => void;
+  schedule: ScheduleItem[];
+}) {
+  const traineeSchedule = schedule.map((item) => scheduleForTrainee(item)).filter((item): item is ScheduleItem => item !== null).slice(0, 3);
   return (
     <>
       <PageIntro
@@ -660,6 +735,26 @@ function TraineeDashboard({ onOpenCase, onNew }: { onOpenCase: () => void; onNew
           );
         })}
       </section>
+
+      <Card className="mt-6 border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
+        <CardHeader className="border-b border-slate-100">
+          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-lg font-bold"><Share2 className="size-5 text-[#0877b8]" aria-hidden="true" /> 김성민 대표 공유일정</CardTitle>
+              <CardDescription className="mt-1">상담 가능시간을 확인하세요. 내 담당기업 일정만 상세하게 표시됩니다.</CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2"><Pill tone="green">교육생 공유 ON</Pill><SecondaryButton onClick={onOpenSchedule}>전체 일정 보기 <ChevronRight className="size-4" aria-hidden="true" /></SecondaryButton></div>
+          </div>
+        </CardHeader>
+        <CardContent className="divide-y pt-1">
+          {traineeSchedule.map((item) => (
+            <div key={item.id} className="grid gap-2 py-1 sm:grid-cols-[84px_minmax(0,1fr)] sm:items-center">
+              <p className="px-1 text-xs font-bold text-slate-500">{item.date}({item.weekday})</p>
+              <ScheduleRow item={item} compact traineeView />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.7fr)]">
         <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
@@ -1036,6 +1131,7 @@ function ConsultationForm({
   const [startsAt, setStartsAt] = useState('2026-09-04T11:00');
   const [method, setMethod] = useState('화상');
   const [status, setStatus] = useState('일정 확정');
+  const [shareMode, setShareMode] = useState<'all_with_assignee' | 'all_busy' | 'private'>('all_with_assignee');
 
   function toggle(item: string) {
     setFollowUps((current) => current.includes(item) ? current.filter((value) => value !== item) : [...current, item]);
@@ -1087,6 +1183,21 @@ function ConsultationForm({
             </p>
           </section>
 
+          <section aria-labelledby="trainee-share-title" className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-5">
+            <div className="flex items-start gap-3">
+              <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-emerald-700 shadow-sm"><Share2 className="size-5" aria-hidden="true" /></span>
+              <div className="min-w-0 flex-1">
+                <h2 id="trainee-share-title" className="text-sm font-bold text-emerald-950">교육생 일정 공개범위</h2>
+                <p className="mt-1 text-xs leading-5 text-emerald-900/80">전체 교육생에게는 예약시간을, 담당 교육생에게는 기업명과 상담목적까지 공유할 수 있습니다.</p>
+                <select value={shareMode} onChange={(event) => setShareMode(event.target.value as 'all_with_assignee' | 'all_busy' | 'private')} className={`${inputClass} mt-4 border-emerald-200`} aria-label="교육생 일정 공개범위">
+                  <option value="all_with_assignee">전체 교육생 시간 공유 · 담당 교육생 상세공개</option>
+                  <option value="all_busy">전체 교육생에게 예약시간만 공개</option>
+                  <option value="private">대표·내부 담당자만 공개</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
           <div className="grid gap-5 md:grid-cols-2">
             <Field label="주요 상담내용" required><textarea className={`${inputClass} min-h-36 py-3`} placeholder="상담에서 확인한 핵심 내용을 적어주세요." /></Field>
             <Field label="상담 결과·다음 행동" required><textarea className={`${inputClass} min-h-36 py-3`} placeholder="결정사항, 담당자, 기한을 적어주세요." /></Field>
@@ -1114,7 +1225,7 @@ function ConsultationForm({
         </CardContent>
         <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-6">
           <SecondaryButton onClick={onCancel}>취소</SecondaryButton>
-          <PrimaryButton onClick={() => onSave({ followUps, calendarSync, title, startsAt, method, status })}><Check className="size-4" /> 상담 #{number} 저장</PrimaryButton>
+          <PrimaryButton onClick={() => onSave({ followUps, calendarSync, title, startsAt, method, status, shareMode })}><Check className="size-4" /> 상담 #{number} 저장</PrimaryButton>
         </div>
       </Card>
     </>
@@ -1217,6 +1328,7 @@ export default function Home() {
   const [consultationNumber, setConsultationNumber] = useState(4);
   const [timeline, setTimeline] = useState(baseTimeline);
   const [schedule, setSchedule] = useState<ScheduleItem[]>(sampleSchedule);
+  const [scheduleAudience, setScheduleAudience] = useState<'admin' | 'trainee'>('admin');
   const [modal, setModal] = useState<'quote' | 'contract' | null>(null);
   const [toast, setToast] = useState('');
 
@@ -1226,6 +1338,11 @@ export default function Home() {
     setView(next);
     setMobileOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function openSchedule(audience: 'admin' | 'trainee') {
+    setScheduleAudience(audience);
+    navigate('schedule');
   }
 
   function notify(message: string) {
@@ -1240,7 +1357,7 @@ export default function Home() {
       {
         date: '방금 전',
         title: `상담 #${number} 저장`,
-        detail: `후속조치: ${payload.followUps.length ? payload.followUps.join(' · ') : '없음'}${payload.calendarSync ? ' / Google Calendar 등록대상' : ''}`,
+        detail: `후속조치: ${payload.followUps.length ? payload.followUps.join(' · ') : '없음'}${payload.calendarSync ? ' / Google Calendar 등록대상' : ''}${payload.shareMode !== 'private' ? ' / 교육생 일정 공유' : ''}`,
         type: '상담',
         tone: 'green',
       },
@@ -1264,19 +1381,25 @@ export default function Home() {
           status: '확정',
           tone: 'green',
           source: 'partner',
+          assignedTrainee: '박지현',
+          shareMode: payload.shareMode,
         },
       ]);
     }
     setConsultationNumber((value) => value + 1);
     notify(payload.calendarSync && payload.status === '일정 확정' ? `상담 #${number}이 대표 일정과 Google Calendar 등록대상으로 저장되었습니다.` : `상담 #${number}과 후속조치가 저장되었습니다.`);
-    navigate(payload.calendarSync && payload.status === '일정 확정' ? 'schedule' : 'case');
+    if (payload.calendarSync && payload.status === '일정 확정') {
+      openSchedule('admin');
+    } else {
+      navigate('case');
+    }
   }
 
   function navButton(item: { view: View; label: string; icon: IconType }) {
     const Icon = item.icon;
     const active = item.view === view;
     return (
-      <button key={item.view} type="button" onClick={() => navigate(item.view)} className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-300/40 ${active ? 'bg-white text-[#15375b]' : 'text-blue-50 hover:bg-white/10'}`}>
+      <button key={item.view} type="button" onClick={() => item.view === 'schedule' ? openSchedule(view === 'trainee' ? 'trainee' : 'admin') : navigate(item.view)} className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-300/40 ${active ? 'bg-white text-[#15375b]' : 'text-blue-50 hover:bg-white/10'}`}>
         <Icon className="size-[18px]" aria-hidden="true" /> {item.label}
       </button>
     );
@@ -1310,9 +1433,9 @@ export default function Home() {
         </header>
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
-          {view === 'admin' ? <AdminDashboard onOpenCase={() => navigate('case')} onOpenSchedule={() => navigate('schedule')} schedule={schedule} /> : null}
-          {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} /> : null}
-          {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} /> : null}
+          {view === 'admin' ? <AdminDashboard onOpenCase={() => navigate('case')} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} /> : null}
+          {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} audience={scheduleAudience} onAudienceChange={setScheduleAudience} /> : null}
+          {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} /> : null}
           {view === 'application' ? <ApplicationForm onCancel={() => navigate('trainee')} onDone={() => { notify('협업신청이 접수되었습니다.'); navigate('trainee'); }} /> : null}
           {view === 'case' ? <CaseDetail timeline={timeline} onConsult={() => navigate('consultation')} onDocuments={() => navigate('documents')} onDocumentModal={setModal} /> : null}
           {view === 'consultation' ? <ConsultationForm number={consultationNumber} onCancel={() => navigate('case')} onSave={saveConsultation} /> : null}
