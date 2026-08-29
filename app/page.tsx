@@ -71,7 +71,7 @@ const navItems: Array<{ view: View; label: string; icon: IconType }> = [
   { view: 'trainee', label: '교육생 화면', icon: Users },
   { view: 'access', label: '교육생 권한관리', icon: UserCog },
   { view: 'application', label: '새 협업신청', icon: FilePlus2 },
-  { view: 'case', label: '기업·사건 상세', icon: BriefcaseBusiness },
+  { view: 'case', label: '기업·진행 상세', icon: BriefcaseBusiness },
   { view: 'consultation', label: '상담 등록', icon: MessageSquarePlus },
   { view: 'documents', label: '서류요청 등록', icon: FileCheck2 },
 ];
@@ -647,9 +647,9 @@ function AdminDashboard({
           <CardHeader className="border-b border-slate-100">
             <CardTitle className="flex items-center gap-2 text-lg font-bold">
               <BriefcaseBusiness className="size-5 text-[#0877b8]" aria-hidden="true" />
-              대표 확인이 필요한 사건
+              대표 확인이 필요한 진행
             </CardTitle>
-            <CardDescription>다음 행동이 멈춰 있거나 승인 대기 중인 사건입니다.</CardDescription>
+            <CardDescription>다음 행동이 멈춰 있거나 승인 대기 중인 진행입니다.</CardDescription>
           </CardHeader>
           <CardContent className="divide-y p-0">
             {[
@@ -683,7 +683,7 @@ function AdminDashboard({
               <Clock3 className="size-5 text-[#0877b8]" aria-hidden="true" />
               단계별 장기 미진행
             </CardTitle>
-            <CardDescription>7일 이상 다음 행동이 없는 사건입니다.</CardDescription>
+            <CardDescription>7일 이상 다음 행동이 없는 진행입니다.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-1">
             {[
@@ -921,7 +921,7 @@ function TraineeDashboard({
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          ['진행기업', String(member.companies), BriefcaseBusiness, '전체 협업 사건'],
+          ['진행기업', String(member.companies), BriefcaseBusiness, '전체 협업 진행'],
           ['추가서류 필요', '3', FileCheck2, '오늘 1건 마감'],
           ['예정 상담', '2', CalendarDays, '가장 가까운 일정 09.04'],
           ['확인 필요', '1', AlertCircle, '견적서 확인 요청'],
@@ -968,7 +968,7 @@ function TraineeDashboard({
         <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
           <CardHeader className="border-b border-slate-100">
             <CardTitle className="text-lg font-bold">내 진행기업</CardTitle>
-            <CardDescription>최근 변경된 사건을 우선 표시합니다.</CardDescription>
+            <CardDescription>최근 변경된 진행을 우선 표시합니다.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -1069,8 +1069,8 @@ function PipelineBoard({
     <>
       <PageIntro
         eyebrow={isAdmin ? '전체 협업 통제판' : '담당기업 진행판'}
-        title="전체 협업사건 진행현황"
-        description={isAdmin ? '교육생별 협업기업을 단계별로 확인하고 장기 미진행 사건의 다음 행동을 바로 결정합니다.' : '본인이 담당하는 기업만 표시되며 드래그 없이 단계 선택으로 진행상태를 변경할 수 있습니다.'}
+        title="전체 협업 진행현황"
+        description={isAdmin ? '교육생별 협업기업을 단계별로 확인하고 장기 미진행 건의 다음 행동을 바로 결정합니다.' : '본인이 담당하는 기업만 표시되며 드래그 없이 단계 선택으로 진행상태를 변경할 수 있습니다.'}
         action={<Pill tone={staleCount ? 'red' : 'green'}>7일 이상 정체 {staleCount}건</Pill>}
       />
 
@@ -1097,7 +1097,7 @@ function PipelineBoard({
         </CardHeader>
       </Card>
 
-      <section aria-label="단계별 협업사건" className="mt-6 grid items-start gap-5 md:grid-cols-2 xl:grid-cols-3">
+      <section aria-label="단계별 협업 진행" className="mt-6 grid items-start gap-5 md:grid-cols-2 xl:grid-cols-3">
         {pipelineStages.map((stage, stageIndex) => {
           const stageCases = visibleCases.filter((item) => item.stage === stage);
           return <section key={stage} className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/70">
@@ -1108,14 +1108,14 @@ function PipelineBoard({
                 <div className="mt-3 rounded-lg bg-slate-50 p-3"><p className="text-[11px] font-semibold text-slate-500">다음 행동</p><p className="mt-1 text-sm font-bold leading-5 text-slate-800">{item.nextAction}</p></div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-semibold text-slate-600">담당 {item.trainee}</span>{item.consultationCount ? <Pill tone="violet">상담 {item.consultationCount}회</Pill> : null}</div>
                 <label className="mt-4 block"><span className="mb-2 block text-xs font-semibold text-slate-600">진행단계 변경</span><select value={item.stage} onChange={(event) => moveCase(item, event.target.value as PipelineStage)} className={inputClass}>{pipelineStages.map((option) => <option key={option}>{option}</option>)}</select></label>
-                <SecondaryButton className="mt-3 w-full" onClick={onOpenCase}>기업·사건 상세 <ChevronRight className="size-4" aria-hidden="true" /></SecondaryButton>
-              </article>) : <div className="grid min-h-28 place-items-center rounded-xl border border-dashed border-slate-200 bg-white/60 p-4 text-center text-xs text-slate-400">현재 조건의 사건이 없습니다.</div>}
+                <SecondaryButton className="mt-3 w-full" onClick={onOpenCase}>기업·진행 상세 <ChevronRight className="size-4" aria-hidden="true" /></SecondaryButton>
+              </article>) : <div className="grid min-h-28 place-items-center rounded-xl border border-dashed border-slate-200 bg-white/60 p-4 text-center text-xs text-slate-400">현재 조건의 진행이 없습니다.</div>}
             </div>
           </section>;
         })}
       </section>
 
-      <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">진행단계 운영원칙</p><p className="mt-1 text-xs leading-5 text-slate-600">상담은 횟수 제한 없이 사건 안에 누적하고, 서류요청·견적·계약은 어느 단계에서도 별도로 생성합니다. 단계변경은 드래그가 아닌 선택메뉴로도 가능해 키보드와 모바일에서 동일하게 사용할 수 있습니다.</p></div></div></div>
+      <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">진행단계 운영원칙</p><p className="mt-1 text-xs leading-5 text-slate-600">상담은 횟수 제한 없이 해당 진행 안에 누적하고, 서류요청·견적·계약은 어느 단계에서도 별도로 생성합니다. 단계변경은 드래그가 아닌 선택메뉴로도 가능해 키보드와 모바일에서 동일하게 사용할 수 있습니다.</p></div></div></div>
     </>
   );
 }
@@ -1412,7 +1412,7 @@ function DocumentCenter({
 const permissionLabels: Array<{ key: keyof TraineeMember['permissions']; label: string; detail: string }> = [
   { key: 'sharedSchedule', label: '대표 공유일정', detail: '대표의 예약 가능·불가 시간과 담당기업 상담 확인' },
   { key: 'collaborationApply', label: '협업신청 등록', detail: '새 기업 협업신청 작성 및 임시저장' },
-  { key: 'ownCases', label: '담당 사건 열람', detail: '본인이 주관·공동담당인 기업만 확인' },
+  { key: 'ownCases', label: '담당 진행 열람', detail: '본인이 주관·공동담당인 기업만 확인' },
   { key: 'fileUpload', label: '서류 업로드', detail: '담당기업의 요청서류 등록 및 제출상태 확인' },
   { key: 'quoteContract', label: '견적·계약 확인', detail: '담당기업의 승인된 견적·계약 상태 확인' },
 ];
@@ -1738,7 +1738,7 @@ function CaseDetail({
   const [tab, setTab] = useState('timeline');
   const tabs = [
     ['timeline', '전체 타임라인'],
-    ['services', '서비스 과업'],
+    ['services', '진행솔루션'],
     ['consultations', '상담'],
     ...(canFileUpload ? [['documents', '서류요청']] : []),
     ...(canQuoteContract ? [['quotes', '견적서'], ['contracts', '계약서']] : []),
@@ -1747,13 +1747,13 @@ function CaseDetail({
   return (
     <>
       <PageIntro
-        eyebrow="기업·사건 상세"
+        eyebrow="기업·진행 상세"
         title="세림테크(가상)"
         description={`신청번호 KEVE-2026-0829-001 · 주관 교육생 ${assignedTrainee} · 내부 담당자 김도윤`}
         action={<Pill tone="blue">상담·협의 진행</Pill>}
       />
 
-      <section aria-label="사건 요약" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <section aria-label="진행 요약" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
           ['상담', `${Math.max(3, timeline.filter((item) => item.type === '상담').length)}회`, '반복등록'],
           ['미제출 서류', '2건', '09.05 마감'],
@@ -1772,7 +1772,7 @@ function CaseDetail({
       <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
         <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
           <div className="overflow-x-auto border-b px-3 pt-3">
-            <div role="tablist" aria-label="사건 상세 탭" className="flex min-w-max gap-1">
+            <div role="tablist" aria-label="진행 상세 탭" className="flex min-w-max gap-1">
               {tabs.map(([value, label]) => (
                 <button
                   key={value}
@@ -2120,7 +2120,7 @@ function VirtualAccountSwitcher({
         </div>
 
         <div className="border-t bg-slate-50 p-4 text-xs leading-5 text-slate-600 sm:px-5">
-          역할 전환은 아직 가상 로그인 방식이지만, 협업사건·업무·일정·권한 변경은 운영 데이터베이스에 자동 저장됩니다.
+          역할 전환은 아직 가상 로그인 방식이지만, 협업 진행·업무·일정·권한 변경은 운영 데이터베이스에 자동 저장됩니다.
         </div>
       </div>
     </dialog>
