@@ -35,5 +35,6 @@ next-env.d.ts
 *.tsbuildinfo
 /dist/
 /.wrangler/
+# Deployment packaging must also exclude nested local Worker state under dist/server.
 /outputs/
 /work/
