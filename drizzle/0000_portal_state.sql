@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS portal_state (
+  id TEXT PRIMARY KEY NOT NULL,
+  payload TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);

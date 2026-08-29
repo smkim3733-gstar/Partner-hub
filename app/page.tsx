@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Bell,
@@ -161,6 +161,38 @@ type CollaborationCase = {
   idleDays: number;
   urgent: boolean;
 };
+
+type TimelineItem = {
+  date: string;
+  title: string;
+  detail: string;
+  type: string;
+  tone: string;
+};
+
+type PortalState = {
+  version: 1;
+  consultationNumber: number;
+  timeline: TimelineItem[];
+  schedule: ScheduleItem[];
+  tasks: WorkTask[];
+  companyDocuments: CompanyDocument[];
+  cases: CollaborationCase[];
+  members: TraineeMember[];
+};
+
+function isPortalState(value: unknown): value is PortalState {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const state = value as Partial<PortalState>;
+  return state.version === 1
+    && typeof state.consultationNumber === 'number'
+    && Array.isArray(state.timeline)
+    && Array.isArray(state.schedule)
+    && Array.isArray(state.tasks)
+    && Array.isArray(state.companyDocuments)
+    && Array.isArray(state.cases)
+    && Array.isArray(state.members);
+}
 
 const sampleTrainees: TraineeMember[] = [
   {
@@ -336,7 +368,7 @@ const sampleSchedule: ScheduleItem[] = [
   },
 ];
 
-const baseTimeline = [
+const baseTimeline: TimelineItem[] = [
   {
     date: '08.29 09:20',
     title: '협업신청 접수',
@@ -2088,7 +2120,7 @@ function VirtualAccountSwitcher({
         </div>
 
         <div className="border-t bg-slate-50 p-4 text-xs leading-5 text-slate-600 sm:px-5">
-          가상 시안이므로 계정 전환과 권한 변경은 이 브라우저에서만 유지되며, 새로고침하면 초기화됩니다.
+          역할 전환은 아직 가상 로그인 방식이지만, 협업사건·업무·일정·권한 변경은 운영 데이터베이스에 자동 저장됩니다.
         </div>
       </div>
     </dialog>
@@ -2110,6 +2142,77 @@ export default function Home() {
   const [scheduleAudience, setScheduleAudience] = useState<'admin' | 'trainee'>('admin');
   const [modal, setModal] = useState<'quote' | 'contract' | null>(null);
   const [toast, setToast] = useState('');
+  const [persistenceReady, setPersistenceReady] = useState(false);
+  const [dataStatus, setDataStatus] = useState<'loading' | 'saving' | 'saved' | 'error'>('loading');
+  const saveTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadState() {
+      try {
+        const response = await fetch('/api/state', { cache: 'no-store' });
+        if (!response.ok) throw new Error('Failed to load portal state');
+        const payload = await response.json() as { state: unknown };
+        if (!active) return;
+
+        if (payload.state !== null) {
+          if (!isPortalState(payload.state)) throw new Error('Invalid portal state');
+          setConsultationNumber(payload.state.consultationNumber);
+          setTimeline(payload.state.timeline);
+          setSchedule(payload.state.schedule);
+          setTasks(payload.state.tasks);
+          setCompanyDocuments(payload.state.companyDocuments);
+          setCases(payload.state.cases);
+          setMembers(payload.state.members);
+        }
+
+        setPersistenceReady(true);
+        setDataStatus(payload.state === null ? 'saving' : 'saved');
+      } catch {
+        if (active) setDataStatus('error');
+      }
+    }
+
+    void loadState();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!persistenceReady) return;
+    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+    const state: PortalState = {
+      version: 1,
+      consultationNumber,
+      timeline,
+      schedule,
+      tasks,
+      companyDocuments,
+      cases,
+      members,
+    };
+
+    saveTimerRef.current = window.setTimeout(async () => {
+      setDataStatus('saving');
+      try {
+        const response = await fetch('/api/state', {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ state }),
+        });
+        if (!response.ok) throw new Error('Failed to save portal state');
+        setDataStatus('saved');
+      } catch {
+        setDataStatus('error');
+      }
+    }, 700);
+
+    return () => {
+      if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
+    };
+  }, [persistenceReady, consultationNumber, timeline, schedule, tasks, companyDocuments, cases, members]);
 
   const currentMember = currentAccountId === 'admin' ? null : members.find((member) => member.id === currentAccountId) ?? null;
   const isAdmin = currentAccountId === 'admin';
@@ -2134,6 +2237,13 @@ export default function Home() {
   const activeLabel = useMemo(() => navItems.find((item) => item.view === view)?.label ?? '파트너 허브', [view]);
   const accountTasks = isAdmin ? tasks : tasks.filter((task) => task.assignee === traineeName);
   const notificationCount = accountTasks.filter((task) => task.status !== '완료' && (task.dueState === 'today' || task.dueState === 'overdue')).length;
+  const dataStatusLabel = {
+    loading: '데이터 불러오는 중',
+    saving: '자동저장 중',
+    saved: 'DB 저장됨',
+    error: '저장 연결 오류',
+  }[dataStatus];
+  const dataStatusTone = dataStatus === 'saved' ? 'green' : dataStatus === 'error' ? 'red' : 'blue';
 
   function navigate(next: View) {
     if (!allowedViews.has(next)) {
@@ -2283,7 +2393,7 @@ export default function Home() {
           <div className="flex items-center gap-2 lg:hidden"><button type="button" onClick={() => setMobileOpen(true)} className="grid size-11 place-items-center rounded-xl hover:bg-slate-100" aria-label="메뉴 열기"><Menu /></button><span className="hidden text-sm font-bold text-[#15375b] sm:inline">{activeLabel}</span></div>
           <div className="hidden max-w-md flex-1 items-center gap-2 rounded-xl border bg-slate-50 px-3 text-slate-500 md:flex"><Search className="size-4" aria-hidden="true" /><input aria-label="기업명 또는 신청번호 검색" className="h-10 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400" placeholder="기업명 또는 신청번호 검색" /></div>
           <div className="ml-auto flex items-center gap-2">
-            <Pill tone="slate">가상 시안</Pill>
+            <Pill tone={dataStatusTone}>{dataStatusLabel}</Pill>
             <button type="button" onClick={() => setAccountSwitcherOpen(true)} aria-haspopup="dialog" aria-expanded={accountSwitcherOpen} className="flex min-h-11 max-w-[190px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100"><span className="grid size-7 shrink-0 place-items-center rounded-full bg-[#eaf1f7] text-xs font-bold text-[#15375b]">{isAdmin ? '김' : currentMember?.name.slice(0, 1)}</span><span className="hidden min-w-0 truncate sm:block">{isAdmin ? '김성민 대표' : currentMember?.name}</span><ChevronDown className="size-4 shrink-0 text-slate-400" aria-hidden="true" /></button>
             <button type="button" onClick={() => navigate('tasks')} className="relative hidden size-11 place-items-center rounded-xl text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 sm:grid" aria-label={`확인할 업무 알림 ${notificationCount}건`}><Bell aria-hidden="true" />{notificationCount ? <span className="absolute right-0.5 top-0.5 grid min-h-5 min-w-5 place-items-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">{notificationCount}</span> : null}</button>
             {isAdmin || currentMember?.permissions.collaborationApply ? <PrimaryButton onClick={() => navigate('application')}><Plus className="size-4" aria-hidden="true" /> <span className="hidden md:inline">새 협업신청</span><span className="md:hidden">신청</span></PrimaryButton> : null}
