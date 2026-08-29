@@ -1,6 +1,13 @@
 import { env } from 'cloudflare:workers';
 
-import { portalLoginStatsTableSql, portalStateId, portalStateTableSql } from '@/db/schema';
+import {
+  companyFileObjectsCompanyIndexSql,
+  companyFileObjectsOwnerIndexSql,
+  companyFileObjectsTableSql,
+  portalLoginStatsTableSql,
+  portalStateId,
+  portalStateTableSql,
+} from '@/db/schema';
 
 type PortalStateRow = {
   payload: string;
@@ -30,6 +37,9 @@ async function ensurePortalTables(db: D1Database) {
   await db.batch([
     db.prepare(portalStateTableSql),
     db.prepare(portalLoginStatsTableSql),
+    db.prepare(companyFileObjectsTableSql),
+    db.prepare(companyFileObjectsOwnerIndexSql),
+    db.prepare(companyFileObjectsCompanyIndexSql),
   ]);
 }
 

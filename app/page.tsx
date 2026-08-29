@@ -150,8 +150,10 @@ type CompanyDocument = {
   id: string;
   company: string;
   title: string;
-  category: '사업자등록증' | '크레탑' | '재무제표' | '인증·특허' | '계약자료' | '요청서류' | '기타자료';
+  category: '사업자등록증' | '크레탑' | '재무제표' | '상담녹취' | '인증·특허' | '계약자료' | '요청서류' | '기타자료';
   fileName?: string;
+  storageFileId?: string;
+  fileSize?: number;
   status: '요청중' | '제출완료' | '보완필요' | '검토완료';
   assignedTrainee: string;
   submittedBy: string;
@@ -513,9 +515,53 @@ function documentCategoryFromFileName(fileName: string): CompanyDocument['catego
   if (normalized.includes('사업자')) return '사업자등록증';
   if (normalized.includes('cretop') || normalized.includes('크레탑')) return '크레탑';
   if (normalized.includes('재무') || normalized.includes('결산')) return '재무제표';
+  if (normalized.includes('녹취') || normalized.includes('통화') || /\.(mp3|m4a|wav)$/.test(normalized)) return '상담녹취';
   if (normalized.includes('특허') || normalized.includes('인증')) return '인증·특허';
   if (normalized.includes('계약')) return '계약자료';
   return '기타자료';
+}
+
+type StoredCompanyFile = {
+  id: string;
+  fileName: string;
+  sizeBytes: number;
+  contentType: string;
+  createdAt: string;
+  assignedTrainee: string;
+};
+
+async function uploadCompanyFile({
+  file,
+  company,
+  title,
+  category,
+  assignedTrainee,
+}: {
+  file: File;
+  company: string;
+  title: string;
+  category: CompanyDocument['category'];
+  assignedTrainee: string;
+}): Promise<StoredCompanyFile> {
+  const form = new FormData();
+  form.set('file', file);
+  form.set('company', company);
+  form.set('title', title);
+  form.set('category', category);
+  form.set('assignedTrainee', assignedTrainee);
+  form.set('consent', 'confirmed');
+  const response = await fetch('/api/files', { method: 'POST', body: form });
+  const payload = await response.json() as { file?: StoredCompanyFile; error?: string };
+  if (!response.ok || !payload.file) {
+    throw new Error(payload.error || '기업자료 업로드에 실패했습니다.');
+  }
+  return payload.file;
+}
+
+function readableFileSize(bytes?: number) {
+  if (!bytes) return '';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
 const sampleSchedule: ScheduleItem[] = [
@@ -1761,7 +1807,10 @@ function DocumentCenter({
   const [uploadTitle, setUploadTitle] = useState('사업자등록증');
   const [uploadCategory, setUploadCategory] = useState<CompanyDocument['category']>('사업자등록증');
   const [uploadAssignee, setUploadAssignee] = useState(isAdmin ? '박지현' : currentName);
-  const [uploadFileName, setUploadFileName] = useState('');
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadConsent, setUploadConsent] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
 
   const accountDocuments = isAdmin ? documents : documents.filter((document) => document.assignedTrainee === currentName);
   const companies = ['전체 기업', ...Array.from(new Set(accountDocuments.map((document) => document.company)))];
@@ -1783,30 +1832,52 @@ function DocumentCenter({
     notify(`${document.title} 상태를 ${status}(으)로 변경했습니다.`);
   }
 
-  function addDocument() {
-    if (!uploadFileName) {
-      notify('가상 등록할 파일을 선택해 주세요.');
+  async function addDocument() {
+    if (!uploadFile) {
+      setUploadError('등록할 실제 파일을 선택해 주세요.');
       return;
     }
-    setDocuments((current) => [
-      {
-        id: `file-${Date.now()}`,
+    if (!uploadConsent) {
+      setUploadError('자료 제출 권한과 개인정보 마스킹 여부를 확인해 주세요.');
+      return;
+    }
+    setUploading(true);
+    setUploadError('');
+    try {
+      const stored = await uploadCompanyFile({
+        file: uploadFile,
         company: uploadCompany,
         title: uploadTitle.trim() || uploadCategory,
         category: uploadCategory,
-        fileName: uploadFileName,
-        status: '제출완료',
         assignedTrainee: uploadAssignee,
+      });
+      setDocuments((current) => [
+        {
+        id: `file-${stored.id}`,
+        company: uploadCompany,
+        title: uploadTitle.trim() || uploadCategory,
+        category: uploadCategory,
+        fileName: stored.fileName,
+        storageFileId: stored.id,
+        fileSize: stored.sizeBytes,
+        status: '제출완료',
+        assignedTrainee: stored.assignedTrainee,
         submittedBy: isAdmin ? '김성민 대표' : currentName,
         updatedAt: '방금 전',
         version: 'V1',
-        sensitive: ['사업자등록증', '크레탑', '재무제표', '계약자료'].includes(uploadCategory),
+        sensitive: ['사업자등록증', '크레탑', '재무제표', '상담녹취', '계약자료'].includes(uploadCategory),
       },
       ...current,
-    ]);
-    setUploadFileName('');
-    setUploadOpen(false);
-    notify('가상 자료함에 파일정보를 등록했습니다. 실제 파일은 업로드되지 않았습니다.');
+      ]);
+      setUploadFile(null);
+      setUploadConsent(false);
+      setUploadOpen(false);
+      notify('기업 원본파일을 보안 저장소에 등록했습니다.');
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : '기업자료 업로드에 실패했습니다.');
+    } finally {
+      setUploading(false);
+    }
   }
 
   return (
@@ -1846,7 +1917,7 @@ function DocumentCenter({
             {visibleDocuments.map((document) => {
               const statusTone = document.status === '검토완료' ? 'green' : document.status === '보완필요' ? 'red' : document.status === '제출완료' ? 'blue' : 'amber';
               return <article key={document.id} className="rounded-2xl border border-slate-200 bg-white p-5">
-                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><Pill tone="navy">{document.category}</Pill><Pill tone={statusTone}>{document.status}</Pill>{document.sensitive ? <Pill tone="slate"><LockKeyhole className="mr-1 size-3" aria-hidden="true" />민감자료</Pill> : null}</div><p className="mt-3 text-xs font-semibold text-slate-500">{document.company}</p><h2 className="mt-1 text-base font-bold text-slate-950">{document.title}</h2>{document.fileName ? <p className="mt-2 [overflow-wrap:anywhere] text-xs leading-5 text-slate-500">{document.fileName}</p> : <p className="mt-2 text-xs leading-5 text-amber-700">아직 제출된 파일이 없습니다.</p>}</div><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-slate-50 text-[#0877b8]"><FileText className="size-5" aria-hidden="true" /></span></div>
+                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><Pill tone="navy">{document.category}</Pill><Pill tone={statusTone}>{document.status}</Pill>{document.sensitive ? <Pill tone="slate"><LockKeyhole className="mr-1 size-3" aria-hidden="true" />민감자료</Pill> : null}{document.storageFileId ? <Pill tone="green">보안저장 완료</Pill> : null}</div><p className="mt-3 text-xs font-semibold text-slate-500">{document.company}</p><h2 className="mt-1 text-base font-bold text-slate-950">{document.title}</h2>{document.fileName ? <p className="mt-2 [overflow-wrap:anywhere] text-xs leading-5 text-slate-500">{document.fileName}{document.fileSize ? ` · ${readableFileSize(document.fileSize)}` : ''}</p> : <p className="mt-2 text-xs leading-5 text-amber-700">아직 제출된 파일이 없습니다.</p>}{document.storageFileId ? <a href={`/api/files/${document.storageFileId}`} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl border border-sky-100 bg-sky-50 px-3 text-xs font-bold text-[#075f93] hover:bg-sky-100"><LockKeyhole className="size-3.5" aria-hidden="true" /> 권한 확인 후 원본 내려받기</a> : null}</div><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-slate-50 text-[#0877b8]"><FileText className="size-5" aria-hidden="true" /></span></div>
                 <div className="mt-4 grid grid-cols-3 gap-3 rounded-xl bg-slate-50 p-3 text-xs"><div><p className="text-slate-500">담당</p><p className="mt-1 font-bold text-slate-800">{document.assignedTrainee}</p></div><div><p className="text-slate-500">버전</p><p className="mt-1 font-bold text-slate-800">{document.version}</p></div><div><p className="text-slate-500">변경</p><p className="mt-1 font-bold text-slate-800">{document.updatedAt}</p></div></div>
                 <label className="mt-4 block"><span className="mb-2 block text-xs font-semibold text-slate-600">상태 변경</span><select value={document.status} onChange={(event) => changeStatus(document, event.target.value as CompanyDocument['status'])} className={inputClass}><option>요청중</option><option>제출완료</option><option>보완필요</option><option>검토완료</option></select></label>
               </article>;
@@ -1855,20 +1926,21 @@ function DocumentCenter({
         </CardContent>
       </Card>
 
-      <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">자료보안 운영원칙</p><p className="mt-1 text-xs leading-5 text-slate-600">주민번호·계좌번호는 마스킹하고 목적에 필요한 최소 자료만 등록합니다. 실제 운영에서는 파일을 암호화 저장하고 담당기업 권한을 서버에서 검사해야 합니다.</p></div></div></div>
+      <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">자료보안 운영원칙</p><p className="mt-1 text-xs leading-5 text-slate-600">주민번호·계좌번호는 마스킹하고 목적에 필요한 최소 자료만 등록합니다. 원본은 공개주소가 없는 전용 저장소에 보관하며, 서버가 관리자 또는 담당 파트너 권한을 확인한 뒤에만 내려받을 수 있습니다.</p></div></div></div>
 
       {uploadOpen ? <dialog open className="fixed inset-0 z-50 m-0 grid h-screen max-h-none w-screen max-w-none place-items-center border-0 bg-slate-950/45 p-4 backdrop-blur-sm" aria-labelledby="upload-modal-title">
         <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-          <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">가상 파일등록</p><h2 id="upload-modal-title" className="mt-1 text-xl font-bold">기업자료 등록</h2><p className="mt-1 text-sm text-slate-500">선택한 파일명과 상태만 화면에 기록합니다.</p></div><button type="button" onClick={() => setUploadOpen(false)} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="자료등록 닫기"><X className="size-5" aria-hidden="true" /></button></div>
+          <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">보안 원본파일 등록</p><h2 id="upload-modal-title" className="mt-1 text-xl font-bold">기업자료 등록</h2><p className="mt-1 text-sm text-slate-500">파일은 공개주소가 없는 기업자료 전용 저장소에 등록됩니다.</p></div><button type="button" onClick={() => setUploadOpen(false)} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="자료등록 닫기"><X className="size-5" aria-hidden="true" /></button></div>
           <div className="grid max-h-[65vh] gap-5 overflow-y-auto p-5 md:grid-cols-2">
             <Field label="기업명" required><input value={uploadCompany} onChange={(event) => setUploadCompany(event.target.value)} className={inputClass} /></Field>
             <Field label="담당 파트너" required><select value={uploadAssignee} onChange={(event) => setUploadAssignee(event.target.value)} className={inputClass} disabled={!isAdmin}>{members.filter((member) => member.status === '활성').map((member) => <option key={member.id}>{member.name.replace('(가상)', '')}</option>)}</select></Field>
-            <Field label="자료종류" required><select value={uploadCategory} onChange={(event) => setUploadCategory(event.target.value as CompanyDocument['category'])} className={inputClass}><option>사업자등록증</option><option>크레탑</option><option>재무제표</option><option>인증·특허</option><option>계약자료</option><option>요청서류</option><option>기타자료</option></select></Field>
+            <Field label="자료종류" required><select value={uploadCategory} onChange={(event) => setUploadCategory(event.target.value as CompanyDocument['category'])} className={inputClass}><option>사업자등록증</option><option>크레탑</option><option>재무제표</option><option>상담녹취</option><option>인증·특허</option><option>계약자료</option><option>요청서류</option><option>기타자료</option></select></Field>
             <Field label="자료명" required><input value={uploadTitle} onChange={(event) => setUploadTitle(event.target.value)} className={inputClass} /></Field>
-            <div className="md:col-span-2"><label className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 px-4 text-center hover:border-sky-300 hover:bg-sky-50"><Upload className="size-7 text-[#0877b8]" aria-hidden="true" /><span className="mt-3 text-sm font-semibold text-slate-800">{uploadFileName || 'PDF·이미지·엑셀 파일 선택'}</span><span className="mt-1 text-xs text-slate-500">시안에서는 파일 자체를 전송하거나 저장하지 않습니다.</span><input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls" className="sr-only" onChange={(event) => setUploadFileName(event.target.files?.[0]?.name ?? '')} /></label></div>
-            <div className="md:col-span-2 rounded-xl border border-amber-100 bg-amber-50 p-4 text-xs leading-5 text-amber-900">현재 단계에서는 실제 문서가 업로드되지 않습니다. 파일명과 제출상태만 새로고침 전까지 가상으로 표시됩니다.</div>
+            <div className="md:col-span-2"><label className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 px-4 text-center hover:border-sky-300 hover:bg-sky-50"><Upload className="size-7 text-[#0877b8]" aria-hidden="true" /><span className="mt-3 text-sm font-semibold text-slate-800">{uploadFile?.name || 'PDF·이미지·엑셀·워드·녹취 파일 선택'}</span><span className="mt-1 text-xs text-slate-500">파일당 25MB 이하 · MP3, M4A, WAV 녹취 포함</span><input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.docx,.txt,.mp3,.m4a,.wav" className="sr-only" onChange={(event) => { setUploadFile(event.target.files?.[0] ?? null); setUploadError(''); }} /></label></div>
+            <label className="md:col-span-2 flex cursor-pointer items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm font-semibold text-slate-700"><input type="checkbox" checked={uploadConsent} onChange={(event) => { setUploadConsent(event.target.checked); setUploadError(''); }} className="mt-1 size-4 accent-[#0877b8]" /><span>기업으로부터 자료 제출 권한을 확인했고 주민번호·계좌번호 등 불필요한 개인정보를 마스킹했습니다.</span></label>
+            {uploadError ? <p role="alert" className="md:col-span-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{uploadError}</p> : null}
           </div>
-          <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setUploadOpen(false)}>취소</SecondaryButton><PrimaryButton onClick={addDocument}><Upload className="size-4" aria-hidden="true" /> 자료 등록</PrimaryButton></div>
+          <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setUploadOpen(false)} disabled={uploading}>취소</SecondaryButton><PrimaryButton onClick={addDocument} disabled={uploading}>{uploading ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <Upload className="size-4" aria-hidden="true" />} {uploading ? '보안 저장 중' : '자료 등록'}</PrimaryButton></div>
         </div>
       </dialog> : null}
     </>
@@ -2227,22 +2299,41 @@ function ApplicationForm({
   onCancel,
   applicant,
 }: {
-  onDone: (files: string[], companyName: string, selectedServices: string[], applicantType: PartnerType, applicantName: string) => void;
+  onDone: (files: File[], companyName: string, selectedServices: string[], applicantType: PartnerType, applicantName: string) => Promise<void>;
   onCancel: () => void;
   applicant: { name: string; email: string; memberType: PartnerType; detail: string; editable: boolean };
 }) {
   const [step, setStep] = useState(1);
   const [selectedServices, setSelectedServices] = useState<string[]>(['정책자금']);
-  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [companyName, setCompanyName] = useState('세림테크(가상)');
   const [applicantType, setApplicantType] = useState<PartnerType>(applicant.memberType);
   const [applicantName, setApplicantName] = useState(applicant.name);
+  const [uploadConsent, setUploadConsent] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState('');
   const stepLabels = ['신청자', '기업정보', '요청서비스', '자료·동의'];
 
   function toggleService(service: string) {
     setSelectedServices((current) =>
       current.includes(service) ? current.filter((item) => item !== service) : [...current, service],
     );
+  }
+
+  async function submitApplication() {
+    if (!uploadConsent) {
+      setSubmitError('자료 제출 권한과 개인정보 마스킹 여부를 확인해 주세요.');
+      return;
+    }
+    setSubmitting(true);
+    setSubmitError('');
+    try {
+      await onDone(selectedFiles, companyName, selectedServices, applicantType, applicantName.trim() || applicant.name);
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : '협업신청을 제출하지 못했습니다.');
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -2349,11 +2440,11 @@ function ApplicationForm({
                 <p className="mt-1 text-xs leading-5 text-slate-500">주민번호·계좌번호 등 불필요한 개인정보는 마스킹 후 제출해 주세요.</p>
                 <label className="mt-4 flex min-h-36 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 px-4 text-center transition-colors hover:border-sky-300 hover:bg-sky-50">
                   <Upload className="size-7 text-[#0877b8]" aria-hidden="true" />
-                  <span className="mt-3 text-sm font-semibold text-slate-800">사업자등록증·크레탑·재무자료 선택</span>
-                  <span className="mt-1 text-xs text-slate-500">PDF, JPG, PNG, XLSX · 시안에서는 실제 업로드하지 않습니다.</span>
-                  <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls" className="sr-only" onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []).map((file) => file.name))} />
+                  <span className="mt-3 text-sm font-semibold text-slate-800">사업자등록증·크레탑·재무자료·상담녹취 선택</span>
+                  <span className="mt-1 text-xs text-slate-500">파일당 25MB 이하 · PDF, 이미지, 엑셀, 워드, MP3, M4A, WAV</span>
+                  <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.docx,.txt,.mp3,.m4a,.wav" className="sr-only" onChange={(event) => { setSelectedFiles(Array.from(event.target.files ?? [])); setSubmitError(''); }} />
                 </label>
-                {selectedFiles.length ? <div className="mt-3 space-y-2" aria-label="선택한 가상 제출파일">{selectedFiles.map((file) => <div key={file} className="flex min-h-11 items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50 px-4 text-sm font-semibold text-emerald-900"><FileCheck2 className="size-4 shrink-0" aria-hidden="true" /><span className="min-w-0 [overflow-wrap:anywhere]">{file}</span></div>)}</div> : null}
+                {selectedFiles.length ? <div className="mt-3 space-y-2" aria-label="선택한 제출파일">{selectedFiles.map((file) => <div key={`${file.name}-${file.size}`} className="flex min-h-11 items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50 px-4 text-sm font-semibold text-emerald-900"><FileCheck2 className="size-4 shrink-0" aria-hidden="true" /><span className="min-w-0 [overflow-wrap:anywhere]">{file.name} · {readableFileSize(file.size)}</span></div>)}</div> : null}
               </div>
 
               <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-5">
@@ -2363,24 +2454,25 @@ function ApplicationForm({
                     <p className="text-sm font-bold text-[#15375b]">자료제출 권한 확인</p>
                     <p className="mt-1 text-xs leading-5 text-slate-600">기업으로부터 협업 검토에 필요한 자료를 제출할 권한을 확인했으며, 목적에 필요한 최소한의 자료만 제출합니다.</p>
                     <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm font-semibold text-slate-700">
-                      <input type="checkbox" defaultChecked className="mt-1 size-4 accent-[#0877b8]" /> 위 내용을 확인했습니다.
+                      <input type="checkbox" checked={uploadConsent} onChange={(event) => { setUploadConsent(event.target.checked); setSubmitError(''); }} className="mt-1 size-4 accent-[#0877b8]" /> 위 내용을 확인했습니다.
                     </label>
                   </div>
                 </div>
               </div>
+              {submitError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{submitError}</p> : null}
             </div>
           ) : null}
         </CardContent>
 
         <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-between sm:px-6">
-          <SecondaryButton onClick={step === 1 ? onCancel : () => setStep((value) => Math.max(1, value - 1))}>
+          <SecondaryButton onClick={step === 1 ? onCancel : () => setStep((value) => Math.max(1, value - 1))} disabled={submitting}>
             <ChevronLeft className="size-4" aria-hidden="true" /> {step === 1 ? '취소' : '이전'}
           </SecondaryButton>
           <div className="flex gap-3">
-            <SecondaryButton className="flex-1 sm:flex-none">임시저장</SecondaryButton>
-            <PrimaryButton className="flex-1 sm:flex-none" onClick={step === 4 ? () => onDone(selectedFiles, companyName, selectedServices, applicantType, applicantName.trim() || applicant.name) : () => setStep((value) => Math.min(4, value + 1))}>
-              {step === 4 ? '협업신청 제출' : '다음'}
-              {step < 4 ? <ChevronRight className="size-4" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
+            <SecondaryButton className="flex-1 sm:flex-none" disabled={submitting}>임시저장</SecondaryButton>
+            <PrimaryButton className="flex-1 sm:flex-none" disabled={submitting} onClick={step === 4 ? submitApplication : () => setStep((value) => Math.min(4, value + 1))}>
+              {submitting ? '보안 저장 중' : step === 4 ? '협업신청 제출' : '다음'}
+              {submitting ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : step < 4 ? <ChevronRight className="size-4" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
             </PrimaryButton>
           </div>
         </div>
@@ -3196,7 +3288,44 @@ export default function Home() {
           {view === 'ai-diagnosis' ? <DiagnosisPreflight assessments={diagnosisAssessments} setAssessments={setDiagnosisAssessments} cases={cases} documents={companyDocuments} onOpenFiles={() => navigate('files')} onRequestDocuments={(caseId) => { setSelectedCaseId(caseId); navigate('documents'); }} onQueueDraft={queueDiagnosisDraft} notify={notify} /> : null}
           {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} /> : null}
           {view === 'access' ? <AccessManagement notify={notify} members={members} setMembers={setMembers} /> : null}
-          {view === 'application' ? <ApplicationForm applicant={collaborationApplicant} onCancel={() => navigate('trainee')} onDone={(files, companyName, selectedServices, applicantType, applicantName) => { const company = companyName.trim() || '신규기업(가상)'; const caseId = `case-${Date.now()}`; const service = selectedServices.join(' · ') || '기업컨설팅'; setCases((current) => current.some((item) => item.company === company) ? current : [{ id: caseId, company, service, trainee: applicantName, applicantType, stage: '접수', consultationCount: 0, nextAction: stageNextActions.접수, updatedAt: '방금 전', idleDays: 0, urgent: false }, ...current]); setTimeline((current) => current.some((item) => item.caseId === caseId) ? current : [...current, { caseId, date: '방금 전', title: '협업신청 접수', detail: `${service} 요청 / 주관 파트너 ${applicantName}`, type: '접수', tone: 'navy' }]); if (files.length) { setCompanyDocuments((current) => [...files.map((fileName, index): CompanyDocument => { const category = documentCategoryFromFileName(fileName); return { id: `file-application-${Date.now()}-${index}`, company, title: category === '기타자료' ? fileName : category, category, fileName, status: '제출완료', assignedTrainee: applicantName, submittedBy: isAdmin ? `김성민 대표 대리접수 · ${applicantType}` : `${applicantName} · ${applicantType}`, updatedAt: '방금 전', version: 'V1', sensitive: ['사업자등록증', '크레탑', '재무제표', '계약자료'].includes(category) }; }), ...current]); } notify(files.length ? `${applicantType} 협업신청과 가상 제출파일 ${files.length}건을 등록했습니다.` : `${applicantType} 협업신청을 진행현황에 접수했습니다.`); navigate(allowedViews.has('pipeline') ? 'pipeline' : 'trainee'); }} /> : null}
+          {view === 'application' ? <ApplicationForm applicant={collaborationApplicant} onCancel={() => navigate('trainee')} onDone={async (files, companyName, selectedServices, applicantType, applicantName) => {
+            const company = companyName.trim() || '신규기업';
+            const storedFiles: Array<{ source: File; category: CompanyDocument['category']; stored: StoredCompanyFile }> = [];
+            try {
+              for (const file of files) {
+                const category = documentCategoryFromFileName(file.name);
+                const title = category === '기타자료' ? file.name : category;
+                const stored = await uploadCompanyFile({ file, company, title, category, assignedTrainee: applicantName });
+                storedFiles.push({ source: file, category, stored });
+              }
+            } catch (error) {
+              await Promise.allSettled(storedFiles.map(({ stored }) => fetch(`/api/files/${stored.id}`, { method: 'DELETE' })));
+              throw error;
+            }
+            const caseId = `case-${Date.now()}`;
+            const service = selectedServices.join(' · ') || '기업컨설팅';
+            setCases((current) => current.some((item) => item.company === company) ? current : [{ id: caseId, company, service, trainee: applicantName, applicantType, stage: '접수', consultationCount: 0, nextAction: stageNextActions.접수, updatedAt: '방금 전', idleDays: 0, urgent: false }, ...current]);
+            setTimeline((current) => current.some((item) => item.caseId === caseId) ? current : [...current, { caseId, date: '방금 전', title: '협업신청 접수', detail: `${service} 요청 / 주관 파트너 ${applicantName}`, type: '접수', tone: 'navy' }]);
+            if (storedFiles.length) {
+              setCompanyDocuments((current) => [...storedFiles.map(({ source, category, stored }): CompanyDocument => ({
+                id: `file-${stored.id}`,
+                company,
+                title: category === '기타자료' ? source.name : category,
+                category,
+                fileName: stored.fileName,
+                storageFileId: stored.id,
+                fileSize: stored.sizeBytes,
+                status: '제출완료',
+                assignedTrainee: stored.assignedTrainee,
+                submittedBy: isAdmin ? `김성민 대표 대리접수 · ${applicantType}` : `${applicantName} · ${applicantType}`,
+                updatedAt: '방금 전',
+                version: 'V1',
+                sensitive: ['사업자등록증', '크레탑', '재무제표', '상담녹취', '계약자료'].includes(category),
+              })), ...current]);
+            }
+            notify(storedFiles.length ? `${applicantType} 협업신청과 보안 원본파일 ${storedFiles.length}건을 등록했습니다.` : `${applicantType} 협업신청을 진행현황에 접수했습니다.`);
+            navigate(allowedViews.has('pipeline') ? 'pipeline' : 'trainee');
+          }} /> : null}
           {view === 'case' ? <CaseDetail key={selectedCase.id} caseItem={selectedCase} timeline={selectedCaseTimeline} documents={companyDocuments} onConsult={() => navigate('consultation')} onDocuments={() => navigate('documents')} onSetDocumentDueDates={updateDocumentDueDates} onDocumentModal={(type) => { if (isAdmin || currentMember?.permissions.quoteContract) setModal(type); else notify('현재 로그인 계정에는 견적·계약 권한이 없습니다.'); }} canFileUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} canQuoteContract={isAdmin || Boolean(currentMember?.permissions.quoteContract)} /> : null}
           {view === 'consultation' ? <ConsultationForm key={selectedCase.id} number={consultationNumber} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={saveConsultation} /> : null}
           {view === 'documents' ? <DocumentRequest key={selectedCase.id} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={({ items, dueDate }) => { const requestNumber = selectedCaseTimeline.filter((item) => item.type === '서류').length + 1; const dueLabel = formatKoreanDate(dueDate); setTimeline((current) => [...current, { caseId: selectedCase.id, date: '방금 전', title: `서류요청 #${requestNumber} 등록`, detail: `요청서류 ${items.length}건 / 제출기한 ${dueLabel} / 전달 담당자: ${selectedCase.trainee} 파트너`, type: '서류', tone: 'amber' }]); setCompanyDocuments((current) => [...items.map((item, index): CompanyDocument => ({ id: `file-request-${Date.now()}-${index}`, company: selectedCase.company, title: item.name, category: '요청서류', status: '요청중', assignedTrainee: selectedCase.trainee, submittedBy: '기업대표 요청', updatedAt: '방금 전', dueDate, version: '-', sensitive: true })), ...current]); setTasks((current) => [{ id: `task-request-${Date.now()}`, company: selectedCase.company, title: `요청서류 ${items.length}건 제출 확인`, kind: '서류요청', assignee: selectedCase.trainee, due: dueLabel, dueState: 'upcoming', status: '대기', priority: '보통', related: `서류요청 #${requestNumber}` }, ...current]); setCases((current) => current.map((item) => item.id === selectedCase.id ? { ...item, nextAction: `요청서류 ${items.length}건 제출 확인`, updatedAt: '방금 전', idleDays: 0 } : item)); notify(`${selectedCase.company} 서류요청 ${items.length}건을 자료함과 업무목록에 등록했습니다.`); navigate('case'); }} /> : null}
