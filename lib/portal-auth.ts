@@ -108,7 +108,7 @@ export function requirePortalUser(request: Request, rawState: unknown): PortalUs
   const state = asPortalState(rawState);
   const member = state?.members.find((item) => item.email.trim().toLowerCase() === email);
   if (!member || member.status !== '활성') {
-    throw new PortalAccessError('등록되었거나 활성화된 교육생 계정이 아닙니다.', 403);
+    throw new PortalAccessError('등록되었거나 활성화된 파트너 계정이 아닙니다.', 403);
   }
 
   const memberName = normalizedMemberName(member.name);
@@ -146,7 +146,7 @@ function sanitizeScheduleForTrainee(record: PortalRecord, traineeName: string): 
   return {
     ...record,
     company: field(record, 'source') === 'google' ? '대표 일정 예약됨' : '협업 상담 예약됨',
-    service: field(record, 'source') === 'google' ? '상세 내용 비공개' : '담당 교육생만 상세 확인',
+    service: field(record, 'source') === 'google' ? '상세 내용 비공개' : '담당 파트너만 상세 확인',
     method: '시간만 공유',
     status: '예약됨',
     tone: 'slate',
@@ -217,12 +217,12 @@ export function mergeStateForPortalUser(currentRaw: unknown, incomingRaw: unknow
 
   if (user.role === 'admin') {
     const invalidEmail = incoming.members.find((member) => !isValidLoginEmail(member.email));
-    if (invalidEmail) throw new PortalAccessError('교육생 로그인 이메일 형식이 올바르지 않습니다.', 403);
+    if (invalidEmail) throw new PortalAccessError('파트너 로그인 이메일 형식이 올바르지 않습니다.', 403);
 
     const duplicateEmail = incoming.members.find((member) =>
       hasDuplicateLoginEmail(incoming.members, member.email, member.id),
     );
-    if (duplicateEmail) throw new PortalAccessError('이미 등록된 교육생 로그인 이메일입니다.', 403);
+    if (duplicateEmail) throw new PortalAccessError('이미 등록된 파트너 로그인 이메일입니다.', 403);
     return incoming;
   }
 
