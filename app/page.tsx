@@ -51,6 +51,7 @@ type View =
   | 'admin'
   | 'schedule'
   | 'tasks'
+  | 'files'
   | 'trainee'
   | 'access'
   | 'application'
@@ -64,12 +65,13 @@ const navItems: Array<{ view: View; label: string; icon: IconType }> = [
   { view: 'admin', label: '대표 대시보드', icon: LayoutDashboard },
   { view: 'schedule', label: '대표 상담일정', icon: CalendarDays },
   { view: 'tasks', label: '업무·알림', icon: ClipboardCheck },
+  { view: 'files', label: '기업자료함', icon: FolderOpen },
   { view: 'trainee', label: '교육생 화면', icon: Users },
   { view: 'access', label: '교육생 권한관리', icon: UserCog },
   { view: 'application', label: '새 협업신청', icon: FilePlus2 },
   { view: 'case', label: '기업·사건 상세', icon: BriefcaseBusiness },
   { view: 'consultation', label: '상담 등록', icon: MessageSquarePlus },
-  { view: 'documents', label: '서류 요청', icon: FolderOpen },
+  { view: 'documents', label: '서류요청 등록', icon: FileCheck2 },
 ];
 
 type ScheduleItem = {
@@ -129,6 +131,20 @@ type WorkTask = {
   related: string;
 };
 
+type CompanyDocument = {
+  id: string;
+  company: string;
+  title: string;
+  category: '사업자등록증' | '크레탑' | '재무제표' | '인증·특허' | '계약자료' | '요청서류' | '기타자료';
+  fileName?: string;
+  status: '요청중' | '제출완료' | '보완필요' | '검토완료';
+  assignedTrainee: string;
+  submittedBy: string;
+  updatedAt: string;
+  version: string;
+  sensitive: boolean;
+};
+
 const sampleTrainees: TraineeMember[] = [
   {
     id: 'trainee-1',
@@ -181,6 +197,25 @@ const sampleTasks: WorkTask[] = [
   { id: 'task-6', company: '한빛솔루션(가상)', title: '계약서 내부 검토 의견 반영', kind: '계약서', assignee: '김성민 대표', due: '08.28', dueState: 'overdue', status: '대기', priority: '긴급', related: '계약서 V1' },
   { id: 'task-7', company: '세림테크(가상)', title: '상담 후 요청자료 목록 발송', kind: '서류요청', assignee: '박지현', due: '08.29', dueState: 'today', status: '완료', priority: '보통', related: '상담 #2' },
 ];
+
+const sampleDocuments: CompanyDocument[] = [
+  { id: 'file-1', company: '세림테크(가상)', title: '사업자등록증', category: '사업자등록증', fileName: '세림테크_사업자등록증.pdf', status: '검토완료', assignedTrainee: '박지현', submittedBy: '박지현', updatedAt: '08.29 09:30', version: 'V1', sensitive: true },
+  { id: 'file-2', company: '세림테크(가상)', title: '크레탑 기업정보', category: '크레탑', fileName: '세림테크_Cretop_2026.pdf', status: '제출완료', assignedTrainee: '박지현', submittedBy: '박지현', updatedAt: '08.29 10:15', version: 'V1', sensitive: true },
+  { id: 'file-3', company: '세림테크(가상)', title: '최근 3개년 재무제표', category: '재무제표', status: '요청중', assignedTrainee: '박지현', submittedBy: '기업대표 요청', updatedAt: '08.30 제출기한', version: '-', sensitive: true },
+  { id: 'file-4', company: '미래에코(가상)', title: '기업부설연구소 인정서', category: '인증·특허', fileName: '연구소_인정서.pdf', status: '보완필요', assignedTrainee: '박지현', submittedBy: '박지현', updatedAt: '08.28 17:40', version: 'V1', sensitive: false },
+  { id: 'file-5', company: '가온푸드(가상)', title: '사업자등록증', category: '사업자등록증', fileName: '가온푸드_사업자등록증.jpg', status: '제출완료', assignedTrainee: '이준호', submittedBy: '이준호', updatedAt: '08.29 11:20', version: 'V1', sensitive: true },
+  { id: 'file-6', company: '더원로지스(가상)', title: '법인전환 검토자료', category: '계약자료', status: '요청중', assignedTrainee: '이준호', submittedBy: '기업대표 요청', updatedAt: '09.02 제출기한', version: '-', sensitive: true },
+];
+
+function documentCategoryFromFileName(fileName: string): CompanyDocument['category'] {
+  const normalized = fileName.toLowerCase();
+  if (normalized.includes('사업자')) return '사업자등록증';
+  if (normalized.includes('cretop') || normalized.includes('크레탑')) return '크레탑';
+  if (normalized.includes('재무') || normalized.includes('결산')) return '재무제표';
+  if (normalized.includes('특허') || normalized.includes('인증')) return '인증·특허';
+  if (normalized.includes('계약')) return '계약자료';
+  return '기타자료';
+}
 
 const sampleSchedule: ScheduleItem[] = [
   {
@@ -1069,6 +1104,143 @@ function WorkManagement({
   );
 }
 
+function DocumentCenter({
+  documents,
+  setDocuments,
+  members,
+  isAdmin,
+  currentName,
+  notify,
+}: {
+  documents: CompanyDocument[];
+  setDocuments: React.Dispatch<React.SetStateAction<CompanyDocument[]>>;
+  members: TraineeMember[];
+  isAdmin: boolean;
+  currentName: string;
+  notify: (message: string) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'전체' | CompanyDocument['status']>('전체');
+  const [companyFilter, setCompanyFilter] = useState('전체 기업');
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [uploadCompany, setUploadCompany] = useState('세림테크(가상)');
+  const [uploadTitle, setUploadTitle] = useState('사업자등록증');
+  const [uploadCategory, setUploadCategory] = useState<CompanyDocument['category']>('사업자등록증');
+  const [uploadAssignee, setUploadAssignee] = useState(isAdmin ? '박지현' : currentName);
+  const [uploadFileName, setUploadFileName] = useState('');
+
+  const accountDocuments = isAdmin ? documents : documents.filter((document) => document.assignedTrainee === currentName);
+  const companies = ['전체 기업', ...Array.from(new Set(accountDocuments.map((document) => document.company)))];
+  const visibleDocuments = accountDocuments.filter((document) => {
+    const keywordMatch = `${document.company} ${document.title} ${document.category} ${document.fileName ?? ''}`.toLowerCase().includes(query.toLowerCase());
+    const statusMatch = statusFilter === '전체' || document.status === statusFilter;
+    const companyMatch = companyFilter === '전체 기업' || document.company === companyFilter;
+    return keywordMatch && statusMatch && companyMatch;
+  });
+  const counts = {
+    total: accountDocuments.length,
+    requested: accountDocuments.filter((document) => document.status === '요청중').length,
+    revision: accountDocuments.filter((document) => document.status === '보완필요').length,
+    reviewed: accountDocuments.filter((document) => document.status === '검토완료').length,
+  };
+
+  function changeStatus(document: CompanyDocument, status: CompanyDocument['status']) {
+    setDocuments((current) => current.map((item) => item.id === document.id ? { ...item, status, updatedAt: '방금 전' } : item));
+    notify(`${document.title} 상태를 ${status}(으)로 변경했습니다.`);
+  }
+
+  function addDocument() {
+    if (!uploadFileName) {
+      notify('가상 등록할 파일을 선택해 주세요.');
+      return;
+    }
+    setDocuments((current) => [
+      {
+        id: `file-${Date.now()}`,
+        company: uploadCompany,
+        title: uploadTitle.trim() || uploadCategory,
+        category: uploadCategory,
+        fileName: uploadFileName,
+        status: '제출완료',
+        assignedTrainee: uploadAssignee,
+        submittedBy: isAdmin ? '김성민 대표' : currentName,
+        updatedAt: '방금 전',
+        version: 'V1',
+        sensitive: ['사업자등록증', '크레탑', '재무제표', '계약자료'].includes(uploadCategory),
+      },
+      ...current,
+    ]);
+    setUploadFileName('');
+    setUploadOpen(false);
+    notify('가상 자료함에 파일정보를 등록했습니다. 실제 파일은 업로드되지 않았습니다.');
+  }
+
+  return (
+    <>
+      <PageIntro
+        eyebrow={isAdmin ? '기업자료 통합관리' : '담당기업 자료관리'}
+        title="기업별 자료함"
+        description={isAdmin ? '사업자등록증·크레탑·재무제표와 상담 중 요청한 서류를 기업별로 모아 제출·보완·검토 상태를 관리합니다.' : '본인이 담당하는 기업의 자료만 확인하고 제출상태와 보완 여부를 변경할 수 있습니다.'}
+        action={<PrimaryButton onClick={() => setUploadOpen(true)}><Upload className="size-4" aria-hidden="true" /> 자료 등록</PrimaryButton>}
+      />
+
+      <section aria-label="자료 제출현황 요약" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          ['전체 자료', counts.total, FolderOpen, '담당기업 기준'],
+          ['제출 요청중', counts.requested, Clock3, '기업대표 회신 대기'],
+          ['보완 필요', counts.revision, AlertCircle, '재제출 확인 필요'],
+          ['검토 완료', counts.reviewed, FileCheck2, '사용 가능 자료'],
+        ].map(([label, value, Icon, hint]) => {
+          const MetricIcon = Icon as IconType;
+          return <Card key={String(label)} className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80"><CardHeader><CardTitle className="text-sm font-semibold text-slate-600">{String(label)}</CardTitle><CardAction className="grid size-10 place-items-center rounded-xl bg-sky-50 text-[#0877b8]"><MetricIcon className="size-5" aria-hidden="true" /></CardAction></CardHeader><CardContent><p className="text-3xl font-bold tabular-nums text-[#15375b]">{String(value)}</p><p className="mt-2 text-xs text-slate-500">{String(hint)}</p></CardContent></Card>;
+        })}
+      </section>
+
+      <Card className="mt-6 border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
+        <CardHeader className="border-b border-slate-100">
+          <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
+            <div><CardTitle className="text-lg font-bold">기업자료 목록</CardTitle><CardDescription className="mt-1">파일명보다 자료종류와 검토상태를 우선 확인하세요.</CardDescription></div>
+            <div className="grid gap-2 sm:grid-cols-3 xl:min-w-[720px]">
+              <label className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-slate-500"><Search className="size-4" aria-hidden="true" /><span className="sr-only">기업자료 검색</span><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none" placeholder="기업·자료명 검색" /></label>
+              <label><span className="sr-only">기업 필터</span><select value={companyFilter} onChange={(event) => setCompanyFilter(event.target.value)} className={inputClass}>{companies.map((company) => <option key={company}>{company}</option>)}</select></label>
+              <label><span className="sr-only">자료상태 필터</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as '전체' | CompanyDocument['status'])} className={inputClass}><option>전체</option><option>요청중</option><option>제출완료</option><option>보완필요</option><option>검토완료</option></select></label>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-1">
+          {visibleDocuments.length ? <div className="grid gap-4 lg:grid-cols-2">
+            {visibleDocuments.map((document) => {
+              const statusTone = document.status === '검토완료' ? 'green' : document.status === '보완필요' ? 'red' : document.status === '제출완료' ? 'blue' : 'amber';
+              return <article key={document.id} className="rounded-2xl border border-slate-200 bg-white p-5">
+                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><Pill tone="navy">{document.category}</Pill><Pill tone={statusTone}>{document.status}</Pill>{document.sensitive ? <Pill tone="slate"><LockKeyhole className="mr-1 size-3" aria-hidden="true" />민감자료</Pill> : null}</div><p className="mt-3 text-xs font-semibold text-slate-500">{document.company}</p><h2 className="mt-1 text-base font-bold text-slate-950">{document.title}</h2>{document.fileName ? <p className="mt-2 [overflow-wrap:anywhere] text-xs leading-5 text-slate-500">{document.fileName}</p> : <p className="mt-2 text-xs leading-5 text-amber-700">아직 제출된 파일이 없습니다.</p>}</div><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-slate-50 text-[#0877b8]"><FileText className="size-5" aria-hidden="true" /></span></div>
+                <div className="mt-4 grid grid-cols-3 gap-3 rounded-xl bg-slate-50 p-3 text-xs"><div><p className="text-slate-500">담당</p><p className="mt-1 font-bold text-slate-800">{document.assignedTrainee}</p></div><div><p className="text-slate-500">버전</p><p className="mt-1 font-bold text-slate-800">{document.version}</p></div><div><p className="text-slate-500">변경</p><p className="mt-1 font-bold text-slate-800">{document.updatedAt}</p></div></div>
+                <label className="mt-4 block"><span className="mb-2 block text-xs font-semibold text-slate-600">상태 변경</span><select value={document.status} onChange={(event) => changeStatus(document, event.target.value as CompanyDocument['status'])} className={inputClass}><option>요청중</option><option>제출완료</option><option>보완필요</option><option>검토완료</option></select></label>
+              </article>;
+            })}
+          </div> : <div className="rounded-2xl border border-dashed border-slate-200 p-10 text-center"><FolderOpen className="mx-auto size-9 text-slate-300" aria-hidden="true" /><p className="mt-3 text-sm font-bold text-slate-700">조건에 맞는 자료가 없습니다.</p><button type="button" onClick={() => { setQuery(''); setStatusFilter('전체'); setCompanyFilter('전체 기업'); }} className="mt-3 min-h-11 rounded-xl px-4 text-sm font-semibold text-[#0877b8] hover:bg-sky-50">필터 초기화</button></div>}
+        </CardContent>
+      </Card>
+
+      <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">자료보안 운영원칙</p><p className="mt-1 text-xs leading-5 text-slate-600">주민번호·계좌번호는 마스킹하고 목적에 필요한 최소 자료만 등록합니다. 실제 운영에서는 파일을 암호화 저장하고 담당기업 권한을 서버에서 검사해야 합니다.</p></div></div></div>
+
+      {uploadOpen ? <dialog open className="fixed inset-0 z-50 m-0 grid h-screen max-h-none w-screen max-w-none place-items-center border-0 bg-slate-950/45 p-4 backdrop-blur-sm" aria-labelledby="upload-modal-title">
+        <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">가상 파일등록</p><h2 id="upload-modal-title" className="mt-1 text-xl font-bold">기업자료 등록</h2><p className="mt-1 text-sm text-slate-500">선택한 파일명과 상태만 화면에 기록합니다.</p></div><button type="button" onClick={() => setUploadOpen(false)} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="자료등록 닫기"><X className="size-5" aria-hidden="true" /></button></div>
+          <div className="grid max-h-[65vh] gap-5 overflow-y-auto p-5 md:grid-cols-2">
+            <Field label="기업명" required><input value={uploadCompany} onChange={(event) => setUploadCompany(event.target.value)} className={inputClass} /></Field>
+            <Field label="담당 교육생" required><select value={uploadAssignee} onChange={(event) => setUploadAssignee(event.target.value)} className={inputClass} disabled={!isAdmin}>{members.filter((member) => member.status === '활성').map((member) => <option key={member.id}>{member.name.replace('(가상)', '')}</option>)}</select></Field>
+            <Field label="자료종류" required><select value={uploadCategory} onChange={(event) => setUploadCategory(event.target.value as CompanyDocument['category'])} className={inputClass}><option>사업자등록증</option><option>크레탑</option><option>재무제표</option><option>인증·특허</option><option>계약자료</option><option>요청서류</option><option>기타자료</option></select></Field>
+            <Field label="자료명" required><input value={uploadTitle} onChange={(event) => setUploadTitle(event.target.value)} className={inputClass} /></Field>
+            <div className="md:col-span-2"><label className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 px-4 text-center hover:border-sky-300 hover:bg-sky-50"><Upload className="size-7 text-[#0877b8]" aria-hidden="true" /><span className="mt-3 text-sm font-semibold text-slate-800">{uploadFileName || 'PDF·이미지·엑셀 파일 선택'}</span><span className="mt-1 text-xs text-slate-500">시안에서는 파일 자체를 전송하거나 저장하지 않습니다.</span><input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls" className="sr-only" onChange={(event) => setUploadFileName(event.target.files?.[0]?.name ?? '')} /></label></div>
+            <div className="md:col-span-2 rounded-xl border border-amber-100 bg-amber-50 p-4 text-xs leading-5 text-amber-900">현재 단계에서는 실제 문서가 업로드되지 않습니다. 파일명과 제출상태만 새로고침 전까지 가상으로 표시됩니다.</div>
+          </div>
+          <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setUploadOpen(false)}>취소</SecondaryButton><PrimaryButton onClick={addDocument}><Upload className="size-4" aria-hidden="true" /> 자료 등록</PrimaryButton></div>
+        </div>
+      </dialog> : null}
+    </>
+  );
+}
+
 const permissionLabels: Array<{ key: keyof TraineeMember['permissions']; label: string; detail: string }> = [
   { key: 'sharedSchedule', label: '대표 공유일정', detail: '대표의 예약 가능·불가 시간과 담당기업 상담 확인' },
   { key: 'collaborationApply', label: '협업신청 등록', detail: '새 기업 협업신청 작성 및 임시저장' },
@@ -1223,9 +1395,10 @@ function AccessManagement({
   );
 }
 
-function ApplicationForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
+function ApplicationForm({ onDone, onCancel }: { onDone: (files: string[]) => void; onCancel: () => void }) {
   const [step, setStep] = useState(1);
   const [selectedServices, setSelectedServices] = useState<string[]>(['정책자금']);
+  const [selectedFiles, setSelectedFiles] = useState<string[]>([]);
   const stepLabels = ['신청자', '기업정보', '요청서비스', '자료·동의'];
 
   function toggleService(service: string) {
@@ -1338,8 +1511,9 @@ function ApplicationForm({ onDone, onCancel }: { onDone: () => void; onCancel: (
                   <Upload className="size-7 text-[#0877b8]" aria-hidden="true" />
                   <span className="mt-3 text-sm font-semibold text-slate-800">사업자등록증·크레탑·재무자료 선택</span>
                   <span className="mt-1 text-xs text-slate-500">PDF, JPG, PNG, XLSX · 시안에서는 실제 업로드하지 않습니다.</span>
-                  <input type="file" multiple className="sr-only" />
+                  <input type="file" multiple accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls" className="sr-only" onChange={(event) => setSelectedFiles(Array.from(event.target.files ?? []).map((file) => file.name))} />
                 </label>
+                {selectedFiles.length ? <div className="mt-3 space-y-2" aria-label="선택한 가상 제출파일">{selectedFiles.map((file) => <div key={file} className="flex min-h-11 items-center gap-3 rounded-xl border border-emerald-100 bg-emerald-50 px-4 text-sm font-semibold text-emerald-900"><FileCheck2 className="size-4 shrink-0" aria-hidden="true" /><span className="min-w-0 [overflow-wrap:anywhere]">{file}</span></div>)}</div> : null}
               </div>
 
               <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-5">
@@ -1364,7 +1538,7 @@ function ApplicationForm({ onDone, onCancel }: { onDone: () => void; onCancel: (
           </SecondaryButton>
           <div className="flex gap-3">
             <SecondaryButton className="flex-1 sm:flex-none">임시저장</SecondaryButton>
-            <PrimaryButton className="flex-1 sm:flex-none" onClick={step === 4 ? onDone : () => setStep((value) => Math.min(4, value + 1))}>
+            <PrimaryButton className="flex-1 sm:flex-none" onClick={step === 4 ? () => onDone(selectedFiles) : () => setStep((value) => Math.min(4, value + 1))}>
               {step === 4 ? '협업신청 제출' : '다음'}
               {step < 4 ? <ChevronRight className="size-4" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
             </PrimaryButton>
@@ -1643,7 +1817,7 @@ function ConsultationForm({
   );
 }
 
-function DocumentRequest({ onSave, onCancel }: { onSave: () => void; onCancel: () => void }) {
+function DocumentRequest({ onSave, onCancel }: { onSave: (items: Array<{ name: string; required: boolean }>) => void; onCancel: () => void }) {
   const [items, setItems] = useState([
     { name: '최근 3개년 재무제표', required: true },
     { name: '부가가치세 과세표준증명', required: true },
@@ -1702,7 +1876,7 @@ function DocumentRequest({ onSave, onCancel }: { onSave: () => void; onCancel: (
         </CardContent>
         <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-6">
           <SecondaryButton onClick={onCancel}>취소</SecondaryButton>
-          <PrimaryButton onClick={onSave}><Send className="size-4" /> 서류요청 등록</PrimaryButton>
+          <PrimaryButton onClick={() => onSave(items)}><Send className="size-4" /> 서류요청 등록</PrimaryButton>
         </div>
       </Card>
     </>
@@ -1791,6 +1965,7 @@ export default function Home() {
   const [timeline, setTimeline] = useState(baseTimeline);
   const [schedule, setSchedule] = useState<ScheduleItem[]>(sampleSchedule);
   const [tasks, setTasks] = useState<WorkTask[]>(sampleTasks);
+  const [companyDocuments, setCompanyDocuments] = useState<CompanyDocument[]>(sampleDocuments);
   const [members, setMembers] = useState<TraineeMember[]>(sampleTrainees);
   const [currentAccountId, setCurrentAccountId] = useState('admin');
   const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);
@@ -1808,6 +1983,7 @@ export default function Home() {
     return navItems.filter((item) => {
       if (item.view === 'trainee') return true;
       if (item.view === 'tasks') return true;
+      if (item.view === 'files') return currentMember.permissions.fileUpload;
       if (item.view === 'schedule') return currentMember.permissions.sharedSchedule;
       if (item.view === 'application') return currentMember.permissions.collaborationApply;
       if (item.view === 'case' || item.view === 'consultation') return currentMember.permissions.ownCases;
@@ -1975,12 +2151,13 @@ export default function Home() {
           {view === 'admin' ? <AdminDashboard onOpenCase={() => navigate('case')} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} /> : null}
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}
           {view === 'tasks' ? <WorkManagement tasks={tasks} setTasks={setTasks} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} /> : null}
+          {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} /> : null}
           {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} /> : null}
           {view === 'access' ? <AccessManagement notify={notify} members={members} setMembers={setMembers} /> : null}
-          {view === 'application' ? <ApplicationForm onCancel={() => navigate('trainee')} onDone={() => { notify('협업신청이 접수되었습니다.'); navigate('trainee'); }} /> : null}
+          {view === 'application' ? <ApplicationForm onCancel={() => navigate('trainee')} onDone={(files) => { if (files.length) { setCompanyDocuments((current) => [...files.map((fileName, index): CompanyDocument => { const category = documentCategoryFromFileName(fileName); return { id: `file-application-${Date.now()}-${index}`, company: '세림테크(가상)', title: category === '기타자료' ? fileName : category, category, fileName, status: '제출완료', assignedTrainee: traineeName, submittedBy: isAdmin ? '김성민 대표' : traineeName, updatedAt: '방금 전', version: 'V1', sensitive: ['사업자등록증', '크레탑', '재무제표', '계약자료'].includes(category) }; }), ...current]); } notify(files.length ? `협업신청과 가상 제출파일 ${files.length}건을 등록했습니다.` : '협업신청이 접수되었습니다.'); navigate(files.length && allowedViews.has('files') ? 'files' : 'trainee'); }} /> : null}
           {view === 'case' ? <CaseDetail timeline={timeline} onConsult={() => navigate('consultation')} onDocuments={() => navigate('documents')} onDocumentModal={(type) => { if (isAdmin || currentMember?.permissions.quoteContract) setModal(type); else notify('현재 가상 계정에는 견적·계약 권한이 없습니다.'); }} canFileUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} canQuoteContract={isAdmin || Boolean(currentMember?.permissions.quoteContract)} assignedTrainee={isAdmin ? '박지현' : traineeName} /> : null}
           {view === 'consultation' ? <ConsultationForm number={consultationNumber} onCancel={() => navigate('case')} onSave={saveConsultation} /> : null}
-          {view === 'documents' ? <DocumentRequest onCancel={() => navigate('case')} onSave={() => { setTimeline((current) => [...current, { date: '방금 전', title: '서류요청 #2 등록', detail: '요청대상: 기업대표 / 전달 담당자: 박지현 교육생', type: '서류', tone: 'amber' }]); notify('서류요청 #2가 등록되었습니다.'); navigate('case'); }} /> : null}
+          {view === 'documents' ? <DocumentRequest onCancel={() => navigate('case')} onSave={(items) => { setTimeline((current) => [...current, { date: '방금 전', title: '서류요청 #2 등록', detail: `요청서류 ${items.length}건 / 전달 담당자: ${traineeName} 교육생`, type: '서류', tone: 'amber' }]); setCompanyDocuments((current) => [...items.map((item, index): CompanyDocument => ({ id: `file-request-${Date.now()}-${index}`, company: '세림테크(가상)', title: item.name, category: '요청서류', status: '요청중', assignedTrainee: traineeName, submittedBy: '기업대표 요청', updatedAt: '09.05 제출기한', version: '-', sensitive: true })), ...current]); setTasks((current) => [{ id: `task-request-${Date.now()}`, company: '세림테크(가상)', title: `요청서류 ${items.length}건 제출 확인`, kind: '서류요청', assignee: traineeName, due: '09.05', dueState: 'upcoming', status: '대기', priority: '보통', related: '서류요청 #2' }, ...current]); notify(`서류요청 ${items.length}건을 자료함과 업무목록에 등록했습니다.`); navigate('files'); }} /> : null}
         </main>
       </div>
 
