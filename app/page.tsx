@@ -13,6 +13,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   Clock3,
+  ExternalLink,
   FileCheck2,
   FilePlus2,
   FileText,
@@ -21,6 +22,7 @@ import {
   Menu,
   MessageSquarePlus,
   Plus,
+  RefreshCw,
   Search,
   Send,
   ShieldCheck,
@@ -40,6 +42,7 @@ import {
 
 type View =
   | 'admin'
+  | 'schedule'
   | 'trainee'
   | 'application'
   | 'case'
@@ -50,11 +53,106 @@ type IconType = typeof LayoutDashboard;
 
 const navItems: Array<{ view: View; label: string; icon: IconType }> = [
   { view: 'admin', label: '대표 대시보드', icon: LayoutDashboard },
+  { view: 'schedule', label: '대표 상담일정', icon: CalendarDays },
   { view: 'trainee', label: '교육생 화면', icon: Users },
   { view: 'application', label: '새 협업신청', icon: FilePlus2 },
   { view: 'case', label: '기업·사건 상세', icon: BriefcaseBusiness },
   { view: 'consultation', label: '상담 등록', icon: MessageSquarePlus },
   { view: 'documents', label: '서류 요청', icon: FolderOpen },
+];
+
+type ScheduleItem = {
+  id: string;
+  date: string;
+  weekday: string;
+  time: string;
+  end: string;
+  company: string;
+  service: string;
+  method: string;
+  status: string;
+  tone: string;
+  source: 'partner' | 'google';
+  private?: boolean;
+};
+
+type ConsultationPayload = {
+  followUps: string[];
+  calendarSync: boolean;
+  title: string;
+  startsAt: string;
+  method: string;
+  status: string;
+};
+
+const sampleSchedule: ScheduleItem[] = [
+  {
+    id: 'schedule-1',
+    date: '09.02',
+    weekday: '수',
+    time: '10:00',
+    end: '11:00',
+    company: '세림테크(가상)',
+    service: '정책자금 1차 상담',
+    method: '화상',
+    status: '확정',
+    tone: 'green',
+    source: 'partner',
+  },
+  {
+    id: 'schedule-2',
+    date: '09.02',
+    weekday: '수',
+    time: '14:30',
+    end: '15:30',
+    company: '가온푸드(가상)',
+    service: '기업인증 상담',
+    method: '전화',
+    status: '확정',
+    tone: 'blue',
+    source: 'partner',
+  },
+  {
+    id: 'schedule-3',
+    date: '09.03',
+    weekday: '목',
+    time: '16:30',
+    end: '17:30',
+    company: '개인 일정',
+    service: '내용 비공개',
+    method: 'Google 일정',
+    status: '바쁨',
+    tone: 'slate',
+    source: 'google',
+    private: true,
+  },
+  {
+    id: 'schedule-4',
+    date: '09.04',
+    weekday: '금',
+    time: '11:00',
+    end: '12:00',
+    company: '더원로지스(가상)',
+    service: '영업권·법인전환 상담',
+    method: '방문',
+    status: '일정요청',
+    tone: 'amber',
+    source: 'partner',
+  },
+  {
+    id: 'schedule-5',
+    date: '09.07',
+    weekday: '월',
+    time: '21:30',
+    end: '23:00',
+    company: '개인 일정',
+    service: '내용 비공개',
+    method: 'Google 일정',
+    status: '바쁨',
+    tone: 'slate',
+    source: 'google',
+    private: true,
+  },
 ];
 
 const baseTimeline = [
@@ -213,7 +311,57 @@ function PageIntro({
   );
 }
 
-function AdminDashboard({ onOpenCase }: { onOpenCase: () => void }) {
+function googleCalendarUrl(item: ScheduleItem) {
+  const date = `2026${item.date.replace('.', '')}`;
+  const start = `${date}T${item.time.replace(':', '')}00`;
+  const end = `${date}T${item.end.replace(':', '')}00`;
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: `[한기평 상담] ${item.company} - ${item.service}`,
+    dates: `${start}/${end}`,
+    details: `한기평 파트너 허브 상담일정\n상담방식: ${item.method}`,
+    ctz: 'Asia/Seoul',
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
+function ScheduleRow({ item, compact = false }: { item: ScheduleItem; compact?: boolean }) {
+  return (
+    <div className={`grid items-center gap-3 ${compact ? 'grid-cols-[72px_minmax(0,1fr)] py-3' : 'grid-cols-[76px_minmax(0,1fr)_auto] rounded-2xl border border-slate-100 bg-white p-4'}`}>
+      <div className="text-center">
+        <p className="text-sm font-bold tabular-nums text-[#15375b]">{item.time}</p>
+        <p className="mt-0.5 text-[11px] tabular-nums text-slate-400">~ {item.end}</p>
+      </div>
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="truncate text-sm font-bold text-slate-900">{item.company}</p>
+          <Pill tone={item.tone}>{item.status}</Pill>
+        </div>
+        <p className="mt-1 truncate text-xs text-slate-500">{item.service} · {item.method}</p>
+      </div>
+      {!compact && item.source === 'partner' ? (
+        <a
+          href={googleCalendarUrl(item)}
+          target="_blank"
+          rel="noreferrer"
+          className="hidden min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 sm:inline-flex"
+        >
+          <CalendarDays className="size-4 text-[#0877b8]" aria-hidden="true" /> 캘린더에 추가
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+function AdminDashboard({
+  onOpenCase,
+  onOpenSchedule,
+  schedule,
+}: {
+  onOpenCase: () => void;
+  onOpenSchedule: () => void;
+  schedule: ScheduleItem[];
+}) {
   return (
     <>
       <PageIntro
@@ -239,6 +387,32 @@ function AdminDashboard({ onOpenCase }: { onOpenCase: () => void }) {
           </Card>
         ))}
       </section>
+
+      <Card className="mt-6 border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
+        <CardHeader className="border-b border-slate-100">
+          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-lg font-bold">
+                <CalendarDays className="size-5 text-[#0877b8]" aria-hidden="true" />
+                김성민 대표 다음 상담일정
+              </CardTitle>
+              <CardDescription className="mt-1">파트너 허브 상담과 Google Calendar의 바쁜 시간을 함께 확인합니다.</CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Pill tone="green">Google 계정 연결 확인</Pill>
+              <SecondaryButton onClick={onOpenSchedule}>전체 일정 보기 <ChevronRight className="size-4" aria-hidden="true" /></SecondaryButton>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="divide-y pt-1">
+          {schedule.slice(0, 3).map((item) => (
+            <div key={item.id} className="grid gap-2 py-1 sm:grid-cols-[84px_minmax(0,1fr)] sm:items-center">
+              <p className="px-1 text-xs font-bold text-slate-500">{item.date}({item.weekday})</p>
+              <ScheduleRow item={item} compact />
+            </div>
+          ))}
+        </CardContent>
+      </Card>
 
       <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(340px,0.85fr)]">
         <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
@@ -299,6 +473,150 @@ function AdminDashboard({ onOpenCase }: { onOpenCase: () => void }) {
             ))}
           </CardContent>
         </Card>
+      </section>
+    </>
+  );
+}
+
+function SchedulePage({
+  schedule,
+  onNewConsultation,
+  notify,
+}: {
+  schedule: ScheduleItem[];
+  onNewConsultation: () => void;
+  notify: (message: string) => void;
+}) {
+  const [filter, setFilter] = useState<'all' | 'partner' | 'google'>('all');
+  const visibleSchedule = schedule.filter((item) => filter === 'all' || item.source === filter);
+  const days = ['09.01|화', '09.02|수', '09.03|목', '09.04|금', '09.05|토', '09.06|일', '09.07|월'];
+
+  return (
+    <>
+      <PageIntro
+        eyebrow="대표 일정관리"
+        title="김성민 대표 상담일정"
+        description="기업상담 일정과 Google Calendar의 바쁜 시간을 한 화면에서 확인하고 중복 예약을 예방합니다."
+        action={
+          <PrimaryButton onClick={onNewConsultation}>
+            <Plus className="size-4" aria-hidden="true" /> 새 상담 예약
+          </PrimaryButton>
+        }
+      />
+
+      <section className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(320px,0.72fr)]">
+        <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
+          <CardHeader className="border-b border-slate-100">
+            <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+              <div>
+                <CardTitle className="text-lg font-bold">2026년 9월 1주</CardTitle>
+                <CardDescription className="mt-1">상담 제목이 아닌 시간만 공유할 수 있도록 개인 일정은 비공개 처리합니다.</CardDescription>
+              </div>
+              <div className="flex flex-wrap gap-2" aria-label="일정 필터">
+                {[
+                  ['all', '전체 일정'],
+                  ['partner', '상담 일정'],
+                  ['google', 'Google 일정'],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    aria-pressed={filter === value}
+                    onClick={() => setFilter(value as 'all' | 'partner' | 'google')}
+                    className={`min-h-11 rounded-xl border px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${filter === value ? 'border-[#0877b8] bg-sky-50 text-[#075f93]' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-1">
+            <div className="space-y-4 lg:hidden">
+              {visibleSchedule.length ? visibleSchedule.map((item) => (
+                <div key={item.id}>
+                  <p className="mb-2 text-xs font-bold text-slate-500">{item.date}({item.weekday})</p>
+                  <ScheduleRow item={item} />
+                </div>
+              )) : (
+                <div className="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">선택한 조건의 일정이 없습니다.</div>
+              )}
+            </div>
+
+            <div className="hidden grid-cols-7 gap-2 lg:grid">
+              {days.map((day) => {
+                const [date, weekday] = day.split('|');
+                const events = visibleSchedule.filter((item) => item.date === date);
+                return (
+                  <section key={day} aria-label={`${date} ${weekday}요일 일정`} className="min-h-[430px] rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
+                    <div className="border-b border-slate-200 pb-3 text-center">
+                      <p className="text-xs font-semibold text-slate-500">{weekday}요일</p>
+                      <p className="mt-1 text-lg font-bold tabular-nums text-[#15375b]">{date.split('.')[1]}</p>
+                    </div>
+                    <div className="mt-3 space-y-3">
+                      {events.map((item) => (
+                        <article key={item.id} className={`rounded-xl border p-3 ${item.source === 'google' ? 'border-slate-200 bg-white' : 'border-sky-100 bg-sky-50'}`}>
+                          <p className="text-xs font-bold tabular-nums text-[#15375b]">{item.time}–{item.end}</p>
+                          <p className="mt-2 text-xs font-bold leading-5 text-slate-800">{item.company}</p>
+                          <p className="mt-1 text-[11px] leading-4 text-slate-500">{item.service}</p>
+                          <div className="mt-2"><Pill tone={item.tone}>{item.status}</Pill></div>
+                        </article>
+                      ))}
+                      {!events.length ? <p className="pt-8 text-center text-xs text-slate-400">예약 가능</p> : null}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="space-y-6">
+          <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
+            <CardHeader className="border-b border-slate-100">
+              <CardTitle className="flex items-center gap-2 text-lg font-bold">
+                <RefreshCw className="size-5 text-[#0877b8]" aria-hidden="true" /> Google Calendar
+              </CardTitle>
+              <CardDescription>김성민 대표 계정 연결을 확인했습니다.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 pt-1">
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-bold text-emerald-900">계정 연결 확인</p>
+                    <p className="mt-1 text-xs leading-5 text-emerald-800">사이트 자동 동기화는 Google OAuth 승인 후 활성화됩니다.</p>
+                  </div>
+                  <span className="grid size-10 shrink-0 place-items-center rounded-full bg-white text-emerald-700"><Check className="size-5" aria-hidden="true" /></span>
+                </div>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                <a href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100">
+                  <ExternalLink className="size-4 text-[#0877b8]" aria-hidden="true" /> Google Calendar 열기
+                </a>
+                <SecondaryButton onClick={() => notify('시안에서는 연동 상태만 확인합니다. 실제 양방향 동기화는 OAuth 설정 후 활성화됩니다.')}>
+                  <RefreshCw className="size-4 text-[#0877b8]" aria-hidden="true" /> 지금 동기화
+                </SecondaryButton>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
+            <CardHeader><CardTitle className="text-lg font-bold">연동 운영 원칙</CardTitle></CardHeader>
+            <CardContent className="space-y-4 pt-1">
+              {[
+                ['상담 확정 시 자동 등록', '상담명·기업·방식·준비사항을 대표 일정에 생성'],
+                ['변경·취소 양방향 반영', '사이트와 Google Calendar 중 한쪽 변경을 동기화'],
+                ['개인 일정은 시간만 공유', '교육생에게 제목·상세내용을 공개하지 않음'],
+                ['중복 예약 방지', '예약 전 대표 일정의 바쁜 시간을 먼저 확인'],
+              ].map(([title, detail], index) => (
+                <div key={title} className="flex gap-3">
+                  <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[#eaf1f7] text-xs font-bold text-[#15375b]">{index + 1}</span>
+                  <div><p className="text-sm font-bold text-slate-800">{title}</p><p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p></div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
       </section>
     </>
   );
@@ -708,11 +1026,16 @@ function ConsultationForm({
   onCancel,
 }: {
   number: number;
-  onSave: (followUps: string[]) => void;
+  onSave: (payload: ConsultationPayload) => void;
   onCancel: () => void;
 }) {
   const options = ['다음 상담 등록', '서류요청', '견적서 작성', '계약서 작성', '내부업무 등록'];
   const [followUps, setFollowUps] = useState<string[]>(['서류요청']);
+  const [calendarSync, setCalendarSync] = useState(true);
+  const [title, setTitle] = useState('정책자금 신청방향 및 보완사항 협의');
+  const [startsAt, setStartsAt] = useState('2026-09-04T11:00');
+  const [method, setMethod] = useState('화상');
+  const [status, setStatus] = useState('일정 확정');
 
   function toggle(item: string) {
     setFollowUps((current) => current.includes(item) ? current.filter((value) => value !== item) : [...current, item]);
@@ -731,13 +1054,38 @@ function ConsultationForm({
         <CardHeader className="border-b border-slate-100"><CardTitle className="text-lg font-bold">상담 기본정보</CardTitle><CardDescription>상담번호는 시스템이 자동으로 부여합니다.</CardDescription></CardHeader>
         <CardContent className="space-y-7 py-2">
           <div className="grid gap-5 md:grid-cols-2">
-            <Field label="상담 제목·목적" required><input className={inputClass} placeholder="예: 정책자금 신청방향 및 보완사항 협의" /></Field>
+            <Field label="상담 제목·목적" required><input className={inputClass} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="예: 정책자금 신청방향 및 보완사항 협의" /></Field>
             <Field label="관련 서비스" required><select className={inputClass}><option>정책자금</option><option>특허·지식재산</option><option>정책자금 + 특허</option></select></Field>
-            <Field label="상담 일시" required><input className={inputClass} type="datetime-local" /></Field>
-            <Field label="상담방식"><select className={inputClass}><option>전화</option><option>방문</option><option>화상</option><option>기타</option></select></Field>
+            <Field label="상담 일시" required><input className={inputClass} type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></Field>
+            <Field label="상담방식"><select className={inputClass} value={method} onChange={(event) => setMethod(event.target.value)}><option>전화</option><option>방문</option><option>화상</option><option>기타</option></select></Field>
             <Field label="참석자"><input className={inputClass} placeholder="기업대표, 교육생, 내부 담당자" /></Field>
-            <Field label="상담상태"><select className={inputClass}><option>상담 완료</option><option>일정 요청</option><option>일정 확정</option><option>고객 회신 대기</option><option>취소</option></select></Field>
+            <Field label="상담상태"><select className={inputClass} value={status} onChange={(event) => setStatus(event.target.value)}><option>상담 완료</option><option>일정 요청</option><option>일정 확정</option><option>고객 회신 대기</option><option>취소</option></select></Field>
           </div>
+
+          <section aria-labelledby="calendar-sync-title" className={`rounded-2xl border p-5 ${calendarSync ? 'border-sky-200 bg-sky-50/70' : 'border-slate-200 bg-slate-50'}`}>
+            <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+              <div className="flex items-start gap-3">
+                <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-[#0877b8] shadow-sm"><CalendarDays className="size-5" aria-hidden="true" /></span>
+                <div>
+                  <h2 id="calendar-sync-title" className="text-sm font-bold text-[#15375b]">김성민 대표 Google Calendar 연동</h2>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">상담이 일정 확정 상태이면 대표 캘린더 등록 대상으로 함께 저장합니다.</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={calendarSync}
+                onClick={() => setCalendarSync((value) => !value)}
+                className={`relative h-11 w-[68px] shrink-0 rounded-full p-1 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200 ${calendarSync ? 'bg-[#0877b8]' : 'bg-slate-300'}`}
+                aria-label="김성민 대표 Google Calendar 등록"
+              >
+                <span className={`block size-9 rounded-full bg-white shadow-sm transition-transform ${calendarSync ? 'translate-x-5' : 'translate-x-0'}`} />
+              </button>
+            </div>
+            <p className="mt-4 rounded-xl bg-white/80 px-4 py-3 text-xs leading-5 text-slate-600">
+              {calendarSync ? '저장 후 대표 일정에 상담 제목·시간·상담방식이 등록되고, 교육생 화면에는 가능/불가 시간만 표시됩니다.' : '캘린더 연동 없이 상담기록만 저장합니다.'}
+            </p>
+          </section>
 
           <div className="grid gap-5 md:grid-cols-2">
             <Field label="주요 상담내용" required><textarea className={`${inputClass} min-h-36 py-3`} placeholder="상담에서 확인한 핵심 내용을 적어주세요." /></Field>
@@ -766,7 +1114,7 @@ function ConsultationForm({
         </CardContent>
         <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-6">
           <SecondaryButton onClick={onCancel}>취소</SecondaryButton>
-          <PrimaryButton onClick={() => onSave(followUps)}><Check className="size-4" /> 상담 #{number} 저장</PrimaryButton>
+          <PrimaryButton onClick={() => onSave({ followUps, calendarSync, title, startsAt, method, status })}><Check className="size-4" /> 상담 #{number} 저장</PrimaryButton>
         </div>
       </Card>
     </>
@@ -868,6 +1216,7 @@ export default function Home() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [consultationNumber, setConsultationNumber] = useState(4);
   const [timeline, setTimeline] = useState(baseTimeline);
+  const [schedule, setSchedule] = useState<ScheduleItem[]>(sampleSchedule);
   const [modal, setModal] = useState<'quote' | 'contract' | null>(null);
   const [toast, setToast] = useState('');
 
@@ -884,21 +1233,43 @@ export default function Home() {
     window.setTimeout(() => setToast(''), 2600);
   }
 
-  function saveConsultation(followUps: string[]) {
+  function saveConsultation(payload: ConsultationPayload) {
     const number = consultationNumber;
     setTimeline((current) => [
       ...current,
       {
         date: '방금 전',
         title: `상담 #${number} 저장`,
-        detail: `후속조치: ${followUps.length ? followUps.join(' · ') : '없음'}`,
+        detail: `후속조치: ${payload.followUps.length ? payload.followUps.join(' · ') : '없음'}${payload.calendarSync ? ' / Google Calendar 등록대상' : ''}`,
         type: '상담',
         tone: 'green',
       },
     ]);
+    if (payload.calendarSync && payload.status === '일정 확정' && payload.startsAt) {
+      const start = new Date(payload.startsAt);
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      const weekdayFormatter = new Intl.DateTimeFormat('ko-KR', { weekday: 'short' });
+      const timeFormatter = new Intl.DateTimeFormat('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+      setSchedule((current) => [
+        ...current,
+        {
+          id: `schedule-${Date.now()}`,
+          date: `${String(start.getMonth() + 1).padStart(2, '0')}.${String(start.getDate()).padStart(2, '0')}`,
+          weekday: weekdayFormatter.format(start).replace('요일', ''),
+          time: timeFormatter.format(start),
+          end: timeFormatter.format(end),
+          company: '세림테크(가상)',
+          service: payload.title || `상담 #${number}`,
+          method: payload.method,
+          status: '확정',
+          tone: 'green',
+          source: 'partner',
+        },
+      ]);
+    }
     setConsultationNumber((value) => value + 1);
-    notify(`상담 #${number}과 후속조치가 저장되었습니다.`);
-    navigate('case');
+    notify(payload.calendarSync && payload.status === '일정 확정' ? `상담 #${number}이 대표 일정과 Google Calendar 등록대상으로 저장되었습니다.` : `상담 #${number}과 후속조치가 저장되었습니다.`);
+    navigate(payload.calendarSync && payload.status === '일정 확정' ? 'schedule' : 'case');
   }
 
   function navButton(item: { view: View; label: string; icon: IconType }) {
@@ -939,7 +1310,8 @@ export default function Home() {
         </header>
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
-          {view === 'admin' ? <AdminDashboard onOpenCase={() => navigate('case')} /> : null}
+          {view === 'admin' ? <AdminDashboard onOpenCase={() => navigate('case')} onOpenSchedule={() => navigate('schedule')} schedule={schedule} /> : null}
+          {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} /> : null}
           {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} /> : null}
           {view === 'application' ? <ApplicationForm onCancel={() => navigate('trainee')} onDone={() => { notify('협업신청이 접수되었습니다.'); navigate('trainee'); }} /> : null}
           {view === 'case' ? <CaseDetail timeline={timeline} onConsult={() => navigate('consultation')} onDocuments={() => navigate('documents')} onDocumentModal={setModal} /> : null}
