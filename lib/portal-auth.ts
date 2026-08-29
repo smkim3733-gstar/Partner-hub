@@ -31,6 +31,7 @@ type PortalStateRecord = {
   companyDocuments: PortalRecord[];
   cases: PortalRecord[];
   members: PortalMember[];
+  diagnosisAssessments?: PortalRecord[];
 };
 
 export type PortalUser = {
@@ -164,6 +165,7 @@ export function stateForPortalUser(rawState: unknown, user: PortalUser): unknown
 
   return {
     ...state,
+    diagnosisAssessments: [],
     cases: ownCases,
     tasks: ownedRecords(state.tasks, 'assignee', traineeName),
     companyDocuments: ownedRecords(state.companyDocuments, 'assignedTrainee', traineeName),

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Bell,
+  BrainCircuit,
   BriefcaseBusiness,
   Building2,
   CalendarDays,
@@ -54,6 +55,7 @@ type View =
   | 'schedule'
   | 'tasks'
   | 'files'
+  | 'ai-diagnosis'
   | 'trainee'
   | 'access'
   | 'application'
@@ -69,6 +71,7 @@ const navItems: Array<{ view: View; label: string; icon: IconType }> = [
   { view: 'schedule', label: '대표 상담일정', icon: CalendarDays },
   { view: 'tasks', label: '업무·알림', icon: ClipboardCheck },
   { view: 'files', label: '기업자료함', icon: FolderOpen },
+  { view: 'ai-diagnosis', label: 'AI 진단 사전점검', icon: BrainCircuit },
   { view: 'trainee', label: '파트너 화면', icon: Users },
   { view: 'access', label: '파트너 계정관리', icon: UserCog },
   { view: 'application', label: '새 협업신청', icon: FilePlus2 },
@@ -185,6 +188,34 @@ type CollaborationCase = {
   urgent: boolean;
 };
 
+type DiagnosisLevel = 'A' | 'B' | 'C';
+type DiagnosisDecision = '1차 초안 생성 가능' | 'Step 0·보완요청' | 'AI 처리 중단';
+type DiagnosisStatus = '사전점검 완료' | '대표 검토 대기' | '보완자료 대기' | '처리 중단';
+type DiagnosisCheckStatus = '통과' | '확인필요' | '차단';
+
+type DiagnosisAssessment = {
+  id: string;
+  caseId: string;
+  company: string;
+  identityStatus: '일치' | '확인필요' | '불일치';
+  hasConsultationEvidence: boolean;
+  privacyMasked: boolean;
+  personalDataConsent: boolean;
+  thirdPartyAiConsent: boolean;
+  transcriptConsent: boolean;
+  level: DiagnosisLevel;
+  decision: DiagnosisDecision;
+  status: DiagnosisStatus;
+  updatedAt: string;
+};
+
+type DiagnosisCheck = {
+  id: string;
+  label: string;
+  status: DiagnosisCheckStatus;
+  detail: string;
+};
+
 function partnerTypeOf(member: TraineeMember): PartnerType {
   const rawType = (member as { memberType?: string }).memberType;
   if (rawType === '타사 컨설턴트' || rawType === '보험설계사' || rawType === '기타' || rawType === '한기평 컨설턴트') return rawType;
@@ -220,6 +251,7 @@ type PortalState = {
   companyDocuments: CompanyDocument[];
   cases: CollaborationCase[];
   members: TraineeMember[];
+  diagnosisAssessments?: DiagnosisAssessment[];
 };
 
 type PortalUser = {
@@ -334,6 +366,135 @@ const sampleCases: CollaborationCase[] = [
   { id: 'case-9', company: '스마트랩(가상)', service: '기업부설연구소', trainee: '박지현', stage: '상담진행', consultationCount: 1, nextAction: '연구전담요원 요건 확인', updatedAt: '08.21', idleDays: 8, urgent: true },
   { id: 'case-10', company: '온유테크(가상)', service: '보험 법인영업', trainee: '이준호', stage: '접수', consultationCount: 0, nextAction: '기업대표 연락처 확인', updatedAt: '어제', idleDays: 2, urgent: false },
 ];
+
+const sampleDiagnosisAssessments: DiagnosisAssessment[] = [
+  {
+    id: 'diagnosis-1',
+    caseId: 'case-1',
+    company: '세림테크(가상)',
+    identityStatus: '일치',
+    hasConsultationEvidence: true,
+    privacyMasked: true,
+    personalDataConsent: true,
+    thirdPartyAiConsent: true,
+    transcriptConsent: true,
+    level: 'A',
+    decision: '1차 초안 생성 가능',
+    status: '사전점검 완료',
+    updatedAt: '가상 판정 완료',
+  },
+  {
+    id: 'diagnosis-2',
+    caseId: 'case-4',
+    company: '가온푸드(가상)',
+    identityStatus: '일치',
+    hasConsultationEvidence: true,
+    privacyMasked: true,
+    personalDataConsent: true,
+    thirdPartyAiConsent: true,
+    transcriptConsent: true,
+    level: 'B',
+    decision: 'Step 0·보완요청',
+    status: '보완자료 대기',
+    updatedAt: '가상 판정 완료',
+  },
+  {
+    id: 'diagnosis-3',
+    caseId: 'case-3',
+    company: '한빛솔루션(가상)',
+    identityStatus: '불일치',
+    hasConsultationEvidence: true,
+    privacyMasked: false,
+    personalDataConsent: true,
+    thirdPartyAiConsent: false,
+    transcriptConsent: false,
+    level: 'C',
+    decision: 'AI 처리 중단',
+    status: '처리 중단',
+    updatedAt: '가상 판정 완료',
+  },
+];
+
+function diagnosisChecks(
+  assessment: DiagnosisAssessment,
+  documents: CompanyDocument[],
+): DiagnosisCheck[] {
+  const usableDocuments = documents.filter((document) =>
+    document.company === assessment.company
+    && (document.status === '제출완료' || document.status === '검토완료'),
+  );
+  const hasBusinessCertificate = usableDocuments.some((document) => document.category === '사업자등록증');
+  const hasFinancialBasis = usableDocuments.some((document) => document.category === '크레탑' || document.category === '재무제표');
+
+  return [
+    {
+      id: 'business-certificate',
+      label: '사업자등록증',
+      status: hasBusinessCertificate ? '통과' : '확인필요',
+      detail: hasBusinessCertificate ? '제출·검토 가능한 파일이 있습니다.' : '기업 기본정보 확인용 파일이 필요합니다.',
+    },
+    {
+      id: 'financial-basis',
+      label: '재무·신용 근거',
+      status: hasFinancialBasis ? '통과' : '확인필요',
+      detail: hasFinancialBasis ? '크레탑 또는 재무제표가 확인됩니다.' : '크레탑 또는 최근 재무자료 보완이 필요합니다.',
+    },
+    {
+      id: 'consultation-evidence',
+      label: '대표 통화·상담 맥락',
+      status: assessment.hasConsultationEvidence ? '통과' : '확인필요',
+      detail: assessment.hasConsultationEvidence ? '가상 상담요약 또는 녹취 근거가 있습니다.' : '대표 요청사항을 확인할 상담요약이 필요합니다.',
+    },
+    {
+      id: 'identity',
+      label: '기업 식별정보 일치',
+      status: assessment.identityStatus === '일치' ? '통과' : assessment.identityStatus === '불일치' ? '차단' : '확인필요',
+      detail: assessment.identityStatus === '일치' ? '기업명·대표자 등 핵심 식별정보가 일치합니다.' : assessment.identityStatus === '불일치' ? '자료 간 식별정보 충돌을 해소해야 합니다.' : '식별정보 대조 확인이 필요합니다.',
+    },
+    {
+      id: 'privacy-masking',
+      label: '민감정보 마스킹',
+      status: assessment.privacyMasked ? '통과' : '차단',
+      detail: assessment.privacyMasked ? '가상 자료의 불필요한 민감정보가 제거된 상태입니다.' : '주민번호·계좌·신용정보 등 불필요한 정보 제거가 필요합니다.',
+    },
+    {
+      id: 'personal-data-consent',
+      label: '개인정보 처리 동의',
+      status: assessment.personalDataConsent ? '통과' : '차단',
+      detail: assessment.personalDataConsent ? '개인정보 처리 동의가 확인되었습니다.' : '동의 전에는 AI 진단을 진행할 수 없습니다.',
+    },
+    {
+      id: 'ai-consent',
+      label: '제3자 AI 처리 동의',
+      status: assessment.thirdPartyAiConsent ? '통과' : '차단',
+      detail: assessment.thirdPartyAiConsent ? '외부 AI 처리 동의가 확인되었습니다.' : '외부 AI 전송 전 별도 동의가 필요합니다.',
+    },
+    {
+      id: 'transcript-consent',
+      label: '녹취자료 활용 동의',
+      status: !assessment.hasConsultationEvidence ? '확인필요' : assessment.transcriptConsent ? '통과' : '차단',
+      detail: !assessment.hasConsultationEvidence ? '녹취자료가 등록되면 동의 여부를 확인합니다.' : assessment.transcriptConsent ? '가상 녹취 활용 동의가 확인되었습니다.' : '녹취 전송·분석 동의 확인이 필요합니다.',
+    },
+  ];
+}
+
+function evaluateDiagnosis(
+  assessment: DiagnosisAssessment,
+  documents: CompanyDocument[],
+): DiagnosisAssessment {
+  const checks = diagnosisChecks(assessment, documents);
+  const hasBlocked = checks.some((check) => check.status === '차단');
+  const hasNeedsReview = checks.some((check) => check.status === '확인필요');
+  const level: DiagnosisLevel = hasBlocked ? 'C' : hasNeedsReview ? 'B' : 'A';
+
+  return {
+    ...assessment,
+    level,
+    decision: level === 'A' ? '1차 초안 생성 가능' : level === 'B' ? 'Step 0·보완요청' : 'AI 처리 중단',
+    status: level === 'A' ? '사전점검 완료' : level === 'B' ? '보완자료 대기' : '처리 중단',
+    updatedAt: '방금 전 · 가상 판정',
+  };
+}
 
 function documentCategoryFromFileName(fileName: string): CompanyDocument['category'] {
   const normalized = fileName.toLowerCase();
@@ -575,6 +736,186 @@ function PageIntro({
         <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{description}</p>
       </div>
       {action}
+    </div>
+  );
+}
+
+function DiagnosisPreflight({
+  assessments,
+  setAssessments,
+  cases,
+  documents,
+  onOpenFiles,
+  onRequestDocuments,
+  onQueueDraft,
+  notify,
+}: {
+  assessments: DiagnosisAssessment[];
+  setAssessments: React.Dispatch<React.SetStateAction<DiagnosisAssessment[]>>;
+  cases: CollaborationCase[];
+  documents: CompanyDocument[];
+  onOpenFiles: () => void;
+  onRequestDocuments: (caseId: string) => void;
+  onQueueDraft: (assessment: DiagnosisAssessment) => void;
+  notify: (message: string) => void;
+}) {
+  const [selectedId, setSelectedId] = useState(assessments[0]?.id ?? '');
+  const selected = assessments.find((assessment) => assessment.id === selectedId) ?? assessments[0];
+  const levelMeta: Record<DiagnosisLevel, { label: string; tone: string; panel: string; guidance: string }> = {
+    A: {
+      label: 'A · 초안 생성 가능',
+      tone: 'green',
+      panel: 'border-emerald-200 bg-emerald-50/70',
+      guidance: '필수 자료와 동의 항목이 통과되어 Step 0 사전가설과 1차 정밀진단 초안 생성 대기열에 등록할 수 있습니다.',
+    },
+    B: {
+      label: 'B · 보완 후 진행',
+      tone: 'amber',
+      panel: 'border-amber-200 bg-amber-50/70',
+      guidance: '차단 사유는 없지만 핵심 근거가 부족합니다. Step 0까지만 정리하고 부족한 자료를 요청합니다.',
+    },
+    C: {
+      label: 'C · AI 처리 중단',
+      tone: 'red',
+      panel: 'border-red-200 bg-red-50/70',
+      guidance: '동의·마스킹·기업 식별정보 중 차단 항목이 있습니다. 해소 전에는 외부 AI로 자료를 전송하지 않습니다.',
+    },
+  };
+
+  if (!selected) {
+    return <Card><CardContent className="py-12 text-center text-sm text-slate-500">등록된 가상 사전점검이 없습니다.</CardContent></Card>;
+  }
+
+  const checks = diagnosisChecks(selected, documents);
+  const blockers = checks.filter((check) => check.status === '차단');
+  const needsReview = checks.filter((check) => check.status === '확인필요');
+  const selectedCaseExists = cases.some((item) => item.id === selected.caseId);
+
+  function runAssessment(assessmentId: string) {
+    setAssessments((current) => current.map((assessment) =>
+      assessment.id === assessmentId ? evaluateDiagnosis(assessment, documents) : assessment,
+    ));
+    notify(`${selected.company} A·B·C 가상 판정을 다시 실행했습니다.`);
+  }
+
+  function runAllAssessments() {
+    setAssessments((current) => current.map((assessment) => evaluateDiagnosis(assessment, documents)));
+    notify('가상 기업 3건의 AI 진단 사전점검을 다시 실행했습니다.');
+  }
+
+  return (
+    <div>
+      <PageIntro
+        eyebrow="AI DIAGNOSIS GATE"
+        title="AI 진단 사전점검"
+        description="사업자등록증·크레탑·재무자료·대표 상담 맥락과 동의 상태를 먼저 확인한 뒤, 1차 정밀진단보고서 초안 생성 가능 여부를 A·B·C로 분류합니다."
+        action={<SecondaryButton onClick={runAllAssessments}><RefreshCw className="size-4" aria-hidden="true" /> 전체 가상 판정</SecondaryButton>}
+      />
+
+      <div role="note" className="mb-5 flex items-start gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-950">
+        <BrainCircuit className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" />
+        <div><strong>현재는 가상 시뮬레이션입니다.</strong> 실제 기업자료를 외부 AI로 전송하거나 보고서를 생성하지 않습니다. 다음 단계에서 동의·마스킹·대표 승인 게이트를 통과한 건만 자동화 대상으로 연결합니다.</div>
+      </div>
+
+      <section aria-label="가상 판정 요약" className="mb-5 grid gap-3 md:grid-cols-3">
+        {(['A', 'B', 'C'] as DiagnosisLevel[]).map((level) => {
+          const count = assessments.filter((assessment) => assessment.level === level).length;
+          return (
+            <Card key={level} className={`border ${levelMeta[level].panel} shadow-none`}>
+              <CardContent className="flex items-center justify-between py-5">
+                <div><p className="text-xs font-bold text-slate-500">판정 {level}</p><p className="mt-1 text-lg font-bold text-slate-950">{levelMeta[level].label.split(' · ')[1]}</p></div>
+                <span className="text-3xl font-black text-slate-950">{count}</span>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </section>
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(280px,0.85fr)_minmax(0,1.65fr)]">
+        <Card className="h-fit border-0 shadow-sm ring-1 ring-slate-200">
+          <CardHeader>
+            <CardTitle>가상 점검 대상</CardTitle>
+            <CardDescription>서로 다른 준비상태 3건을 선택해 판정 근거를 확인합니다.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {assessments.map((assessment) => {
+              const active = assessment.id === selected.id;
+              return (
+                <button
+                  key={assessment.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => setSelectedId(assessment.id)}
+                  className={`min-h-24 w-full rounded-2xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${active ? 'border-[#0877b8] bg-sky-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
+                >
+                  <div className="flex items-start justify-between gap-3"><div><p className="font-bold text-slate-950">{assessment.company}</p><p className="mt-1 text-xs text-slate-500">{cases.find((item) => item.id === assessment.caseId)?.service ?? '가상 기업진단'}</p></div><Pill tone={levelMeta[assessment.level].tone}>{assessment.level}</Pill></div>
+                  <p className="mt-3 text-xs font-semibold text-slate-600">{assessment.decision}</p>
+                </button>
+              );
+            })}
+          </CardContent>
+        </Card>
+
+        <div className="space-y-5" aria-live="polite">
+          <Card className={`border shadow-none ${levelMeta[selected.level].panel}`}>
+            <CardContent className="py-5">
+              <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+                <div><div className="flex flex-wrap items-center gap-2"><Pill tone={levelMeta[selected.level].tone}>{levelMeta[selected.level].label}</Pill><Pill>{selected.status}</Pill><Pill tone="blue">가상 데이터</Pill></div><h2 className="mt-3 text-xl font-bold text-slate-950">{selected.company}</h2><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-700">{levelMeta[selected.level].guidance}</p></div>
+                <SecondaryButton onClick={() => runAssessment(selected.id)} className="shrink-0"><RefreshCw className="size-4" aria-hidden="true" /> 판정 다시 실행</SecondaryButton>
+              </div>
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border border-white/80 bg-white/75 p-3"><p className="text-xs font-semibold text-slate-500">통과</p><p className="mt-1 text-2xl font-bold text-emerald-700">{checks.filter((check) => check.status === '통과').length}</p></div>
+                <div className="rounded-xl border border-white/80 bg-white/75 p-3"><p className="text-xs font-semibold text-slate-500">확인필요</p><p className="mt-1 text-2xl font-bold text-amber-700">{needsReview.length}</p></div>
+                <div className="rounded-xl border border-white/80 bg-white/75 p-3"><p className="text-xs font-semibold text-slate-500">차단</p><p className="mt-1 text-2xl font-bold text-red-700">{blockers.length}</p></div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-0 shadow-sm ring-1 ring-slate-200">
+            <CardHeader>
+              <CardTitle>판정 근거 체크리스트</CardTitle>
+              <CardDescription>파일 등록상태와 가상 동의·보안조건을 함께 확인합니다.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ul className="grid gap-3 md:grid-cols-2">
+                {checks.map((check) => (
+                  <li key={check.id} className="flex min-h-24 items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+                    <span className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-full ${check.status === '통과' ? 'bg-emerald-100 text-emerald-700' : check.status === '차단' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {check.status === '통과' ? <Check className="size-4" aria-hidden="true" /> : <AlertCircle className="size-4" aria-hidden="true" />}
+                    </span>
+                    <div><div className="flex flex-wrap items-center gap-2"><p className="text-sm font-bold text-slate-900">{check.label}</p><Pill tone={check.status === '통과' ? 'green' : check.status === '차단' ? 'red' : 'amber'}>{check.status}</Pill></div><p className="mt-1 text-xs leading-5 text-slate-600">{check.detail}</p></div>
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+
+          <Card className="border-0 shadow-sm ring-1 ring-slate-200">
+            <CardHeader>
+              <CardTitle>다음 처리</CardTitle>
+              <CardDescription>{selected.updatedAt} · 최종 보고서 생성 전에는 김성민 대표 검토가 필요합니다.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {selected.level === 'A' ? (
+                <div className="flex flex-col gap-3 sm:flex-row"><PrimaryButton onClick={() => onQueueDraft(selected)}><BrainCircuit className="size-4" aria-hidden="true" /> 1차 초안 검토대기 등록</PrimaryButton><SecondaryButton onClick={onOpenFiles}><FolderOpen className="size-4" aria-hidden="true" /> 관련 서류 확인</SecondaryButton></div>
+              ) : selected.level === 'B' ? (
+                <div className="flex flex-col gap-3 sm:flex-row"><PrimaryButton onClick={() => onRequestDocuments(selected.caseId)} disabled={!selectedCaseExists}><FilePlus2 className="size-4" aria-hidden="true" /> 보완서류 요청 준비</PrimaryButton><SecondaryButton onClick={() => runAssessment(selected.id)}><RefreshCw className="size-4" aria-hidden="true" /> 자료 반영 후 재판정</SecondaryButton></div>
+              ) : (
+                <div role="alert" className="flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-900"><LockKeyhole className="mt-0.5 size-5 shrink-0" aria-hidden="true" /><div><strong>AI 처리가 차단되었습니다.</strong> {blockers.map((check) => check.label).join(' · ')} 항목을 해소한 뒤 다시 판정해야 합니다.</div></div>
+              )}
+            </CardContent>
+          </Card>
+
+          <section aria-labelledby="automation-flow-title" className="rounded-2xl bg-[#112f50] p-5 text-white shadow-sm">
+            <h2 id="automation-flow-title" className="font-bold">자동연결 예정 흐름</h2>
+            <ol className="mt-4 grid gap-3 md:grid-cols-4">
+              {['자료 접수·마스킹', 'A·B·C 사전판정', '대표 승인', 'Step 0·1 초안 생성'].map((step, index) => (
+                <li key={step} className="rounded-xl border border-white/10 bg-white/5 p-3"><span className="text-xs font-bold text-sky-300">0{index + 1}</span><p className="mt-1 text-sm font-semibold">{step}</p></li>
+              ))}
+            </ol>
+          </section>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2404,6 +2745,7 @@ export default function Home() {
   const [tasks, setTasks] = useState<WorkTask[]>(sampleTasks);
   const [companyDocuments, setCompanyDocuments] = useState<CompanyDocument[]>(sampleDocuments);
   const [cases, setCases] = useState<CollaborationCase[]>(sampleCases);
+  const [diagnosisAssessments, setDiagnosisAssessments] = useState<DiagnosisAssessment[]>(sampleDiagnosisAssessments);
   const [selectedCaseId, setSelectedCaseId] = useState('case-1');
   const [members, setMembers] = useState<TraineeMember[]>(sampleTrainees);
   const [scheduleAudience, setScheduleAudience] = useState<'admin' | 'trainee'>('admin');
@@ -2443,6 +2785,7 @@ export default function Home() {
           setCompanyDocuments(payload.state.companyDocuments);
           setCases(payload.state.cases);
           setMembers(payload.state.members);
+          setDiagnosisAssessments(payload.state.diagnosisAssessments ?? sampleDiagnosisAssessments);
         }
 
         setCurrentUser(payload.currentUser);
@@ -2480,6 +2823,7 @@ export default function Home() {
       companyDocuments,
       cases,
       members,
+      diagnosisAssessments,
     };
 
     saveTimerRef.current = window.setTimeout(async () => {
@@ -2507,7 +2851,7 @@ export default function Home() {
     return () => {
       if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
     };
-  }, [persistenceReady, currentUser, consultationNumber, timeline, schedule, tasks, companyDocuments, cases, members]);
+  }, [persistenceReady, currentUser, consultationNumber, timeline, schedule, tasks, companyDocuments, cases, members, diagnosisAssessments]);
 
   const currentMember = currentUser?.role === 'trainee' ? members.find((member) => member.id === currentUser.memberId) ?? null : null;
   const selectedCase = cases.find((item) => item.id === selectedCaseId) ?? cases[0] ?? sampleCases[0];
@@ -2610,6 +2954,41 @@ export default function Home() {
   function notify(message: string) {
     setToast(message);
     window.setTimeout(() => setToast(''), 2600);
+  }
+
+  function queueDiagnosisDraft(assessment: DiagnosisAssessment) {
+    if (assessment.level !== 'A') {
+      notify('A 판정 건만 1차 초안 검토대기에 등록할 수 있습니다.');
+      return;
+    }
+    setDiagnosisAssessments((current) => current.map((item) =>
+      item.id === assessment.id ? { ...item, status: '대표 검토 대기', updatedAt: '방금 전 · 대기열 등록' } : item,
+    ));
+    setTimeline((current) => current.some((item) => item.caseId === assessment.caseId && item.title === 'AI 1차 진단 초안 검토대기')
+      ? current
+      : [...current, {
+        caseId: assessment.caseId,
+        date: '방금 전',
+        title: 'AI 1차 진단 초안 검토대기',
+        detail: '가상 사전점검 A 통과 / 실제 AI 전송 없음 / 김성민 대표 승인 대기',
+        type: '기업진단',
+        tone: 'blue',
+      }]);
+    setTasks((current) => current.some((task) => task.company === assessment.company && task.related === 'AI 진단 사전점검' && task.status !== '완료')
+      ? current
+      : [{
+        id: `task-ai-${Date.now()}`,
+        company: assessment.company,
+        title: '1차 정밀진단 초안 생성 전 근거·동의 검토',
+        kind: '내부업무',
+        assignee: '김성민 대표',
+        due: '오늘',
+        dueState: 'today',
+        status: '대기',
+        priority: '보통',
+        related: 'AI 진단 사전점검',
+      }, ...current]);
+    notify(`${assessment.company}을 1차 초안 대표 검토대기에 등록했습니다. 실제 AI 전송은 하지 않았습니다.`);
   }
 
   function saveConsultation(payload: ConsultationPayload) {
@@ -2744,6 +3123,7 @@ export default function Home() {
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}
           {view === 'tasks' ? <WorkManagement tasks={tasks} setTasks={setTasks} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} /> : null}
           {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} /> : null}
+          {view === 'ai-diagnosis' ? <DiagnosisPreflight assessments={diagnosisAssessments} setAssessments={setDiagnosisAssessments} cases={cases} documents={companyDocuments} onOpenFiles={() => navigate('files')} onRequestDocuments={(caseId) => { setSelectedCaseId(caseId); navigate('documents'); }} onQueueDraft={queueDiagnosisDraft} notify={notify} /> : null}
           {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} /> : null}
           {view === 'access' ? <AccessManagement notify={notify} members={members} setMembers={setMembers} /> : null}
           {view === 'application' ? <ApplicationForm applicant={collaborationApplicant} onCancel={() => navigate('trainee')} onDone={(files, companyName, selectedServices, applicantType, applicantName) => { const company = companyName.trim() || '신규기업(가상)'; const caseId = `case-${Date.now()}`; const service = selectedServices.join(' · ') || '기업컨설팅'; setCases((current) => current.some((item) => item.company === company) ? current : [{ id: caseId, company, service, trainee: applicantName, applicantType, stage: '접수', consultationCount: 0, nextAction: stageNextActions.접수, updatedAt: '방금 전', idleDays: 0, urgent: false }, ...current]); setTimeline((current) => current.some((item) => item.caseId === caseId) ? current : [...current, { caseId, date: '방금 전', title: '협업신청 접수', detail: `${service} 요청 / 주관 파트너 ${applicantName}`, type: '접수', tone: 'navy' }]); if (files.length) { setCompanyDocuments((current) => [...files.map((fileName, index): CompanyDocument => { const category = documentCategoryFromFileName(fileName); return { id: `file-application-${Date.now()}-${index}`, company, title: category === '기타자료' ? fileName : category, category, fileName, status: '제출완료', assignedTrainee: applicantName, submittedBy: isAdmin ? `김성민 대표 대리접수 · ${applicantType}` : `${applicantName} · ${applicantType}`, updatedAt: '방금 전', version: 'V1', sensitive: ['사업자등록증', '크레탑', '재무제표', '계약자료'].includes(category) }; }), ...current]); } notify(files.length ? `${applicantType} 협업신청과 가상 제출파일 ${files.length}건을 등록했습니다.` : `${applicantType} 협업신청을 진행현황에 접수했습니다.`); navigate(allowedViews.has('pipeline') ? 'pipeline' : 'trainee'); }} /> : null}
