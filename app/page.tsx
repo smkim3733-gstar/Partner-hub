@@ -20,6 +20,7 @@ import {
   FolderOpen,
   LayoutDashboard,
   LockKeyhole,
+  MailPlus,
   Menu,
   MessageSquarePlus,
   Plus,
@@ -29,6 +30,8 @@ import {
   Share2,
   ShieldCheck,
   Upload,
+  UserCog,
+  UserPlus,
   UserRoundCheck,
   Users,
   X,
@@ -47,6 +50,7 @@ type View =
   | 'admin'
   | 'schedule'
   | 'trainee'
+  | 'access'
   | 'application'
   | 'case'
   | 'consultation'
@@ -58,6 +62,7 @@ const navItems: Array<{ view: View; label: string; icon: IconType }> = [
   { view: 'admin', label: '대표 대시보드', icon: LayoutDashboard },
   { view: 'schedule', label: '대표 상담일정', icon: CalendarDays },
   { view: 'trainee', label: '교육생 화면', icon: Users },
+  { view: 'access', label: '교육생 권한관리', icon: UserCog },
   { view: 'application', label: '새 협업신청', icon: FilePlus2 },
   { view: 'case', label: '기업·사건 상세', icon: BriefcaseBusiness },
   { view: 'consultation', label: '상담 등록', icon: MessageSquarePlus },
@@ -90,6 +95,66 @@ type ConsultationPayload = {
   status: string;
   shareMode: 'all_with_assignee' | 'all_busy' | 'private';
 };
+
+type TraineeMember = {
+  id: string;
+  name: string;
+  email: string;
+  cohort: string;
+  role: '교육생' | '리더 교육생';
+  status: '활성' | '초대대기' | '정지';
+  companies: number;
+  permissions: {
+    sharedSchedule: boolean;
+    collaborationApply: boolean;
+    ownCases: boolean;
+    fileUpload: boolean;
+    quoteContract: boolean;
+  };
+};
+
+const sampleTrainees: TraineeMember[] = [
+  {
+    id: 'trainee-1',
+    name: '박지현(가상)',
+    email: 'jihyun.park@example.com',
+    cohort: '12기',
+    role: '교육생',
+    status: '활성',
+    companies: 6,
+    permissions: { sharedSchedule: true, collaborationApply: true, ownCases: true, fileUpload: true, quoteContract: false },
+  },
+  {
+    id: 'trainee-2',
+    name: '이준호(가상)',
+    email: 'junho.lee@example.com',
+    cohort: '12기',
+    role: '리더 교육생',
+    status: '활성',
+    companies: 9,
+    permissions: { sharedSchedule: true, collaborationApply: true, ownCases: true, fileUpload: true, quoteContract: true },
+  },
+  {
+    id: 'trainee-3',
+    name: '최서윤(가상)',
+    email: 'seoyun.choi@example.com',
+    cohort: '13기',
+    role: '교육생',
+    status: '초대대기',
+    companies: 0,
+    permissions: { sharedSchedule: true, collaborationApply: true, ownCases: true, fileUpload: true, quoteContract: false },
+  },
+  {
+    id: 'trainee-4',
+    name: '정민수(가상)',
+    email: 'minsu.jung@example.com',
+    cohort: '11기',
+    role: '교육생',
+    status: '정지',
+    companies: 2,
+    permissions: { sharedSchedule: false, collaborationApply: false, ownCases: true, fileUpload: false, quoteContract: false },
+  },
+];
 
 const sampleSchedule: ScheduleItem[] = [
   {
@@ -817,6 +882,153 @@ function TraineeDashboard({
   );
 }
 
+const permissionLabels: Array<{ key: keyof TraineeMember['permissions']; label: string; detail: string }> = [
+  { key: 'sharedSchedule', label: '대표 공유일정', detail: '대표의 예약 가능·불가 시간과 담당기업 상담 확인' },
+  { key: 'collaborationApply', label: '협업신청 등록', detail: '새 기업 협업신청 작성 및 임시저장' },
+  { key: 'ownCases', label: '담당 사건 열람', detail: '본인이 주관·공동담당인 기업만 확인' },
+  { key: 'fileUpload', label: '서류 업로드', detail: '담당기업의 요청서류 등록 및 제출상태 확인' },
+  { key: 'quoteContract', label: '견적·계약 확인', detail: '담당기업의 승인된 견적·계약 상태 확인' },
+];
+
+function AccessManagement({ notify }: { notify: (message: string) => void }) {
+  const [members, setMembers] = useState<TraineeMember[]>(sampleTrainees);
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'전체' | TraineeMember['status']>('전체');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteName, setInviteName] = useState('');
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteCohort, setInviteCohort] = useState('13기');
+
+  const filteredMembers = members.filter((member) => {
+    const keywordMatch = `${member.name} ${member.email} ${member.cohort}`.toLowerCase().includes(query.toLowerCase());
+    const statusMatch = statusFilter === '전체' || member.status === statusFilter;
+    return keywordMatch && statusMatch;
+  });
+  const selectedMember = members.find((member) => member.id === selectedId) ?? null;
+
+  function togglePermission(key: keyof TraineeMember['permissions']) {
+    if (!selectedId) return;
+    setMembers((current) => current.map((member) => member.id === selectedId ? { ...member, permissions: { ...member.permissions, [key]: !member.permissions[key] } } : member));
+  }
+
+  function prepareInvite() {
+    if (!inviteName.trim() || !inviteEmail.trim()) {
+      notify('이름과 이메일을 입력해 주세요.');
+      return;
+    }
+    setMembers((current) => [
+      ...current,
+      {
+        id: `trainee-${Date.now()}`,
+        name: `${inviteName.trim()}(가상)`,
+        email: inviteEmail.trim(),
+        cohort: inviteCohort,
+        role: '교육생',
+        status: '초대대기',
+        companies: 0,
+        permissions: { sharedSchedule: true, collaborationApply: true, ownCases: true, fileUpload: true, quoteContract: false },
+      },
+    ]);
+    setInviteName('');
+    setInviteEmail('');
+    setInviteOpen(false);
+    notify('교육생 초대대기로 등록했습니다. 시안에서는 실제 이메일이 발송되지 않습니다.');
+  }
+
+  return (
+    <>
+      <PageIntro
+        eyebrow="관리자 전용"
+        title="교육생 계정·권한관리"
+        description="교육생별 접속상태, 담당기업, 대표 일정 공유범위와 업무권한을 관리합니다."
+        action={<PrimaryButton onClick={() => setInviteOpen(true)}><UserPlus className="size-4" aria-hidden="true" /> 교육생 초대</PrimaryButton>}
+      />
+
+      <section aria-label="교육생 계정 요약" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[
+          ['등록 교육생', members.length, Users, '시안 등록계정'],
+          ['활성 계정', members.filter((member) => member.status === '활성').length, UserRoundCheck, '현재 접속 가능'],
+          ['초대 대기', members.filter((member) => member.status === '초대대기').length, MailPlus, '이메일 승인 전'],
+          ['일정 공유', members.filter((member) => member.permissions.sharedSchedule).length, CalendarDays, '대표 공유일정 열람'],
+        ].map(([label, value, Icon, hint]) => {
+          const MetricIcon = Icon as IconType;
+          return (
+            <Card key={String(label)} className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
+              <CardHeader><CardTitle className="text-sm font-semibold text-slate-600">{String(label)}</CardTitle><CardAction className="grid size-10 place-items-center rounded-xl bg-sky-50 text-[#0877b8]"><MetricIcon className="size-5" aria-hidden="true" /></CardAction></CardHeader>
+              <CardContent><p className="text-3xl font-bold tabular-nums text-[#15375b]">{String(value)}</p><p className="mt-2 text-xs text-slate-500">{String(hint)}</p></CardContent>
+            </Card>
+          );
+        })}
+      </section>
+
+      <Card className="mt-6 border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
+        <CardHeader className="border-b border-slate-100">
+          <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+            <div><CardTitle className="text-lg font-bold">교육생 목록</CardTitle><CardDescription className="mt-1">모든 이름과 이메일은 화면 검토용 가상 정보입니다.</CardDescription></div>
+            <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_150px]">
+              <label className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-slate-500"><Search className="size-4" aria-hidden="true" /><span className="sr-only">교육생 검색</span><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none" placeholder="이름·이메일·기수" /></label>
+              <label><span className="sr-only">계정상태 필터</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as '전체' | TraineeMember['status'])} className={inputClass}><option>전체</option><option>활성</option><option>초대대기</option><option>정지</option></select></label>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-1">
+          {filteredMembers.length ? (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {filteredMembers.map((member) => {
+                const statusTone = member.status === '활성' ? 'green' : member.status === '초대대기' ? 'amber' : 'red';
+                const granted = Object.values(member.permissions).filter(Boolean).length;
+                return (
+                  <article key={member.id} className="rounded-2xl border border-slate-200 bg-white p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-3"><span className="grid size-11 shrink-0 place-items-center rounded-full bg-[#eaf1f7] text-sm font-bold text-[#15375b]">{member.name.slice(0, 1)}</span><div className="min-w-0"><h2 className="truncate text-sm font-bold text-slate-900">{member.name}</h2><p className="mt-1 truncate text-xs text-slate-500">{member.email}</p></div></div>
+                      <Pill tone={statusTone}>{member.status}</Pill>
+                    </div>
+                    <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-3 text-center"><div><p className="text-xs text-slate-500">기수</p><p className="mt-1 text-sm font-bold text-slate-800">{member.cohort}</p></div><div><p className="text-xs text-slate-500">담당기업</p><p className="mt-1 text-sm font-bold tabular-nums text-slate-800">{member.companies}개</p></div><div><p className="text-xs text-slate-500">권한</p><p className="mt-1 text-sm font-bold tabular-nums text-slate-800">{granted}/5</p></div></div>
+                    <div className="mt-4 flex flex-wrap gap-2"><Pill tone="navy">{member.role}</Pill>{member.permissions.sharedSchedule ? <Pill tone="blue">대표 일정 공유</Pill> : <Pill tone="slate">일정 미공개</Pill>}</div>
+                    <SecondaryButton className="mt-4 w-full" onClick={() => setSelectedId(member.id)}><UserCog className="size-4 text-[#0877b8]" aria-hidden="true" /> 권한 설정</SecondaryButton>
+                  </article>
+                );
+              })}
+            </div>
+          ) : <div className="rounded-2xl border border-dashed border-slate-200 p-10 text-center"><p className="text-sm font-semibold text-slate-700">조건에 맞는 교육생이 없습니다.</p><button type="button" onClick={() => { setQuery(''); setStatusFilter('전체'); }} className="mt-3 min-h-11 rounded-xl px-4 text-sm font-semibold text-[#0877b8] hover:bg-sky-50">필터 초기화</button></div>}
+        </CardContent>
+      </Card>
+
+      <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5">
+        <div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">실제 운영 시 적용할 보안원칙</p><p className="mt-1 text-xs leading-5 text-slate-600">로그인한 교육생의 이메일을 서버에서 허용명단과 대조하고, 본인에게 배정된 기업 데이터만 조회하도록 권한을 서버에서 검사합니다.</p></div></div>
+      </div>
+
+      {selectedMember ? (
+        <dialog open className="fixed inset-0 z-50 m-0 grid h-screen max-h-none w-screen max-w-none place-items-center border-0 bg-slate-950/40 p-4 backdrop-blur-sm" aria-labelledby="permission-modal-title">
+          <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">{selectedMember.cohort} · {selectedMember.role}</p><h2 id="permission-modal-title" className="mt-1 text-xl font-bold">{selectedMember.name} 권한 설정</h2><p className="mt-1 text-sm text-slate-500">허용된 기능만 교육생 메뉴에 표시됩니다.</p></div><button type="button" onClick={() => setSelectedId(null)} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="권한 설정 닫기"><X className="size-5" /></button></div>
+            <div className="max-h-[65vh] space-y-3 overflow-y-auto p-5">
+              {permissionLabels.map(({ key, label, detail }) => {
+                const enabled = selectedMember.permissions[key];
+                return (
+                  <div key={key} className="flex items-center justify-between gap-4 rounded-2xl border border-slate-100 p-4"><div><p className="text-sm font-bold text-slate-800">{label}</p><p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p></div><button type="button" role="switch" aria-checked={enabled} aria-label={`${label} 권한`} onClick={() => togglePermission(key)} className={`relative h-11 w-[68px] shrink-0 rounded-full p-1 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200 ${enabled ? 'bg-[#0877b8]' : 'bg-slate-300'}`}><span className={`block size-9 rounded-full bg-white shadow-sm transition-transform ${enabled ? 'translate-x-5' : 'translate-x-0'}`} /></button></div>
+                );
+              })}
+            </div>
+            <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setSelectedId(null)}>취소</SecondaryButton><PrimaryButton onClick={() => { setSelectedId(null); notify(`${selectedMember.name} 권한 변경사항을 저장했습니다.`); }}><Check className="size-4" aria-hidden="true" /> 권한 저장</PrimaryButton></div>
+          </div>
+        </dialog>
+      ) : null}
+
+      {inviteOpen ? (
+        <dialog open className="fixed inset-0 z-50 m-0 grid h-screen max-h-none w-screen max-w-none place-items-center border-0 bg-slate-950/40 p-4 backdrop-blur-sm" aria-labelledby="invite-modal-title">
+          <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">신규 계정</p><h2 id="invite-modal-title" className="mt-1 text-xl font-bold">교육생 초대 준비</h2><p className="mt-1 text-sm text-slate-500">실제 명단 연결 전 화면 검토용 단계입니다.</p></div><button type="button" onClick={() => setInviteOpen(false)} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="초대창 닫기"><X className="size-5" /></button></div>
+            <div className="space-y-5 p-5"><Field label="교육생 이름" required><input value={inviteName} onChange={(event) => setInviteName(event.target.value)} className={inputClass} placeholder="예: 홍길동" /></Field><Field label="로그인 이메일" required hint="실제 운영 시 이 이메일로 본인 여부를 확인합니다."><input type="email" value={inviteEmail} onChange={(event) => setInviteEmail(event.target.value)} className={inputClass} placeholder="name@example.com" /></Field><Field label="교육기수" required><select value={inviteCohort} onChange={(event) => setInviteCohort(event.target.value)} className={inputClass}><option>11기</option><option>12기</option><option>13기</option><option>기타</option></select></Field><div className="rounded-xl border border-amber-100 bg-amber-50 p-4 text-xs leading-5 text-amber-900">시안에서는 초대대기 목록에만 추가되며 실제 이메일은 발송되지 않습니다.</div></div>
+            <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setInviteOpen(false)}>취소</SecondaryButton><PrimaryButton onClick={prepareInvite}><MailPlus className="size-4" aria-hidden="true" /> 초대대기 등록</PrimaryButton></div>
+          </div>
+        </dialog>
+      ) : null}
+    </>
+  );
+}
+
 function ApplicationForm({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const [step, setStep] = useState(1);
   const [selectedServices, setSelectedServices] = useState<string[]>(['정책자금']);
@@ -1436,6 +1648,7 @@ export default function Home() {
           {view === 'admin' ? <AdminDashboard onOpenCase={() => navigate('case')} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} /> : null}
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} audience={scheduleAudience} onAudienceChange={setScheduleAudience} /> : null}
           {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} /> : null}
+          {view === 'access' ? <AccessManagement notify={notify} /> : null}
           {view === 'application' ? <ApplicationForm onCancel={() => navigate('trainee')} onDone={() => { notify('협업신청이 접수되었습니다.'); navigate('trainee'); }} /> : null}
           {view === 'case' ? <CaseDetail timeline={timeline} onConsult={() => navigate('consultation')} onDocuments={() => navigate('documents')} onDocumentModal={setModal} /> : null}
           {view === 'consultation' ? <ConsultationForm number={consultationNumber} onCancel={() => navigate('case')} onSave={saveConsultation} /> : null}
