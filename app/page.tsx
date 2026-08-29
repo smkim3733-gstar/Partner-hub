@@ -8,6 +8,7 @@ import {
   Building2,
   CalendarDays,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   ClipboardCheck,
@@ -578,15 +579,19 @@ function SchedulePage({
   notify,
   audience,
   onAudienceChange,
+  canPreviewAdmin,
+  traineeName,
 }: {
   schedule: ScheduleItem[];
   onNewConsultation: () => void;
   notify: (message: string) => void;
   audience: 'admin' | 'trainee';
   onAudienceChange: (audience: 'admin' | 'trainee') => void;
+  canPreviewAdmin: boolean;
+  traineeName: string;
 }) {
   const [filter, setFilter] = useState<'all' | 'partner' | 'google'>('all');
-  const audienceSchedule = audience === 'admin' ? schedule : schedule.map((item) => scheduleForTrainee(item)).filter((item): item is ScheduleItem => item !== null);
+  const audienceSchedule = audience === 'admin' ? schedule : schedule.map((item) => scheduleForTrainee(item, traineeName)).filter((item): item is ScheduleItem => item !== null);
   const visibleSchedule = audienceSchedule.filter((item) => filter === 'all' || item.source === filter);
   const days = ['09.01|화', '09.02|수', '09.03|목', '09.04|금', '09.05|토', '09.06|일', '09.07|월'];
 
@@ -613,14 +618,16 @@ function SchedulePage({
                 <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-[#0877b8] shadow-sm"><Share2 className="size-5" aria-hidden="true" /></span>
                 <div><p className="text-sm font-bold text-[#15375b]">공개화면 미리보기</p><p className="mt-1 text-xs text-slate-600">역할별로 보이는 정보가 다릅니다.</p></div>
               </div>
-              <div className="flex gap-2" aria-label="일정 공개화면 선택">
-                {[
-                  ['admin', '대표 상세'],
-                  ['trainee', '교육생 공유'],
-                ].map(([value, label]) => (
-                  <button key={value} type="button" aria-pressed={audience === value} onClick={() => onAudienceChange(value as 'admin' | 'trainee')} className={`min-h-11 rounded-xl border px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${audience === value ? 'border-[#0877b8] bg-white text-[#075f93] shadow-sm' : 'border-transparent bg-transparent text-slate-600 hover:bg-white/70'}`}>{label}</button>
-                ))}
-              </div>
+              {canPreviewAdmin ? (
+                <div className="flex gap-2" aria-label="일정 공개화면 선택">
+                  {[
+                    ['admin', '대표 상세'],
+                    ['trainee', '교육생 공유'],
+                  ].map(([value, label]) => (
+                    <button key={value} type="button" aria-pressed={audience === value} onClick={() => onAudienceChange(value as 'admin' | 'trainee')} className={`min-h-11 rounded-xl border px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${audience === value ? 'border-[#0877b8] bg-white text-[#075f93] shadow-sm' : 'border-transparent bg-transparent text-slate-600 hover:bg-white/70'}`}>{label}</button>
+                  ))}
+                </div>
+              ) : <Pill tone="green">{traineeName} 공유화면</Pill>}
             </div>
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
               <div>
@@ -717,7 +724,7 @@ function SchedulePage({
             <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
               <CardHeader className="border-b border-slate-100">
                 <CardTitle className="flex items-center gap-2 text-lg font-bold"><UserRoundCheck className="size-5 text-[#0877b8]" aria-hidden="true" /> 교육생 공개범위</CardTitle>
-                <CardDescription>박지현 교육생 화면 기준입니다.</CardDescription>
+                <CardDescription>{traineeName} 교육생 화면 기준입니다.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 pt-1">
                 <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4"><p className="text-sm font-bold text-emerald-900">김성민 대표 일정 공유 중</p><p className="mt-1 text-xs leading-5 text-emerald-800">예약 가능·불가 시간은 전체 교육생에게 표시됩니다.</p></div>
@@ -756,29 +763,32 @@ function TraineeDashboard({
   onNew,
   onOpenSchedule,
   schedule,
+  member,
 }: {
   onOpenCase: () => void;
   onNew: () => void;
   onOpenSchedule: () => void;
   schedule: ScheduleItem[];
+  member: TraineeMember;
 }) {
-  const traineeSchedule = schedule.map((item) => scheduleForTrainee(item)).filter((item): item is ScheduleItem => item !== null).slice(0, 3);
+  const displayName = member.name.replace('(가상)', '');
+  const traineeSchedule = schedule.map((item) => scheduleForTrainee(item, displayName)).filter((item): item is ScheduleItem => item !== null).slice(0, 3);
   return (
     <>
       <PageIntro
         eyebrow="교육생 협업공간"
-        title="박지현 교육생님, 진행상황을 확인하세요"
+        title={`${displayName} 교육생님, 진행상황을 확인하세요`}
         description="본인이 주관하거나 공동 협업자로 참여한 기업만 표시됩니다."
         action={
-          <PrimaryButton onClick={onNew}>
+          member.permissions.collaborationApply ? <PrimaryButton onClick={onNew}>
             <Plus className="size-4" aria-hidden="true" /> 새 협업신청
-          </PrimaryButton>
+          </PrimaryButton> : <Pill tone="slate">신청 권한 없음</Pill>
         }
       />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          ['진행기업', '6', BriefcaseBusiness, '전체 협업 사건'],
+          ['진행기업', String(member.companies), BriefcaseBusiness, '전체 협업 사건'],
           ['추가서류 필요', '3', FileCheck2, '오늘 1건 마감'],
           ['예정 상담', '2', CalendarDays, '가장 가까운 일정 09.04'],
           ['확인 필요', '1', AlertCircle, '견적서 확인 요청'],
@@ -801,7 +811,7 @@ function TraineeDashboard({
         })}
       </section>
 
-      <Card className="mt-6 border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
+      {member.permissions.sharedSchedule ? <Card className="mt-6 border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
         <CardHeader className="border-b border-slate-100">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
             <div>
@@ -819,7 +829,7 @@ function TraineeDashboard({
             </div>
           ))}
         </CardContent>
-      </Card>
+      </Card> : <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-5"><p className="text-sm font-bold text-amber-900">대표 공유일정 열람 권한이 없습니다.</p><p className="mt-1 text-xs leading-5 text-amber-800">대표 관리자에게 일정 공유 권한을 요청해 주세요.</p></div>}
 
       <section className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,0.7fr)]">
         <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
@@ -890,8 +900,15 @@ const permissionLabels: Array<{ key: keyof TraineeMember['permissions']; label: 
   { key: 'quoteContract', label: '견적·계약 확인', detail: '담당기업의 승인된 견적·계약 상태 확인' },
 ];
 
-function AccessManagement({ notify }: { notify: (message: string) => void }) {
-  const [members, setMembers] = useState<TraineeMember[]>(sampleTrainees);
+function AccessManagement({
+  notify,
+  members,
+  setMembers,
+}: {
+  notify: (message: string) => void;
+  members: TraineeMember[];
+  setMembers: React.Dispatch<React.SetStateAction<TraineeMember[]>>;
+}) {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'전체' | TraineeMember['status']>('전체');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -1186,20 +1203,25 @@ function CaseDetail({
   onConsult,
   onDocuments,
   onDocumentModal,
+  canFileUpload,
+  canQuoteContract,
+  assignedTrainee,
 }: {
   timeline: typeof baseTimeline;
   onConsult: () => void;
   onDocuments: () => void;
   onDocumentModal: (type: 'quote' | 'contract') => void;
+  canFileUpload: boolean;
+  canQuoteContract: boolean;
+  assignedTrainee: string;
 }) {
   const [tab, setTab] = useState('timeline');
   const tabs = [
     ['timeline', '전체 타임라인'],
     ['services', '서비스 과업'],
     ['consultations', '상담'],
-    ['documents', '서류요청'],
-    ['quotes', '견적서'],
-    ['contracts', '계약서'],
+    ...(canFileUpload ? [['documents', '서류요청']] : []),
+    ...(canQuoteContract ? [['quotes', '견적서'], ['contracts', '계약서']] : []),
   ];
 
   return (
@@ -1207,7 +1229,7 @@ function CaseDetail({
       <PageIntro
         eyebrow="기업·사건 상세"
         title="세림테크(가상)"
-        description="신청번호 KEVE-2026-0829-001 · 주관 교육생 박지현 · 내부 담당자 김도윤"
+        description={`신청번호 KEVE-2026-0829-001 · 주관 교육생 ${assignedTrainee} · 내부 담당자 김도윤`}
         action={<Pill tone="blue">상담·협의 진행</Pill>}
       />
 
@@ -1215,8 +1237,7 @@ function CaseDetail({
         {[
           ['상담', `${Math.max(3, timeline.filter((item) => item.type === '상담').length)}회`, '반복등록'],
           ['미제출 서류', '2건', '09.05 마감'],
-          ['견적서', 'V1 검토 중', '대표 승인 대기'],
-          ['계약서', '미작성', '필요 시 생성'],
+          ...(canQuoteContract ? [['견적서', 'V1 검토 중', '대표 승인 대기'], ['계약서', '미작성', '필요 시 생성']] : []),
         ].map(([label, value, hint]) => (
           <Card key={label} className="border-0 shadow-[0_8px_24px_rgb(15_23_42/5%)] ring-slate-200/80">
             <CardContent>
@@ -1308,17 +1329,18 @@ function CaseDetail({
             <CardHeader className="border-b border-slate-100"><CardTitle className="text-lg font-bold">빠른 업무 등록</CardTitle><CardDescription>현재 단계와 무관하게 생성됩니다.</CardDescription></CardHeader>
             <CardContent className="grid gap-3 pt-1 sm:grid-cols-2 xl:grid-cols-1">
               <SecondaryButton onClick={onConsult} className="justify-start"><MessageSquarePlus className="size-4 text-[#0877b8]" /> 상담 등록</SecondaryButton>
-              <SecondaryButton onClick={onDocuments} className="justify-start"><FileCheck2 className="size-4 text-[#0877b8]" /> 서류요청</SecondaryButton>
-              <SecondaryButton onClick={() => onDocumentModal('quote')} className="justify-start"><FilePlus2 className="size-4 text-[#0877b8]" /> 견적서 작성</SecondaryButton>
-              <SecondaryButton onClick={() => onDocumentModal('contract')} className="justify-start"><FileText className="size-4 text-[#0877b8]" /> 계약서 작성</SecondaryButton>
+              {canFileUpload ? <SecondaryButton onClick={onDocuments} className="justify-start"><FileCheck2 className="size-4 text-[#0877b8]" /> 서류요청</SecondaryButton> : null}
+              {canQuoteContract ? <SecondaryButton onClick={() => onDocumentModal('quote')} className="justify-start"><FilePlus2 className="size-4 text-[#0877b8]" /> 견적서 작성</SecondaryButton> : null}
+              {canQuoteContract ? <SecondaryButton onClick={() => onDocumentModal('contract')} className="justify-start"><FileText className="size-4 text-[#0877b8]" /> 계약서 작성</SecondaryButton> : null}
+              {!canQuoteContract ? <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600 sm:col-span-2 xl:col-span-1"><LockKeyhole className="mr-1 inline size-4 align-text-bottom" aria-hidden="true" />견적·계약 기능은 리더 교육생 또는 대표 권한이 필요합니다.</div> : null}
             </CardContent>
           </Card>
 
           <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
             <CardHeader><CardTitle className="text-lg font-bold">다음 행동</CardTitle></CardHeader>
             <CardContent>
-              <p className="text-sm font-semibold text-slate-800">견적서 V1 대표 승인</p>
-              <div className="mt-3 flex items-center justify-between gap-3"><Pill tone="amber">오늘 마감</Pill><span className="text-xs text-slate-500">담당 김도윤</span></div>
+              <p className="text-sm font-semibold text-slate-800">{canQuoteContract ? '견적서 V1 대표 승인' : '추가서류 제출 확인'}</p>
+              <div className="mt-3 flex items-center justify-between gap-3"><Pill tone="amber">오늘 마감</Pill><span className="text-xs text-slate-500">{canQuoteContract ? '담당 김도윤' : `담당 ${assignedTrainee}`}</span></div>
             </CardContent>
           </Card>
         </div>
@@ -1534,27 +1556,120 @@ function DocumentModal({ type, onClose, onSave }: { type: 'quote' | 'contract'; 
   );
 }
 
+function VirtualAccountSwitcher({
+  members,
+  currentAccountId,
+  onSelect,
+  onClose,
+}: {
+  members: TraineeMember[];
+  currentAccountId: string;
+  onSelect: (accountId: string) => void;
+  onClose: () => void;
+}) {
+  const activeMembers = members.filter((member) => member.status === '활성');
+
+  return (
+    <dialog open className="fixed inset-0 z-50 m-0 grid h-screen max-h-none w-screen max-w-none place-items-center border-0 bg-slate-950/45 p-4 backdrop-blur-sm" aria-labelledby="account-switcher-title">
+      <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b p-5">
+          <div>
+            <p className="text-xs font-semibold text-[#0877b8]">가상 로그인</p>
+            <h2 id="account-switcher-title" className="mt-1 text-xl font-bold text-slate-950">확인할 계정을 선택하세요</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-500">실제 로그인 없이 역할별 메뉴와 권한 차이를 체험합니다.</p>
+          </div>
+          <button type="button" onClick={onClose} className="grid size-11 shrink-0 place-items-center rounded-xl text-slate-500 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100" aria-label="계정 전환 닫기"><X className="size-5" aria-hidden="true" /></button>
+        </div>
+
+        <div className="max-h-[68vh] space-y-3 overflow-y-auto p-5">
+          <button type="button" aria-pressed={currentAccountId === 'admin'} onClick={() => onSelect('admin')} className={`flex min-h-[88px] w-full items-center justify-between gap-4 rounded-2xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${currentAccountId === 'admin' ? 'border-[#0877b8] bg-sky-50' : 'border-slate-200 hover:bg-slate-50'}`}>
+            <span className="flex min-w-0 items-center gap-3"><span className="grid size-12 shrink-0 place-items-center rounded-full bg-[#15375b] text-white"><ShieldCheck className="size-5" aria-hidden="true" /></span><span className="min-w-0"><span className="block font-bold text-slate-950">김성민 대표</span><span className="mt-1 block text-xs leading-5 text-slate-500">대표 관리자 · 전체 메뉴 및 모든 업무 권한</span></span></span>
+            {currentAccountId === 'admin' ? <span className="grid size-8 shrink-0 place-items-center rounded-full bg-[#0877b8] text-white"><Check className="size-4" aria-hidden="true" /></span> : <ChevronRight className="size-5 shrink-0 text-slate-400" aria-hidden="true" />}
+          </button>
+
+          {activeMembers.map((member) => {
+            const selected = currentAccountId === member.id;
+            const granted = Object.values(member.permissions).filter(Boolean).length;
+            return (
+              <button key={member.id} type="button" aria-pressed={selected} onClick={() => onSelect(member.id)} className={`flex min-h-[88px] w-full items-center justify-between gap-4 rounded-2xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${selected ? 'border-[#0877b8] bg-sky-50' : 'border-slate-200 hover:bg-slate-50'}`}>
+                <span className="flex min-w-0 items-center gap-3"><span className="grid size-12 shrink-0 place-items-center rounded-full bg-[#eaf1f7] font-bold text-[#15375b]">{member.name.slice(0, 1)}</span><span className="min-w-0"><span className="flex flex-wrap items-center gap-2"><span className="font-bold text-slate-950">{member.name}</span><Pill tone={member.role === '리더 교육생' ? 'violet' : 'blue'}>{member.role}</Pill></span><span className="mt-1 block text-xs leading-5 text-slate-500">{member.cohort} · 허용 권한 {granted}/5</span></span></span>
+                {selected ? <span className="grid size-8 shrink-0 place-items-center rounded-full bg-[#0877b8] text-white"><Check className="size-4" aria-hidden="true" /></span> : <ChevronRight className="size-5 shrink-0 text-slate-400" aria-hidden="true" />}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="border-t bg-slate-50 p-4 text-xs leading-5 text-slate-600 sm:px-5">
+          가상 시안이므로 계정 전환과 권한 변경은 이 브라우저에서만 유지되며, 새로고침하면 초기화됩니다.
+        </div>
+      </div>
+    </dialog>
+  );
+}
+
 export default function Home() {
   const [view, setView] = useState<View>('admin');
   const [mobileOpen, setMobileOpen] = useState(false);
   const [consultationNumber, setConsultationNumber] = useState(4);
   const [timeline, setTimeline] = useState(baseTimeline);
   const [schedule, setSchedule] = useState<ScheduleItem[]>(sampleSchedule);
+  const [members, setMembers] = useState<TraineeMember[]>(sampleTrainees);
+  const [currentAccountId, setCurrentAccountId] = useState('admin');
+  const [accountSwitcherOpen, setAccountSwitcherOpen] = useState(false);
   const [scheduleAudience, setScheduleAudience] = useState<'admin' | 'trainee'>('admin');
   const [modal, setModal] = useState<'quote' | 'contract' | null>(null);
   const [toast, setToast] = useState('');
 
+  const currentMember = currentAccountId === 'admin' ? null : members.find((member) => member.id === currentAccountId) ?? null;
+  const isAdmin = currentAccountId === 'admin';
+  const previewMember = currentMember ?? members.find((member) => member.status === '활성') ?? sampleTrainees[0];
+  const traineeName = previewMember.name.replace('(가상)', '');
+  const availableNavItems = useMemo(() => {
+    if (isAdmin) return navItems;
+    if (!currentMember || currentMember.status !== '활성') return [];
+    return navItems.filter((item) => {
+      if (item.view === 'trainee') return true;
+      if (item.view === 'schedule') return currentMember.permissions.sharedSchedule;
+      if (item.view === 'application') return currentMember.permissions.collaborationApply;
+      if (item.view === 'case' || item.view === 'consultation') return currentMember.permissions.ownCases;
+      if (item.view === 'documents') return currentMember.permissions.fileUpload;
+      return false;
+    });
+  }, [currentMember, isAdmin]);
+  const allowedViews = useMemo(() => new Set(availableNavItems.map((item) => item.view)), [availableNavItems]);
   const activeLabel = useMemo(() => navItems.find((item) => item.view === view)?.label ?? '파트너 허브', [view]);
 
   function navigate(next: View) {
+    if (!allowedViews.has(next)) {
+      notify('현재 가상 계정에는 이 메뉴 권한이 없습니다.');
+      return;
+    }
     setView(next);
     setMobileOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function openSchedule(audience: 'admin' | 'trainee') {
-    setScheduleAudience(audience);
+    setScheduleAudience(isAdmin ? audience : 'trainee');
     navigate('schedule');
+  }
+
+  function switchAccount(accountId: string) {
+    const nextMember = accountId === 'admin' ? null : members.find((member) => member.id === accountId) ?? null;
+    setCurrentAccountId(accountId);
+    setAccountSwitcherOpen(false);
+    setMobileOpen(false);
+    setModal(null);
+    if (accountId === 'admin') {
+      setScheduleAudience('admin');
+      setView('admin');
+      notify('김성민 대표 관리자 화면으로 전환했습니다.');
+    } else if (nextMember) {
+      setScheduleAudience('trainee');
+      setView('trainee');
+      notify(`${nextMember.name} ${nextMember.role} 화면으로 전환했습니다.`);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function notify(message: string) {
@@ -1623,8 +1738,8 @@ export default function Home() {
 
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[244px] flex-col bg-[#112f50] text-white lg:flex">
         <div className="flex h-[76px] items-center gap-3 border-b border-white/10 px-5"><BrandMark /><div><p className="text-[11px] font-semibold tracking-[0.18em] text-blue-200">KEVE</p><p className="text-[15px] font-bold tracking-tight">한기평 파트너 허브</p></div></div>
-        <nav aria-label="주요 메뉴" className="flex-1 space-y-1 overflow-y-auto p-4">{navItems.map(navButton)}</nav>
-        <div className="m-4 rounded-xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-blue-200">대표 관리자</p><p className="mt-1 text-sm font-semibold">김성민 대표</p><p className="mt-3 text-xs leading-5 text-blue-100/80">기업의 가치를 높이고 성장시키는 솔루션</p></div>
+        <nav aria-label="주요 메뉴" className="flex-1 space-y-1 overflow-y-auto p-4">{availableNavItems.map(navButton)}</nav>
+        <button type="button" onClick={() => setAccountSwitcherOpen(true)} className="m-4 min-h-24 rounded-xl border border-white/10 bg-white/5 p-4 text-left hover:bg-white/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-300/30" aria-haspopup="dialog"><p className="text-xs text-blue-200">{isAdmin ? '대표 관리자' : currentMember?.role}</p><p className="mt-1 text-sm font-semibold">{isAdmin ? '김성민 대표' : currentMember?.name}</p><p className="mt-2 flex items-center gap-1 text-xs text-blue-100/80">가상 계정 전환 <ChevronRight className="size-3.5" aria-hidden="true" /></p></button>
       </aside>
 
       {mobileOpen ? (
@@ -1632,7 +1747,8 @@ export default function Home() {
           <button type="button" onClick={() => setMobileOpen(false)} aria-label="메뉴 닫기" className="absolute inset-0 h-full w-full cursor-default bg-slate-950/40" />
           <aside className="relative h-full w-[min(86vw,320px)] bg-[#112f50] p-4 text-white">
             <div className="mb-5 flex items-center justify-between"><div className="flex items-center gap-3"><BrandMark /><span className="font-bold">파트너 허브</span></div><button type="button" onClick={() => setMobileOpen(false)} className="grid size-11 place-items-center rounded-xl hover:bg-white/10" aria-label="메뉴 닫기"><X /></button></div>
-            <nav aria-label="모바일 메뉴" className="space-y-2">{navItems.map(navButton)}</nav>
+            <nav aria-label="모바일 메뉴" className="space-y-2">{availableNavItems.map(navButton)}</nav>
+            <button type="button" onClick={() => setAccountSwitcherOpen(true)} className="mt-5 flex min-h-12 w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold hover:bg-white/10" aria-haspopup="dialog"><span>{isAdmin ? '김성민 대표' : currentMember?.name}</span><ChevronRight className="size-4" aria-hidden="true" /></button>
           </aside>
         </div>
       ) : null}
@@ -1641,22 +1757,29 @@ export default function Home() {
         <header className="sticky top-0 z-20 flex h-[76px] items-center justify-between border-b bg-white/95 px-4 backdrop-blur sm:px-6 lg:px-8">
           <div className="flex items-center gap-2 lg:hidden"><button type="button" onClick={() => setMobileOpen(true)} className="grid size-11 place-items-center rounded-xl hover:bg-slate-100" aria-label="메뉴 열기"><Menu /></button><span className="hidden text-sm font-bold text-[#15375b] sm:inline">{activeLabel}</span></div>
           <div className="hidden max-w-md flex-1 items-center gap-2 rounded-xl border bg-slate-50 px-3 text-slate-500 md:flex"><Search className="size-4" aria-hidden="true" /><input aria-label="기업명 또는 신청번호 검색" className="h-10 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400" placeholder="기업명 또는 신청번호 검색" /></div>
-          <div className="ml-auto flex items-center gap-2"><Pill tone="slate">가상 시안 데이터</Pill><button type="button" className="hidden size-11 place-items-center rounded-xl text-slate-600 hover:bg-slate-100 sm:grid" aria-label="알림 5건"><Bell /></button><PrimaryButton onClick={() => navigate('application')}><Plus className="size-4" /> <span className="hidden sm:inline">새 협업신청</span><span className="sm:hidden">신청</span></PrimaryButton></div>
+          <div className="ml-auto flex items-center gap-2">
+            <Pill tone="slate">가상 시안</Pill>
+            <button type="button" onClick={() => setAccountSwitcherOpen(true)} aria-haspopup="dialog" aria-expanded={accountSwitcherOpen} className="flex min-h-11 max-w-[190px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100"><span className="grid size-7 shrink-0 place-items-center rounded-full bg-[#eaf1f7] text-xs font-bold text-[#15375b]">{isAdmin ? '김' : currentMember?.name.slice(0, 1)}</span><span className="hidden min-w-0 truncate sm:block">{isAdmin ? '김성민 대표' : currentMember?.name}</span><ChevronDown className="size-4 shrink-0 text-slate-400" aria-hidden="true" /></button>
+            <button type="button" className="hidden size-11 place-items-center rounded-xl text-slate-600 hover:bg-slate-100 xl:grid" aria-label="알림 5건"><Bell /></button>
+            {isAdmin || currentMember?.permissions.collaborationApply ? <PrimaryButton onClick={() => navigate('application')}><Plus className="size-4" aria-hidden="true" /> <span className="hidden md:inline">새 협업신청</span><span className="md:hidden">신청</span></PrimaryButton> : null}
+          </div>
         </header>
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
           {view === 'admin' ? <AdminDashboard onOpenCase={() => navigate('case')} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} /> : null}
-          {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} audience={scheduleAudience} onAudienceChange={setScheduleAudience} /> : null}
-          {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} /> : null}
-          {view === 'access' ? <AccessManagement notify={notify} /> : null}
+          {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}
+          {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} /> : null}
+          {view === 'access' ? <AccessManagement notify={notify} members={members} setMembers={setMembers} /> : null}
           {view === 'application' ? <ApplicationForm onCancel={() => navigate('trainee')} onDone={() => { notify('협업신청이 접수되었습니다.'); navigate('trainee'); }} /> : null}
-          {view === 'case' ? <CaseDetail timeline={timeline} onConsult={() => navigate('consultation')} onDocuments={() => navigate('documents')} onDocumentModal={setModal} /> : null}
+          {view === 'case' ? <CaseDetail timeline={timeline} onConsult={() => navigate('consultation')} onDocuments={() => navigate('documents')} onDocumentModal={(type) => { if (isAdmin || currentMember?.permissions.quoteContract) setModal(type); else notify('현재 가상 계정에는 견적·계약 권한이 없습니다.'); }} canFileUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} canQuoteContract={isAdmin || Boolean(currentMember?.permissions.quoteContract)} assignedTrainee={isAdmin ? '박지현' : traineeName} /> : null}
           {view === 'consultation' ? <ConsultationForm number={consultationNumber} onCancel={() => navigate('case')} onSave={saveConsultation} /> : null}
           {view === 'documents' ? <DocumentRequest onCancel={() => navigate('case')} onSave={() => { setTimeline((current) => [...current, { date: '방금 전', title: '서류요청 #2 등록', detail: '요청대상: 기업대표 / 전달 담당자: 박지현 교육생', type: '서류', tone: 'amber' }]); notify('서류요청 #2가 등록되었습니다.'); navigate('case'); }} /> : null}
         </main>
       </div>
 
       {modal ? <DocumentModal type={modal} onClose={() => setModal(null)} onSave={() => { const kind = modal === 'quote' ? '견적서 V2' : '계약서 V1'; setTimeline((current) => [...current, { date: '방금 전', title: `${kind} 초안 저장`, detail: '관련 상담: 연결하지 않음 / 내부검토 전', type: modal === 'quote' ? '견적' : '계약', tone: 'violet' }]); setModal(null); notify(`${kind} 초안이 저장되었습니다.`); }} /> : null}
+
+      {accountSwitcherOpen ? <VirtualAccountSwitcher members={members} currentAccountId={currentAccountId} onSelect={switchAccount} onClose={() => setAccountSwitcherOpen(false)} /> : null}
 
       {toast ? <output aria-live="polite" aria-atomic="true" className="fixed bottom-5 left-1/2 z-[70] flex w-[min(92vw,520px)] -translate-x-1/2 items-center gap-3 rounded-2xl bg-[#112f50] px-5 py-4 text-sm font-semibold text-white shadow-2xl"><span className="grid size-7 shrink-0 place-items-center rounded-full bg-emerald-400 text-[#112f50]"><Check className="size-4" /></span>{toast}</output> : null}
     </div>
