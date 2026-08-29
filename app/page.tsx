@@ -114,6 +114,8 @@ type TraineeMember = {
   role: '교육생' | '리더 교육생';
   status: '활성' | '초대대기' | '정지';
   companies: number;
+  lastLoginAt?: string;
+  loginCount?: number;
   permissions: {
     sharedSchedule: boolean;
     collaborationApply: boolean;
@@ -1430,6 +1432,21 @@ const permissionLabels: Array<{ key: keyof TraineeMember['permissions']; label: 
   { key: 'quoteContract', label: '견적·계약 확인', detail: '담당기업의 승인된 견적·계약 상태 확인' },
 ];
 
+function loginActivityLabel(member: TraineeMember) {
+  if (!member.lastLoginAt) return '아직 로그인 기록 없음';
+  const date = new Date(member.lastLoginAt);
+  if (Number.isNaN(date.getTime())) return '접속시간 확인 필요';
+  const formatted = new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(date);
+  return `최근접속 ${formatted} · 누적 ${member.loginCount ?? 1}회`;
+}
+
 function AccessManagement({
   notify,
   members,
@@ -1578,7 +1595,7 @@ function AccessManagement({
           ['등록 교육생', members.length, Users, '전체 등록계정'],
           ['내부권한 활성', members.filter((member) => member.status === '활성').length, UserRoundCheck, 'ChatGPT 로그인 후 접속 가능'],
           ['접속 승인 대기', members.filter((member) => member.status === '초대대기').length, MailPlus, '이메일·권한범위 확인 전'],
-          ['일정 공유', members.filter((member) => member.permissions.sharedSchedule).length, CalendarDays, '대표 공유일정 열람'],
+          ['접속 확인', members.filter((member) => member.lastLoginAt).length, Clock3, '실제 로그인 기록 있음'],
         ].map(([label, value, Icon, hint]) => {
           const MetricIcon = Icon as IconType;
           return (
@@ -1630,6 +1647,7 @@ function AccessManagement({
                     </div>
                     <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-3 text-center"><div><p className="text-xs text-slate-500">기수</p><p className="mt-1 text-sm font-bold text-slate-800">{member.cohort}</p></div><div><p className="text-xs text-slate-500">담당기업</p><p className="mt-1 text-sm font-bold tabular-nums text-slate-800">{member.companies}개</p></div><div><p className="text-xs text-slate-500">권한</p><p className="mt-1 text-sm font-bold tabular-nums text-slate-800">{granted}/5</p></div></div>
                     <div className="mt-4 flex flex-wrap gap-2"><Pill tone="navy">{member.role}</Pill>{member.permissions.sharedSchedule ? <Pill tone="blue">대표 일정 공유</Pill> : <Pill tone="slate">일정 미공개</Pill>}</div>
+                    <div className={`mt-3 flex min-h-10 items-center gap-2 rounded-xl px-3 text-xs font-semibold ${member.lastLoginAt ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-50 text-slate-500'}`}><Clock3 className="size-4 shrink-0" aria-hidden="true" /><span>{loginActivityLabel(member)}</span></div>
                     <SecondaryButton className="mt-4 w-full" onClick={() => openMemberSettings(member)}><UserCog className="size-4 text-[#0877b8]" aria-hidden="true" /> 계정·권한 설정</SecondaryButton>
                   </article>
                 );
@@ -1685,7 +1703,7 @@ function AccessManagement({
                   <PrimaryButton className="mt-4 w-full sm:w-auto" disabled={!activationReady} onClick={activateSelectedMember}><UserRoundCheck className="size-4" aria-hidden="true" /> 3단계 확인 후 내부 계정 활성화</PrimaryButton>
                 </div>
               ) : (
-                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-emerald-700" aria-hidden="true" /><div><p className="text-sm font-bold text-emerald-900">내부 계정 활성 상태</p><p className="mt-1 text-xs leading-5 text-emerald-800">등록 이메일과 교육생의 ChatGPT 로그인 이메일이 계속 일치하는지 확인해 주세요.</p></div></div></div>
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-emerald-700" aria-hidden="true" /><div><p className="text-sm font-bold text-emerald-900">내부 계정 활성 상태</p><p className="mt-1 text-xs leading-5 text-emerald-800">등록 이메일과 교육생의 ChatGPT 로그인 이메일이 계속 일치하는지 확인해 주세요.</p><p className="mt-2 flex items-center gap-1.5 text-xs font-bold text-emerald-900"><Clock3 className="size-3.5" aria-hidden="true" /> {loginActivityLabel(selectedMember)}</p></div></div></div>
               )}
               {permissionLabels.map(({ key, label, detail }) => {
                 const enabled = selectedMember.permissions[key];

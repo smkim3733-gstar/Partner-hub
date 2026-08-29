@@ -1,9 +1,10 @@
-import { readPortalState, writePortalState } from '@/lib/portal-state';
+import { readPortalLoginStats, readPortalState, recordPortalLogin, writePortalState } from '@/lib/portal-state';
 import {
   mergeStateForPortalUser,
   PortalAccessError,
   requirePortalUser,
   stateForPortalUser,
+  stateWithPortalLoginStats,
 } from '@/lib/portal-auth';
 
 const MAX_STATE_BYTES = 900_000;
@@ -21,7 +22,13 @@ export async function GET(request: Request) {
   try {
     const state = await readPortalState();
     const currentUser = requirePortalUser(request, state);
-    return Response.json({ state: stateForPortalUser(state, currentUser), currentUser });
+    if (currentUser.role === 'trainee' && currentUser.memberId) {
+      await recordPortalLogin(currentUser.memberId);
+    }
+    const responseState = currentUser.role === 'admin'
+      ? stateWithPortalLoginStats(state, await readPortalLoginStats())
+      : stateForPortalUser(state, currentUser);
+    return Response.json({ state: responseState, currentUser });
   } catch (error) {
     const accessResponse = accessErrorResponse(error);
     if (accessResponse) return accessResponse;

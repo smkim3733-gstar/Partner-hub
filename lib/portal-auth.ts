@@ -1,4 +1,5 @@
 import { hasDuplicateLoginEmail, isValidLoginEmail } from '@/lib/member-email';
+import type { PortalLoginStat } from '@/lib/portal-state';
 
 type PortalPermissions = {
   sharedSchedule: boolean;
@@ -13,6 +14,8 @@ type PortalMember = {
   name: string;
   email: string;
   status: '활성' | '초대대기' | '정지';
+  lastLoginAt?: string;
+  loginCount?: number;
   permissions: PortalPermissions;
   [key: string]: unknown;
 };
@@ -171,6 +174,20 @@ export function stateForPortalUser(rawState: unknown, user: PortalUser): unknown
     members: state.members
       .filter((member) => member.id === user.memberId)
       .map((member) => ({ ...member, permissions: { ...member.permissions } })),
+  };
+}
+
+export function stateWithPortalLoginStats(rawState: unknown, stats: PortalLoginStat[]): unknown {
+  const state = asPortalState(rawState);
+  if (!state) return rawState;
+  const statsByMemberId = new Map(stats.map((stat) => [stat.memberId, stat]));
+
+  return {
+    ...state,
+    members: state.members.map((member) => {
+      const stat = statsByMemberId.get(member.id);
+      return stat ? { ...member, lastLoginAt: stat.lastLoginAt, loginCount: stat.loginCount } : member;
+    }),
   };
 }
 
