@@ -11,9 +11,12 @@ const MAX_STATE_BYTES = 900_000;
 
 export const dynamic = 'force-dynamic';
 
-function accessErrorResponse(error: unknown) {
+function accessErrorResponse(error: unknown, request: Request) {
   if (error instanceof PortalAccessError) {
-    return Response.json({ error: error.message }, { status: error.status });
+    const authenticatedEmail = error.status === 403
+      ? request.headers.get('oai-authenticated-user-email')?.trim().toLowerCase()
+      : undefined;
+    return Response.json({ error: error.message, authenticatedEmail }, { status: error.status });
   }
   return null;
 }
@@ -30,7 +33,7 @@ export async function GET(request: Request) {
       : stateForPortalUser(state, currentUser);
     return Response.json({ state: responseState, currentUser });
   } catch (error) {
-    const accessResponse = accessErrorResponse(error);
+    const accessResponse = accessErrorResponse(error, request);
     if (accessResponse) return accessResponse;
     console.error('Failed to read portal state', error);
     return Response.json({ error: '저장된 운영 데이터를 불러오지 못했습니다.' }, { status: 500 });
@@ -54,7 +57,7 @@ export async function PUT(request: Request) {
     const nextState = mergeStateForPortalUser(currentState, body.state, currentUser);
     return Response.json({ ok: true, updatedAt: await writePortalState(nextState) });
   } catch (error) {
-    const accessResponse = accessErrorResponse(error);
+    const accessResponse = accessErrorResponse(error, request);
     if (accessResponse) return accessResponse;
     console.error('Failed to write portal state', error);
     return Response.json({ error: '운영 데이터를 저장하지 못했습니다.' }, { status: 500 });

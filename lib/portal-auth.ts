@@ -13,7 +13,7 @@ type PortalMember = {
   id: string;
   name: string;
   email: string;
-  status: '활성' | '초대대기' | '정지';
+  status: '활성' | '승인대기' | '초대대기' | '정지';
   lastLoginAt?: string;
   loginCount?: number;
   permissions: PortalPermissions;
@@ -108,7 +108,7 @@ export function requirePortalUser(request: Request, rawState: unknown): PortalUs
   const state = asPortalState(rawState);
   const member = state?.members.find((item) => item.email.trim().toLowerCase() === email);
   if (!member || member.status !== '활성') {
-    throw new PortalAccessError('등록되었거나 활성화된 파트너 계정이 아닙니다.', 403);
+    throw new PortalAccessError('아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.', 403);
   }
 
   const memberName = normalizedMemberName(member.name);

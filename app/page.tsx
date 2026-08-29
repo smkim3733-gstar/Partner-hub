@@ -104,18 +104,20 @@ type ConsultationPayload = {
   shareMode: 'all_with_assignee' | 'all_busy' | 'private';
 };
 
-type PartnerType = '교육생' | '타사 컨설턴트' | '타사 보험사 대표' | '타사 보험설계사';
+type PartnerType = '한기평 컨설턴트' | '타사 컨설턴트' | '보험설계사' | '기타';
 
-const partnerTypes: PartnerType[] = ['교육생', '타사 컨설턴트', '타사 보험사 대표', '타사 보험설계사'];
+const partnerTypes: PartnerType[] = ['한기평 컨설턴트', '타사 컨설턴트', '보험설계사', '기타'];
 
 type TraineeMember = {
   id: string;
   name: string;
   email: string;
+  phone?: string;
+  affiliation?: string;
   cohort: string;
   memberType?: PartnerType;
   role: '교육생' | '리더 교육생' | '일반 파트너' | '리더 파트너';
-  status: '활성' | '초대대기' | '정지';
+  status: '활성' | '승인대기' | '초대대기' | '정지';
   companies: number;
   lastLoginAt?: string;
   loginCount?: number;
@@ -172,17 +174,20 @@ type CollaborationCase = {
 };
 
 function partnerTypeOf(member: TraineeMember): PartnerType {
-  return member.memberType ?? '교육생';
+  const rawType = (member as { memberType?: string }).memberType;
+  if (rawType === '타사 컨설턴트' || rawType === '보험설계사' || rawType === '기타' || rawType === '한기평 컨설턴트') return rawType;
+  if (rawType === '타사 보험사 대표' || rawType === '타사 보험설계사') return '보험설계사';
+  return '한기평 컨설턴트';
 }
 
 function partnerDetail(member: TraineeMember) {
-  return partnerTypeOf(member) === '교육생' ? `${member.cohort || '기수 미등록'} 교육생` : partnerTypeOf(member);
+  return member.affiliation ? `${partnerTypeOf(member)} · ${member.affiliation}` : partnerTypeOf(member);
 }
 
 function casePartnerType(item: CollaborationCase, members: TraineeMember[]): PartnerType {
   if (item.applicantType) return item.applicantType;
   const member = members.find((candidate) => candidate.name.replace('(가상)', '') === item.trainee);
-  return member ? partnerTypeOf(member) : '교육생';
+  return member ? partnerTypeOf(member) : '한기평 컨설턴트';
 }
 
 type TimelineItem = {
@@ -233,7 +238,7 @@ const sampleTrainees: TraineeMember[] = [
     name: '박지현(가상)',
     email: 'jihyun.park@example.com',
     cohort: '12기',
-    memberType: '교육생',
+    memberType: '한기평 컨설턴트',
     role: '교육생',
     status: '활성',
     companies: 6,
@@ -255,9 +260,9 @@ const sampleTrainees: TraineeMember[] = [
     name: '최서윤(가상)',
     email: 'seoyun.choi@example.com',
     cohort: '',
-    memberType: '타사 보험사 대표',
+    memberType: '보험설계사',
     role: '일반 파트너',
-    status: '초대대기',
+    status: '승인대기',
     companies: 0,
     permissions: { sharedSchedule: true, collaborationApply: true, ownCases: true, fileUpload: true, quoteContract: false },
   },
@@ -266,7 +271,7 @@ const sampleTrainees: TraineeMember[] = [
     name: '정민수(가상)',
     email: 'minsu.jung@example.com',
     cohort: '',
-    memberType: '타사 보험설계사',
+    memberType: '기타',
     role: '일반 파트너',
     status: '정지',
     companies: 2,
@@ -1469,6 +1474,93 @@ function loginActivityLabel(member: TraineeMember) {
   return `최근접속 ${formatted} · 누적 ${member.loginCount ?? 1}회`;
 }
 
+type RegistrationField = 'name' | 'phone' | 'affiliation' | 'email';
+
+function PartnerRegistrationForm({ email }: { email: string }) {
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [affiliation, setAffiliation] = useState('');
+  const [errors, setErrors] = useState<Partial<Record<RegistrationField, string>>>({});
+  const [formError, setFormError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+  const errorSummaryRef = useRef<HTMLDivElement>(null);
+
+  function validateField(field: RegistrationField, value: string) {
+    const normalized = value.trim();
+    if (field === 'name' && (normalized.length < 2 || normalized.length > 40)) return '이름은 2자 이상 40자 이하로 입력해 주세요.';
+    if (field === 'phone' && !/^[0-9+()\-\s.]{7,24}$/.test(normalized)) return '연락처를 숫자와 하이픈을 사용해 입력해 주세요.';
+    if (field === 'affiliation' && (normalized.length < 2 || normalized.length > 80)) return '소속은 2자 이상 80자 이하로 입력해 주세요.';
+    if (field === 'email' && !isValidLoginEmail(normalized)) return '로그인 이메일을 확인해 주세요.';
+    return '';
+  }
+
+  function validateAll() {
+    const nextErrors: Partial<Record<RegistrationField, string>> = {};
+    const values: Record<RegistrationField, string> = { name, phone, affiliation, email };
+    (Object.keys(values) as RegistrationField[]).forEach((field) => {
+      const error = validateField(field, values[field]);
+      if (error) nextErrors[field] = error;
+    });
+    return nextErrors;
+  }
+
+  function validateOnBlur(field: RegistrationField, value: string) {
+    const error = validateField(field, value);
+    setErrors((current) => ({ ...current, [field]: error || undefined }));
+  }
+
+  async function submitRegistration(event: React.SyntheticEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextErrors = validateAll();
+    if (Object.keys(nextErrors).length) {
+      setErrors(nextErrors);
+      window.requestAnimationFrame(() => errorSummaryRef.current?.focus());
+      return;
+    }
+
+    setSubmitting(true);
+    setFormError('');
+    try {
+      const response = await fetch('/api/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name, phone, affiliation, email }),
+      });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error || '등록 신청을 저장하지 못했습니다.');
+      setSubmitted(true);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : '등록 신청을 저장하지 못했습니다.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (submitted) {
+    return (
+      <output className="mt-6 block rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-left">
+        <div className="flex items-start gap-3"><UserRoundCheck className="mt-0.5 size-5 shrink-0 text-emerald-700" aria-hidden="true" /><div><p className="text-sm font-bold text-emerald-900">파트너 등록 신청 완료</p><p className="mt-1 text-xs leading-5 text-emerald-800">현재 승인대기 상태입니다. 김성민 대표가 파트너 유형을 선택해 승인하면 바로 로그인할 수 있습니다.</p></div></div>
+      </output>
+    );
+  }
+
+  return (
+    <form onSubmit={submitRegistration} className="mt-6 rounded-2xl border border-sky-100 bg-sky-50/60 p-5 text-left" noValidate>
+      <div><p className="text-sm font-bold text-[#15375b]">파트너 등록 신청</p><p className="mt-1 text-xs leading-5 text-slate-600">아래 4개 항목만 입력해 주세요. 파트너 유형은 대표님이 승인할 때 지정합니다.</p></div>
+      {Object.keys(errors).length ? <div ref={errorSummaryRef} tabIndex={-1} role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800"><p>입력내용을 확인해 주세요.</p><ul className="mt-2 list-disc space-y-1 pl-5 text-xs">{Object.values(errors).filter(Boolean).map((error) => <li key={error}>{error}</li>)}</ul></div> : null}
+      {formError ? <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">{formError}</p> : null}
+      <div className="mt-4 grid gap-4 sm:grid-cols-2">
+        <div><Field label="이름" required><input id="registration-name" autoComplete="name" value={name} onChange={(event) => { setName(event.target.value); setErrors((current) => ({ ...current, name: undefined })); }} onBlur={() => validateOnBlur('name', name)} className={`${inputClass} ${errors.name ? 'border-red-400' : ''}`} aria-invalid={Boolean(errors.name)} aria-describedby={errors.name ? 'registration-name-error' : undefined} /></Field>{errors.name ? <p id="registration-name-error" role="alert" className="mt-2 text-xs font-semibold text-red-700">{errors.name}</p> : null}</div>
+        <div><Field label="연락처" required><input id="registration-phone" type="tel" autoComplete="tel" value={phone} onChange={(event) => { setPhone(event.target.value); setErrors((current) => ({ ...current, phone: undefined })); }} onBlur={() => validateOnBlur('phone', phone)} className={`${inputClass} ${errors.phone ? 'border-red-400' : ''}`} placeholder="010-0000-0000" aria-invalid={Boolean(errors.phone)} aria-describedby={errors.phone ? 'registration-phone-error' : undefined} /></Field>{errors.phone ? <p id="registration-phone-error" role="alert" className="mt-2 text-xs font-semibold text-red-700">{errors.phone}</p> : null}</div>
+        <div><Field label="소속" required><input id="registration-affiliation" autoComplete="organization" value={affiliation} onChange={(event) => { setAffiliation(event.target.value); setErrors((current) => ({ ...current, affiliation: undefined })); }} onBlur={() => validateOnBlur('affiliation', affiliation)} className={`${inputClass} ${errors.affiliation ? 'border-red-400' : ''}`} placeholder="회사명 또는 소속 조직" aria-invalid={Boolean(errors.affiliation)} aria-describedby={errors.affiliation ? 'registration-affiliation-error' : undefined} /></Field>{errors.affiliation ? <p id="registration-affiliation-error" role="alert" className="mt-2 text-xs font-semibold text-red-700">{errors.affiliation}</p> : null}</div>
+        <div><Field label="이메일" required hint="현재 ChatGPT 로그인 이메일입니다."><input id="registration-email" type="email" autoComplete="email" value={email} readOnly className={`${inputClass} bg-slate-100 text-slate-600 ${errors.email ? 'border-red-400' : ''}`} aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? 'registration-email-error' : undefined} /></Field>{errors.email ? <p id="registration-email-error" role="alert" className="mt-2 text-xs font-semibold text-red-700">{errors.email}</p> : null}</div>
+      </div>
+      <PrimaryButton type="submit" className="mt-5 w-full" disabled={submitting}>{submitting ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />} {submitting ? '신청 저장 중' : '등록 승인 요청'}</PrimaryButton>
+    </form>
+  );
+}
+
 function AccessManagement({
   notify,
   members,
@@ -1481,23 +1573,16 @@ function AccessManagement({
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'전체' | TraineeMember['status']>('전체');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [inviteName, setInviteName] = useState('');
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteEmailError, setInviteEmailError] = useState('');
-  const [inviteMemberType, setInviteMemberType] = useState<PartnerType>('교육생');
-  const [inviteCohort, setInviteCohort] = useState('13기');
   const [selectedEmail, setSelectedEmail] = useState('');
   const [selectedEmailError, setSelectedEmailError] = useState('');
-  const [selectedMemberType, setSelectedMemberType] = useState<PartnerType>('교육생');
-  const [selectedCohort, setSelectedCohort] = useState('');
+  const [selectedMemberType, setSelectedMemberType] = useState<PartnerType>('한기평 컨설턴트');
   const [deleteConfirming, setDeleteConfirming] = useState(false);
   const selectedEmailRef = useRef<HTMLInputElement>(null);
-  const inviteEmailRef = useRef<HTMLInputElement>(null);
 
   const filteredMembers = members.filter((member) => {
-    const keywordMatch = `${member.name} ${member.email} ${member.cohort} ${partnerTypeOf(member)}`.toLowerCase().includes(query.toLowerCase());
-    const statusMatch = statusFilter === '전체' || member.status === statusFilter;
+    const keywordMatch = `${member.name} ${member.email} ${member.phone ?? ''} ${member.affiliation ?? ''} ${partnerTypeOf(member)}`.toLowerCase().includes(query.toLowerCase());
+    const statusMatch = statusFilter === '전체'
+      || (statusFilter === '승인대기' ? ['승인대기', '초대대기'].includes(member.status) : member.status === statusFilter);
     return keywordMatch && statusMatch;
   });
   const selectedMember = members.find((member) => member.id === selectedId) ?? null;
@@ -1513,7 +1598,6 @@ function AccessManagement({
     setSelectedEmail(member.email);
     setSelectedEmailError('');
     setSelectedMemberType(partnerTypeOf(member));
-    setSelectedCohort(member.cohort);
     setDeleteConfirming(false);
   }
 
@@ -1521,8 +1605,7 @@ function AccessManagement({
     setSelectedId(null);
     setSelectedEmail('');
     setSelectedEmailError('');
-    setSelectedMemberType('교육생');
-    setSelectedCohort('');
+    setSelectedMemberType('한기평 컨설턴트');
     setDeleteConfirming(false);
   }
 
@@ -1534,40 +1617,6 @@ function AccessManagement({
   function updateSelectedMember(patch: Partial<Pick<TraineeMember, 'status'>>) {
     if (!selectedId) return;
     setMembers((current) => current.map((member) => member.id === selectedId ? { ...member, ...patch } : member));
-  }
-
-  function prepareInvite() {
-    if (!inviteEmail.trim()) {
-      notify('로그인 이메일을 입력해 주세요.');
-      return;
-    }
-    const emailError = validateEmail(inviteEmail);
-    if (emailError) {
-      setInviteEmailError(emailError);
-      inviteEmailRef.current?.focus();
-      return;
-    }
-    setMembers((current) => [
-      ...current,
-      {
-        id: `partner-${Date.now()}`,
-        name: inviteName.trim() || inviteEmail.trim().split('@')[0],
-        email: inviteEmail.trim().toLowerCase(),
-        cohort: inviteMemberType === '교육생' ? inviteCohort : '',
-        memberType: inviteMemberType,
-        role: inviteMemberType === '교육생' ? '교육생' : '일반 파트너',
-        status: '활성',
-        companies: 0,
-        permissions: { sharedSchedule: true, collaborationApply: true, ownCases: true, fileUpload: true, quoteContract: false },
-      },
-    ]);
-    setInviteName('');
-    setInviteEmail('');
-    setInviteEmailError('');
-    setInviteMemberType('교육생');
-    setInviteCohort('13기');
-    setInviteOpen(false);
-    notify('파트너 이메일 계정을 등록하고 기본권한을 활성화했습니다.');
   }
 
   function saveSelectedMember() {
@@ -1584,12 +1633,30 @@ function AccessManagement({
         ...member,
         email: nextEmail,
         memberType: selectedMemberType,
-        cohort: selectedMemberType === '교육생' ? selectedCohort : '',
-        role: selectedMemberType === '교육생' && member.role === '리더 교육생' ? member.role : selectedMemberType === '교육생' ? '교육생' : member.role === '리더 파트너' ? member.role : '일반 파트너',
+        role: member.role === '리더 파트너' ? member.role : '일반 파트너',
       } : member,
     ));
     closeMemberSettings();
     notify(`${selectedMember.name} 계정 정보를 저장했습니다.`);
+  }
+
+  function approveSelectedMember() {
+    if (!selectedMember || !['승인대기', '초대대기'].includes(selectedMember.status)) return;
+    const emailError = validateEmail(selectedEmail, selectedMember.id);
+    if (emailError) {
+      setSelectedEmailError(emailError);
+      selectedEmailRef.current?.focus();
+      return;
+    }
+    setMembers((current) => current.map((member) => member.id === selectedMember.id ? {
+      ...member,
+      email: selectedEmail.trim().toLowerCase(),
+      memberType: selectedMemberType,
+      role: '일반 파트너',
+      status: '활성',
+    } : member));
+    closeMemberSettings();
+    notify(`${selectedMember.name}님을 ${selectedMemberType}(으)로 승인했습니다. 지금부터 로그인할 수 있습니다.`);
   }
 
   function deleteSelectedMember() {
@@ -1604,15 +1671,15 @@ function AccessManagement({
       <PageIntro
         eyebrow="관리자 전용"
         title="파트너 계정·권한관리"
-        description="교육생과 외부 컨설턴트·보험 관계자를 이메일 한 개로 등록하고 필요한 기능만 관리합니다."
-        action={<PrimaryButton onClick={() => setInviteOpen(true)}><UserPlus className="size-4" aria-hidden="true" /> 이메일 계정 등록</PrimaryButton>}
+        description="4개 항목으로 들어온 등록신청을 확인하고 파트너 유형을 지정해 승인합니다."
+        action={<div className="flex flex-wrap items-center gap-2"><Pill tone={members.some((member) => ['승인대기', '초대대기'].includes(member.status)) ? 'amber' : 'green'}>승인대기 {members.filter((member) => ['승인대기', '초대대기'].includes(member.status)).length}명</Pill><SecondaryButton onClick={() => window.location.reload()}><RefreshCw className="size-4" aria-hidden="true" /> 신청목록 새로고침</SecondaryButton></div>}
       />
 
       <section aria-label="파트너 계정 요약" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           ['등록 파트너', members.length, Users, '전체 이메일 계정'],
           ['활성 계정', members.filter((member) => member.status === '활성').length, UserRoundCheck, 'ChatGPT 로그인 후 접속'],
-          ['외부 파트너', members.filter((member) => partnerTypeOf(member) !== '교육생').length, BriefcaseBusiness, '컨설턴트·보험 관계자'],
+          ['승인대기', members.filter((member) => ['승인대기', '초대대기'].includes(member.status)).length, UserPlus, '대표 유형 지정 필요'],
           ['접속 확인', members.filter((member) => member.lastLoginAt).length, Clock3, '실제 로그인 기록 있음'],
         ].map(([label, value, Icon, hint]) => {
           const MetricIcon = Icon as IconType;
@@ -1625,17 +1692,17 @@ function AccessManagement({
         })}
       </section>
 
-      <section aria-label="간편 계정 등록 안내" className="mt-6 rounded-2xl border border-sky-100 bg-gradient-to-r from-[#edf7fd] to-white p-5 shadow-[0_8px_30px_rgb(15_23_42/4%)]">
+      <section aria-label="파트너 등록 승인 순서" className="mt-6 rounded-2xl border border-sky-100 bg-gradient-to-r from-[#edf7fd] to-white p-5 shadow-[0_8px_30px_rgb(15_23_42/4%)]">
         <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
           <div>
-            <div className="flex items-center gap-2"><ShieldCheck className="size-5 text-[#0877b8]" aria-hidden="true" /><h2 className="text-base font-bold text-[#15375b]">이메일만 등록하면 바로 사용</h2></div>
-            <p className="mt-2 text-xs leading-5 text-slate-600">대표님이 이메일과 파트너 유형을 등록하면 기본권한이 즉시 활성화됩니다. 별도의 초대 승인 절차는 없습니다.</p>
+            <div className="flex items-center gap-2"><ShieldCheck className="size-5 text-[#0877b8]" aria-hidden="true" /><h2 className="text-base font-bold text-[#15375b]">신청 후 대표 승인으로 즉시 등록</h2></div>
+            <p className="mt-2 text-xs leading-5 text-slate-600">신청자는 4개 항목만 제출하고, 대표님은 파트너 유형만 선택해 승인합니다.</p>
           </div>
           <div className="grid gap-2 text-sm sm:grid-cols-3 lg:min-w-[620px]">
             {[
-              ['1', '이메일 등록', '이름은 생략 가능'],
-              ['2', '파트너 유형 선택', '4개 유형 중 선택'],
-              ['3', 'ChatGPT 로그인', '같은 이메일로 접속'],
+              ['1', '등록 신청', '이름·연락처·소속·이메일'],
+              ['2', '대표 승인', '파트너 유형 1개 선택'],
+              ['3', '즉시 등록', '같은 이메일로 바로 접속'],
             ].map(([step, label, detail]) => <div key={step} className="rounded-xl border border-white bg-white/90 p-3 shadow-sm"><div className="flex items-center gap-2"><span className="grid size-6 place-items-center rounded-full bg-[#0877b8] text-xs font-bold text-white">{step}</span><p className="font-bold text-slate-800">{label}</p></div><p className="mt-2 pl-8 text-xs text-slate-500">{detail}</p></div>)}
           </div>
         </div>
@@ -1644,10 +1711,10 @@ function AccessManagement({
       <Card className="mt-6 border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
         <CardHeader className="border-b border-slate-100">
           <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
-            <div><CardTitle className="text-lg font-bold">파트너 계정 목록</CardTitle><CardDescription className="mt-1">교육생·타사 컨설턴트·타사 보험사 대표·타사 보험설계사를 한곳에서 관리합니다.</CardDescription></div>
+            <div><CardTitle className="text-lg font-bold">파트너 신청·계정 목록</CardTitle><CardDescription className="mt-1">한기평 컨설턴트·타사 컨설턴트·보험설계사·기타로 구분합니다.</CardDescription></div>
             <div className="grid gap-2 sm:grid-cols-[minmax(220px,1fr)_150px]">
-              <label className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-slate-500"><Search className="size-4" aria-hidden="true" /><span className="sr-only">파트너 검색</span><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none" placeholder="이름·이메일·유형" /></label>
-              <label><span className="sr-only">계정상태 필터</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as '전체' | TraineeMember['status'])} className={inputClass}><option>전체</option><option>활성</option><option>초대대기</option><option>정지</option></select></label>
+              <label className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-slate-500"><Search className="size-4" aria-hidden="true" /><span className="sr-only">파트너 검색</span><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none" placeholder="이름·연락처·소속·이메일" /></label>
+              <label><span className="sr-only">계정상태 필터</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as '전체' | TraineeMember['status'])} className={inputClass}><option>전체</option><option>승인대기</option><option>활성</option><option>정지</option></select></label>
             </div>
           </div>
         </CardHeader>
@@ -1655,18 +1722,18 @@ function AccessManagement({
           {filteredMembers.length ? (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               {filteredMembers.map((member) => {
-                const statusTone = member.status === '활성' ? 'green' : member.status === '초대대기' ? 'amber' : 'red';
+                const statusTone = member.status === '활성' ? 'green' : ['승인대기', '초대대기'].includes(member.status) ? 'amber' : 'red';
                 const granted = Object.values(member.permissions).filter(Boolean).length;
                 return (
                   <article key={member.id} className="rounded-2xl border border-slate-200 bg-white p-5">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex min-w-0 items-center gap-3"><span className="grid size-11 shrink-0 place-items-center rounded-full bg-[#eaf1f7] text-sm font-bold text-[#15375b]">{member.name.slice(0, 1)}</span><div className="min-w-0"><h2 className="truncate text-sm font-bold text-slate-900">{member.name}</h2><p className="mt-1 truncate text-xs text-slate-500">{member.email}</p></div></div>
-                      <Pill tone={statusTone}>{member.status}</Pill>
+                      <Pill tone={statusTone}>{member.status === '초대대기' ? '승인대기' : member.status}</Pill>
                     </div>
-                    <div className="mt-4 grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-3 text-center"><div><p className="text-xs text-slate-500">파트너 유형</p><p className="mt-1 text-xs font-bold leading-5 text-slate-800">{partnerTypeOf(member)}</p></div><div><p className="text-xs text-slate-500">담당기업</p><p className="mt-1 text-sm font-bold tabular-nums text-slate-800">{member.companies}개</p></div><div><p className="text-xs text-slate-500">권한</p><p className="mt-1 text-sm font-bold tabular-nums text-slate-800">{granted}/5</p></div></div>
-                    <div className="mt-4 flex flex-wrap gap-2">{partnerTypeOf(member) === '교육생' && member.cohort ? <Pill tone="navy">{member.cohort}</Pill> : null}{member.permissions.sharedSchedule ? <Pill tone="blue">대표 일정 공유</Pill> : <Pill tone="slate">일정 미공개</Pill>}</div>
+                    <div className="mt-4 rounded-xl bg-slate-50 p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-xs text-slate-500">소속</p><p className="mt-1 text-sm font-bold text-slate-800">{member.affiliation || '기존 계정'}</p></div><div className="text-right"><p className="text-xs text-slate-500">연락처</p><p className="mt-1 text-sm font-semibold text-slate-700">{member.phone || '미등록'}</p></div></div></div>
+                    <div className="mt-4 flex flex-wrap gap-2"><Pill tone="navy">{['승인대기', '초대대기'].includes(member.status) ? '유형 선택 필요' : partnerTypeOf(member)}</Pill>{member.permissions.sharedSchedule ? <Pill tone="blue">대표 일정 공유</Pill> : <Pill tone="slate">일정 미공개</Pill>}<Pill tone="slate">권한 {granted}/5</Pill></div>
                     <div className={`mt-3 flex min-h-10 items-center gap-2 rounded-xl px-3 text-xs font-semibold ${member.lastLoginAt ? 'bg-emerald-50 text-emerald-800' : 'bg-slate-50 text-slate-500'}`}><Clock3 className="size-4 shrink-0" aria-hidden="true" /><span>{loginActivityLabel(member)}</span></div>
-                    <SecondaryButton className="mt-4 w-full" onClick={() => openMemberSettings(member)}><UserCog className="size-4 text-[#0877b8]" aria-hidden="true" /> 계정·권한 설정</SecondaryButton>
+                    <SecondaryButton className="mt-4 w-full" onClick={() => openMemberSettings(member)}><UserCog className="size-4 text-[#0877b8]" aria-hidden="true" /> {['승인대기', '초대대기'].includes(member.status) ? '신청 검토·승인' : '계정·권한 설정'}</SecondaryButton>
                   </article>
                 );
               })}
@@ -1682,7 +1749,7 @@ function AccessManagement({
       {selectedMember ? (
         <dialog open className="fixed inset-0 z-50 m-0 grid h-screen max-h-none w-screen max-w-none place-items-center border-0 bg-slate-950/40 p-4 backdrop-blur-sm" aria-labelledby="permission-modal-title">
           <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">{partnerDetail(selectedMember)}</p><h2 id="permission-modal-title" className="mt-1 text-xl font-bold">{selectedMember.name} 계정·권한 설정</h2><p className="mt-1 text-sm text-slate-500">이메일·파트너 유형·허용 기능만 간단히 관리합니다.</p></div><button type="button" onClick={closeMemberSettings} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="계정·권한 설정 닫기"><X className="size-5" /></button></div>
+            <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">{['승인대기', '초대대기'].includes(selectedMember.status) ? '신규 파트너 신청' : partnerDetail(selectedMember)}</p><h2 id="permission-modal-title" className="mt-1 text-xl font-bold">{selectedMember.name} {['승인대기', '초대대기'].includes(selectedMember.status) ? '신청 검토' : '계정·권한 설정'}</h2><p className="mt-1 text-sm text-slate-500">파트너 유형을 선택해 승인하면 바로 활성 계정으로 등록됩니다.</p></div><button type="button" onClick={closeMemberSettings} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="계정·권한 설정 닫기"><X className="size-5" /></button></div>
             <div className="max-h-[65vh] space-y-3 overflow-y-auto p-5">
               <div className="rounded-2xl border border-slate-200 bg-white p-4">
                 <Field label="로그인 이메일" required hint="파트너가 ChatGPT에 로그인하는 이메일과 정확히 일치해야 합니다.">
@@ -1701,10 +1768,10 @@ function AccessManagement({
               </div>
               <div className="grid gap-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-4 sm:grid-cols-2">
                 <Field label="파트너 유형" required><select value={selectedMemberType} onChange={(event) => setSelectedMemberType(event.target.value as PartnerType)} className={inputClass}>{partnerTypes.map((type) => <option key={type}>{type}</option>)}</select></Field>
-                <Field label="로그인 상태" hint="활성 또는 정지만 선택하면 됩니다."><select value={selectedMember.status} onChange={(event) => updateSelectedMember({ status: event.target.value as TraineeMember['status'] })} className={inputClass}><option disabled>초대대기</option><option>활성</option><option>정지</option></select></Field>
-                {selectedMemberType === '교육생' ? <Field label="교육기수"><select value={selectedCohort} onChange={(event) => setSelectedCohort(event.target.value)} className={inputClass}><option>11기</option><option>12기</option><option>13기</option><option>기타</option></select></Field> : null}
+                {['승인대기', '초대대기'].includes(selectedMember.status) ? <Field label="신청상태"><input value="대표 승인대기" readOnly className={`${inputClass} bg-amber-50 text-amber-800`} /></Field> : <Field label="로그인 상태"><select value={selectedMember.status} onChange={(event) => updateSelectedMember({ status: event.target.value as TraineeMember['status'] })} className={inputClass}><option>활성</option><option>정지</option></select></Field>}
               </div>
-              <div className={`rounded-2xl border p-4 ${selectedMember.status === '활성' ? 'border-emerald-200 bg-emerald-50/70' : 'border-slate-200 bg-slate-50'}`}><div className="flex items-start gap-3"><ShieldCheck className={`mt-0.5 size-5 shrink-0 ${selectedMember.status === '활성' ? 'text-emerald-700' : 'text-slate-500'}`} aria-hidden="true" /><div><p className={`text-sm font-bold ${selectedMember.status === '활성' ? 'text-emerald-900' : 'text-slate-700'}`}>{selectedMember.status === '활성' ? '이메일 계정 활성 상태' : '이메일 계정 정지 상태'}</p><p className="mt-1 text-xs leading-5 text-slate-600">등록된 이메일과 같은 ChatGPT 계정으로 로그인하면 서버가 자동으로 권한을 확인합니다.</p><p className="mt-2 flex items-center gap-1.5 text-xs font-bold text-slate-700"><Clock3 className="size-3.5" aria-hidden="true" /> {loginActivityLabel(selectedMember)}</p></div></div></div>
+              <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2"><div><p className="text-xs text-slate-500">연락처</p><p className="mt-1 text-sm font-bold text-slate-800">{selectedMember.phone || '미등록'}</p></div><div><p className="text-xs text-slate-500">소속</p><p className="mt-1 text-sm font-bold text-slate-800">{selectedMember.affiliation || '기존 계정'}</p></div></div>
+              <div className={`rounded-2xl border p-4 ${selectedMember.status === '활성' ? 'border-emerald-200 bg-emerald-50/70' : ['승인대기', '초대대기'].includes(selectedMember.status) ? 'border-amber-200 bg-amber-50/70' : 'border-slate-200 bg-slate-50'}`}><div className="flex items-start gap-3"><ShieldCheck className={`mt-0.5 size-5 shrink-0 ${selectedMember.status === '활성' ? 'text-emerald-700' : ['승인대기', '초대대기'].includes(selectedMember.status) ? 'text-amber-700' : 'text-slate-500'}`} aria-hidden="true" /><div><p className="text-sm font-bold text-slate-800">{selectedMember.status === '활성' ? '이메일 계정 활성 상태' : ['승인대기', '초대대기'].includes(selectedMember.status) ? '대표 승인 후 즉시 등록' : '이메일 계정 정지 상태'}</p><p className="mt-1 text-xs leading-5 text-slate-600">{['승인대기', '초대대기'].includes(selectedMember.status) ? '신청내용을 확인하고 파트너 유형을 선택한 뒤 승인해 주세요.' : '등록된 이메일과 같은 ChatGPT 계정으로 로그인하면 서버가 자동으로 권한을 확인합니다.'}</p>{selectedMember.status === '활성' ? <p className="mt-2 flex items-center gap-1.5 text-xs font-bold text-slate-700"><Clock3 className="size-3.5" aria-hidden="true" /> {loginActivityLabel(selectedMember)}</p> : null}</div></div></div>
               {permissionLabels.map(({ key, label, detail }) => {
                 const enabled = selectedMember.permissions[key];
                 return (
@@ -1722,26 +1789,11 @@ function AccessManagement({
                 </div>
               </div>
             </div>
-            <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={closeMemberSettings}>취소</SecondaryButton><PrimaryButton onClick={saveSelectedMember}><Check className="size-4" aria-hidden="true" /> 계정·권한 저장</PrimaryButton></div>
+            <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={closeMemberSettings}>취소</SecondaryButton>{['승인대기', '초대대기'].includes(selectedMember.status) ? <PrimaryButton onClick={approveSelectedMember}><UserRoundCheck className="size-4" aria-hidden="true" /> 유형 선택 후 승인·등록</PrimaryButton> : <PrimaryButton onClick={saveSelectedMember}><Check className="size-4" aria-hidden="true" /> 계정·권한 저장</PrimaryButton>}</div>
           </div>
         </dialog>
       ) : null}
 
-      {inviteOpen ? (
-        <dialog open className="fixed inset-0 z-50 m-0 grid h-screen max-h-none w-screen max-w-none place-items-center border-0 bg-slate-950/40 p-4 backdrop-blur-sm" aria-labelledby="invite-modal-title">
-          <div className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-            <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">간편 계정 등록</p><h2 id="invite-modal-title" className="mt-1 text-xl font-bold">파트너 이메일 등록</h2><p className="mt-1 text-sm text-slate-500">이메일 한 개만 있으면 바로 활성 계정으로 등록할 수 있습니다.</p></div><button type="button" onClick={() => setInviteOpen(false)} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="계정 등록창 닫기"><X className="size-5" /></button></div>
-            <div className="space-y-5 p-5">
-              <div><Field label="로그인 이메일" required hint="파트너가 사용하는 ChatGPT 계정 이메일을 입력합니다."><input ref={inviteEmailRef} type="email" value={inviteEmail} onChange={(event) => { setInviteEmail(event.target.value); setInviteEmailError(''); }} onBlur={() => inviteEmail && setInviteEmailError(validateEmail(inviteEmail))} className={`${inputClass} ${inviteEmailError ? 'border-red-400 focus:border-red-500 focus:ring-red-100' : ''}`} placeholder="name@example.com" aria-invalid={Boolean(inviteEmailError)} aria-describedby={inviteEmailError ? 'invite-email-error' : undefined} /></Field>{inviteEmailError ? <p id="invite-email-error" role="alert" className="mt-2 text-sm font-semibold text-red-700">{inviteEmailError}</p> : null}</div>
-              <Field label="파트너 유형" required><select value={inviteMemberType} onChange={(event) => setInviteMemberType(event.target.value as PartnerType)} className={inputClass}>{partnerTypes.map((type) => <option key={type}>{type}</option>)}</select></Field>
-              <Field label="이름" hint="생략하면 이메일 앞부분이 이름으로 표시됩니다."><input value={inviteName} onChange={(event) => setInviteName(event.target.value)} className={inputClass} placeholder="선택 입력" /></Field>
-              {inviteMemberType === '교육생' ? <Field label="교육기수"><select value={inviteCohort} onChange={(event) => setInviteCohort(event.target.value)} className={inputClass}><option>11기</option><option>12기</option><option>13기</option><option>기타</option></select></Field> : null}
-              <div className="rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-xs leading-5 text-emerald-900">등록 즉시 협업신청·담당 진행 확인·자료 등록·대표 일정 공유 기본권한이 활성화됩니다. 견적·계약 권한은 대표님이 필요할 때 별도로 켤 수 있습니다.</div>
-            </div>
-            <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setInviteOpen(false)}>취소</SecondaryButton><PrimaryButton onClick={prepareInvite}><UserPlus className="size-4" aria-hidden="true" /> 이메일 계정 등록</PrimaryButton></div>
-          </div>
-        </dialog>
-      ) : null}
     </>
   );
 }
@@ -2289,6 +2341,7 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState<PortalUser | null>(null);
   const [accessError, setAccessError] = useState('');
   const [accessStatus, setAccessStatus] = useState<number | null>(null);
+  const [accessEmail, setAccessEmail] = useState('');
   const saveTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -2297,9 +2350,12 @@ export default function Home() {
     async function loadState() {
       try {
         const response = await fetch('/api/state', { cache: 'no-store' });
-        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; error?: string };
+        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; error?: string; authenticatedEmail?: string };
         if (!response.ok) {
-          if (active) setAccessStatus(response.status);
+          if (active) {
+            setAccessStatus(response.status);
+            setAccessEmail(payload.authenticatedEmail ?? '');
+          }
           throw new Error(payload.error || '로그인 정보를 확인하지 못했습니다.');
         }
         if (!payload.currentUser) throw new Error('로그인 사용자 정보가 없습니다.');
@@ -2318,6 +2374,7 @@ export default function Home() {
 
         setCurrentUser(payload.currentUser);
         setAccessStatus(null);
+        setAccessEmail('');
         if (payload.currentUser.role === 'trainee') {
           setView('trainee');
           setScheduleAudience('trainee');
@@ -2387,7 +2444,7 @@ export default function Home() {
   const collaborationApplicant = {
     name: accountDisplayName,
     email: currentUser?.email ?? '',
-    memberType: currentMember ? partnerTypeOf(currentMember) : '교육생' as PartnerType,
+    memberType: currentMember ? partnerTypeOf(currentMember) : '한기평 컨설턴트' as PartnerType,
     detail: currentMember ? partnerDetail(currentMember) : '관리자 대리접수',
     editable: Boolean(isAdmin),
   };
@@ -2415,15 +2472,16 @@ export default function Home() {
     const deniedAccount = accessStatus === 403;
     return (
       <div className="grid min-h-screen place-items-center bg-[radial-gradient(circle_at_top,#edf7fd_0,#f8fafc_45%,#f8fafc_100%)] p-5">
-        <Card className="w-full max-w-xl border-0 text-center shadow-xl ring-slate-200">
+        <Card className={`w-full border-0 text-center shadow-xl ring-slate-200 ${deniedAccount ? 'max-w-2xl' : 'max-w-xl'}`}>
           <CardContent className="py-10 sm:px-10">
             <span className={`mx-auto grid size-14 place-items-center rounded-2xl ${needsSignIn ? 'bg-sky-50 text-[#0877b8]' : 'bg-red-50 text-red-700'}`}><LockKeyhole className="size-7" aria-hidden="true" /></span>
             <p className="mt-5 text-xs font-bold tracking-[0.18em] text-[#0877b8]">KEVE PARTNER HUB</p>
             <h1 className="mt-2 text-2xl font-bold text-slate-950">{needsSignIn ? '파트너 로그인' : '파트너 허브 접근 확인 필요'}</h1>
             <p className="mt-3 text-sm leading-6 text-slate-600">{accessError}</p>
-            <p className="mt-3 text-xs leading-5 text-slate-500">교육생·외부 컨설턴트·보험 관계자는 대표님이 등록한 이메일과 동일한 ChatGPT 계정으로 로그인하면 접속할 수 있습니다.</p>
+            <p className="mt-3 text-xs leading-5 text-slate-500">한기평 컨설턴트·타사 컨설턴트·보험설계사·기타 파트너가 승인 후 이용할 수 있습니다.</p>
             {needsSignIn ? <a href="/signin-with-chatgpt?return_to=/" target="_top" className="mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#0877b8] px-5 text-sm font-bold text-white transition-colors hover:bg-[#06679f] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200"><ShieldCheck className="size-4" aria-hidden="true" /> ChatGPT로 로그인</a> : null}
-            {deniedAccount ? <a href="/signout-with-chatgpt?return_to=/" target="_top" className="mt-6 inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200">다른 ChatGPT 계정으로 다시 로그인</a> : null}
+            {deniedAccount && accessEmail ? <PartnerRegistrationForm email={accessEmail} /> : null}
+            {deniedAccount ? <a href="/signout-with-chatgpt?return_to=/" target="_top" className="mt-4 inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200">다른 ChatGPT 계정으로 다시 로그인</a> : null}
             {!needsSignIn && !deniedAccount ? <button type="button" onClick={() => window.location.reload()} className="mt-6 min-h-12 w-full rounded-xl bg-[#15375b] px-5 text-sm font-bold text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200">다시 확인</button> : null}
             <div className="mt-6 rounded-xl border border-slate-100 bg-slate-50 p-4 text-left"><p className="text-xs font-bold text-slate-700">개인정보 보호</p><p className="mt-1 text-xs leading-5 text-slate-500">로그인 전에는 기업·상담·서류 정보가 제공되지 않으며, 로그인 후에도 본인에게 배정된 진행만 열람할 수 있습니다.</p></div>
           </CardContent>
