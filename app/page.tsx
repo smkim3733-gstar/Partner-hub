@@ -72,7 +72,7 @@ const navItems: Array<{ view: View; label: string; icon: IconType }> = [
   { view: 'trainee', label: '파트너 화면', icon: Users },
   { view: 'access', label: '파트너 계정관리', icon: UserCog },
   { view: 'application', label: '새 협업신청', icon: FilePlus2 },
-  { view: 'case', label: '기업·진행 상세', icon: BriefcaseBusiness },
+  { view: 'case', label: '컨설팅 진행 현황', icon: BriefcaseBusiness },
   { view: 'consultation', label: '상담 등록', icon: MessageSquarePlus },
   { view: 'documents', label: '서류요청 등록', icon: FileCheck2 },
 ];
@@ -1151,7 +1151,7 @@ function PipelineBoard({
                 <div className="mt-3 rounded-lg bg-slate-50 p-3"><p className="text-[11px] font-semibold text-slate-500">다음 행동</p><p className="mt-1 text-sm font-bold leading-5 text-slate-800">{item.nextAction}</p></div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-semibold text-slate-600">담당 {item.trainee}</span><div className="flex flex-wrap gap-2"><Pill tone="navy">{casePartnerType(item, members)}</Pill>{item.consultationCount ? <Pill tone="violet">상담 {item.consultationCount}회</Pill> : null}</div></div>
                 <label className="mt-4 block"><span className="mb-2 block text-xs font-semibold text-slate-600">진행단계 변경</span><select value={item.stage} onChange={(event) => moveCase(item, event.target.value as PipelineStage)} className={inputClass}>{pipelineStages.map((option) => <option key={option}>{option}</option>)}</select></label>
-                <SecondaryButton className="mt-3 w-full" onClick={() => onOpenCase(item)}>기업·진행 상세 <ChevronRight className="size-4" aria-hidden="true" /></SecondaryButton>
+                <SecondaryButton className="mt-3 w-full" onClick={() => onOpenCase(item)}>컨설팅 진행 현황 <ChevronRight className="size-4" aria-hidden="true" /></SecondaryButton>
               </article>) : <div className="grid min-h-28 place-items-center rounded-xl border border-dashed border-slate-200 bg-white/60 p-4 text-center text-xs text-slate-400">현재 조건의 진행이 없습니다.</div>}
             </div>
           </section>;
@@ -2004,7 +2004,7 @@ function CaseDetail({
   return (
     <>
       <PageIntro
-        eyebrow="기업·진행 상세"
+        eyebrow="컨설팅 진행 현황"
         title={caseItem.company}
         description={`진행번호 ${caseItem.id} · 주관 파트너 ${caseItem.trainee} · ${caseItem.service}`}
         action={<Pill tone="blue">{caseItem.stage}</Pill>}
