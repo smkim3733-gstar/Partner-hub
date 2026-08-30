@@ -1,5 +1,8 @@
 import { isValidLoginEmail } from '@/lib/member-email';
-import { readPortalState, writePortalState } from '@/lib/portal-state';
+import { mutatePortalState, PortalStateConflict } from '@/lib/portal-state';
+import { membersRevisionOf } from '@/lib/partner-registration';
+import { assertSameOrigin } from '@/lib/consulting-flow-store';
+import { FlowError } from '@/lib/consulting-flow';
 
 const MAX_REQUEST_BYTES = 12_000;
 
@@ -32,17 +35,25 @@ type RegistrationState = {
 function asRegistrationState(value: unknown): RegistrationState | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const state = value as Partial<RegistrationState>;
-  return Array.isArray(state.members) ? state as RegistrationState : null;
+  return Array.isArray(state.members) ? (state as RegistrationState) : null;
 }
 
 function normalizedText(value: unknown) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-function registrationError(name: string, phone: string, affiliation: string, email: string) {
-  if (name.length < 2 || name.length > 40) return '이름은 2자 이상 40자 이하로 입력해 주세요.';
-  if (!/^[0-9+()\-\s.]{7,24}$/.test(phone)) return '연락처를 숫자와 하이픈을 사용해 정확히 입력해 주세요.';
-  if (affiliation.length < 2 || affiliation.length > 80) return '소속은 2자 이상 80자 이하로 입력해 주세요.';
+function registrationError(
+  name: string,
+  phone: string,
+  affiliation: string,
+  email: string,
+) {
+  if (name.length < 2 || name.length > 40)
+    return '이름은 2자 이상 40자 이하로 입력해 주세요.';
+  if (!/^[0-9+()\-\s.]{7,24}$/.test(phone))
+    return '연락처를 숫자와 하이픈을 사용해 정확히 입력해 주세요.';
+  if (affiliation.length < 2 || affiliation.length > 80)
+    return '소속은 2자 이상 80자 이하로 입력해 주세요.';
   if (!isValidLoginEmail(email)) return '올바른 이메일 형식으로 입력해 주세요.';
   return '';
 }
@@ -51,76 +62,125 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   try {
-    const authenticatedId = request.headers.get('oai-authenticated-user-id')?.trim();
-    const authenticatedEmail = request.headers.get('oai-authenticated-user-email')?.trim().toLowerCase();
+    const authenticatedId = request.headers
+      .get('oai-authenticated-user-id')
+      ?.trim();
+    const authenticatedEmail = request.headers
+      .get('oai-authenticated-user-email')
+      ?.trim()
+      .toLowerCase();
     if (!authenticatedId || !authenticatedEmail) {
-      return Response.json({ error: 'ChatGPT 로그인 후 등록을 신청해 주세요.' }, { status: 401 });
+      return Response.json(
+        { error: 'ChatGPT 로그인 후 등록을 신청해 주세요.' },
+        { status: 401 },
+      );
     }
+    assertSameOrigin(request);
 
     const bodyText = await request.text();
     if (!bodyText) {
-      return Response.json({ error: '등록 신청 내용을 입력해 주세요.' }, { status: 400 });
+      return Response.json(
+        { error: '등록 신청 내용을 입력해 주세요.' },
+        { status: 400 },
+      );
     }
     if (new TextEncoder().encode(bodyText).byteLength > MAX_REQUEST_BYTES) {
-      return Response.json({ error: '등록 신청 데이터의 크기가 허용 범위를 초과했습니다.' }, { status: 413 });
+      return Response.json(
+        { error: '등록 신청 데이터의 크기가 허용 범위를 초과했습니다.' },
+        { status: 413 },
+      );
     }
 
     let body: Record<string, unknown>;
     try {
       body = JSON.parse(bodyText) as Record<string, unknown>;
     } catch {
-      return Response.json({ error: '등록 신청 형식이 올바르지 않습니다.' }, { status: 400 });
+      return Response.json(
+        { error: '등록 신청 형식이 올바르지 않습니다.' },
+        { status: 400 },
+      );
     }
+    if (!body || typeof body !== 'object' || Array.isArray(body))
+      return Response.json(
+        { error: '등록 신청 형식이 올바르지 않습니다.' },
+        { status: 400 },
+      );
     const name = normalizedText(body.name);
     const phone = normalizedText(body.phone);
     const affiliation = normalizedText(body.affiliation);
     const email = normalizedText(body.email).toLowerCase();
     const fieldError = registrationError(name, phone, affiliation, email);
-    if (fieldError) return Response.json({ error: fieldError }, { status: 400 });
+    if (fieldError)
+      return Response.json({ error: fieldError }, { status: 400 });
     if (email !== authenticatedEmail) {
-      return Response.json({ error: '현재 ChatGPT 로그인 이메일과 신청 이메일이 일치해야 합니다.' }, { status: 403 });
+      return Response.json(
+        {
+          error: '현재 ChatGPT 로그인 이메일과 신청 이메일이 일치해야 합니다.',
+        },
+        { status: 403 },
+      );
     }
 
-    const rawState = await readPortalState();
-    const state = asRegistrationState(rawState);
-    if (!state) {
-      return Response.json({ error: '파트너 운영정보가 준비되지 않았습니다. 관리자에게 문의해 주세요.' }, { status: 503 });
-    }
+    await mutatePortalState((rawState) => {
+      const state = asRegistrationState(rawState);
+      if (!state) {
+        throw new FlowError(
+          '파트너 운영정보가 준비되지 않았습니다. 관리자에게 문의해 주세요.',
+          503,
+        );
+      }
 
-    const existingIndex = state.members.findIndex((member) => member.email.trim().toLowerCase() === email);
-    const existing = existingIndex >= 0 ? state.members[existingIndex] : null;
-    if (existing?.status === '활성') {
-      return Response.json({ error: '이미 활성화된 파트너 계정입니다. 화면을 새로고침해 주세요.' }, { status: 409 });
-    }
+      const existingIndex = state.members.findIndex(
+        (member) => member.email.trim().toLowerCase() === email,
+      );
+      const existing = existingIndex >= 0 ? state.members[existingIndex] : null;
+      if (existing?.status === '활성') {
+        throw new FlowError(
+          '이미 활성화된 파트너 계정입니다. 화면을 새로고침해 주세요.',
+          409,
+        );
+      }
 
-    const pendingMember: RegistrationMember = {
-      ...existing,
-      id: existing?.id ?? `partner-${crypto.randomUUID()}`,
-      name,
-      phone,
-      affiliation,
-      email,
-      cohort: existing?.cohort ?? '',
-      role: existing?.role ?? '일반 파트너',
-      status: '승인대기',
-      companies: existing?.companies ?? 0,
-      permissions: existing?.permissions ?? {
-        sharedSchedule: true,
-        collaborationApply: true,
-        ownCases: true,
-        fileUpload: true,
-        quoteContract: false,
-      },
-    };
+      const pendingMember: RegistrationMember = {
+        ...existing,
+        id: existing?.id ?? `partner-${crypto.randomUUID()}`,
+        name,
+        phone,
+        affiliation,
+        email,
+        cohort: existing?.cohort ?? '',
+        role: existing?.role ?? '일반 파트너',
+        status: '승인대기',
+        companies: existing?.companies ?? 0,
+        permissions: existing?.permissions ?? {
+          sharedSchedule: true,
+          collaborationApply: true,
+          ownCases: true,
+          fileUpload: true,
+          quoteContract: false,
+        },
+      };
 
-    const nextMembers = [...state.members];
-    if (existingIndex >= 0) nextMembers[existingIndex] = pendingMember;
-    else nextMembers.push(pendingMember);
-    await writePortalState({ ...state, members: nextMembers });
+      const nextMembers = [...state.members];
+      if (existingIndex >= 0) nextMembers[existingIndex] = pendingMember;
+      else nextMembers.push(pendingMember);
+      return {
+        ...state,
+        members: nextMembers,
+        membersRevision: membersRevisionOf(state) + 1,
+      };
+    });
 
     return Response.json({ ok: true, status: '승인대기' });
   } catch (error) {
+    if (error instanceof FlowError)
+      return Response.json({ error: error.message }, { status: error.status });
+    if (error instanceof PortalStateConflict)
+      return Response.json({ error: error.message }, { status: 409 });
     console.error('Failed to submit partner registration', error);
-    return Response.json({ error: '등록 신청을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.' }, { status: 500 });
+    return Response.json(
+      { error: '등록 신청을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.' },
+      { status: 500 },
+    );
   }
 }

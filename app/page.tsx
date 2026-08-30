@@ -50,6 +50,8 @@ import {
 import { hasDuplicateLoginEmail, isValidLoginEmail } from '@/lib/member-email';
 import { ConsultingWorkflow } from '@/components/consulting-workflow';
 import { ApplicationAttachments } from '@/components/application-attachments';
+import { AdminPartnerRegistration } from '@/components/admin-partner-registration';
+import { partnerTypes, type PartnerType, type PartnerAccount as TraineeMember, type PartnerRegistrationResult } from '@/lib/partner-registration';
 import { companyCategoryLabel, companyFileProblem, documentCategoryFromFileName, applicationAttachmentTitle, MAX_APPLICATION_FILES, type ApplicationAttachment } from '@/lib/company-file-policy';
 
 type View =
@@ -112,32 +114,6 @@ type ConsultationPayload = {
   method: string;
   status: string;
   shareMode: 'all_with_assignee' | 'all_busy' | 'private';
-};
-
-type PartnerType = '한기평 컨설턴트' | '타사 컨설턴트' | '보험설계사' | '기타';
-
-const partnerTypes: PartnerType[] = ['한기평 컨설턴트', '타사 컨설턴트', '보험설계사', '기타'];
-
-type TraineeMember = {
-  id: string;
-  name: string;
-  email: string;
-  phone?: string;
-  affiliation?: string;
-  cohort: string;
-  memberType?: PartnerType;
-  role: '교육생' | '리더 교육생' | '일반 파트너' | '리더 파트너';
-  status: '활성' | '승인대기' | '초대대기' | '정지';
-  companies: number;
-  lastLoginAt?: string;
-  loginCount?: number;
-  permissions: {
-    sharedSchedule: boolean;
-    collaborationApply: boolean;
-    ownCases: boolean;
-    fileUpload: boolean;
-    quoteContract: boolean;
-  };
 };
 
 type WorkTask = {
@@ -300,6 +276,7 @@ type PortalState = {
   companyDocuments: CompanyDocument[];
   cases: CollaborationCase[];
   members: TraineeMember[];
+  membersRevision?: number;
   diagnosisAssessments?: DiagnosisAssessment[];
 };
 
@@ -2215,11 +2192,16 @@ function AccessManagement({
   notify,
   members,
   setMembers,
+  registrationDisabled,
+  onRegistered,
 }: {
   notify: (message: string) => void;
   members: TraineeMember[];
   setMembers: React.Dispatch<React.SetStateAction<TraineeMember[]>>;
+  registrationDisabled: boolean;
+  onRegistered: (result: PartnerRegistrationResult) => void;
 }) {
+  const [registrationBusy, setRegistrationBusy] = useState(false);
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'전체' | TraineeMember['status']>('전체');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -2321,10 +2303,13 @@ function AccessManagement({
       <PageIntro
         eyebrow="관리자 전용"
         title="파트너 계정·권한관리"
-        description="4개 항목으로 들어온 등록신청을 확인하고 파트너 유형을 지정해 승인합니다."
-        action={<div className="flex flex-wrap items-center gap-2"><Pill tone={members.some((member) => ['승인대기', '초대대기'].includes(member.status)) ? 'amber' : 'green'}>승인대기 {members.filter((member) => ['승인대기', '초대대기'].includes(member.status)).length}명</Pill><SecondaryButton onClick={() => window.location.reload()}><RefreshCw className="size-4" aria-hidden="true" /> 신청목록 새로고침</SecondaryButton></div>}
+        description="대표님이 파트너를 직접 등록하거나, 접수된 신청의 유형을 지정해 승인합니다."
+        action={<div className="flex flex-wrap items-center gap-2"><Pill tone={members.some((member) => ['승인대기', '초대대기'].includes(member.status)) ? 'amber' : 'green'}>승인대기 {members.filter((member) => ['승인대기', '초대대기'].includes(member.status)).length}명</Pill><SecondaryButton disabled={registrationBusy} onClick={() => window.location.reload()}><RefreshCw className="size-4" aria-hidden="true" /> 신청목록 새로고침</SecondaryButton></div>}
       />
 
+      <AdminPartnerRegistration disabled={registrationDisabled} onBusyChange={setRegistrationBusy} onRegistered={result => { onRegistered(result); setQuery(result.member.email); setStatusFilter('전체'); }} />
+      <fieldset disabled={registrationBusy} className="min-w-0">
+      <legend className="sr-only">기존 파트너 관리</legend>
       <section aria-label="파트너 계정 요약" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           ['등록 파트너', members.length, Users, '전체 이메일 계정'],
@@ -2444,6 +2429,7 @@ function AccessManagement({
         </dialog>
       ) : null}
 
+      </fieldset>
     </>
   );
 }
@@ -3069,11 +3055,13 @@ export default function Home() {
   const [diagnosisAssessments, setDiagnosisAssessments] = useState<DiagnosisAssessment[]>(sampleDiagnosisAssessments);
   const [selectedCaseId, setSelectedCaseId] = useState('case-1');
   const [members, setMembers] = useState<TraineeMember[]>(sampleTrainees);
+  const [membersRevision, setMembersRevision] = useState(0);
   const [scheduleAudience, setScheduleAudience] = useState<'admin' | 'trainee'>('admin');
   const [modal, setModal] = useState<'quote' | 'contract' | null>(null);
   const [toast, setToast] = useState('');
   const [persistenceReady, setPersistenceReady] = useState(false);
   const [dataStatus, setDataStatus] = useState<'loading' | 'saving' | 'saved' | 'error'>('loading');
+  const [saveError, setSaveError] = useState('');
   const [currentUser, setCurrentUser] = useState<PortalUser | null>(null);
   const [accessError, setAccessError] = useState('');
   const [accessStatus, setAccessStatus] = useState<number | null>(null);
@@ -3106,6 +3094,7 @@ export default function Home() {
           setCompanyDocuments(payload.state.companyDocuments);
           setCases(payload.state.cases);
           setMembers(payload.state.members);
+          setMembersRevision(payload.state.membersRevision ?? 0);
           setDiagnosisAssessments(payload.state.diagnosisAssessments ?? sampleDiagnosisAssessments);
         }
 
@@ -3134,6 +3123,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!persistenceReady || !currentUser) return;
+    // oxlint-disable-next-line react/react-compiler -- Expose the queued DB write during the debounce so direct registration cannot race unsaved edits.
+    setDataStatus('saving');
     if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
     const state: PortalState = {
       version: 1,
@@ -3144,6 +3135,7 @@ export default function Home() {
       companyDocuments,
       cases,
       members,
+      membersRevision,
       diagnosisAssessments,
     };
 
@@ -3155,16 +3147,19 @@ export default function Home() {
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ state }),
         });
+        const payload = await response.json() as { error?: string; membersRevision?: number };
         if (!response.ok) {
-          const payload = await response.json() as { error?: string };
           if (response.status === 401 || response.status === 403) {
             setAccessStatus(response.status);
             setAccessError(payload.error || '저장 권한이 없습니다.');
           }
-          throw new Error('Failed to save portal state');
+          throw new Error(payload.error || '운영 데이터를 저장하지 못했습니다.');
         }
+        if (typeof payload.membersRevision === 'number') setMembersRevision(current => Math.max(current, payload.membersRevision!));
+        setSaveError('');
         setDataStatus('saved');
-      } catch {
+      } catch (error) {
+        setSaveError(error instanceof Error ? error.message : '운영 데이터를 저장하지 못했습니다.');
         setDataStatus('error');
       }
     }, 700);
@@ -3172,7 +3167,7 @@ export default function Home() {
     return () => {
       if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
     };
-  }, [persistenceReady, currentUser, consultationNumber, timeline, schedule, tasks, companyDocuments, cases, members, diagnosisAssessments]);
+  }, [persistenceReady, currentUser, consultationNumber, timeline, schedule, tasks, companyDocuments, cases, members, membersRevision, diagnosisAssessments]);
 
   const currentMember = currentUser?.role === 'trainee' ? members.find((member) => member.id === currentUser.memberId) ?? null : null;
   const selectedCase = cases.find((item) => item.id === selectedCaseId) ?? cases[0] ?? sampleCases[0];
@@ -3450,6 +3445,7 @@ export default function Home() {
         </header>
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
+          {saveError && <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800"><p className="font-bold">변경사항 저장 확인 필요</p><p>{saveError}</p><p className="mt-1">새로고침하면 저장되지 않은 입력은 사라집니다. 필요한 내용을 별도로 보관한 뒤 다시 시도해 주세요.</p></div>}
           {view === 'admin' ? <AdminDashboard onOpenCase={() => navigate('case')} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} /> : null}
           {view === 'pipeline' ? <PipelineBoard cases={cases} setCases={setCases} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} onOpenCase={openCase} /> : null}
           {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
@@ -3458,7 +3454,7 @@ export default function Home() {
           {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} /> : null}
           {view === 'ai-diagnosis' ? <DiagnosisPreflight assessments={diagnosisAssessments} setAssessments={setDiagnosisAssessments} cases={cases} documents={companyDocuments} onOpenFiles={() => navigate('files')} onRequestDocuments={(caseId) => { setSelectedCaseId(caseId); navigate('documents'); }} onQueueDraft={queueDiagnosisDraft} notify={notify} /> : null}
           {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} /> : null}
-          {view === 'access' ? <AccessManagement notify={notify} members={members} setMembers={setMembers} /> : null}
+          {view === 'access' && isAdmin ? <AccessManagement notify={notify} members={members} setMembers={setMembers} registrationDisabled={dataStatus !== 'saved'} onRegistered={result => { setMembers(result.members); setMembersRevision(result.membersRevision); notify(`${result.member.name} 파트너 등록을 확인했습니다.`); }} /> : null}
           {view === 'application' ? <ApplicationForm applicant={collaborationApplicant} canUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} onCancel={() => navigate('trainee')} onDone={async (files, companyName, selectedServices, applicantType, applicantName, recordingConsent) => {
             const company = companyName.trim() || '신규기업';
             const storedFiles: Array<{ category: CompanyDocument['category']; stored: StoredCompanyFile }> = [];

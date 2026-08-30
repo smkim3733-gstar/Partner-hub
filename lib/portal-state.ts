@@ -76,6 +76,47 @@ export async function writePortalState(state: unknown) {
   return updatedAt;
 }
 
+export class PortalStateConflict extends Error {}
+
+/** Retry against the latest state instead of replacing a concurrently saved member list. */
+export async function mutatePortalState<T>(
+  update: (current: unknown) => T | Promise<T>,
+) {
+  const db = database();
+  await ensurePortalTables(db);
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const row = await db
+      .prepare('SELECT payload FROM portal_state WHERE id = ?1')
+      .bind(portalStateId)
+      .first<PortalStateRow>();
+    const state = await update(row ? JSON.parse(row.payload) : null);
+    const payload = JSON.stringify(state);
+    if (new TextEncoder().encode(payload).length > 900_000)
+      throw new PortalStateConflict(
+        '운영 데이터 저장 한도에 도달했습니다. 관리자 확인이 필요합니다.',
+      );
+    if (payload === row?.payload) return { state, updatedAt: null };
+    const updatedAt = new Date().toISOString();
+    const result = row
+      ? await db
+          .prepare(
+            'UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3 AND payload = ?4',
+          )
+          .bind(payload, updatedAt, portalStateId, row.payload)
+          .run()
+      : await db
+          .prepare(
+            'INSERT INTO portal_state (id, payload, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO NOTHING',
+          )
+          .bind(portalStateId, payload, updatedAt)
+          .run();
+    if (result.meta.changes === 1) return { state, updatedAt };
+  }
+  throw new PortalStateConflict(
+    '다른 창에서 먼저 저장했습니다. 최신 명단을 확인한 후 다시 시도해 주세요.',
+  );
+}
+
 export async function recordPortalLogin(memberId: string) {
   const db = database();
   await ensurePortalTables(db);
@@ -98,7 +139,9 @@ export async function readPortalLoginStats(): Promise<PortalLoginStat[]> {
   const db = database();
   await ensurePortalTables(db);
   const result = await db
-    .prepare('SELECT member_id, last_login_at, login_count FROM portal_login_stats ORDER BY last_login_at DESC')
+    .prepare(
+      'SELECT member_id, last_login_at, login_count FROM portal_login_stats ORDER BY last_login_at DESC',
+    )
     .all<PortalLoginStatRow>();
 
   return result.results.map((row) => ({
