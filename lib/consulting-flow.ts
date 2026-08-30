@@ -1,4 +1,8 @@
 import { transcriptProblem } from './transcript-policy';
+import {
+  MAX_AI_SOURCE_BYTES,
+  MAX_AI_SOURCE_FILES,
+} from './intake-source-policy';
 
 /** Pure, server-enforced consulting workflow. No browser state is authoritative. */
 export type FlowActor = { id: string; role: 'admin' | 'partner'; name: string };
@@ -10,6 +14,10 @@ export type FlowFile = {
   key: string;
   createdAt: string;
   purpose: string;
+  intakeFileId?: string;
+  intakeSourceHash?: string;
+  sourceReviewedAt?: string;
+  sourceReviewedBy?: string;
 };
 export type ReportStage = 1 | 2 | 3 | 4 | 5 | 6;
 export type FlowReport = {
@@ -457,6 +465,7 @@ export function applyFlowCommand(
     now: string;
     upload?: FlowFile;
     audioUpload?: FlowFile;
+    intakeCategory?: string;
   },
 ): ConsultingFlow {
   const { commandId, now, upload, audioUpload } = context;
@@ -485,6 +494,50 @@ export function applyFlowCommand(
   };
   let detail = '';
   switch (type) {
+    case 'import_intake_source': {
+      admin(actor);
+      demand(
+        !s.contract &&
+          !firstMeeting(s)?.completedAt &&
+          !s.jobs.some(
+            (j) => j.stage === 1 && ['queued', 'processing'].includes(j.status),
+          ),
+        '1차 생성 중·초회상담 완료 후·계약 후에는 신청자료를 새로 반영할 수 없습니다.',
+        409,
+      );
+      demand(
+        command.contentReviewed === true &&
+          command.fileConsent === true &&
+          command.privacyMasked === true,
+        '자료 내용·저장 권한·마스킹 확인이 필요합니다.',
+      );
+      demand(
+        upload?.purpose === 'source' &&
+          upload.intakeFileId === command.intakeFileId &&
+          Boolean(context.intakeCategory),
+        '서버에서 확인한 신청자료가 필요합니다.',
+      );
+      if (context.intakeCategory === '상담녹취')
+        demand(
+          command.recordingConsent === true,
+          '전화 녹취자료 이용 권한을 확인해 주세요.',
+        );
+      const sources = s.files.filter((f) => f.purpose === 'source');
+      demand(
+        !sources.some((f) => f.intakeFileId === command.intakeFileId),
+        '이미 반영된 자료입니다. 수정하려면 기존 검토본을 AI 입력에서 제외한 뒤 다시 반영해 주세요.',
+        409,
+      );
+      demand(
+        sources.length < MAX_AI_SOURCE_FILES &&
+          sources.reduce((sum, f) => sum + f.size, 0) + upload.size <=
+            MAX_AI_SOURCE_BYTES,
+        'AI 근거자료는 파일 8개·합계 8MB까지입니다. 불필요한 자료를 AI 입력에서 제외해 주세요.',
+        413,
+      );
+      detail = '신청자료 검토본을 1차 근거자료로 반영 · 원본 보존 · AI 미전송';
+      break;
+    }
     case 'save_source': {
       admin(actor);
       demand(

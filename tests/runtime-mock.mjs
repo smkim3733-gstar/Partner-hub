@@ -47,6 +47,7 @@ export const env = {
       const bytes = objects.get(key);
       if (!bytes) return null;
       return {
+        size: bytes.byteLength,
         body: new Response(bytes).body,
         async text() {
           return new TextDecoder().decode(bytes);

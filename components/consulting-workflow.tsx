@@ -26,6 +26,7 @@ import {
 } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { IntakeSourceReview } from '@/components/intake-source-review';
 import {
   ConsultationTranscriptForm,
   type TranscriptSubmit,
@@ -368,6 +369,7 @@ export function ConsultingWorkflow({
       setNotice('저장되었습니다. 담당 파트너와 같은 진행 상태를 확인합니다.');
       if (
         (data.flow as ConsultingFlow).jobs.some((j) => j.status === 'queued') &&
+        command.type !== 'import_intake_source' &&
         !(
           command.type === 'save_recording' &&
           !(typeof command.transcript === 'string' && command.transcript.trim())
@@ -1573,6 +1575,12 @@ export function ConsultingWorkflow({
       )}
       {section === 'ai' && admin && (
         <>
+          <IntakeSourceReview
+            key={flow.caseId}
+            flow={flow}
+            busy={busy}
+            submit={submit}
+          />
           <Panel
             title="기업별 AI 자동생성 설정"
             description="유료 외부 전송은 이 기업에 대해 명시적으로 허용해야 시작됩니다. 1차와 4차 초안만 자동 생성하며, 파트너 외 기업대표에게는 자동 발송하지 않습니다."
@@ -1629,7 +1637,7 @@ export function ConsultingWorkflow({
           </Panel>
           <Panel
             title="1차 분석용 근거자료"
-            description="기존 협업신청 자료는 기업자료함에 유지됩니다. 외부 AI 전송에는 마스킹한 별도 사본을 등록하세요. PDF·JPG·PNG·TXT 합계 8MB / 8개까지 분석합니다. DOCX·XLSX는 저장만 지원합니다."
+            description="위에서 확인한 신청자료 검토본 또는 직접 첨부한 사본을 사용합니다. 원본과 기존 요약은 보존하며, 이미 작성된 보고서는 새로 생성하기 전까지 바뀌지 않습니다. PDF·JPG·PNG·TXT 합계 8MB / 8개까지 분석합니다."
           >
             {flow.files
               .filter((f) => f.purpose === 'source')
@@ -1640,6 +1648,7 @@ export function ConsultingWorkflow({
                 >
                   <span>
                     {f.name} · {(f.size / 1024 / 1024).toFixed(2)}MB
+                    {f.intakeFileId && ' · 신청자료 검토본'}
                   </span>
                   <div className="flex flex-wrap gap-3">
                     {download(f.id)}

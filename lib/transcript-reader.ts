@@ -29,7 +29,7 @@ function decode(bytes: Uint8Array) {
   }
 }
 
-/** Browser-local extraction only: no fetch, uploads, HTML rendering, macros, or external relationships. */
+/** Pure local extraction (browser or Worker): no fetch, uploads, HTML rendering, macros, or external relationships. */
 export async function readTranscriptFile(file: File): Promise<string> {
   const problem = transcriptFileProblem(file);
   if (problem) throw new Error(problem);

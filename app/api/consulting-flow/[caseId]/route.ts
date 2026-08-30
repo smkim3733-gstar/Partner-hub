@@ -1,6 +1,7 @@
 import { applyFlowCommand, FlowError } from '@/lib/consulting-flow';
 import { publicFlow } from '@/lib/consulting-flow-access';
 import { describeUpload, parseFlowRequest } from '@/lib/consulting-flow-http';
+import { prepareIntakeImport } from '@/lib/consulting-intake-sources';
 import {
   assertSameOrigin,
   commitFlow,
@@ -58,9 +59,20 @@ export async function POST(request: Request, context: Context) {
     )
       throw new FlowError('자료 업로드 권한이 필요합니다.', 403);
     const now = new Date().toISOString();
-    const upload = input.file
-      ? describeUpload(input.file, input.command, now)
-      : undefined;
+    if (
+      input.command.type === 'import_intake_source' &&
+      (input.file || input.audio)
+    )
+      throw new FlowError(
+        '신청자료 불러오기에는 새 파일을 첨부할 수 없습니다.',
+      );
+    const imported =
+      input.command.type === 'import_intake_source'
+        ? await prepareIntakeImport(flow, user, input.command, now)
+        : undefined;
+    const upload =
+      imported?.file ??
+      (input.file ? describeUpload(input.file, input.command, now) : undefined);
     const audioUpload = input.audio
       ? describeUpload(input.audio, input.command, now, 'audio')
       : undefined;
@@ -74,8 +86,20 @@ export async function POST(request: Request, context: Context) {
         role: user.role === 'admin' ? 'admin' : 'partner',
         name: user.role === 'admin' ? '김성민 대표' : flow.partnerName,
       },
-      { commandId: input.commandId, now, upload, audioUpload },
+      {
+        commandId: input.commandId,
+        now,
+        upload,
+        audioUpload,
+        intakeCategory: imported?.category,
+      },
     );
+    if (imported) {
+      await flowBucket().put(imported.file.key, imported.bytes, {
+        httpMetadata: { contentType: imported.file.contentType },
+      });
+      uploadedKeys.push(imported.file.key);
+    }
     if (upload && input.file) {
       await flowBucket().put(upload.key, input.file.stream(), {
         httpMetadata: { contentType: upload.contentType },
