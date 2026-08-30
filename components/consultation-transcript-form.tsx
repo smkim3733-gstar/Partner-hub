@@ -205,7 +205,7 @@ export function ConsultationTranscriptForm({
               htmlFor={`${id}-document`}
               className="block text-sm font-semibold"
             >
-              상담 전사문 첨부 · Word / TXT
+              녹취자료 첨부 · Word / TXT (전사문)
             </label>
             <Input
               id={`${id}-document`}
@@ -386,7 +386,7 @@ export function ConsultationTranscriptForm({
               ? '저장·처리 중…'
               : audioOnly
                 ? '음성만 보관 · 전사문 대기'
-                : '확인한 전사문 저장 · 4차 생성 요청'}
+                : '녹취자료 저장 · 4차 생성 요청'}
         </Button>
       </fieldset>
       <output

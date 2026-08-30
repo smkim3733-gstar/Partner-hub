@@ -210,7 +210,7 @@ test('full workflow: shared report, independent analysis, meetings, docs, signat
   assert.equal(phaseOf(reported()), '공동분석');
   assert.equal(phaseOf(analyzed()), '초회상담 예약');
   assert.equal(phaseOf(booked()), '2차·3차 준비');
-  assert.equal(phaseOf(consulted()), '전사문 등록');
+  assert.equal(phaseOf(consulted()), '녹취자료 등록');
   assert.equal(phaseOf(deepened()), '진행솔루션 확정');
   assert.equal(phaseOf(decided()), '추가서류 확인');
   assert.equal(phaseOf(prepared()), '계약 상담');
@@ -768,7 +768,7 @@ test('transcript review is server enforced; audio wait, supplement and duplicate
     partner,
     file('recording', 'call.m4a'),
   );
-  assert.equal(phaseOf(waiting), '전사문 등록');
+  assert.equal(phaseOf(waiting), '녹취자료 등록');
   assert.equal(waiting.jobs[0].status, 'blocked');
   const complemented = apply(
     waiting,

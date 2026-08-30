@@ -7,18 +7,10 @@ import {
 } from '@/db/schema';
 import type { PortalUser } from '@/lib/portal-auth';
 
-export const companyFileCategories = [
-  '사업자등록증',
-  '크레탑',
-  '재무제표',
-  '상담녹취',
-  '인증·특허',
-  '계약자료',
-  '요청서류',
-  '기타자료',
-] as const;
-
-export type CompanyFileCategory = typeof companyFileCategories[number];
+export {
+  companyFileCategories,
+  type CompanyFileCategory,
+} from './company-file-policy';
 
 type FileRuntimeEnvironment = {
   DB?: D1Database;
@@ -51,13 +43,21 @@ export class CompanyFileError extends Error {
 
 export function companyFileDatabase() {
   const binding = (env as unknown as FileRuntimeEnvironment).DB;
-  if (!binding) throw new CompanyFileError('기업자료 메타데이터 저장소가 연결되지 않았습니다.', 503);
+  if (!binding)
+    throw new CompanyFileError(
+      '기업자료 메타데이터 저장소가 연결되지 않았습니다.',
+      503,
+    );
   return binding;
 }
 
 export function companyFileBucket() {
   const binding = (env as unknown as FileRuntimeEnvironment).AI_SOURCE_FILES;
-  if (!binding) throw new CompanyFileError('기업 원본파일 보안 저장소가 연결되지 않았습니다.', 503);
+  if (!binding)
+    throw new CompanyFileError(
+      '기업 원본파일 보안 저장소가 연결되지 않았습니다.',
+      503,
+    );
   return binding;
 }
 
@@ -95,6 +95,11 @@ export async function findCompanyFile(id: string) {
 export function safeFileName(value: string) {
   return Array.from(value, (character) => {
     const code = character.charCodeAt(0);
-    return character === '\\' || character === '/' || code < 32 || code === 127 ? '_' : character;
-  }).join('').trim().slice(0, 180);
+    return character === '\\' || character === '/' || code < 32 || code === 127
+      ? '_'
+      : character;
+  })
+    .join('')
+    .trim()
+    .slice(0, 180);
 }

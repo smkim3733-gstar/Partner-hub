@@ -106,7 +106,9 @@ export function describeUpload(
   slot: 'file' | 'audio' = 'file',
 ): FlowFile {
   if (slot === 'audio' && command.type !== 'save_recording')
-    throw new FlowError('보조 음성은 상담 전사문 등록에만 첨부할 수 있습니다.');
+    throw new FlowError(
+      '보조 음성은 상담 녹취자료 등록에만 첨부할 수 있습니다.',
+    );
   const purpose = (
     {
       save_source: 'source',

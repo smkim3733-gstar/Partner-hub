@@ -156,7 +156,7 @@ export const flowPhases = [
   '초회상담 예약',
   '2차·3차 준비',
   '초회상담',
-  '전사문 등록',
+  '녹취자료 등록',
   '4차 심화분석',
   '진행솔루션 확정',
   '추가서류 확인',
@@ -282,7 +282,7 @@ export function phaseOf(s: ConsultingFlow): FlowPhase {
   if (!first) return '초회상담 예약';
   if (!preparationDone(s)) return '2차·3차 준비';
   if (first.status !== 'completed') return '초회상담';
-  if (!latestRecording(s)?.transcript) return '전사문 등록';
+  if (!latestRecording(s)?.transcript) return '녹취자료 등록';
   if (!deepReport(s)) return '4차 심화분석';
   if (!s.decision || s.decision.reportId !== deepReport(s)?.id)
     return '진행솔루션 확정';
@@ -321,7 +321,7 @@ export function nextFlowAction(s: ConsultingFlow): {
       '김성민 대표 · 담당 파트너',
       '동반 상담을 진행하고 실제 완료 후 기록하세요.',
     ],
-    '전사문 등록': [
+    '녹취자료 등록': [
       '김성민 대표 · 담당 파트너',
       'Word·TXT 전사문을 첨부하거나 붙여넣고 내용을 확인하세요. 음성은 선택 첨부입니다.',
     ],
@@ -475,7 +475,7 @@ export function applyFlowCommand(
   const type = txt(command, 'type', 60);
   demand(
     !audioUpload || type === 'save_recording',
-    '보조 음성은 새 상담 전사문 등록에만 첨부할 수 있습니다.',
+    '보조 음성은 새 상담 녹취자료 등록에만 첨부할 수 있습니다.',
   );
   const file = () => {
     const f =

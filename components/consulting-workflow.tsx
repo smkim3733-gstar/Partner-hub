@@ -64,7 +64,7 @@ const sections: [Section, string][] = [
   ['reports', '보고서 1–6차'],
   ['analysis', '공동분석'],
   ['meetings', '상담 일정'],
-  ['recording', '전사문·심화분석'],
+  ['recording', '녹취자료·심화분석'],
   ['solutions', '진행솔루션'],
   ['documents', '추가서류'],
   ['contract', '계약·입금'],
@@ -78,7 +78,7 @@ const phaseSection: Record<FlowPhase, Section> = {
   '초회상담 예약': 'meetings',
   '2차·3차 준비': 'reports',
   초회상담: 'meetings',
-  '전사문 등록': 'recording',
+  '녹취자료 등록': 'recording',
   '4차 심화분석': 'recording',
   '진행솔루션 확정': 'solutions',
   '추가서류 확인': 'documents',
@@ -948,7 +948,7 @@ export function ConsultingWorkflow({
       {section === 'recording' && (
         <>
           <Panel
-            title="상담 전사문 첨부 → 내용 확인 → 4차 심화보고서"
+            title="녹취자료 등록 → 내용 확인 → 4차 심화보고서"
             description="완료한 상담을 선택하고 Word·TXT 전사문을 첨부하거나 본문을 붙여넣어 주세요. 내용을 확인한 뒤 제출하며 원본 음성은 선택 첨부입니다."
           >
             {flow.recordings.map((r) => (
