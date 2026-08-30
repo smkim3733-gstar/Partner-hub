@@ -225,9 +225,34 @@ type AiIntegrationReadiness = {
   instructionVersion: string;
   apiKeyConfigured: boolean;
   modelConfigured: boolean;
+  model?: string | null;
   sourceStorageConfigured: boolean;
   generationEnabled: boolean;
   nextAction: string;
+};
+
+type StepZeroReport = {
+  companyOverview: string;
+  confirmedStrengths: string[];
+  mainRisks: string[];
+  solutionCandidates: Array<{ solution: string; basis: string; condition: string }>;
+  verificationQuestions: string[];
+  missingDocuments: string[];
+  complianceNotes: string[];
+  nextAction: string;
+};
+
+type StepZeroRun = {
+  id: string;
+  caseId: string;
+  company: string;
+  stage: 'Step 0';
+  status: '대표 검토 대기';
+  instructionVersion: string;
+  model: string;
+  result: StepZeroReport;
+  usage: { inputTokens: number; outputTokens: number };
+  createdAt: string;
 };
 
 function partnerTypeOf(member: TraineeMember): PartnerType {
@@ -820,6 +845,11 @@ function DiagnosisPreflight({
   const [selectedId, setSelectedId] = useState(assessments[0]?.id ?? '');
   const [integrationReadiness, setIntegrationReadiness] = useState<AiIntegrationReadiness | null>(null);
   const [integrationStatus, setIntegrationStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [pilotContext, setPilotContext] = useState('업종: 산업용 센서 제조\n업력: 4년\n요청사항: 정책자금과 기업부설연구소 가능성 검토\n매출·신용·부채·인력 현황: 확인 필요');
+  const [pilotConsent, setPilotConsent] = useState(false);
+  const [generationStatus, setGenerationStatus] = useState<'idle' | 'loading' | 'success'>('idle');
+  const [generationError, setGenerationError] = useState('');
+  const [stepZeroRun, setStepZeroRun] = useState<StepZeroRun | null>(null);
   const selected = assessments.find((assessment) => assessment.id === selectedId) ?? assessments[0];
   const levelMeta: Record<DiagnosisLevel, { label: string; tone: string; panel: string; guidance: string }> = {
     A: {
@@ -864,6 +894,25 @@ function DiagnosisPreflight({
     };
   }, []);
 
+  useEffect(() => {
+    if (!selected?.caseId) return;
+    let active = true;
+    async function loadLatestRun() {
+      try {
+        const response = await fetch(`/api/ai-diagnosis/step-zero?caseId=${encodeURIComponent(selected.caseId)}`, { cache: 'no-store' });
+        if (!response.ok) return;
+        const payload = await response.json() as { run?: StepZeroRun | null };
+        if (active) setStepZeroRun(payload.run ?? null);
+      } catch {
+        if (active) setStepZeroRun(null);
+      }
+    }
+    void loadLatestRun();
+    return () => {
+      active = false;
+    };
+  }, [selected?.caseId]);
+
   if (!selected) {
     return <Card><CardContent className="py-12 text-center text-sm text-slate-500">등록된 가상 사전점검이 없습니다.</CardContent></Card>;
   }
@@ -872,6 +921,15 @@ function DiagnosisPreflight({
   const blockers = checks.filter((check) => check.status === '차단');
   const needsReview = checks.filter((check) => check.status === '확인필요');
   const selectedCaseExists = cases.some((item) => item.id === selected.caseId);
+
+  function selectAssessment(assessment: DiagnosisAssessment) {
+    const service = cases.find((item) => item.id === assessment.caseId)?.service ?? '기업컨설팅';
+    setSelectedId(assessment.id);
+    setPilotContext(`업종: 테스트용 제조·서비스 기업\n업력: 확인 필요\n요청사항: ${service} 가능성 검토\n매출·신용·부채·인력 현황: 확인 필요\n주의: 모든 정보는 기능 검증을 위한 가상정보`);
+    setPilotConsent(false);
+    setGenerationError('');
+    setGenerationStatus('idle');
+  }
 
   function runAssessment(assessmentId: string) {
     setAssessments((current) => current.map((assessment) =>
@@ -885,6 +943,44 @@ function DiagnosisPreflight({
     notify('가상 기업 3건의 AI 진단 사전점검을 다시 실행했습니다.');
   }
 
+  async function generatePilotStepZero() {
+    if (!integrationReadiness?.generationEnabled) {
+      setGenerationError('Anthropic API 키와 Claude 모델 연결이 필요합니다.');
+      return;
+    }
+    if (selected.level !== 'A' || !selected.company.includes('(가상)')) {
+      setGenerationError('A 판정의 가상기업만 Step 0 시험을 실행할 수 있습니다.');
+      return;
+    }
+    if (!pilotConsent) {
+      setGenerationError('가상자료 확인과 외부 AI 시험 동의가 필요합니다.');
+      return;
+    }
+    setGenerationStatus('loading');
+    setGenerationError('');
+    try {
+      const response = await fetch('/api/ai-diagnosis/step-zero', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          caseId: selected.caseId,
+          company: selected.company,
+          pilotContext,
+          pilotMode: true,
+          consentConfirmed: true,
+        }),
+      });
+      const payload = await response.json() as { run?: StepZeroRun; error?: string };
+      if (!response.ok || !payload.run) throw new Error(payload.error || 'Step 0 생성에 실패했습니다.');
+      setStepZeroRun(payload.run);
+      setGenerationStatus('success');
+      notify(`${selected.company} Step 0 가상 초안을 생성해 대표 검토대기에 저장했습니다.`);
+    } catch (error) {
+      setGenerationStatus('idle');
+      setGenerationError(error instanceof Error ? error.message : 'Step 0 생성에 실패했습니다.');
+    }
+  }
+
   return (
     <div>
       <PageIntro
@@ -896,7 +992,7 @@ function DiagnosisPreflight({
 
       <div role="note" className="mb-5 flex items-start gap-3 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-sm leading-6 text-sky-950">
         <BrainCircuit className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" />
-        <div><strong>현재는 가상 시뮬레이션입니다.</strong> 실제 기업자료를 외부 AI로 전송하거나 보고서를 생성하지 않습니다. 다음 단계에서 동의·마스킹·대표 승인 게이트를 통과한 건만 자동화 대상으로 연결합니다.</div>
+        <div><strong>현재 자동생성 범위는 가상기업 Step 0 시험까지입니다.</strong> 실제 고객 원본파일은 외부 AI로 전송하지 않습니다. A 판정·마스킹·제3자 AI 동의·김성민 대표 실행을 모두 통과한 가상 텍스트만 Claude 시험 대상으로 사용합니다.</div>
       </div>
 
       <Card className="mb-5 border-0 shadow-sm ring-1 ring-slate-200">
@@ -915,7 +1011,7 @@ function DiagnosisPreflight({
                 {[
                   { label: '상담 FLOW 지침', ready: Boolean(integrationReadiness?.instructionImported), readyText: '서버 이식 완료', waitText: '이식 대기' },
                   { label: 'Anthropic API 키', ready: Boolean(integrationReadiness?.apiKeyConfigured), readyText: '보안 연결됨', waitText: '연결 필요' },
-                  { label: '사용 모델', ready: Boolean(integrationReadiness?.modelConfigured), readyText: '모델 지정됨', waitText: '모델 지정 필요' },
+                  { label: '사용 모델', ready: Boolean(integrationReadiness?.modelConfigured), readyText: integrationReadiness?.model ?? '모델 지정됨', waitText: '모델 지정 필요' },
                   { label: '기업 원본파일 저장소', ready: Boolean(integrationReadiness?.sourceStorageConfigured), readyText: '격리 저장소 연결됨', waitText: '저장소 연결 필요' },
                 ].map((item) => (
                   <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
@@ -961,7 +1057,7 @@ function DiagnosisPreflight({
                   key={assessment.id}
                   type="button"
                   aria-pressed={active}
-                  onClick={() => setSelectedId(assessment.id)}
+                  onClick={() => selectAssessment(assessment)}
                   className={`min-h-24 w-full rounded-2xl border p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${active ? 'border-[#0877b8] bg-sky-50' : 'border-slate-200 bg-white hover:bg-slate-50'}`}
                 >
                   <div className="flex items-start justify-between gap-3"><div><p className="font-bold text-slate-950">{assessment.company}</p><p className="mt-1 text-xs text-slate-500">{cases.find((item) => item.id === assessment.caseId)?.service ?? '가상 기업진단'}</p></div><Pill tone={levelMeta[assessment.level].tone}>{assessment.level}</Pill></div>
@@ -1022,10 +1118,52 @@ function DiagnosisPreflight({
             </CardContent>
           </Card>
 
+          <Card className="border-0 shadow-sm ring-1 ring-slate-200">
+            <CardHeader className="border-b border-slate-100">
+              <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+                <div><CardTitle>가상기업 Step 0 사전가설 시험</CardTitle><CardDescription className="mt-1">실제 고객자료를 사용하지 않고 Claude 상담 FLOW의 첫 단계만 생성합니다.</CardDescription></div>
+                <Pill tone={stepZeroRun?.caseId === selected.caseId ? 'green' : integrationReadiness?.generationEnabled ? 'blue' : 'amber'}>{stepZeroRun?.caseId === selected.caseId ? '저장된 초안 있음' : integrationReadiness?.generationEnabled ? '실행 가능' : 'API 연결 대기'}</Pill>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-5 py-5">
+              <Field label="가상기업 입력" required hint="실제 전화번호·이메일·사업자번호·주민번호는 입력할 수 없습니다.">
+                <textarea value={pilotContext} onChange={(event) => { setPilotContext(event.target.value); setGenerationError(''); }} className={`${inputClass} min-h-36 py-3`} maxLength={8000} />
+              </Field>
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm font-semibold text-slate-700">
+                <input type="checkbox" checked={pilotConsent} onChange={(event) => { setPilotConsent(event.target.checked); setGenerationError(''); }} className="mt-1 size-4 accent-[#0877b8]" />
+                <span>위 내용은 테스트용 가상정보이며 실제 고객 식별정보가 없음을 확인하고, 이 가상 입력을 Anthropic Claude API 시험에 사용하는 데 동의합니다.</span>
+              </label>
+              {generationError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{generationError}</p> : null}
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <PrimaryButton onClick={generatePilotStepZero} disabled={generationStatus === 'loading' || selected.level !== 'A' || !selected.company.includes('(가상)')}>
+                  {generationStatus === 'loading' ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <BrainCircuit className="size-4" aria-hidden="true" />}
+                  {generationStatus === 'loading' ? 'Step 0 생성 중' : '가상 Step 0 생성'}
+                </PrimaryButton>
+                <p className="text-xs leading-5 text-slate-500">실행할 때만 API 사용량이 발생하며 결과는 대표 검토대기로 저장됩니다.</p>
+              </div>
+
+              {stepZeroRun?.caseId === selected.caseId ? (
+                <section aria-labelledby="step-zero-result-title" className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-5">
+                  <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start"><div><h3 id="step-zero-result-title" className="font-bold text-slate-950">Step 0 내부 초안</h3><p className="mt-1 text-xs text-slate-500">{new Date(stepZeroRun.createdAt).toLocaleString('ko-KR')} · {stepZeroRun.model} · 입력 {stepZeroRun.usage.inputTokens.toLocaleString()} / 출력 {stepZeroRun.usage.outputTokens.toLocaleString()} 토큰</p></div><Pill tone="amber">{stepZeroRun.status}</Pill></div>
+                  <div className="rounded-xl bg-white p-4"><p className="text-xs font-bold text-slate-500">기업 현황 가설</p><p className="mt-2 text-sm leading-6 text-slate-800">{stepZeroRun.result.companyOverview}</p></div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {[['확인된 강점', stepZeroRun.result.confirmedStrengths], ['주요 위험·불확실성', stepZeroRun.result.mainRisks]].map(([title, items]) => <div key={title as string} className="rounded-xl bg-white p-4"><p className="text-xs font-bold text-slate-500">{title as string}</p><ul className="mt-2 space-y-2 text-sm leading-6 text-slate-700">{(items as string[]).map((item) => <li key={item} className="flex gap-2"><span className="text-[#0877b8]">•</span><span>{item}</span></li>)}</ul></div>)}
+                  </div>
+                  <div className="rounded-xl bg-white p-4"><p className="text-xs font-bold text-slate-500">솔루션 후보</p><div className="mt-3 grid gap-3">{stepZeroRun.result.solutionCandidates.map((item) => <div key={`${item.solution}-${item.basis}`} className="rounded-xl border border-slate-100 p-3"><p className="text-sm font-bold text-slate-900">{item.solution}</p><p className="mt-1 text-xs leading-5 text-slate-600">근거: {item.basis}</p><p className="mt-1 text-xs leading-5 text-amber-800">조건: {item.condition || '추가 확인 필요'}</p></div>)}</div></div>
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {[['대표 확인질문', stepZeroRun.result.verificationQuestions], ['보완자료', stepZeroRun.result.missingDocuments]].map(([title, items]) => <div key={title as string} className="rounded-xl bg-white p-4"><p className="text-xs font-bold text-slate-500">{title as string}</p><ol className="mt-2 space-y-2 text-sm leading-6 text-slate-700">{(items as string[]).map((item, index) => <li key={item}>{index + 1}. {item}</li>)}</ol></div>)}
+                  </div>
+                  <div className="rounded-xl border border-blue-100 bg-blue-50 p-4"><p className="text-xs font-bold text-[#15375b]">대표 다음 행동</p><p className="mt-2 text-sm font-semibold leading-6 text-slate-800">{stepZeroRun.result.nextAction}</p></div>
+                  <p className="text-xs leading-5 text-slate-500">AI 생성 내부 초안 · 김성민 대표 검토 전 · 외부 제공 금지</p>
+                </section>
+              ) : null}
+            </CardContent>
+          </Card>
+
           <section aria-labelledby="automation-flow-title" className="rounded-2xl bg-[#112f50] p-5 text-white shadow-sm">
             <h2 id="automation-flow-title" className="font-bold">자동연결 예정 흐름</h2>
             <ol className="mt-4 grid gap-3 md:grid-cols-4">
-              {['자료 접수·마스킹', 'A·B·C 사전판정', '대표 승인', 'Step 0·1 초안 생성'].map((step, index) => (
+              {['자료 접수·마스킹', 'A·B·C 사전판정', '대표 실행', 'Step 0 가상 초안'].map((step, index) => (
                 <li key={step} className="rounded-xl border border-white/10 bg-white/5 p-3"><span className="text-xs font-bold text-sky-300">0{index + 1}</span><p className="mt-1 text-sm font-semibold">{step}</p></li>
               ))}
             </ol>

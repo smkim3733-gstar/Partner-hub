@@ -41,6 +41,7 @@ export async function GET(request: Request) {
       migration: CLAUDE_FLOW_MIGRATION_SUMMARY,
       apiKeyConfigured,
       modelConfigured,
+      model: modelConfigured ? runtime.ANTHROPIC_MODEL?.trim() : null,
       sourceStorageConfigured,
       generationEnabled,
       nextAction: !apiKeyConfigured

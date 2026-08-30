@@ -41,4 +41,26 @@ CREATE INDEX IF NOT EXISTS company_file_objects_company_idx
 ON company_file_objects (company, created_at)
 `;
 
+export const aiDiagnosisRunsTableSql = `
+CREATE TABLE IF NOT EXISTS ai_diagnosis_runs (
+  id TEXT PRIMARY KEY NOT NULL,
+  case_id TEXT NOT NULL,
+  company TEXT NOT NULL,
+  stage TEXT NOT NULL,
+  status TEXT NOT NULL,
+  instruction_version TEXT NOT NULL,
+  model TEXT NOT NULL,
+  result_json TEXT NOT NULL,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  created_by_user_id TEXT NOT NULL,
+  created_at TEXT NOT NULL
+)
+`;
+
+export const aiDiagnosisRunsCaseIndexSql = `
+CREATE INDEX IF NOT EXISTS ai_diagnosis_runs_case_idx
+ON ai_diagnosis_runs (case_id, created_at)
+`;
+
 export const portalStateId = 'keve-partner-hub';
