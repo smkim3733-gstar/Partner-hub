@@ -27,6 +27,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { IntakeSourceReview } from '@/components/intake-source-review';
+import { FirstReportPreflight } from '@/components/report-preflight';
 import {
   ConsultationTranscriptForm,
   type TranscriptSubmit,
@@ -178,16 +179,18 @@ function Files({
   );
 }
 function Panel({
+  id,
   title,
   description,
   children,
 }: {
+  id?: string;
   title: string;
   description?: string;
   children: ReactNode;
 }) {
   return (
-    <Card>
+    <Card id={id}>
       <CardHeader>
         <CardTitle className="font-bold">{title}</CardTitle>
         {description && (
@@ -1582,6 +1585,7 @@ export function ConsultingWorkflow({
             submit={submit}
           />
           <Panel
+            id="flow-ai-policy"
             title="기업별 AI 자동생성 설정"
             description="유료 외부 전송은 이 기업에 대해 명시적으로 허용해야 시작됩니다. 1차와 4차 초안만 자동 생성하며, 파트너 외 기업대표에게는 자동 발송하지 않습니다."
           >
@@ -1636,6 +1640,7 @@ export function ConsultingWorkflow({
             )}
           </Panel>
           <Panel
+            id="flow-ai-sources"
             title="1차 분석용 근거자료"
             description="위에서 확인한 신청자료 검토본 또는 직접 첨부한 사본을 사용합니다. 원본과 기존 요약은 보존하며, 이미 작성된 보고서는 새로 생성하기 전까지 바뀌지 않습니다. PDF·JPG·PNG·TXT 합계 8MB / 8개까지 분석합니다."
           >
@@ -1710,25 +1715,17 @@ export function ConsultingWorkflow({
                 AI 분석에 사용할 사본이며, 불필요한 개인정보를 제거했습니다.
               </Confirm>
             </ActionForm>
-            <Button
-              className="min-h-11"
-              disabled={
-                busy ||
-                !flow.ai.enabled ||
-                !readiness.aiConnected ||
-                Boolean(first?.completedAt)
-              }
-              onClick={() => {
-                if (
-                  window.confirm(
-                    '등록한 근거자료를 Claude로 전송하여 1차 초안을 생성할까요? API 이용요금이 발생합니다.',
-                  )
-                )
-                  void submit({ type: 'queue_report1' });
+            <FirstReportPreflight
+              key={`${flow.caseId}:${flow.revision}`}
+              caseId={flow.caseId}
+              revision={flow.revision}
+              busy={busy}
+              generate={() => submit({ type: 'queue_report1' })}
+              refresh={() => {
+                void refresh();
               }}
-            >
-              등록 자료로 1차 보고서 생성
-            </Button>
+              openReports={() => setSection('reports')}
+            />
           </Panel>
           <JobPanel
             clock={clock}

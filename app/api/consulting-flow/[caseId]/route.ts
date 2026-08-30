@@ -2,6 +2,7 @@ import { applyFlowCommand, FlowError } from '@/lib/consulting-flow';
 import { publicFlow } from '@/lib/consulting-flow-access';
 import { describeUpload, parseFlowRequest } from '@/lib/consulting-flow-http';
 import { prepareIntakeImport } from '@/lib/consulting-intake-sources';
+import { buildAnalysisSourceBlocks } from '@/lib/consulting-flow-ai';
 import {
   assertSameOrigin,
   commitFlow,
@@ -52,6 +53,21 @@ export async function POST(request: Request, context: Context) {
         '다른 변경이 있습니다. 새로고침 후 내용을 확인해 주세요.',
         409,
       );
+    if (
+      input.command.type === 'queue_report1' ||
+      (input.command.type === 'retry_job' &&
+        flow.jobs.some(
+          (job) => job.id === input.command.jobId && job.stage === 1,
+        ))
+    ) {
+      if (user.role !== 'admin')
+        throw new FlowError(
+          '1차 보고서 생성은 대표만 요청할 수 있습니다.',
+          403,
+        );
+      // Re-read the actual private objects. A previous successful UI check is not authoritative.
+      await buildAnalysisSourceBlocks(flow, { stage: 1 });
+    }
     if (
       (input.file || input.audio) &&
       user.role !== 'admin' &&
