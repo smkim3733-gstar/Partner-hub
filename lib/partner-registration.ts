@@ -44,6 +44,16 @@ export type PartnerRegistration = {
 export type RegistrationErrors = Partial<
   Record<keyof PartnerRegistration | 'confirmed', string>
 >;
+/** Capture a primitive value before React/Base UI restores the controlled input. */
+export function registrationFieldUpdate<K extends keyof PartnerRegistration>(
+  key: K,
+  value: PartnerRegistration[K],
+) {
+  return (current: PartnerRegistration): PartnerRegistration => ({
+    ...current,
+    [key]: value,
+  });
+}
 export type PartnerRegistrationResult = {
   member: PartnerAccount;
   members: PartnerAccount[];

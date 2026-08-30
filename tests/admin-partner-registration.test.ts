@@ -15,11 +15,31 @@ import {
   defaultPartnerPermissions,
   membersRevisionOf,
   sameMemberRecords,
+  registrationFieldUpdate,
   validatePartnerRegistration,
   type PartnerRegistrationResult,
 } from '../lib/partner-registration';
 
 const owner = 'seedy@sites.test';
+void test('queued field updates retain captured input values after a controlled-input reset', () => {
+  const input = { value: '010-0000-0000' };
+  const phoneUpdate = registrationFieldUpdate('phone', input.value);
+  input.value = 'new-partner@example.invalid';
+  const emailUpdate = registrationFieldUpdate('email', input.value);
+  input.value = '';
+  const form = {
+    name: '가상 파트너',
+    phone: '',
+    affiliation: '가상 검증소속',
+    email: '',
+    memberType: '한기평 컨설턴트' as const,
+  };
+  const result = emailUpdate(phoneUpdate(form));
+  assert.equal(result.phone, '010-0000-0000');
+  assert.equal(result.email, 'new-partner@example.invalid');
+  assert.equal(result.name, form.name);
+  assert.equal(form.phone, '');
+});
 const existingEmail = 'existing-partner@example.invalid';
 let sequence = 0;
 function body(extra: Record<string, unknown> = {}) {
@@ -314,7 +334,10 @@ void test('simultaneous independent creates preserve both; concurrent identical 
     create(request(identical)),
     create(request(identical)),
   ]);
-  assert.deepEqual(repeats.map((result) => result.status).sort((a, b) => a - b), [200, 201]);
+  assert.deepEqual(
+    repeats.map((result) => result.status).sort((a, b) => a - b),
+    [200, 201],
+  );
   assert.equal((await state()).members.length, 5);
   assert.equal(membersRevisionOf(await state()), 3);
 });

@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
 import {
   partnerTypes,
+  registrationFieldUpdate,
   validatePartnerRegistration,
   type PartnerRegistration,
   type PartnerRegistrationResult,
@@ -165,9 +166,7 @@ export function AdminPartnerRegistration({
       </CardHeader>
       <CardContent>
         {success && (
-          <output
-            className="mb-5 block rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900"
-          >
+          <output className="mb-5 block rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
             <span className="flex items-center gap-2 font-bold">
               <CheckCircle2 className="size-5 shrink-0" aria-hidden="true" />
               {success}
@@ -221,10 +220,9 @@ export function AdminPartnerRegistration({
                     required
                     value={form[key]}
                     onChange={(event) => {
-                      setForm((current) => ({
-                        ...current,
-                        [key]: event.target.value,
-                      }));
+                      setForm(
+                        registrationFieldUpdate(key, event.currentTarget.value),
+                      );
                       setConfirmed(false);
                     }}
                     className="h-11 bg-white"
@@ -266,11 +264,13 @@ export function AdminPartnerRegistration({
                   required
                   value={form.memberType}
                   onChange={(event) => {
-                    setForm((current) => ({
-                      ...current,
-                      memberType: event.target
-                        .value as PartnerRegistration['memberType'],
-                    }));
+                    setForm(
+                      registrationFieldUpdate(
+                        'memberType',
+                        event.currentTarget
+                          .value as PartnerRegistration['memberType'],
+                      ),
+                    );
                     setConfirmed(false);
                   }}
                   className="w-full bg-white [&_select]:h-11"
