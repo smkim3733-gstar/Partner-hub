@@ -52,11 +52,16 @@ function apply(
   actor = admin,
   upload?: FlowFile,
 ) {
-  return applyFlowCommand(flow, command, actor, {
-    commandId: `test-command-${++sequence}`,
-    now,
-    upload,
-  });
+  return applyFlowCommand(
+    flow,
+    { transcriptReviewed: true, ...command },
+    actor,
+    {
+      commandId: `test-command-${++sequence}`,
+      now,
+      upload,
+    },
+  );
 }
 function file(purpose = 'report', name = 'test.pdf'): FlowFile {
   return {
@@ -205,7 +210,7 @@ test('full workflow: shared report, independent analysis, meetings, docs, signat
   assert.equal(phaseOf(reported()), '공동분석');
   assert.equal(phaseOf(analyzed()), '초회상담 예약');
   assert.equal(phaseOf(booked()), '2차·3차 준비');
-  assert.equal(phaseOf(consulted()), '녹취 등록');
+  assert.equal(phaseOf(consulted()), '전사문 등록');
   assert.equal(phaseOf(deepened()), '진행솔루션 확정');
   assert.equal(phaseOf(decided()), '추가서류 확인');
   assert.equal(phaseOf(prepared()), '계약 상담');
@@ -715,8 +720,83 @@ test('new transcript during an in-flight AI call cannot publish an obsolete four
   flow = apply(flow, command);
   const job = flow.jobs.at(-1)!;
   flow = claimFlowJob(flow, job.id, now);
-  flow = apply(flow, command);
+  flow = apply(flow, {
+    ...command,
+    transcript: body + ' 추가 정정사항을 확인해야 합니다.',
+  });
   flow = finishFlowJob(flow, job.id, now, now, { body });
   assert.equal(flow.jobs[0].status, 'blocked');
   assert.equal(deepReport(flow), undefined);
+});
+
+test('transcript review is server enforced; audio wait, supplement and duplicate guards', () => {
+  let s = consulted();
+  const c = {
+    type: 'save_recording',
+    meetingId: firstMeeting(s)!.id,
+    transcript: body,
+    recordingConsent: true,
+    privacyMasked: true,
+  };
+  assert.throws(
+    () =>
+      applyFlowCommand(s, c, partner, { commandId: 'review-required', now }),
+    /확인/,
+  );
+  assert.throws(() => apply(s, { ...c, transcriptReviewed: false }), /확인/);
+  assert.throws(
+    () =>
+      apply(
+        s,
+        { ...c, transcript: '' },
+        partner,
+        file('recording', 'text.docx'),
+      ),
+    /본문/,
+  );
+  assert.throws(
+    () => apply(s, { ...c, transcript: '가'.repeat(60001) }),
+    /확인/,
+  );
+  s = apply(s, c);
+  assert.ok(s.recordings[0].transcriptReviewedAt);
+  assert.throws(() => apply(s, c), /동일한 전사문/);
+  const waitingBase = consulted();
+  const waiting = apply(
+    waitingBase,
+    { ...c, meetingId: firstMeeting(waitingBase)!.id, transcript: '' },
+    partner,
+    file('recording', 'call.m4a'),
+  );
+  assert.equal(phaseOf(waiting), '전사문 등록');
+  assert.equal(waiting.jobs[0].status, 'blocked');
+  const complemented = apply(
+    waiting,
+    {
+      type: 'save_transcript',
+      recordingId: waiting.recordings[0].id,
+      transcript: body,
+      recordingConsent: true,
+      privacyMasked: true,
+    },
+    partner,
+    file('transcript', 'text.docx'),
+  );
+  assert.equal(
+    complemented.recordings[0].audioFileId,
+    waiting.recordings[0].fileId,
+  );
+  assert.ok(complemented.recordings[0].transcriptFileId);
+  assert.equal(complemented.files.length, waiting.files.length + 1);
+  assert.throws(
+    () =>
+      apply(complemented, {
+        type: 'save_transcript',
+        recordingId: complemented.recordings[0].id,
+        transcript: body,
+        recordingConsent: true,
+        privacyMasked: true,
+      }),
+    /이미 저장/,
+  );
 });

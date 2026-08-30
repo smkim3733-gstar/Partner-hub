@@ -27,6 +27,10 @@ import {
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  ConsultationTranscriptForm,
+  type TranscriptSubmit,
+} from '@/components/consultation-transcript-form';
+import {
   analysisDone,
   deepReport,
   depositReceived,
@@ -41,7 +45,6 @@ import {
   reportLabels,
   signingPreparationDone,
   type ConsultingFlow,
-  type FlowCommand,
   type FlowPhase,
   type ReportStage,
 } from '@/lib/consulting-flow';
@@ -61,7 +64,7 @@ const sections: [Section, string][] = [
   ['reports', '보고서 1–6차'],
   ['analysis', '공동분석'],
   ['meetings', '상담 일정'],
-  ['recording', '녹취·심화분석'],
+  ['recording', '전사문·심화분석'],
   ['solutions', '진행솔루션'],
   ['documents', '추가서류'],
   ['contract', '계약·입금'],
@@ -75,7 +78,7 @@ const phaseSection: Record<FlowPhase, Section> = {
   '초회상담 예약': 'meetings',
   '2차·3차 준비': 'reports',
   초회상담: 'meetings',
-  '녹취 등록': 'recording',
+  '전사문 등록': 'recording',
   '4차 심화분석': 'recording',
   '진행솔루션 확정': 'solutions',
   '추가서류 확인': 'documents',
@@ -88,12 +91,14 @@ const phaseSection: Record<FlowPhase, Section> = {
 };
 const control =
   'min-h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/40';
-const dateTime = (iso: string) =>
-  new Date(iso).toLocaleString('ko-KR', {
-    timeZone: 'Asia/Seoul',
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
+const dateTime = (iso?: string) =>
+  iso
+    ? new Date(iso).toLocaleString('ko-KR', {
+        timeZone: 'Asia/Seoul',
+        dateStyle: 'medium',
+        timeStyle: 'short',
+      })
+    : '상담일 확인 필요';
 const meetingName = (kind: string) =>
   kind === 'first' ? '초회상담' : kind === 'contract' ? '계약상담' : '추가상담';
 const attendanceName = (attendance: string) =>
@@ -199,7 +204,7 @@ function Hint({ children }: { children: ReactNode }) {
     </p>
   );
 }
-type Submit = (command: FlowCommand, file?: File) => Promise<boolean>;
+type Submit = TranscriptSubmit;
 type FlowPayload = {
   flow: ConsultingFlow;
   error?: string;
@@ -321,7 +326,7 @@ export function ConsultingWorkflow({
           : '업무 저장 완료. 생성 대기·진행 상태를 확인해 주세요.',
     );
   }
-  const submit: Submit = async (command, file) => {
+  const submit: Submit = async (command, file, audio) => {
     if (!flow || busyRef.current) return false;
     busyRef.current = true;
     setBusy(true);
@@ -329,7 +334,8 @@ export function ConsultingWorkflow({
     setNotice('');
     const key =
       JSON.stringify(command) +
-      (file ? `${file.name}:${file.size}:${file.lastModified}` : '');
+      (file ? `${file.name}:${file.size}:${file.lastModified}` : '') +
+      (audio ? `:audio:${audio.name}:${audio.size}:${audio.lastModified}` : '');
     if (pending.current?.key !== key)
       pending.current = { key, id: crypto.randomUUID() };
     const payload = JSON.stringify({
@@ -340,14 +346,16 @@ export function ConsultingWorkflow({
     let saved = false;
     try {
       const form = new FormData();
-      if (file) {
+      if (file || audio) {
         form.set('payload', payload);
-        form.set('file', file);
+        if (file) form.set('file', file);
+        if (audio) form.set('audio', audio);
       }
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers: file ? undefined : { 'content-type': 'application/json' },
-        body: file ? form : payload,
+        headers:
+          file || audio ? undefined : { 'content-type': 'application/json' },
+        body: file || audio ? form : payload,
       });
       const data = (await response.json()) as FlowPayload;
       if (!response.ok) {
@@ -359,7 +367,11 @@ export function ConsultingWorkflow({
       saved = true;
       setNotice('저장되었습니다. 담당 파트너와 같은 진행 상태를 확인합니다.');
       if (
-        (data.flow as ConsultingFlow).jobs.some((j) => j.status === 'queued')
+        (data.flow as ConsultingFlow).jobs.some((j) => j.status === 'queued') &&
+        !(
+          command.type === 'save_recording' &&
+          !(typeof command.transcript === 'string' && command.transcript.trim())
+        )
       ) {
         setNotice(
           '업무 저장 완료. 보고서를 생성 중입니다. 잠시 이 화면을 유지해 주세요.',
@@ -426,6 +438,16 @@ export function ConsultingWorkflow({
   const r4 = deepReport(flow);
   const first = firstMeeting(flow);
   const recording = latestRecording(flow);
+  const transcriptForm = !flow.contract && (
+    <ConsultationTranscriptForm
+      key={`new-${caseId}-${recording?.id || 'first'}`}
+      meetings={flow.meetings}
+      busy={busy}
+      canUpload={canUpload}
+      submit={submit}
+      aiEnabled={flow.ai.enabled}
+    />
+  );
   const contractMeetings = flow.meetings.filter(
     (m) => m.kind === 'contract' && m.status !== 'cancelled',
   );
@@ -503,7 +525,7 @@ export function ConsultingWorkflow({
                 : stage === 5 || stage === 6
                   ? '솔루션 확정·필수 서류 검토 후 대표님이 문서를 준비합니다.'
                   : stage === 4
-                    ? '상담 녹취·전사문 등록 후 자동생성 또는 대표 수동 등록'
+                    ? '확인한 상담 전사문으로 초안 생성 또는 대표 수동 등록'
                     : '완성한 문서를 등록하거나 본문을 입력합니다.'}
             </p>
           )}
@@ -926,16 +948,46 @@ export function ConsultingWorkflow({
       {section === 'recording' && (
         <>
           <Panel
-            title="상담 녹취 등록 → 4차 심화보고서"
-            description="완료된 상담에 녹취를 연결합니다. 현재 음성 자동전사는 미연결이므로 전사문을 함께 입력해야 AI 분석이 실행됩니다. 음성만 올리면 전사문 대기로 저장됩니다."
+            title="상담 전사문 첨부 → 내용 확인 → 4차 심화보고서"
+            description="완료한 상담을 선택하고 Word·TXT 전사문을 첨부하거나 본문을 붙여넣어 주세요. 내용을 확인한 뒤 제출하며 원본 음성은 선택 첨부입니다."
           >
             {flow.recordings.map((r) => (
               <div key={r.id} className="rounded-lg border p-4 text-sm">
                 <p>
                   {dateTime(r.createdAt)} · 전사문{' '}
-                  {r.transcript ? '등록됨' : '대기'}
+                  {r.transcript
+                    ? '등록됨 · 내부 검토 자료'
+                    : '대기 · 음성 보관만 완료'}
                 </p>
-                {r.fileId && download(r.fileId)}
+                <p className="mt-1 text-muted-foreground">
+                  연결된 상담일:{' '}
+                  {dateTime(
+                    flow.meetings.find((m) => m.id === r.meetingId)?.startsAt,
+                  )}
+                </p>
+                <div className="flex flex-wrap gap-3">
+                  {[
+                    ...new Set(
+                      [r.fileId, r.transcriptFileId, r.audioFileId].filter(
+                        (id): id is string => Boolean(id),
+                      ),
+                    ),
+                  ].map((id) => (
+                    <span key={id}>
+                      {download(
+                        id,
+                        flow.files.find((f) => f.id === id)?.name ||
+                          '첨부 내려받기',
+                      )}
+                    </span>
+                  ))}
+                </div>
+                {r.transcriptReviewedAt && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    전사문 내용 확인: {dateTime(r.transcriptReviewedAt)} · 증빙
+                    검증 완료를 뜻하지 않습니다.
+                  </p>
+                )}
                 {r.transcript && (
                   <details>
                     <summary className="cursor-pointer py-3">
@@ -948,83 +1000,35 @@ export function ConsultingWorkflow({
                 )}
               </div>
             ))}
-            {!flow.contract && (
-              <ActionForm
-                busy={busy}
-                label="녹취 저장 · 4차 생성 요청"
-                onSubmit={(d) =>
-                  submit(
-                    {
-                      type: 'save_recording',
-                      meetingId: value(d, 'meetingId'),
-                      transcript: value(d, 'transcript'),
-                      ...checks(d),
-                    },
-                    attached(d),
-                  )
-                }
-              >
-                <Field label="완료한 상담">
-                  <select name="meetingId" className={control} required>
-                    <option value="">상담 선택</option>
-                    {flow.meetings
-                      .filter((m) => m.status === 'completed')
-                      .map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {meetingName(m.kind)} · {dateTime(m.startsAt)}
-                        </option>
-                      ))}
-                  </select>
-                </Field>
-                {canUpload && <Files accept=".mp3,.m4a,.wav,.txt" />}
-                <Field label="마스킹한 녹취 전사문 (20자 이상)">
-                  <Textarea
-                    name="transcript"
-                    rows={7}
-                    maxLength={60000}
-                    placeholder="전화번호·주민번호·계좌 등 불필요한 개인정보를 제거한 전사문을 입력하세요."
-                  />
-                </Field>
-                <Confirm name="recordingConsent">
-                  녹취 저장·분석·담당 파트너 공유에 필요한 권한을 확인했습니다.
-                </Confirm>
-                <Confirm name="privacyMasked">
-                  불필요한 개인정보를 제거했습니다. AI 허용 시 전사문이 Claude로
-                  전송됩니다.
-                </Confirm>
-              </ActionForm>
+            {recording && !recording.transcript && !flow.contract ? (
+              <details className="rounded-lg border p-3">
+                <summary className="min-h-11 cursor-pointer py-2 text-sm font-medium">
+                  다른 상담 또는 새 버전 등록
+                </summary>
+                <p className="mb-3 text-sm text-muted-foreground">
+                  보관한 음성에 전사문을 연결하려면 아래 ‘전사문 보완’을 이용해
+                  주세요.
+                </p>
+                {transcriptForm}
+              </details>
+            ) : (
+              transcriptForm
             )}
           </Panel>
           {recording && !recording.transcript && !flow.contract && (
-            <Panel title="최근 녹취 전사문 보완">
-              <ActionForm
+            <Panel
+              title="보관한 음성의 전사문 보완"
+              description={`연결된 상담일: ${dateTime(flow.meetings.find((m) => m.id === recording.meetingId)?.startsAt)} · 기존 음성을 유지하며 전사문을 연결합니다.`}
+            >
+              <ConsultationTranscriptForm
+                key={`supplement-${caseId}-${recording.id}`}
+                recordingId={recording.id}
+                meetings={flow.meetings}
                 busy={busy}
-                label="전사문 저장 · 자동생성 준비"
-                onSubmit={(d) =>
-                  submit({
-                    type: 'save_transcript',
-                    recordingId: recording.id,
-                    transcript: value(d, 'transcript'),
-                    ...checks(d),
-                  })
-                }
-              >
-                <Field label="전사문">
-                  <Textarea
-                    name="transcript"
-                    required
-                    minLength={20}
-                    maxLength={60000}
-                    rows={6}
-                  />
-                </Field>
-                <Confirm name="recordingConsent">
-                  전사문 활용 권한을 확인했습니다.
-                </Confirm>
-                <Confirm name="privacyMasked">
-                  개인정보 마스킹을 확인했습니다.
-                </Confirm>
-              </ActionForm>
+                canUpload={canUpload}
+                submit={submit}
+                aiEnabled={flow.ai.enabled}
+              />
             </Panel>
           )}
           <JobPanel

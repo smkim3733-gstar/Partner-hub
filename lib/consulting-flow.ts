@@ -1,3 +1,5 @@
+import { transcriptProblem } from './transcript-policy';
+
 /** Pure, server-enforced consulting workflow. No browser state is authoritative. */
 export type FlowActor = { id: string; role: 'admin' | 'partner'; name: string };
 export type FlowFile = {
@@ -41,7 +43,11 @@ export type FlowRecording = {
   id: string;
   meetingId: string;
   fileId?: string;
+  transcriptFileId?: string;
+  audioFileId?: string;
   transcript: string;
+  transcriptReviewedAt?: string;
+  transcriptReviewedBy?: string;
   consentAt: string;
   createdAt: string;
 };
@@ -150,7 +156,7 @@ export const flowPhases = [
   '초회상담 예약',
   '2차·3차 준비',
   '초회상담',
-  '녹취 등록',
+  '전사문 등록',
   '4차 심화분석',
   '진행솔루션 확정',
   '추가서류 확인',
@@ -276,7 +282,7 @@ export function phaseOf(s: ConsultingFlow): FlowPhase {
   if (!first) return '초회상담 예약';
   if (!preparationDone(s)) return '2차·3차 준비';
   if (first.status !== 'completed') return '초회상담';
-  if (!latestRecording(s)) return '녹취 등록';
+  if (!latestRecording(s)?.transcript) return '전사문 등록';
   if (!deepReport(s)) return '4차 심화분석';
   if (!s.decision || s.decision.reportId !== deepReport(s)?.id)
     return '진행솔루션 확정';
@@ -315,9 +321,9 @@ export function nextFlowAction(s: ConsultingFlow): {
       '김성민 대표 · 담당 파트너',
       '동반 상담을 진행하고 실제 완료 후 기록하세요.',
     ],
-    '녹취 등록': [
+    '전사문 등록': [
       '김성민 대표 · 담당 파트너',
-      '활용 권한을 확인한 녹취와 전사문을 등록하세요.',
+      'Word·TXT 전사문을 첨부하거나 붙여넣고 내용을 확인하세요. 음성은 선택 첨부입니다.',
     ],
     '4차 심화분석': [
       '자동 생성 / 김성민 대표',
@@ -421,7 +427,7 @@ function createJob(
 ) {
   const reason =
     stage === 4 && !recording?.transcript
-      ? '녹취 전사문이 필요합니다. 음성 자동 전사는 아직 연결되지 않았습니다.'
+      ? '전사문 대기: Word·TXT를 첨부하거나 본문을 입력해 주세요. 음성은 보관만 하며 자동전사는 미연결입니다.'
       : !s.ai.enabled
         ? '김성민 대표의 외부 AI 자동생성 승인이 필요합니다.'
         : '';
@@ -446,9 +452,14 @@ export function applyFlowCommand(
   current: ConsultingFlow,
   command: FlowCommand,
   actor: FlowActor,
-  context: { commandId: string; now: string; upload?: FlowFile },
+  context: {
+    commandId: string;
+    now: string;
+    upload?: FlowFile;
+    audioUpload?: FlowFile;
+  },
 ): ConsultingFlow {
-  const { commandId, now, upload } = context;
+  const { commandId, now, upload, audioUpload } = context;
   demand(
     /^[a-zA-Z0-9_-]{8,100}$/.test(commandId),
     '요청 식별값이 올바르지 않습니다.',
@@ -462,6 +473,10 @@ export function applyFlowCommand(
   const s = structuredClone(current);
   const id = (suffix: string) => `${commandId}-${suffix}`;
   const type = txt(command, 'type', 60);
+  demand(
+    !audioUpload || type === 'save_recording',
+    '보조 음성은 새 상담 전사문 등록에만 첨부할 수 있습니다.',
+  );
   const file = () => {
     const f =
       upload ?? s.files.find((f) => f.id === txt(command, 'fileId', 120));
@@ -750,17 +765,36 @@ export function applyFlowCommand(
       const meeting = s.meetings.find((m) => m.id === command.meetingId);
       demand(
         meeting?.status === 'completed',
-        '실제 상담 완료 후 녹취를 등록해 주세요.',
+        '실제 상담 완료 후 전사문을 등록해 주세요.',
       );
       demand(
         command.recordingConsent === true && command.privacyMasked === true,
         '녹취 활용 권한과 불필요한 개인정보 마스킹을 확인해 주세요.',
       );
       const transcript = txt(command, 'transcript', 60000, false);
+      const isDocument = upload && /\.(docx|txt)$/i.test(upload.name);
       demand(
-        upload || transcript.length >= 20,
-        '녹취파일 또는 20자 이상의 전사문이 필요합니다.',
+        upload || audioUpload || transcript.length >= 20,
+        '20자 이상의 전사문 또는 보관할 음성파일이 필요합니다.',
       );
+      demand(
+        !isDocument || transcript.length >= 20,
+        '문서에서 읽은 전사문 본문을 확인한 뒤 등록해 주세요.',
+      );
+      if (transcript) {
+        demand(!transcriptProblem(transcript), transcriptProblem(transcript));
+        demand(
+          command.transcriptReviewed === true,
+          '기업명·상담일·주요 금액과 전사문 내용을 확인해 주세요.',
+        );
+        demand(
+          !s.recordings.some(
+            (r) => r.meetingId === meeting.id && r.transcript === transcript,
+          ),
+          '같은 상담에 동일한 전사문이 이미 등록되어 있습니다. 기존 보고서 생성 상태를 확인해 주세요.',
+          409,
+        );
+      }
       demand(
         !hasSensitiveIdentifier(transcript),
         '전사문의 식별번호·전화번호·이메일을 마스킹해 주세요.',
@@ -774,15 +808,23 @@ export function applyFlowCommand(
         id: id('recording'),
         meetingId: meeting.id,
         fileId: upload?.id,
+        transcriptFileId: isDocument ? upload.id : undefined,
+        audioFileId:
+          audioUpload?.id ??
+          (upload && /\.(mp3|m4a|wav)$/i.test(upload.name)
+            ? upload.id
+            : undefined),
         transcript,
+        transcriptReviewedAt: transcript ? now : undefined,
+        transcriptReviewedBy: transcript ? actor.id : undefined,
         consentAt: now,
         createdAt: now,
       };
       s.recordings.push(recording);
       createJob(s, 4, now, id('job'), recording);
       detail = transcript
-        ? '녹취 전사문 저장 · 4차 심화보고서 자동생성 요청'
-        : '녹취 저장 · 전사문 대기';
+        ? '확인한 상담 전사문 저장 · 4차 심화보고서 생성 요청'
+        : '보조 음성 보관 · 전사문 대기 (음성 자동전사 미실행)';
       break;
     }
     case 'save_transcript': {
@@ -805,7 +847,21 @@ export function applyFlowCommand(
         '이미 생성된 전사문은 새 녹취 버전으로 등록해 주세요.',
         409,
       );
-      recording.transcript = txt(command, 'transcript', 60000);
+      const transcript = txt(command, 'transcript', 60000);
+      demand(!transcriptProblem(transcript), transcriptProblem(transcript));
+      demand(
+        command.transcriptReviewed === true,
+        '기업명·상담일·주요 금액과 전사문 내용을 확인해 주세요.',
+      );
+      demand(
+        recording.transcript !== transcript,
+        '이미 저장된 전사문입니다. 기존 생성 상태를 확인해 주세요.',
+        409,
+      );
+      recording.transcript = transcript;
+      recording.transcriptReviewedAt = now;
+      recording.transcriptReviewedBy = actor.id;
+      if (upload) recording.transcriptFileId = upload.id;
       demand(
         recording.transcript.length >= 20 &&
           !hasSensitiveIdentifier(recording.transcript),
@@ -1054,6 +1110,8 @@ export function applyFlowCommand(
       throw new FlowError('지원하지 않는 업무 요청입니다.');
   }
   if (upload && !s.files.some((f) => f.id === upload.id)) s.files.push(upload);
+  if (audioUpload && !s.files.some((f) => f.id === audioUpload.id))
+    s.files.push(audioUpload);
   s.revision++;
   s.updatedAt = now;
   s.commandIds.push(commandId);

@@ -66,7 +66,7 @@ async function command(
   const payload = {
     revision: flow.revision,
     commandId: id || `api-command-${++counter}`,
-    command: cmd,
+    command: { transcriptReviewed: true, ...cmd },
   };
   if (file) {
     const form = new FormData();

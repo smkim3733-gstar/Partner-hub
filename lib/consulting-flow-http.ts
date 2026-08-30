@@ -3,6 +3,7 @@ import {
   type FlowCommand,
   type FlowFile,
 } from '@/lib/consulting-flow';
+import { audioFileProblem, transcriptFileProblem } from './transcript-policy';
 
 export async function boundedBody(request: Request, max: number) {
   if (Number(request.headers.get('content-length') || 0) > max)
@@ -35,10 +36,11 @@ export async function parseFlowRequest(request: Request) {
     ?.startsWith('multipart/form-data');
   const body = await boundedBody(
     request,
-    multipart ? 26 * 1024 * 1024 : 240_000,
+    multipart ? 31 * 1024 * 1024 : 400_000,
   );
   let raw: unknown;
   let file: File | undefined;
+  let audio: File | undefined;
   if (multipart) {
     const form = await new Response(body, {
       headers: { 'content-type': request.headers.get('content-type')! },
@@ -49,6 +51,14 @@ export async function parseFlowRequest(request: Request) {
     raw = JSON.parse(json);
     const attachment = form.get('file');
     if (attachment instanceof File && attachment.size) file = attachment;
+    const recording = form.get('audio');
+    if (recording instanceof File && recording.size) audio = recording;
+    if (
+      form.getAll('file').length > 1 ||
+      form.getAll('audio').length > 1 ||
+      form.getAll('payload').length !== 1
+    )
+      throw new FlowError('전사문 1개와 보조 음성 1개만 첨부해 주세요.');
   } else {
     if (!request.headers.get('content-type')?.includes('application/json'))
       throw new FlowError('JSON 형식의 요청이 필요합니다.');
@@ -72,6 +82,7 @@ export async function parseFlowRequest(request: Request) {
     revision: value.revision as number,
     command: value.command,
     file,
+    audio,
   };
 }
 const mime: Record<string, string> = {
@@ -92,12 +103,16 @@ export function describeUpload(
   file: File,
   command: FlowCommand,
   now: string,
+  slot: 'file' | 'audio' = 'file',
 ): FlowFile {
+  if (slot === 'audio' && command.type !== 'save_recording')
+    throw new FlowError('보조 음성은 상담 전사문 등록에만 첨부할 수 있습니다.');
   const purpose = (
     {
       save_source: 'source',
       save_report: 'report',
       save_recording: 'recording',
+      save_transcript: 'transcript',
       receive_document: 'requested_document',
       record_contract: 'signed_contract',
     } as Record<string, string>
@@ -112,17 +127,27 @@ export function describeUpload(
     throw new FlowError('첨부파일은 25MB 이하여야 합니다.', 413);
   const ext = file.name.split('.').at(-1)?.toLowerCase() || '';
   const allowed =
-    purpose === 'recording'
-      ? ['mp3', 'm4a', 'wav', 'txt']
-      : purpose === 'signed_contract'
-        ? ['pdf', 'jpg', 'jpeg', 'png']
-        : purpose === 'report'
-          ? ['pdf', 'docx', 'pptx', 'txt', 'md']
-          : ['pdf', 'jpg', 'jpeg', 'png', 'docx', 'xlsx', 'txt'];
+    slot === 'audio'
+      ? ['mp3', 'm4a', 'wav']
+      : purpose === 'transcript'
+        ? ['docx', 'txt']
+        : purpose === 'recording'
+          ? ['mp3', 'm4a', 'wav', 'docx', 'txt']
+          : purpose === 'signed_contract'
+            ? ['pdf', 'jpg', 'jpeg', 'png']
+            : purpose === 'report'
+              ? ['pdf', 'docx', 'pptx', 'txt', 'md']
+              : ['pdf', 'jpg', 'jpeg', 'png', 'docx', 'xlsx', 'txt'];
   if (!allowed.includes(ext))
     throw new FlowError(
       `이 자료는 ${allowed.join(', ')} 형식으로 첨부해 주세요.`,
     );
+  const problem = ['recording', 'transcript'].includes(purpose)
+    ? ['docx', 'txt'].includes(ext)
+      ? transcriptFileProblem(file)
+      : audioFileProblem(file)
+    : '';
+  if (problem) throw new FlowError(problem);
   const id = crypto.randomUUID();
   return {
     id,

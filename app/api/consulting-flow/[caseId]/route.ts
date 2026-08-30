@@ -33,7 +33,7 @@ export async function GET(request: Request, context: Context) {
   }
 }
 export async function POST(request: Request, context: Context) {
-  let uploadedKey: string | undefined;
+  let uploadedKeys: string[] = [];
   try {
     assertSameOrigin(request);
     const { flow, user } = await loadFlowAccess(
@@ -51,12 +51,21 @@ export async function POST(request: Request, context: Context) {
         '다른 변경이 있습니다. 새로고침 후 내용을 확인해 주세요.',
         409,
       );
-    if (input.file && user.role !== 'admin' && !user.permissions?.fileUpload)
+    if (
+      (input.file || input.audio) &&
+      user.role !== 'admin' &&
+      !user.permissions?.fileUpload
+    )
       throw new FlowError('자료 업로드 권한이 필요합니다.', 403);
     const now = new Date().toISOString();
     const upload = input.file
       ? describeUpload(input.file, input.command, now)
       : undefined;
+    const audioUpload = input.audio
+      ? describeUpload(input.audio, input.command, now, 'audio')
+      : undefined;
+    if (input.audio && input.file && /\.(mp3|m4a|wav)$/i.test(input.file.name))
+      throw new FlowError('음성은 보조 첨부 1개만 등록해 주세요.');
     const next = applyFlowCommand(
       flow,
       input.command,
@@ -65,30 +74,38 @@ export async function POST(request: Request, context: Context) {
         role: user.role === 'admin' ? 'admin' : 'partner',
         name: user.role === 'admin' ? '김성민 대표' : flow.partnerName,
       },
-      { commandId: input.commandId, now, upload },
+      { commandId: input.commandId, now, upload, audioUpload },
     );
     if (upload && input.file) {
       await flowBucket().put(upload.key, input.file.stream(), {
         httpMetadata: { contentType: upload.contentType },
       });
-      uploadedKey = upload.key;
+      uploadedKeys.push(upload.key);
+    }
+    if (audioUpload && input.audio) {
+      await flowBucket().put(audioUpload.key, input.audio.stream(), {
+        httpMetadata: { contentType: audioUpload.contentType },
+      });
+      uploadedKeys.push(audioUpload.key);
     }
     await commitFlow(flow, next);
-    uploadedKey = undefined;
+    uploadedKeys = [];
     return Response.json(
       { flow: publicFlow(next) },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (error) {
-    if (uploadedKey) {
+    if (uploadedKeys.length) {
       // A failed/ambiguous DB response must never delete a successfully referenced file.
       try {
         const { flow } = await loadFlowAccess(
           request,
           (await context.params).caseId,
         );
-        if (!flow.files.some((f) => f.key === uploadedKey))
-          await flowBucket().delete(uploadedKey);
+        for (const key of uploadedKeys) {
+          if (!flow.files.some((f) => f.key === key))
+            await flowBucket().delete(key);
+        }
       } catch {
         /* Keep the private object for reconciliation when persistence is uncertain. */
       }
