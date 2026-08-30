@@ -160,7 +160,7 @@ export function stateForPortalUser(rawState: unknown, user: PortalUser): unknown
   if (!state || user.role === 'admin') return rawState;
 
   const traineeName = user.memberName ?? '';
-  const ownCases = ownedRecords(state.cases, 'trainee', traineeName);
+  const ownCases = state.cases.filter(record => record.partnerMemberId ? record.partnerMemberId === user.memberId : field(record, 'trainee') === traineeName);
   const ownCaseIds = new Set(ownCases.map((record) => field(record, 'id')));
 
   return {

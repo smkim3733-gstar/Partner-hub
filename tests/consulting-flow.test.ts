@@ -1,0 +1,722 @@
+import nodeTest from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  applyFlowCommand,
+  analysisDone,
+  deepReport,
+  depositComplete,
+  documentsDone,
+  firstMeeting,
+  FlowError,
+  latestReport,
+  newConsultingFlow,
+  phaseOf,
+  signingPreparationDone,
+  type ConsultingFlow,
+  type FlowActor,
+  type FlowCommand,
+  type FlowFile,
+} from '../lib/consulting-flow';
+import { claimFlowJob, finishFlowJob } from '../lib/consulting-flow-jobs';
+import {
+  resolveFlowAssignment,
+  publicFlow,
+} from '../lib/consulting-flow-access';
+import { projectFlowState } from '../lib/consulting-flow-projection';
+import { stateForPortalUser, type PortalUser } from '../lib/portal-auth';
+import {
+  describeUpload,
+  escapeHtml,
+  parseFlowRequest,
+} from '../lib/consulting-flow-http';
+
+function test(name: string, fn: () => void | Promise<void>) {
+  void nodeTest(name, fn);
+}
+
+const admin: FlowActor = { id: 'owner', role: 'admin', name: '김성민 대표' };
+const partner: FlowActor = {
+  id: 'partner-one',
+  role: 'partner',
+  name: '테스트 파트너',
+};
+const now = '2026-08-30T11:00:00.000Z';
+const body =
+  '확인된 기업 자료에 기초한 내부 검토용 보고서입니다. 제출되지 않은 수치와 사실은 확인 필요로 표시하고 대표가 추가 상담에서 검토합니다. '.repeat(
+    4,
+  );
+let sequence = 0;
+function apply(
+  flow: ConsultingFlow,
+  command: FlowCommand,
+  actor = admin,
+  upload?: FlowFile,
+) {
+  return applyFlowCommand(flow, command, actor, {
+    commandId: `test-command-${++sequence}`,
+    now,
+    upload,
+  });
+}
+function file(purpose = 'report', name = 'test.pdf'): FlowFile {
+  return {
+    id: `file-${++sequence}`,
+    purpose,
+    name,
+    key: `private/${sequence}`,
+    contentType: 'application/pdf',
+    size: 100,
+    createdAt: now,
+  };
+}
+function start() {
+  return newConsultingFlow(
+    'test-case',
+    '가상 검증기업',
+    'partner-one',
+    '테스트 파트너',
+  );
+}
+function reported() {
+  return apply(start(), { type: 'save_report', stage: 1, body });
+}
+function analyzed() {
+  let s = reported();
+  const c = { type: 'confirm_analysis', reportId: latestReport(s, 1)!.id };
+  s = apply(s, c);
+  return apply(s, c, partner);
+}
+function booked() {
+  return apply(
+    analyzed(),
+    {
+      type: 'book_meeting',
+      kind: 'first',
+      attendance: 'both',
+      startsAt: '2026-08-29T01:00:00Z',
+      endsAt: '2026-08-29T02:00:00Z',
+      location: '테스트 상담실',
+    },
+    partner,
+  );
+}
+function consulted() {
+  let s = booked();
+  s = apply(s, { type: 'save_report', stage: 2, body });
+  s = apply(
+    s,
+    { type: 'save_report', stage: 3 },
+    admin,
+    file('report', 'briefing.pptx'),
+  );
+  return apply(s, { type: 'complete_meeting', meetingId: firstMeeting(s)!.id });
+}
+function deepened() {
+  let s = consulted();
+  s = apply(
+    s,
+    {
+      type: 'save_recording',
+      meetingId: firstMeeting(s)!.id,
+      transcript:
+        '확인할 기업의 재무상태와 신규 제품 개발에 대한 상담을 진행하였습니다.',
+      recordingConsent: true,
+      privacyMasked: true,
+    },
+    partner,
+  );
+  return apply(s, { type: 'save_report', stage: 4, body });
+}
+function decided(required = true) {
+  const s = deepened();
+  return apply(s, {
+    type: 'confirm_solutions',
+    reportId: deepReport(s)!.id,
+    solutions: ['정책자금 사전진단'],
+    documentsNeeded: required,
+    reviewConfirmed: true,
+    note: required
+      ? '재무자료 확인 필요'
+      : '기존 제출 자료 검토 결과 추가 없음',
+  });
+}
+function prepared() {
+  let s = decided();
+  s = apply(s, {
+    type: 'request_document',
+    title: '확인서류',
+    recipient: '재무 담당',
+    channel: '이메일',
+    required: true,
+    dueDate: '2026-09-01',
+  });
+  s = apply(
+    s,
+    { type: 'receive_document', requestId: s.requests[0].id },
+    partner,
+    file('requested_document'),
+  );
+  s = apply(s, {
+    type: 'review_document',
+    requestId: s.requests[0].id,
+    approved: true,
+  });
+  s = apply(s, { type: 'save_report', stage: 5, body });
+  return apply(s, { type: 'save_report', stage: 6, body });
+}
+function signed(attendance = 'both') {
+  let s = prepared();
+  s = apply(s, {
+    type: 'book_meeting',
+    kind: 'contract',
+    attendance,
+    startsAt: '2026-08-30T03:00:00Z',
+    endsAt: '2026-08-30T04:00:00Z',
+    location: '계약 미팅',
+  });
+  return apply(
+    s,
+    {
+      type: 'record_contract',
+      meetingId: s.meetings.at(-1)!.id,
+      signedAt: '2026-08-30',
+      expectedDepositWon: 1000000,
+      signedConfirmed: true,
+    },
+    attendance === 'partner' ? partner : admin,
+    file('signed_contract'),
+  );
+}
+function pay(s: ConsultingFlow, amount = 1000000) {
+  return apply(s, {
+    type: 'confirm_payment',
+    amountWon: amount,
+    receivedAt: '2026-08-30',
+    reference: '가상 거래 확인',
+    paymentConfirmed: true,
+  });
+}
+function fails(s: ConsultingFlow, c: FlowCommand, actor = admin) {
+  assert.throws(() => apply(s, c, actor), FlowError);
+}
+
+test('full workflow: shared report, independent analysis, meetings, docs, signature, partial deposit, delivery', () => {
+  assert.equal(phaseOf(start()), '1차 보고서');
+  assert.equal(phaseOf(reported()), '공동분석');
+  assert.equal(phaseOf(analyzed()), '초회상담 예약');
+  assert.equal(phaseOf(booked()), '2차·3차 준비');
+  assert.equal(phaseOf(consulted()), '녹취 등록');
+  assert.equal(phaseOf(deepened()), '진행솔루션 확정');
+  assert.equal(phaseOf(decided()), '추가서류 확인');
+  assert.equal(phaseOf(prepared()), '계약 상담');
+  let s = signed();
+  assert.equal(phaseOf(s), '계약금 확인');
+  assert.ok(!s.executionStartedAt);
+  s = pay(s, 400000);
+  assert.equal(depositComplete(s), false);
+  assert.equal(phaseOf(s), '계약금 확인');
+  s = pay(s, 600000);
+  assert.equal(phaseOf(s), '컨설팅 수행');
+  assert.ok(s.executionStartedAt);
+  s = apply(s, {
+    type: 'start_aftercare',
+    summary: '수행 결과 확인',
+    owner: '김성민 대표',
+    nextDate: '2026-10-01',
+    deliveryConfirmed: true,
+  });
+  assert.equal(phaseOf(s), '사후관리');
+});
+test('representative cannot confirm the partner analysis; latest report revision resets both stamps', () => {
+  let s = reported();
+  s = apply(s, {
+    type: 'confirm_analysis',
+    reportId: latestReport(s, 1)!.id,
+    role: 'partner',
+  });
+  assert.ok(s.analysis.adminAt);
+  assert.ok(!s.analysis.partnerAt);
+  assert.equal(analysisDone(s), false);
+  s = analyzed();
+  const oldId = latestReport(s, 1)!.id;
+  s = apply(s, { type: 'save_report', stage: 1, body });
+  assert.equal(analysisDone(s), false);
+  fails(s, { type: 'confirm_analysis', reportId: oldId });
+});
+test('partner cannot set AI policy, report, solution, document review, payment or aftercare', () => {
+  for (const c of [
+    { type: 'set_ai_policy', enabled: true },
+    { type: 'save_report', stage: 1, body },
+    { type: 'confirm_solutions' },
+    { type: 'review_document' },
+    { type: 'confirm_payment' },
+    { type: 'start_aftercare' },
+  ])
+    fails(signed(), c, partner);
+});
+test('cannot skip consultation preparation, supply placeholder PPT, or complete a future meeting', () => {
+  const s = booked();
+  fails(s, { type: 'complete_meeting', meetingId: firstMeeting(s)!.id });
+  fails(s, { type: 'save_report', stage: 3, body });
+  let t = apply(analyzed(), {
+    type: 'book_meeting',
+    kind: 'first',
+    attendance: 'both',
+    startsAt: '2026-09-01T10:00:00Z',
+    endsAt: '2026-09-01T11:00:00Z',
+    location: '가상',
+  });
+  t = apply(t, { type: 'save_report', stage: 2, body });
+  t = apply(
+    t,
+    { type: 'save_report', stage: 3 },
+    admin,
+    file('report', 'slides.pptx'),
+  );
+  fails(t, { type: 'complete_meeting', meetingId: firstMeeting(t)!.id });
+});
+test('consultations and requests repeat; overlaps are rejected without mutation', () => {
+  let s = consulted();
+  for (let i = 1; i <= 5; i++)
+    s = apply(s, {
+      type: 'book_meeting',
+      kind: 'followup',
+      attendance: i % 2 ? 'partner' : 'admin',
+      startsAt: `2026-09-0${i}T10:00:00Z`,
+      endsAt: `2026-09-0${i}T11:00:00Z`,
+      location: '반복 상담',
+    });
+  assert.equal(s.meetings.length, 6);
+  fails(s, {
+    type: 'book_meeting',
+    kind: 'followup',
+    attendance: 'both',
+    startsAt: '2026-09-01T10:30:00Z',
+    endsAt: '2026-09-01T11:30:00Z',
+    location: '겹친 일정',
+  });
+  for (let i = 0; i < 5; i++)
+    s = apply(s, {
+      type: 'request_document',
+      title: `추가자료 ${i}`,
+      recipient: '기업대표',
+      channel: '카카오톡',
+      required: false,
+    });
+  assert.equal(s.requests.length, 5);
+});
+test('recording permission gates, audio-only is blocked, masked transcript is required', () => {
+  const s = consulted();
+  fails(s, {
+    type: 'save_recording',
+    meetingId: firstMeeting(s)!.id,
+    transcript: body,
+  });
+  const c = {
+    type: 'save_recording',
+    meetingId: firstMeeting(s)!.id,
+    recordingConsent: true,
+    privacyMasked: true,
+  };
+  const t = apply(s, c, partner, file('recording', 'call.mp3'));
+  assert.equal(t.jobs[0].status, 'blocked');
+  assert.match(t.jobs[0].reason, /전사/);
+  fails(s, {
+    ...c,
+    transcript: '대표 연락처는 010-1234-5678 입니다. 추가 연락이 필요합니다.',
+  });
+});
+test('new recording invalidates prior deep report and decision prerequisites', () => {
+  const s = prepared();
+  const t = apply(
+    s,
+    {
+      type: 'save_recording',
+      meetingId: firstMeeting(s)!.id,
+      transcript: body,
+      recordingConsent: true,
+      privacyMasked: true,
+    },
+    partner,
+  );
+  assert.equal(deepReport(t), undefined);
+  assert.equal(documentsDone(t), false);
+  assert.equal(signingPreparationDone(t), false);
+});
+test('required docs need actual files and admin review; replacing a reviewed document invalidates prepared quote/contract', () => {
+  let s = decided();
+  fails(s, { type: 'save_report', stage: 5, body });
+  s = apply(s, {
+    type: 'request_document',
+    title: '필수 자료',
+    recipient: '기업대표',
+    channel: '이메일',
+    required: true,
+  });
+  fails(s, {
+    type: 'review_document',
+    requestId: s.requests[0].id,
+    approved: true,
+  });
+  s = prepared();
+  assert.equal(signingPreparationDone(s), true);
+  s = apply(
+    s,
+    { type: 'receive_document', requestId: s.requests[0].id },
+    partner,
+    file('requested_document'),
+  );
+  assert.equal(documentsDone(s), false);
+  s = apply(s, {
+    type: 'review_document',
+    requestId: s.requests[0].id,
+    approved: true,
+  });
+  assert.equal(documentsDone(s), true);
+  assert.equal(signingPreparationDone(s), false);
+});
+test('no-additional-docs is an explicit representative decision, not an empty-list bypass', () => {
+  assert.equal(documentsDone(decided(false)), true);
+  assert.equal(documentsDone(decided(true)), false);
+});
+test('only actual signed copy and eligible attendee can record signature; all attendance variants work', () => {
+  for (const attendance of ['both', 'partner', 'admin'])
+    assert.ok(signed(attendance).contract);
+  let s = prepared();
+  s = apply(s, {
+    type: 'book_meeting',
+    kind: 'contract',
+    attendance: 'admin',
+    startsAt: '2026-08-30T02:00:00Z',
+    endsAt: '2026-08-30T03:00:00Z',
+    location: '대표 단독',
+  });
+  fails(
+    s,
+    {
+      type: 'record_contract',
+      meetingId: s.meetings.at(-1)!.id,
+      signedAt: '2026-08-30',
+      signedConfirmed: true,
+      expectedDepositWon: 100,
+    },
+    partner,
+  );
+  assert.throws(
+    () =>
+      apply(
+        s,
+        {
+          type: 'record_contract',
+          meetingId: s.meetings.at(-1)!.id,
+          signedAt: '2026-08-30',
+          signedConfirmed: true,
+          expectedDepositWon: 100,
+        },
+        admin,
+        file('report'),
+      ),
+    FlowError,
+  );
+});
+test('no deposit or aftercare bypass; invalid/negative/future payments rejected; contract locks evidence', () => {
+  fails(prepared(), {
+    type: 'confirm_payment',
+    amountWon: 1,
+    receivedAt: '2026-08-30',
+    paymentConfirmed: true,
+    reference: '가상',
+  });
+  const s = signed();
+  for (const amountWon of [0, -1, 1.5, Infinity])
+    fails(s, {
+      type: 'confirm_payment',
+      amountWon,
+      receivedAt: '2026-08-30',
+      paymentConfirmed: true,
+      reference: '가상',
+    });
+  fails(s, {
+    type: 'confirm_payment',
+    amountWon: 1,
+    receivedAt: '2026-09-01',
+    paymentConfirmed: true,
+    reference: '가상',
+  });
+  fails(s, {
+    type: 'start_aftercare',
+    summary: '완료',
+    owner: '대표',
+    nextDate: '2026-09-01',
+    deliveryConfirmed: true,
+  });
+  fails(s, { type: 'save_report', stage: 6, body });
+  fails(s, {
+    type: 'confirm_payment',
+    amountWon: 1,
+    receivedAt: '2026-99-99',
+    paymentConfirmed: true,
+    reference: '가상',
+  });
+});
+test('same command id is idempotent, including payment; prior state is never mutated', () => {
+  const s = signed();
+  const json = JSON.stringify(s);
+  const cmd = {
+    type: 'confirm_payment',
+    amountWon: 500000,
+    receivedAt: '2026-08-30',
+    paymentConfirmed: true,
+    reference: '가상',
+  };
+  const ctx = { commandId: 'idempotent-payment-01', now };
+  const next = applyFlowCommand(s, cmd, admin, ctx);
+  const retry = applyFlowCommand(next, cmd, admin, ctx);
+  assert.equal(retry, next);
+  assert.equal(retry.payments.length, 1);
+  assert.equal(JSON.stringify(s), json);
+});
+test('AI disabled by default; policy requires privacy, external processing and cost confirmation', () => {
+  assert.equal(start().ai.enabled, false);
+  fails(start(), { type: 'set_ai_policy', enabled: true, costConsent: true });
+  let s = apply(start(), {
+    type: 'set_ai_policy',
+    enabled: true,
+    costConsent: true,
+    privacyMasked: true,
+    thirdPartyConsent: true,
+  });
+  s = apply(s, { type: 'save_source', sourceText: body, privacyMasked: true });
+  s = apply(s, { type: 'queue_report1' });
+  assert.equal(s.jobs[0].status, 'queued');
+  const claimed = claimFlowJob(s, s.jobs[0].id, now);
+  assert.throws(() => claimFlowJob(claimed, s.jobs[0].id, now), FlowError);
+  const done = finishFlowJob(claimed, s.jobs[0].id, now, now, { body });
+  assert.equal(done.jobs[0].status, 'complete');
+  assert.equal(done.reports.length, 1);
+  assert.equal(phaseOf(done), '공동분석');
+});
+test('AI failures remain failed; stale/disabled job results cannot drive the workflow', () => {
+  let s = apply(consulted(), {
+    type: 'set_ai_policy',
+    enabled: true,
+    costConsent: true,
+    privacyMasked: true,
+    thirdPartyConsent: true,
+  });
+  s = apply(s, {
+    type: 'save_recording',
+    meetingId: firstMeeting(s)!.id,
+    transcript: body,
+    recordingConsent: true,
+    privacyMasked: true,
+  });
+  const j = s.jobs[0];
+  const claimed = claimFlowJob(s, j.id, now);
+  const failed = finishFlowJob(claimed, j.id, now, now, {
+    error: '가상 API 실패',
+  });
+  assert.equal(failed.jobs[0].status, 'failed');
+  assert.equal(deepReport(failed), undefined);
+  const disabled = apply(claimed, { type: 'set_ai_policy', enabled: false });
+  const discarded = finishFlowJob(disabled, j.id, now, now, { body });
+  assert.equal(discarded.jobs[0].status, 'blocked');
+  assert.equal(deepReport(discarded), undefined);
+});
+const permissions = {
+  sharedSchedule: true,
+  ownCases: true,
+  fileUpload: true,
+  quoteContract: true,
+  collaborationApply: true,
+};
+const user: PortalUser = {
+  id: 'session-one',
+  email: 'sample@example.invalid',
+  displayName: '테스트',
+  role: 'trainee',
+  memberId: 'partner-one',
+  memberName: '테스트 파트너',
+  permissions,
+};
+const raw = {
+  version: 1,
+  consultationNumber: 0,
+  timeline: [],
+  tasks: [],
+  companyDocuments: [],
+  schedule: [],
+  cases: [{ id: 'test-case', company: '가상기업', trainee: '테스트 파트너' }],
+  members: [
+    {
+      id: 'partner-one',
+      name: '테스트 파트너',
+      status: '활성',
+      email: 'sample@example.invalid',
+      permissions,
+    },
+  ],
+};
+test('stable member ID prevents another partner or same-name claimant reading reports', () => {
+  assert.equal(
+    resolveFlowAssignment(raw, 'test-case', user, null).partnerId,
+    'partner-one',
+  );
+  assert.throws(
+    () =>
+      resolveFlowAssignment(
+        raw,
+        'test-case',
+        { ...user, memberId: 'partner-other' },
+        reported(),
+      ),
+    FlowError,
+  );
+  const duplicate = {
+    ...raw,
+    members: [...raw.members, { ...raw.members[0], id: 'partner-two' }],
+  };
+  assert.throws(
+    () => resolveFlowAssignment(duplicate, 'test-case', user, null),
+    FlowError,
+  );
+  assert.equal(
+    resolveFlowAssignment(duplicate, 'test-case', user, reported()).partnerId,
+    'partner-one',
+  );
+  const safe = publicFlow({ ...reported(), files: [file()] });
+  assert.equal(safe.files[0].key, '');
+  assert.deepEqual(safe.commandIds, []);
+});
+test('pipeline stages derive from verified events; partner-only meeting omitted from representative shared schedule', () => {
+  const s = pay(signed());
+  const projected = projectFlowState(raw, [s]) as typeof raw & {
+    cases: Array<{ stage: string; flowManaged: boolean }>;
+  };
+  assert.equal(projected.cases[0].stage, '컨설팅수행');
+  assert.equal(projected.cases[0].flowManaged, true);
+  let t = consulted();
+  t = apply(t, {
+    type: 'book_meeting',
+    kind: 'followup',
+    attendance: 'partner',
+    startsAt: '2026-09-01T00:00:00Z',
+    endsAt: '2026-09-01T01:00:00Z',
+    location: '가상 파트너 방문',
+  });
+  assert.equal((projectFlowState(raw, [t]) as typeof raw).schedule.length, 0);
+});
+test('shared schedule masks other companies; projection is repeatable without duplicate meetings', () => {
+  const s = booked();
+  const state = projectFlowState(raw, [s]);
+  const doubled = projectFlowState(state, [s]) as typeof raw;
+  assert.equal(doubled.schedule.length, 1);
+  const other = stateForPortalUser(state, {
+    ...user,
+    memberId: 'other',
+    memberName: '타 파트너',
+  }) as {
+    cases: unknown[];
+    schedule: Array<{ company: string; method: string }>;
+  };
+  assert.equal(other.cases.length, 0);
+  assert.equal(other.schedule[0].company, '협업 상담 예약됨');
+  assert.equal(other.schedule[0].method, '시간만 공유');
+});
+test('upload extensions, purposes and consent validated; HTML output escapes injected content', () => {
+  const pdf = new File(['%PDF-1.7'], 'signed.pdf');
+  assert.throws(
+    () => describeUpload(pdf, { type: 'record_contract' }, now),
+    FlowError,
+  );
+  assert.equal(
+    describeUpload(pdf, { type: 'record_contract', fileConsent: true }, now)
+      .purpose,
+    'signed_contract',
+  );
+  assert.throws(
+    () =>
+      describeUpload(
+        new File(['x'], 'malicious.html'),
+        { type: 'save_report', fileConsent: true },
+        now,
+      ),
+    FlowError,
+  );
+  assert.equal(
+    escapeHtml('<script>alert("x")</script>'),
+    '&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;',
+  );
+});
+test('bounded JSON/multipart parsing retains a private attachment and rejects bad shape', async () => {
+  const payload = {
+    commandId: 'test-upload-01',
+    revision: 0,
+    command: { type: 'save_source', fileConsent: true },
+  };
+  const form = new FormData();
+  form.set('payload', JSON.stringify(payload));
+  form.set('file', new File(['%PDF-1.7'], 'source.pdf'));
+  const parsed = await parseFlowRequest(
+    new Request('http://localhost/api/flow', { method: 'POST', body: form }),
+  );
+  assert.equal(parsed.file?.name, 'source.pdf');
+  assert.equal(parsed.commandId, payload.commandId);
+  await assert.rejects(
+    parseFlowRequest(
+      new Request('http://localhost/api/flow', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{}',
+      }),
+    ),
+    FlowError,
+  );
+});
+
+test('source exclusion preserves the original and DOCX first report needs readable context', () => {
+  let flow = apply(
+    start(),
+    { type: 'save_source', sourceText: body, privacyMasked: true },
+    admin,
+    file('source'),
+  );
+  const key = flow.files[0].key;
+  flow = apply(flow, { type: 'exclude_source', fileId: flow.files[0].id });
+  assert.equal(flow.files[0].purpose, 'source_archived');
+  assert.equal(flow.files[0].key, key);
+  assert.throws(
+    () =>
+      apply(
+        start(),
+        { type: 'save_report', stage: 1 },
+        admin,
+        file('report', 'report.docx'),
+      ),
+    FlowError,
+  );
+});
+
+test('new transcript during an in-flight AI call cannot publish an obsolete fourth report', () => {
+  let flow = apply(consulted(), {
+    type: 'set_ai_policy',
+    enabled: true,
+    thirdPartyConsent: true,
+    privacyMasked: true,
+    costConsent: true,
+  });
+  const command = {
+    type: 'save_recording',
+    meetingId: firstMeeting(flow)!.id,
+    transcript: body,
+    recordingConsent: true,
+    privacyMasked: true,
+  };
+  flow = apply(flow, command);
+  const job = flow.jobs.at(-1)!;
+  flow = claimFlowJob(flow, job.id, now);
+  flow = apply(flow, command);
+  flow = finishFlowJob(flow, job.id, now, now, { body });
+  assert.equal(flow.jobs[0].status, 'blocked');
+  assert.equal(deepReport(flow), undefined);
+});

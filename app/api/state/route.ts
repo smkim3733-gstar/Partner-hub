@@ -1,4 +1,5 @@
 import { readPortalLoginStats, readPortalState, recordPortalLogin, writePortalState } from '@/lib/portal-state';
+import { stateWithConsultingFlows } from '@/lib/consulting-flow-store';
 import {
   mergeStateForPortalUser,
   PortalAccessError,
@@ -23,8 +24,9 @@ function accessErrorResponse(error: unknown, request: Request) {
 
 export async function GET(request: Request) {
   try {
-    const state = await readPortalState();
-    const currentUser = requirePortalUser(request, state);
+    const rawState = await readPortalState();
+    const currentUser = requirePortalUser(request, rawState);
+    const state = await stateWithConsultingFlows(rawState);
     if (currentUser.role === 'trainee' && currentUser.memberId) {
       await recordPortalLogin(currentUser.memberId);
     }
@@ -54,7 +56,7 @@ export async function PUT(request: Request) {
       return Response.json({ error: '저장할 운영 데이터 형식이 올바르지 않습니다.' }, { status: 400 });
     }
 
-    const nextState = mergeStateForPortalUser(currentState, body.state, currentUser);
+    const nextState = await stateWithConsultingFlows(mergeStateForPortalUser(currentState, body.state, currentUser));
     return Response.json({ ok: true, updatedAt: await writePortalState(nextState) });
   } catch (error) {
     const accessResponse = accessErrorResponse(error, request);
