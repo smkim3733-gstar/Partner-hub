@@ -21,9 +21,10 @@ import { GET as getFlow } from '@/app/api/consulting-flow/[caseId]/route';
 import { GET as getFile, DELETE as deleteFile } from '@/app/api/files/[id]/route';
 import { POST as uploadFile } from '@/app/api/files/route';
 import { GET as intakeFiles } from '@/app/api/consulting-flow/[caseId]/intake-files/route';
+import { GET as getDraft, PUT as saveDraft, DELETE as deleteDraft } from '@/app/api/application-draft/route';
 export default { async fetch(request) {
   const pathname = new URL(request.url).pathname;
-  const routes = { 'POST /signup': registerPassword, 'POST /login': loginPassword, 'POST /logout': logoutPassword, 'POST /setup': setupPassword, 'POST /issue': createPasswordLink, 'GET /state': getState, 'PUT /save': saveState, 'POST /partners': createPartner, 'POST /files': uploadFile };
+  const routes = { 'POST /signup': registerPassword, 'POST /login': loginPassword, 'POST /logout': logoutPassword, 'POST /setup': setupPassword, 'POST /issue': createPasswordLink, 'GET /state': getState, 'PUT /save': saveState, 'POST /partners': createPartner, 'POST /files': uploadFile, 'GET /draft': getDraft, 'PUT /draft': saveDraft, 'DELETE /draft': deleteDraft };
   if (pathname.startsWith('/flow/') && request.method === 'GET') return getFlow(request, { params: Promise.resolve({ caseId: pathname.slice(6) }) });
   if (pathname.startsWith('/intake/') && request.method === 'GET') return intakeFiles(request, { params: Promise.resolve({ caseId: pathname.slice(8) }) });
   if (pathname.startsWith('/files/') && ['GET', 'DELETE'].includes(request.method)) return (request.method === 'GET' ? getFile : deleteFile)(request, { params: Promise.resolve({ id: pathname.slice(7) }) });
@@ -69,6 +70,14 @@ async function call(
   headers = {},
   method = body === undefined ? 'GET' : 'POST',
 ) {
+  if (route === '/save' && body && !headers['if-match']) {
+    const baseline = await mf.dispatchFetch(`${origin}/state`, { headers });
+    if (baseline.ok)
+      headers = {
+        ...headers,
+        'if-match': `"${(await baseline.json()).stateRevision}"`,
+      };
+  }
   return mf.dispatchFetch(`${origin}${route}`, {
     method,
     headers: { origin, 'content-type': 'application/json', ...headers },
@@ -280,6 +289,130 @@ try {
     visible.state.tasks.map((task) => task.id),
     ['runtime-own-task', 'runtime-linked-task'],
   );
+  const runtimeDraft = {
+    companyName: '가상 임시기업',
+    applicantName: '가상 런타임파트너',
+    applicantType: '한기평 컨설턴트',
+    partnerMemberId: memberId,
+    selectedServices: ['정책자금'],
+    step: 2,
+    hasLocalAttachments: true,
+    details: {
+      version: 1,
+      relationship: '직접 상담 중',
+      collaborator: '',
+      message: '작성 중',
+      registrationNumber: '123-',
+      representative: '',
+      companyType: '법인사업자',
+      business: '',
+      location: '',
+      contactName: '',
+      contactPhone: '',
+      requestedStart: '',
+      urgency: '일반',
+      requestBackground: '',
+    },
+  };
+  const draftId = 'runtime-private-draft';
+  const savedDraft = await expect(
+    await call(
+      '/draft',
+      {
+        revision: 0,
+        draftId,
+        expectedUserId: visible.currentUser.id,
+        draft: runtimeDraft,
+      },
+      { cookie },
+      'PUT',
+    ),
+    200,
+    'cookie account privately saves a partial application draft',
+  );
+  assert.equal(
+    (await savedDraft.json()).draft.details.registrationNumber,
+    '123-',
+  );
+  assert.equal(
+    (await (await call('/draft', undefined, { cookie })).json()).draft
+      .hasLocalAttachments,
+    true,
+  );
+  assert.equal(
+    (await (await call('/draft', undefined, ownerHeaders)).json()).draft,
+    null,
+  );
+  checks.push('another account cannot retrieve the private application draft');
+  const changes = await Promise.all([
+    call(
+      '/draft',
+      {
+        revision: 1,
+        draftId,
+        expectedUserId: visible.currentUser.id,
+        draft: { ...runtimeDraft, companyName: '가상 변경 A' },
+      },
+      { cookie },
+      'PUT',
+    ),
+    call(
+      '/draft',
+      {
+        revision: 1,
+        draftId,
+        expectedUserId: visible.currentUser.id,
+        draft: { ...runtimeDraft, companyName: '가상 변경 B' },
+      },
+      { cookie },
+      'PUT',
+    ),
+  ]);
+  assert.deepEqual(
+    changes.map((item) => item.status).sort((a, b) => a - b),
+    [200, 409],
+  );
+  checks.push(
+    'same-account draft edits from two windows cannot overwrite each other',
+  );
+  const draftRevision = (
+    await (await call('/draft', undefined, { cookie })).json()
+  ).revision;
+  const submittedDraftState = (
+    await (await call('/state', undefined, { cookie })).json()
+  ).state;
+  submittedDraftState.cases.push({
+    id: `case-draft-${draftId}`,
+    applicationDraftRevision: draftRevision,
+    company: '가상 임시기업',
+    service: '정책자금',
+    trainee: '가상 런타임파트너',
+    partnerMemberId: memberId,
+  });
+  await expect(
+    await call('/save', { state: submittedDraftState }, { cookie }, 'PUT'),
+    200,
+    'draft uses a stable case ID for final submission',
+  );
+  assert.equal(
+    (await (await call('/draft', undefined, { cookie })).json())
+      .submittedCaseId,
+    `case-draft-${draftId}`,
+  );
+  await expect(
+    await call(
+      '/draft',
+      {
+        revision: draftRevision,
+        draftId,
+        expectedUserId: visible.currentUser.id,
+      },
+      { cookie },
+      'DELETE',
+    ),
+    200,
+    'draft cleanup preserves its submitted case',
+  );
   await expect(
     await call('/flow/runtime-own', undefined, { cookie }),
     200,
@@ -294,6 +427,38 @@ try {
   const beforeAttack = (
     await (await call('/state', undefined, ownerHeaders)).json()
   ).state;
+  const staleBaseline = await (
+    await call('/state', undefined, ownerHeaders)
+  ).json();
+  const firstWindow = structuredClone(staleBaseline.state);
+  firstWindow.consultationNumber += 1;
+  await expect(
+    await call(
+      '/save',
+      { state: firstWindow },
+      { ...ownerHeaders, 'if-match': `"${staleBaseline.stateRevision}"` },
+      'PUT',
+    ),
+    200,
+    'first browser window saves against its current revision',
+  );
+  const staleWindow = structuredClone(staleBaseline.state);
+  staleWindow.tasks.push({ id: 'stale-window-task', status: '대기' });
+  await expect(
+    await call(
+      '/save',
+      { state: staleWindow },
+      { ...ownerHeaders, 'if-match': `"${staleBaseline.stateRevision}"` },
+      'PUT',
+    ),
+    409,
+    'stale browser window cannot replace a newer portal state',
+  );
+  assert.ok(
+    !(
+      await db.prepare('SELECT payload FROM portal_state').first()
+    ).payload.includes('stale-window-task'),
+  );
   const attack = structuredClone(beforeAttack);
   attack.cases[1].partnerMemberId = memberId;
   attack.cases[1].company = 'FORGED_CASE';

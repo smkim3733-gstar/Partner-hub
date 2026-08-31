@@ -81,6 +81,16 @@ ON ai_diagnosis_runs (case_id, created_at)
 
 export const portalStateId = 'keve-partner-hub';
 
+export const applicationDraftsTableSql = `
+CREATE TABLE IF NOT EXISTS application_drafts (
+  owner_key TEXT PRIMARY KEY NOT NULL,
+  revision INTEGER NOT NULL,
+  draft_id TEXT NOT NULL UNIQUE,
+  payload TEXT,
+  updated_at TEXT NOT NULL
+)
+`;
+
 export const consultingFlowsTableSql = `
 CREATE TABLE IF NOT EXISTS consulting_flows (
   case_id TEXT PRIMARY KEY NOT NULL,

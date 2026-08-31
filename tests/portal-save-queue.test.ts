@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { PortalSaveQueue, putPortalSnapshot } from '../lib/portal-save-queue';
 import { ApplicationSubmission } from '../lib/application-submission';
-import { GET, PUT } from '../app/api/state/route';
+import { GET, PUT } from './state-request';
 import { readPortalState, writePortalState } from '../lib/portal-state';
 
 type Snapshot = { value: string; membersRevision?: number };

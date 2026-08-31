@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { AdminPartnerRegistration } from '../components/admin-partner-registration';
 import { POST as create } from '../app/api/admin/partners/route';
 import { POST as selfRegister } from '../app/api/register/route';
-import { GET as getState, PUT as save } from '../app/api/state/route';
+import { GET as getState, PUT as save } from './state-request';
 import {
   readPortalState,
   writePortalState,

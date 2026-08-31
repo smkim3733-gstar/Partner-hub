@@ -5,7 +5,7 @@ import {
   assignmentDisplayName,
   newTaskAssignment,
 } from '../lib/assignment-display';
-import { GET, PUT } from '../app/api/state/route';
+import { GET, PUT } from './state-request';
 import { writePortalState } from '../lib/portal-state';
 
 const permissions = {

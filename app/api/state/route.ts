@@ -4,12 +4,15 @@ import {
   recordPortalLogin,
   mutatePortalState,
   PortalStateConflict,
+  type PortalDraftGuard,
 } from '@/lib/portal-state';
 import {
   assertSameOrigin,
   stateWithConsultingFlows,
 } from '@/lib/consulting-flow-store';
 import { FlowError } from '@/lib/consulting-flow';
+import { portalRevision } from '@/lib/portal-revision';
+import { assertNewDraftCases } from '@/lib/application-draft-store';
 import {
   ApplicationDetailsError,
   preserveApplicationDetails,
@@ -64,7 +67,11 @@ export async function GET(request: Request) {
       currentUser.role === 'admin'
         ? stateWithPortalLoginStats(state, await readPortalLoginStats())
         : stateForPortalUser(state, currentUser);
-    return privateJson({ state: responseState, currentUser });
+    return privateJson({
+      state: responseState,
+      currentUser,
+      stateRevision: await portalRevision(rawState),
+    });
   } catch (error) {
     const accessResponse = accessErrorResponse(error, request);
     if (accessResponse) return accessResponse;
@@ -106,48 +113,71 @@ export async function PUT(request: Request) {
       );
     }
 
-    const result = await mutatePortalState(async (currentState) => {
-      const currentUser = await requirePortalUser(request, currentState);
-      if (
-        body.expectedUserId !== undefined &&
-        body.expectedUserId !== currentUser.id
-      )
-        throw new PortalAccessError(
-          '로그인 계정이 변경되었습니다. 작성하던 계정으로 다시 로그인한 후 저장해 주세요.',
-          403,
-        );
-      const merged = preserveApplicationDetails(
-        currentState,
-        mergeStateForPortalUser(
-          currentUser.role === 'admin'
-            ? currentState
-            : await stateWithConsultingFlows(currentState),
-          body.state,
+    let draftGuard: PortalDraftGuard | null = null;
+    const result = await mutatePortalState(
+      async (currentState) => {
+        const currentUser = await requirePortalUser(request, currentState);
+        if (
+          body.expectedUserId !== undefined &&
+          body.expectedUserId !== currentUser.id
+        )
+          throw new PortalAccessError(
+            '로그인 계정이 변경되었습니다. 작성하던 계정으로 다시 로그인한 후 저장해 주세요.',
+            403,
+          );
+        const merged = preserveApplicationDetails(
+          currentState,
+          mergeStateForPortalUser(
+            currentUser.role === 'admin'
+              ? currentState
+              : await stateWithConsultingFlows(currentState),
+            body.state,
+            currentUser,
+          ),
+        ) as Record<string, unknown>;
+        draftGuard = await assertNewDraftCases(
+          currentState,
+          merged,
           currentUser,
-        ),
-      ) as Record<string, unknown>;
-      const memberChange =
-        currentUser.role === 'admin' &&
-        !sameMemberRecords(
-          (currentState as Record<string, unknown> | null)?.members,
-          merged.members,
         );
-      if (
-        memberChange &&
-        membersRevisionOf(body.state) !== membersRevisionOf(currentState)
-      ) {
-        throw new PortalStateConflict(
-          '다른 창에서 파트너 명단을 변경했습니다. 저장되지 않은 내용을 확인하고 새로고침 후 다시 수정해 주세요.',
-        );
-      }
-      const membersRevision =
-        membersRevisionOf(currentState) + (memberChange ? 1 : 0);
-      return await stateWithConsultingFlows({ ...merged, membersRevision });
-    });
+        const memberChange =
+          currentUser.role === 'admin' &&
+          !sameMemberRecords(
+            (currentState as Record<string, unknown> | null)?.members,
+            merged.members,
+          );
+        if (
+          memberChange &&
+          membersRevisionOf(body.state) !== membersRevisionOf(currentState)
+        ) {
+          throw new PortalStateConflict(
+            '다른 창에서 파트너 명단을 변경했습니다. 저장되지 않은 내용을 확인하고 새로고침 후 다시 수정해 주세요.',
+          );
+        }
+        const membersRevision =
+          membersRevisionOf(currentState) + (memberChange ? 1 : 0);
+        const next = await stateWithConsultingFlows({
+          ...merged,
+          membersRevision,
+        });
+        const revision = await portalRevision(currentState);
+        const expected = request.headers.get('if-match')?.replace(/^"|"$/g, '');
+        if (expected !== revision) {
+          // An uncertain response may be retried only when it makes no changes.
+          if ((await portalRevision(next)) === revision) return currentState;
+          throw new PortalStateConflict(
+            '다른 창에서 운영 데이터를 변경했거나 화면이 업데이트되었습니다. 현재 입력은 그대로 두고 최신 내용을 확인해 주세요. 신청서는 임시저장한 뒤 새로고침할 수 있습니다.',
+          );
+        }
+        return next;
+      },
+      () => draftGuard,
+    );
     return privateJson({
       ok: true,
       updatedAt: result.updatedAt,
       membersRevision: membersRevisionOf(result.state),
+      stateRevision: await portalRevision(result.state),
     });
   } catch (error) {
     const accessResponse = accessErrorResponse(error, request);

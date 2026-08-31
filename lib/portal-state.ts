@@ -77,10 +77,16 @@ export async function writePortalState(state: unknown) {
 }
 
 export class PortalStateConflict extends Error {}
+export type PortalDraftGuard = {
+  ownerKey: string;
+  draftId: string;
+  revision: number;
+};
 
 /** Retry against the latest state instead of replacing a concurrently saved member list. */
 export async function mutatePortalState<T>(
   update: (current: unknown) => T | Promise<T>,
+  requiredDraft?: () => PortalDraftGuard | null,
 ) {
   const db = database();
   await ensurePortalTables(db);
@@ -97,19 +103,37 @@ export async function mutatePortalState<T>(
       );
     if (payload === row?.payload) return { state, updatedAt: null };
     const updatedAt = new Date().toISOString();
-    const result = row
+    const guard = requiredDraft?.();
+    const result = guard
       ? await db
           .prepare(
-            'UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3 AND payload = ?4',
+            row
+              ? 'UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3 AND payload = ?4 AND EXISTS (SELECT 1 FROM application_drafts WHERE owner_key = ?5 AND draft_id = ?6 AND revision = ?7 AND payload IS NOT NULL)'
+              : 'INSERT INTO portal_state (payload, updated_at, id) SELECT ?1, ?2, ?3 WHERE ?4 IS NULL AND EXISTS (SELECT 1 FROM application_drafts WHERE owner_key = ?5 AND draft_id = ?6 AND revision = ?7 AND payload IS NOT NULL) ON CONFLICT(id) DO NOTHING',
           )
-          .bind(payload, updatedAt, portalStateId, row.payload)
+          .bind(
+            payload,
+            updatedAt,
+            portalStateId,
+            row?.payload ?? null,
+            guard.ownerKey,
+            guard.draftId,
+            guard.revision,
+          )
           .run()
-      : await db
-          .prepare(
-            'INSERT INTO portal_state (id, payload, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO NOTHING',
-          )
-          .bind(portalStateId, payload, updatedAt)
-          .run();
+      : row
+        ? await db
+            .prepare(
+              'UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3 AND payload = ?4',
+            )
+            .bind(payload, updatedAt, portalStateId, row.payload)
+            .run()
+        : await db
+            .prepare(
+              'INSERT INTO portal_state (id, payload, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO NOTHING',
+            )
+            .bind(portalStateId, payload, updatedAt)
+            .run();
     if (result.meta.changes === 1) return { state, updatedAt };
   }
   throw new PortalStateConflict(

@@ -5,7 +5,7 @@ import { GET, POST } from '../app/api/consulting-flow/[caseId]/route';
 import { GET as download } from '../app/api/consulting-flow/[caseId]/files/[fileId]/route';
 import { GET as print } from '../app/api/consulting-flow/[caseId]/reports/[reportId]/route';
 import { POST as run } from '../app/api/consulting-flow/[caseId]/run/route';
-import { GET as stateGet, PUT as statePut } from '../app/api/state/route';
+import { GET as stateGet, PUT as statePut } from './state-request';
 import { writePortalState } from '../lib/portal-state';
 import { commitFlow, readFlow } from '../lib/consulting-flow-store';
 import {

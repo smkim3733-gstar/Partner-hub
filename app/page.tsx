@@ -6,6 +6,7 @@ import { assignmentMemberId, assignmentDisplayName, newTaskAssignment } from '@/
 import { prependApplicationCase, recordBelongsToCase } from '@/lib/application-case-links';
 import { PortalSaveQueue, putPortalSnapshot } from '@/lib/portal-save-queue';
 import { ApplicationSubmission } from '@/lib/application-submission';
+import { draftCaseId, type ApplicationDraft, type DraftEnvelope } from '@/lib/application-draft';
 import { ApplicationDetailFields, ApplicationDetailsSummary } from '@/components/application-details';
 import { applicationServices, applicationCompanyMaxLength, emptyApplicationDetails, parseApplicationDetails, ApplicationDetailsError, type ApplicationDetails, type ApplicationField } from '@/lib/application-details';
 /* oxlint-disable next/no-html-link-for-pages -- Sites authentication routes require native top-level navigation. */
@@ -179,6 +180,7 @@ type CollaborationCase = {
   trainee: string;
   applicantType?: PartnerType;
   applicationDetails?: ApplicationDetails;
+  applicationDraftRevision?: number;
   partnerMemberId?: string;
   flowManaged?: boolean;
   flowPhase?: string;
@@ -2384,10 +2386,16 @@ function ApplicationForm({
   members,
   awaitingSave,
   onDirty,
+  currentUserId,
+  onDraftSaved,
+  onSubmissionBusy,
 }: {
+  onSubmissionBusy: (busy: boolean) => void;
+  currentUserId: string;
+  onDraftSaved: (hasFiles: boolean) => void;
   awaitingSave: boolean;
   onDirty: () => void;
-  onDone: (files: ApplicationAttachment[], companyName: string, selectedServices: string[], applicantType: PartnerType, applicantName: string, recordingConsent: boolean, partnerMemberId: string, details: ApplicationDetails) => Promise<void>;
+  onDone: (files: ApplicationAttachment[], companyName: string, selectedServices: string[], applicantType: PartnerType, applicantName: string, recordingConsent: boolean, partnerMemberId: string, details: ApplicationDetails, draftId: string, draftRevision: number) => Promise<void>;
   onCancel: () => void;
   applicant: { name: string; email: string; memberType: PartnerType; detail: string; editable: boolean };
   members: TraineeMember[];
@@ -2407,6 +2415,67 @@ function ApplicationForm({
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const stepLabels = ['신청자', '기업정보', '요청서비스', '자료·동의'];
+  const draftRef = useRef({ revision: 0, draftId: '' });
+  const draftLock = useRef(false);
+  const [draftReady, setDraftReady] = useState(false);
+  const [draftBusy, setDraftBusy] = useState(false);
+  const [draftMessage, setDraftMessage] = useState('임시저장을 확인하고 있습니다.');
+  const [draftSubmitted, setDraftSubmitted] = useState<string | null>(null);
+  const [missingAttachments, setMissingAttachments] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    async function restore() {
+      try {
+        const response = await fetch('/api/application-draft', { cache: 'no-store' });
+        const data = await response.json() as DraftEnvelope & { error?: string };
+        if (!response.ok) throw new Error(data.error || '임시저장을 불러오지 못했습니다.');
+        if (!active) return;
+        draftRef.current = { revision: data.revision, draftId: data.draftId ?? crypto.randomUUID() };
+        setDraftSubmitted(data.submittedCaseId);
+        if (data.draft && !data.submittedCaseId) {
+          setCompanyName(data.draft.companyName); setApplicantType(data.draft.applicantType as PartnerType);
+          setApplicantName(data.draft.applicantName); setApplicantMemberId(data.draft.partnerMemberId);
+          setSelectedServices(data.draft.selectedServices); setDetails(data.draft.details); setStep(data.draft.step);
+          setMissingAttachments(data.draft.hasLocalAttachments);
+          setDraftMessage('서버 임시저장을 복구했습니다. 제출 동의는 다시 확인해 주세요.');
+        } else setDraftMessage(data.submittedCaseId ? '이 신청은 이미 접수됐습니다. 기존 접수를 남기고 새 신청을 작성할 수 있습니다.' : '임시저장하면 입력 문구가 본인 계정에 보관됩니다. 첨부파일은 제출 시 업로드됩니다.');
+        setDraftReady(true);
+      } catch (error) { if (active) setDraftMessage(error instanceof Error ? error.message : '임시저장을 확인하지 못했습니다.'); }
+    }
+    void restore();
+    return () => { active = false; };
+  }, [currentUserId]);
+
+  async function saveDraft() {
+    if (!draftReady || draftLock.current) throw new Error('임시저장 확인이 끝난 후 다시 시도해 주세요.');
+    draftLock.current = true; setDraftBusy(true);
+    try {
+      const draft: ApplicationDraft = { companyName, applicantName, applicantType, partnerMemberId: applicantMemberId, selectedServices, details, step, hasLocalAttachments: selectedFiles.length > 0 || missingAttachments };
+      const response = await fetch('/api/application-draft', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...draftRef.current, expectedUserId: currentUserId, draft }) });
+      const data = await response.json() as DraftEnvelope & { error?: string };
+      if (!response.ok || !data.draftId) throw new Error(data.error || '임시저장을 확인하지 못했습니다.');
+      draftRef.current = { revision: data.revision, draftId: data.draftId };
+      setDraftMessage('입력 문구를 서버에 임시저장했습니다. 첨부파일은 새로고침 후 다시 선택해야 합니다.');
+      onDraftSaved(selectedFiles.length > 0);
+      return data.draftId;
+    } finally { draftLock.current = false; setDraftBusy(false); }
+  }
+
+  async function discardDraft() {
+    if (!draftReady || draftLock.current || !window.confirm('현재 임시저장과 화면 입력만 비우고 새 신청을 작성할까요? 접수된 진행과 원본파일은 삭제하지 않습니다.')) return;
+    draftLock.current = true; setDraftBusy(true);
+    try {
+      const response = await fetch('/api/application-draft', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...draftRef.current, expectedUserId: currentUserId }) });
+      const data = await response.json() as DraftEnvelope & { error?: string };
+      if (!response.ok) throw new Error(data.error || '임시저장을 비우지 못했습니다.');
+      draftRef.current = { revision: data.revision, draftId: crypto.randomUUID() };
+      setCompanyName(''); setDetails(emptyApplicationDetails()); setApplicantName(applicant.name); setApplicantType(applicant.memberType); setApplicantMemberId(''); setSelectedServices(['정책자금']); setSelectedFiles([]); setMissingAttachments(false); setStep(1); setUploadConsent(false); setRecordingConsent(false); setDraftSubmitted(null); setSubmitError('');
+      setDraftMessage('새 신청을 작성할 수 있습니다. 접수된 진행은 그대로 보존했습니다.'); onDraftSaved(false);
+    } catch (error) { setSubmitError((error as Error).message); }
+    finally { draftLock.current = false; setDraftBusy(false); }
+  }
+
 
   function toggleService(service: string) {
     onDirty();
@@ -2439,7 +2508,8 @@ function ApplicationForm({
   }
 
   async function submitApplication() {
-    if (submitLock.current) return;
+    if (submitLock.current || draftBusy || !draftReady || draftSubmitted) return;
+    if (missingAttachments) { setSubmitError('이전 첨부파일을 다시 선택하거나 첨부 없이 진행 여부를 확인해 주세요.'); return; }
     if (!awaitingSave && !validateStep(3)) return;
     if (!uploadConsent) {
       setSubmitError('자료 제출 권한과 개인정보 마스킹 여부를 확인해 주세요.');
@@ -2451,10 +2521,17 @@ function ApplicationForm({
     if (invalidFile || selectedFiles.length > MAX_APPLICATION_FILES) { setSubmitError(invalidFile || `첨부는 ${MAX_APPLICATION_FILES}개까지 가능합니다.`); return; }
     submitLock.current = true;
     setSubmitting(true);
+    onSubmissionBusy(true);
     setSubmitError('');
+    let handedOff = false;
     try {
-      await onDone(selectedFiles, companyName, selectedServices, applicantType, applicantName.trim() || applicant.name, recordingConsent, applicantMemberId, parseApplicationDetails(details));
+      const draftId = awaitingSave ? draftRef.current.draftId : await saveDraft();
+      handedOff = true;
+      await onDone(selectedFiles, companyName, selectedServices, applicantType, applicantName.trim() || applicant.name, recordingConsent, applicantMemberId, parseApplicationDetails(details), draftId, draftRef.current.revision);
+      // A lost cleanup response is safe: the next restore recognizes the submitted case ID.
+      await fetch('/api/application-draft', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...draftRef.current, expectedUserId: currentUserId }) }).catch(() => {});
     } catch (error) {
+      if (!handedOff) onSubmissionBusy(false);
       setSubmitError(error instanceof Error ? error.message : '협업신청을 제출하지 못했습니다.');
     } finally {
       submitLock.current = false;
@@ -2493,8 +2570,9 @@ function ApplicationForm({
         </CardHeader>
 
         <CardContent className="py-2" onChangeCapture={onDirty}>
-          <p className="mb-4 text-xs leading-5 text-slate-500">제출 전 입력은 이 화면에서만 유지됩니다. 제출 후 저장 완료를 확인할 때까지 화면을 닫지 마세요.</p>
-          <fieldset disabled={submitting || awaitingSave} className="min-w-0">
+          <div className="mb-4 rounded-xl border border-sky-100 bg-sky-50 p-4 text-sm leading-6"><output className="block">{draftMessage}</output><p className="mt-1 text-xs text-slate-600">계정별 임시저장 1건 · 첨부파일·제출 동의는 복구 대상이 아닙니다. 임시저장 버튼을 누르지 않은 변경은 새로고침하면 사라집니다.</p>{!draftReady && <button type="button" className="mt-2 underline" onClick={() => window.location.reload()}>다시 불러오기</button>}{draftSubmitted && <SecondaryButton className="mt-3" onClick={discardDraft} disabled={draftBusy}>기존 접수를 남기고 새 신청 작성</SecondaryButton>}</div>
+          {missingAttachments && <div role="alert" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm"><p>이전 첨부파일은 다시 선택해야 합니다.</p><button type="button" className="mt-2 underline" onClick={() => { setStep(4); setMissingAttachments(false); setUploadConsent(false); onDirty(); }}>첨부 없이 진행하겠습니다</button></div>}
+          <fieldset disabled={submitting || awaitingSave || draftBusy || !draftReady || Boolean(draftSubmitted)} className="min-w-0">
           {step === 1 ? (
             <div className="grid gap-5 md:grid-cols-2">
               <Field label="신청자 유형" required hint={applicant.editable ? '대표님은 대리 접수할 신청자 유형을 선택할 수 있습니다.' : '등록된 파트너 유형이 자동 적용됩니다.'}><select className={inputClass} value={applicantType} onChange={(event) => setApplicantType(event.target.value as PartnerType)} disabled={!applicant.editable}>{partnerTypes.map((type) => <option key={type}>{type}</option>)}</select></Field>
@@ -2544,7 +2622,7 @@ function ApplicationForm({
 
           {step === 4 ? (
             <div className="space-y-6">
-              {canUpload ? <ApplicationAttachments value={selectedFiles} disabled={submitting} onChange={files => { setSelectedFiles(files); setUploadConsent(false); setRecordingConsent(false); setSubmitError(''); }} /> : <p className="rounded-xl border p-4 text-sm">현재 계정에는 파일 업로드 권한이 없습니다. 자료 없이 협업신청을 접수하거나 대표님에게 권한을 요청해 주세요.</p>}
+              {canUpload ? <ApplicationAttachments value={selectedFiles} disabled={submitting} onChange={files => { setSelectedFiles(files); if (files.length) setMissingAttachments(false); setUploadConsent(false); setRecordingConsent(false); setSubmitError(''); }} /> : <p className="rounded-xl border p-4 text-sm">현재 계정에는 파일 업로드 권한이 없습니다. 자료 없이 협업신청을 접수하거나 대표님에게 권한을 요청해 주세요.</p>}
               {selectedFiles.some(item => item.category === '상담녹취') && <label className="flex min-h-11 items-start gap-3 rounded-xl border border-primary/25 bg-primary/5 p-4 text-sm leading-6"><input type="checkbox" checked={recordingConsent} disabled={submitting} onChange={event => { setRecordingConsent(event.target.checked); setSubmitError(''); }} className="mt-1 size-4 shrink-0 accent-primary" /><span>녹취자료의 저장·내부 검토·담당 파트너 공유에 필요한 권한을 확인했습니다. 외부 AI 분석은 별도 동의·대표 검토 후 진행합니다. (녹취자료 첨부 시 필수)</span></label>}
 
               <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-5">
@@ -2568,11 +2646,12 @@ function ApplicationForm({
         </CardContent>
 
         <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-between sm:px-6">
-          <SecondaryButton onClick={step === 1 ? onCancel : () => setStep((value) => Math.max(1, value - 1))} disabled={submitting || awaitingSave}>
+          <SecondaryButton onClick={step === 1 ? onCancel : () => setStep((value) => Math.max(1, value - 1))} disabled={submitting || awaitingSave || draftBusy || !draftReady || Boolean(draftSubmitted)}>
             <ChevronLeft className="size-4" aria-hidden="true" /> {step === 1 ? '취소' : '이전'}
           </SecondaryButton>
-          <div className="flex gap-3">
-            <PrimaryButton className="flex-1 sm:flex-none" disabled={submitting} onClick={step === 4 ? submitApplication : () => { if (validateStep(step)) setStep(value => Math.min(4, value + 1)); }}>
+          <div className="flex flex-wrap gap-3">
+            <SecondaryButton disabled={submitting || awaitingSave || draftBusy || !draftReady || Boolean(draftSubmitted)} onClick={() => { void saveDraft().catch(error => setSubmitError((error as Error).message)); }}>신청서 임시저장</SecondaryButton>
+            <PrimaryButton className="flex-1 sm:flex-none" disabled={submitting || draftBusy || !draftReady || Boolean(draftSubmitted)} onClick={step === 4 ? submitApplication : () => { if (validateStep(step)) setStep(value => Math.min(4, value + 1)); }}>
               {submitting ? '저장 완료 확인 중' : awaitingSave ? '같은 신청 다시 저장' : step === 4 ? '협업신청 제출' : '다음'}
               {submitting ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : step < 4 ? <ChevronRight className="size-4" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
             </PrimaryButton>
@@ -3031,12 +3110,18 @@ export default function Home() {
   const [accessError, setAccessError] = useState('');
   const [accessStatus, setAccessStatus] = useState<number | null>(null);
   const saveIdentityRef = useRef('');
+  const saveStateRevisionRef = useRef('');
   const [applicationPending, setApplicationPending] = useState(false);
   const [applicationAwaitingSave, setApplicationAwaitingSave] = useState(false);
   const [applicationDirty, setApplicationDirty] = useState(false);
   const [applicationSubmission] = useState(() => new ApplicationSubmission<{ state: PortalState; caseId: string; fileCount: number; applicantType: PartnerType }>());
   const [saveQueue] = useState(() => new PortalSaveQueue<PortalState>(
-    state => putPortalSnapshot(state, saveIdentityRef.current),
+    async state => {
+      const result = await putPortalSnapshot(state, saveIdentityRef.current, saveStateRevisionRef.current);
+      if (typeof result.stateRevision !== 'string') throw new Error('저장 버전을 확인하지 못했습니다. 화면을 유지하고 다시 시도해 주세요.');
+      saveStateRevisionRef.current = result.stateRevision;
+      return result;
+    },
     (status, error) => { setDataStatus(status); setSaveError(error ?? ''); },
     revision => setMembersRevision(current => Math.max(current, revision)),
   ));
@@ -3068,7 +3153,7 @@ export default function Home() {
     async function loadState() {
       try {
         const response = await fetch('/api/state', { cache: 'no-store' });
-        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; error?: string; authenticatedEmail?: string };
+        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; stateRevision?: string; error?: string; authenticatedEmail?: string };
         if (!response.ok) {
           if (active) {
             setAccessStatus(response.status);
@@ -3076,6 +3161,7 @@ export default function Home() {
           throw new Error(payload.error || '로그인 정보를 확인하지 못했습니다.');
         }
         if (!payload.currentUser) throw new Error('로그인 사용자 정보가 없습니다.');
+        if (typeof payload.stateRevision !== 'string') throw new Error('운영 데이터 버전을 확인하지 못했습니다.');
         if (!active) return;
 
         if (payload.state !== null && payload.state !== undefined) {
@@ -3093,6 +3179,7 @@ export default function Home() {
         }
 
         saveIdentityRef.current = payload.currentUser.id;
+        saveStateRevisionRef.current = payload.stateRevision;
         setCurrentUser(payload.currentUser);
         setAccessStatus(null);
         if (payload.currentUser.role === 'trainee') {
@@ -3400,7 +3487,7 @@ export default function Home() {
         </header>
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
-          {saveError && <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800"><p className="font-bold">변경사항 저장 확인 필요</p><p>{saveError}</p><p className="mt-1">입력은 현재 화면에 남아 있습니다. 새로고침하지 말고 연결을 확인한 뒤 다시 저장해 주세요. 로그인 만료 시 같은 계정으로 새 탭에서 로그인한 후 돌아오세요.</p><div className="mt-3 flex flex-wrap gap-3"><SecondaryButton onClick={() => { void saveQueue.flush().catch(() => {}); }} disabled={dataStatus === 'saving' || applicationPending}>변경사항 다시 저장</SecondaryButton><a className="inline-flex min-h-11 items-center underline" href="/account" target="_blank" rel="noopener noreferrer">새 탭에서 로그인</a></div></div>}
+          {saveError && <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800"><p className="font-bold">변경사항 저장 확인 필요</p><p>{saveError}</p><p className="mt-1">입력은 현재 화면에 남아 있습니다. 새로고침하지 말고 연결을 확인한 뒤 다시 저장해 주세요. 로그인 만료 시 같은 계정으로 새 탭에서 로그인한 후 돌아오세요.</p><div className="mt-3 flex flex-wrap gap-3"><SecondaryButton onClick={() => { void saveQueue.flush().catch(() => {}); }} disabled={dataStatus === 'saving' || applicationPending}>변경사항 다시 저장</SecondaryButton><a className="inline-flex min-h-11 items-center underline" href="/account" target="_blank" rel="noopener noreferrer">새 탭에서 로그인</a><a className="inline-flex min-h-11 items-center underline" href="/" target="_blank" rel="noopener noreferrer">새 탭에서 최신 운영 내용 확인</a></div></div>}
           {view === 'admin' ? <AdminDashboard onOpenCase={() => navigate('case')} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} /> : null}
           {view === 'pipeline' ? <PipelineBoard cases={cases} setCases={setCases} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} onOpenCase={openCase} /> : null}
           {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee} · {item.id.slice(-8)}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <><ApplicationDetailsSummary details={selectedCase.applicationDetails} /><ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /></> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
@@ -3410,7 +3497,7 @@ export default function Home() {
           {view === 'ai-diagnosis' ? <DiagnosisPreflight assessments={diagnosisAssessments} setAssessments={setDiagnosisAssessments} cases={cases} documents={companyDocuments} onOpenFiles={() => navigate('files')} onRequestDocuments={(caseId) => { setSelectedCaseId(caseId); navigate('documents'); }} onQueueDraft={queueDiagnosisDraft} notify={notify} /> : null}
           {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} /> : null}
           {view === 'access' && isAdmin ? <AccessManagement notify={notify} members={members} setMembers={setMembers} registrationDisabled={dataStatus !== 'saved'} onRegistered={result => { setMembers(result.members); setMembersRevision(result.membersRevision); notify(`${result.member.name} 파트너 등록을 확인했습니다.`); }} /> : null}
-          {view === 'application' ? <ApplicationForm awaitingSave={applicationAwaitingSave} onDirty={() => setApplicationDirty(true)} applicant={collaborationApplicant} members={members} canUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} onCancel={() => navigate('trainee')} onDone={async (files, companyName, selectedServices, applicantType, applicantName, recordingConsent, selectedMemberId, details) => {
+          {view === 'application' ? <ApplicationForm onSubmissionBusy={setApplicationPending} currentUserId={currentUser.id} onDraftSaved={hasFiles => setApplicationDirty(hasFiles)} awaitingSave={applicationAwaitingSave} onDirty={() => setApplicationDirty(true)} applicant={collaborationApplicant} members={members} canUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} onCancel={() => navigate('trainee')} onDone={async (files, companyName, selectedServices, applicantType, applicantName, recordingConsent, selectedMemberId, details, draftId, draftRevision) => {
             setApplicationPending(true);
             try {
               const result = await applicationSubmission.submit(async () => {
@@ -3419,7 +3506,8 @@ export default function Home() {
                 await saveQueue.flush();
                 const partnerMemberId = isAdmin ? selectedMemberId : currentUser.memberId ?? '';
                 const company = companyName.trim() || '신규기업';
-                const caseId = `case-${crypto.randomUUID()}`;
+                const caseId = draftCaseId(draftId);
+                if (cases.some(item => item.id === caseId)) throw new Error('이미 접수된 신청입니다. 진행 기록을 확인해 주세요.');
                 const storedFiles: Array<{ category: CompanyDocument['category']; stored: StoredCompanyFile }> = [];
                 try {
                   for (const item of files) {
@@ -3433,7 +3521,7 @@ export default function Home() {
                   throw error;
                 }
                 const service = selectedServices.join(' · ') || '기업컨설팅';
-                const nextCases = prependApplicationCase(cases, { id: caseId, company, service, trainee: applicantName, partnerMemberId, applicantType, applicationDetails: details, stage: '접수', consultationCount: 0, nextAction: stageNextActions.접수, updatedAt: '방금 전', idleDays: 0, urgent: details.urgency === '긴급' });
+                const nextCases = prependApplicationCase(cases, { id: caseId, company, service, trainee: applicantName, partnerMemberId, applicantType, applicationDetails: details, applicationDraftRevision: draftRevision, stage: '접수', consultationCount: 0, nextAction: stageNextActions.접수, updatedAt: '방금 전', idleDays: 0, urgent: details.urgency === '긴급' });
                 const nextTimeline = [...timeline, { caseId, date: '방금 전', title: '협업신청 접수', detail: `${service} 요청 / 주관 파트너 ${applicantName}`, type: '접수', tone: 'navy' }];
                 const nextDocuments = [...storedFiles.map(({ category, stored }): CompanyDocument => ({
                   id: `doc-${stored.id}`, storageFileId: stored.id, fileName: stored.fileName, fileSize: stored.sizeBytes,

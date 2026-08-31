@@ -8,7 +8,7 @@ import { POST as login } from '../app/api/auth/login/route';
 import { POST as logout } from '../app/api/auth/logout/route';
 import { POST as setup } from '../app/api/auth/setup/route';
 import { POST as issue } from '../app/api/admin/partners/password-link/route';
-import { GET as getState, PUT as saveState } from '../app/api/state/route';
+import { GET as getState, PUT as saveState } from './state-request';
 import { GET as getFlow } from '../app/api/consulting-flow/[caseId]/route';
 import { POST as upload } from '../app/api/files/route';
 import {

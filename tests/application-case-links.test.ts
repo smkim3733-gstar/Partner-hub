@@ -6,7 +6,7 @@ import {
 } from '../lib/application-case-links';
 import { POST as upload } from '../app/api/files/route';
 import { DELETE as remove } from '../app/api/files/[id]/route';
-import { GET as getState, PUT as saveState } from '../app/api/state/route';
+import { GET as getState, PUT as saveState } from './state-request';
 import { writePortalState } from '../lib/portal-state';
 import { companyFileDatabase, findCompanyFile } from '../lib/company-files';
 import {

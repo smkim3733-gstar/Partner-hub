@@ -5,7 +5,7 @@ import { GET as download } from '../app/api/files/[id]/route';
 import { writePortalState } from '../lib/portal-state';
 import { findCompanyFile } from '../lib/company-files';
 import { readFlow } from '../lib/consulting-flow-store';
-import { GET as stateGet, PUT as statePut } from '../app/api/state/route';
+import { GET as stateGet, PUT as statePut } from './state-request';
 
 const permissions = {
   fileUpload: true,

@@ -132,16 +132,21 @@ export class PortalSaveQueue<T extends State> {
 export async function putPortalSnapshot<T extends State>(
   state: T,
   expectedUserId: string,
+  stateRevision?: string,
 ) {
   const response = await fetch('/api/state', {
     method: 'PUT',
-    headers: { 'content-type': 'application/json' },
+    headers: {
+      'content-type': 'application/json',
+      ...(stateRevision ? { 'if-match': `"${stateRevision}"` } : {}),
+    },
     body: JSON.stringify({ state, expectedUserId }),
   });
   const payload = (await response.json()) as {
     ok?: boolean;
     error?: string;
     membersRevision?: number;
+    stateRevision?: string;
   };
   if (!response.ok || payload.ok !== true)
     throw new Error(

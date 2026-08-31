@@ -13,7 +13,7 @@ import {
   parseApplicationDetails,
   ApplicationDetailsError,
 } from '../lib/application-details';
-import { GET, PUT } from '../app/api/state/route';
+import { GET, PUT } from './state-request';
 import { readPortalState, writePortalState } from '../lib/portal-state';
 import { newConsultingFlow } from '../lib/consulting-flow';
 import { projectFlowState } from '../lib/consulting-flow-projection';
