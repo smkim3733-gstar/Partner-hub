@@ -2,6 +2,8 @@
 import { PartnerAuthPanel } from '@/components/partner-auth-panel';
 import { PartnerPasswordLink } from '@/components/partner-password-link';
 import { PartnerSignout } from '@/components/partner-signout';
+import { PortalDialog } from '@/components/portal-dialog';
+import { DialogClose } from '@/components/ui/dialog';
 import { assignmentMemberId, assignmentDisplayName, newTaskAssignment } from '@/lib/assignment-display';
 import { prependApplicationCase, recordBelongsToCase } from '@/lib/application-case-links';
 import { PortalSaveQueue, putPortalSnapshot } from '@/lib/portal-save-queue';
@@ -1882,9 +1884,9 @@ function WorkManagement({
 
       <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5"><div className="flex items-start gap-3"><Bell className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">가상 알림 작동방식</p><p className="mt-1 text-xs leading-5 text-slate-600">오늘 마감·기한 지연 업무는 상단 알림 숫자에 포함됩니다. 상담 저장 시 선택한 후속조치도 자동으로 이 목록에 추가됩니다.</p></div></div></div>
 
-      {addOpen ? <dialog open className="fixed inset-0 z-50 m-0 grid h-screen max-h-none w-screen max-w-none place-items-center border-0 bg-slate-950/45 p-4 backdrop-blur-sm" aria-labelledby="task-modal-title">
+      {addOpen ? <PortalDialog titleId="task-modal-title" onClose={() => setAddOpen(false)}>
         <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-          <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">독립 업무 등록</p><h2 id="task-modal-title" className="mt-1 text-xl font-bold">새 업무 추가</h2><p className="mt-1 text-sm text-slate-500">상담 단계와 무관하게 필요한 업무를 즉시 만들 수 있습니다.</p></div><button type="button" onClick={() => setAddOpen(false)} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="업무 추가 닫기"><X className="size-5" aria-hidden="true" /></button></div>
+          <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">독립 업무 등록</p><h2 id="task-modal-title" className="mt-1 text-xl font-bold">새 업무 추가</h2><p className="mt-1 text-sm text-slate-500">상담 단계와 무관하게 필요한 업무를 즉시 만들 수 있습니다.</p></div><DialogClose className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="업무 추가 닫기"><X className="size-5" aria-hidden="true" /></DialogClose></div>
           <div className="grid max-h-[65vh] gap-5 overflow-y-auto p-5 md:grid-cols-2">
             <div className="md:col-span-2"><Field label="업무명" required><input value={newTitle} onChange={(event) => setNewTitle(event.target.value)} className={inputClass} placeholder="예: 추가서류 제출 여부 확인" /></Field></div>
             <Field label="기업명" required><input value={newCompany} onChange={(event) => setNewCompany(event.target.value)} className={inputClass} /></Field>
@@ -1895,7 +1897,7 @@ function WorkManagement({
           </div>
           <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setAddOpen(false)}>취소</SecondaryButton><PrimaryButton onClick={addTask}><Check className="size-4" aria-hidden="true" /> 업무 등록</PrimaryButton></div>
         </div>
-      </dialog> : null}
+      </PortalDialog> : null}
     </>
   );
 }
@@ -2057,9 +2059,9 @@ function DocumentCenter({
 
       <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">자료보안 운영원칙</p><p className="mt-1 text-xs leading-5 text-slate-600">주민번호·계좌번호는 마스킹하고 목적에 필요한 최소 자료만 등록합니다. 원본은 공개주소가 없는 전용 저장소에 보관하며, 서버가 관리자 또는 담당 파트너 권한을 확인한 뒤에만 내려받을 수 있습니다.</p></div></div></div>
 
-      {uploadOpen ? <dialog open className="fixed inset-0 z-50 m-0 grid h-screen max-h-none w-screen max-w-none place-items-center border-0 bg-slate-950/45 p-4 backdrop-blur-sm" aria-labelledby="upload-modal-title">
+      {uploadOpen ? <PortalDialog titleId="upload-modal-title" onClose={() => setUploadOpen(false)} closeDisabled={uploading}>
         <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-          <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">보안 원본파일 등록</p><h2 id="upload-modal-title" className="mt-1 text-xl font-bold">기업자료 등록</h2><p className="mt-1 text-sm text-slate-500">파일은 공개주소가 없는 기업자료 전용 저장소에 등록됩니다.</p></div><button type="button" onClick={() => setUploadOpen(false)} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="자료등록 닫기"><X className="size-5" aria-hidden="true" /></button></div>
+          <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">보안 원본파일 등록</p><h2 id="upload-modal-title" className="mt-1 text-xl font-bold">기업자료 등록</h2><p className="mt-1 text-sm text-slate-500">파일은 공개주소가 없는 기업자료 전용 저장소에 등록됩니다.</p></div><DialogClose disabled={uploading} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-50" aria-label="자료등록 닫기"><X className="size-5" aria-hidden="true" /></DialogClose></div>
           <div className="grid max-h-[65vh] gap-5 overflow-y-auto p-5 md:grid-cols-2">
             <Field label="기업명" required><input value={uploadCompany} onChange={(event) => setUploadCompany(event.target.value)} className={inputClass} /></Field>
             <Field label="담당 계정" required hint="이메일을 확인해 동명이인을 구별하세요."><select value={uploadMemberId} onChange={(event) => setUploadMemberId(event.target.value)} className={inputClass} disabled={!isAdmin}>{isAdmin && <option value="">대표 전용 보관 · 파트너 공유 없음</option>}{members.filter((member) => member.status === '활성').map((member) => <option key={member.id} value={member.id}>{member.name.replace('(가상)', '').trim()} · {member.email}</option>)}</select></Field>
@@ -2071,7 +2073,7 @@ function DocumentCenter({
           </div>
           <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setUploadOpen(false)} disabled={uploading}>취소</SecondaryButton><PrimaryButton onClick={addDocument} disabled={uploading}>{uploading ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <Upload className="size-4" aria-hidden="true" />} {uploading ? '보안 저장 중' : '자료 등록'}</PrimaryButton></div>
         </div>
-      </dialog> : null}
+      </PortalDialog> : null}
       </fieldset>
     </>
   );
