@@ -23,7 +23,11 @@ import {
 } from '@/lib/portal-auth';
 
 const MAX_STATE_BYTES = 900_000;
-const privateJson = (data: unknown, init?: ResponseInit) => Response.json(data, { ...init, headers: { 'cache-control': 'private, no-store' } });
+const privateJson = (data: unknown, init?: ResponseInit) =>
+  Response.json(data, {
+    ...init,
+    headers: { 'cache-control': 'private, no-store' },
+  });
 
 export const dynamic = 'force-dynamic';
 
@@ -98,7 +102,9 @@ export async function PUT(request: Request) {
     const result = await mutatePortalState(async (currentState) => {
       const currentUser = await requirePortalUser(request, currentState);
       const merged = mergeStateForPortalUser(
-        currentState,
+        currentUser.role === 'admin'
+          ? currentState
+          : await stateWithConsultingFlows(currentState),
         body.state,
         currentUser,
       ) as Record<string, unknown>;

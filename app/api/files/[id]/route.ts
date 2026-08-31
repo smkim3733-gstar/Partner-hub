@@ -27,13 +27,15 @@ export async function GET(
     const currentUser = await requirePortalUser(request, state);
     const { id } = await context.params;
     const row = await findCompanyFile(id);
-    if (!row) throw new CompanyFileError('요청한 기업자료를 찾을 수 없습니다.', 404);
-    if (!mayReadCompanyFile(currentUser, row)) {
+    if (!row)
+      throw new CompanyFileError('요청한 기업자료를 찾을 수 없습니다.', 404);
+    if (!mayReadCompanyFile(currentUser, row, state)) {
       throw new CompanyFileError('담당기업 자료만 내려받을 수 있습니다.', 403);
     }
 
     const object = await companyFileBucket().get(row.storage_key);
-    if (!object) throw new CompanyFileError('원본파일을 찾을 수 없습니다.', 404);
+    if (!object)
+      throw new CompanyFileError('원본파일을 찾을 수 없습니다.', 404);
     const encodedName = encodeURIComponent(row.original_name);
 
     return new Response(object.body, {
@@ -48,7 +50,10 @@ export async function GET(
     const response = errorResponse(error);
     if (response) return response;
     console.error('Failed to download company file', error);
-    return Response.json({ error: '기업자료를 내려받지 못했습니다.' }, { status: 500 });
+    return Response.json(
+      { error: '기업자료를 내려받지 못했습니다.' },
+      { status: 500 },
+    );
   }
 }
 
@@ -66,20 +71,28 @@ export async function DELETE(
     const { id } = await context.params;
     const row = await findCompanyFile(id);
     if (!row) return new Response(null, { status: 204 });
-    const canDelete = currentUser.role === 'admin'
-      || row.uploaded_by_user_id === currentUser.id
-      || row.assigned_trainee === currentUser.memberName;
-    if (!canDelete) throw new CompanyFileError('담당기업 자료만 삭제할 수 있습니다.', 403);
+    const canDelete =
+      currentUser.role === 'admin' ||
+      row.uploaded_by_user_id === currentUser.id ||
+      mayReadCompanyFile(currentUser, row, state);
+    if (!canDelete)
+      throw new CompanyFileError('담당기업 자료만 삭제할 수 있습니다.', 403);
 
     const db = companyFileDatabase();
     await ensureCompanyFileTables(db);
     await companyFileBucket().delete(row.storage_key);
-    await db.prepare('DELETE FROM company_file_objects WHERE id = ?1').bind(id).run();
+    await db
+      .prepare('DELETE FROM company_file_objects WHERE id = ?1')
+      .bind(id)
+      .run();
     return new Response(null, { status: 204 });
   } catch (error) {
     const response = errorResponse(error);
     if (response) return response;
     console.error('Failed to delete company file', error);
-    return Response.json({ error: '기업자료를 삭제하지 못했습니다.' }, { status: 500 });
+    return Response.json(
+      { error: '기업자료를 삭제하지 못했습니다.' },
+      { status: 500 },
+    );
   }
 }

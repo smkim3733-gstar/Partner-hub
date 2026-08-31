@@ -98,6 +98,8 @@ export function projectFlowState(
               tone: 'blue',
               source: 'partner',
               assignedTrainee: partnerName(flow),
+              partnerMemberId: flow.partnerId,
+              caseId: flow.caseId,
               shareMode: 'all_with_assignee',
             };
           }),

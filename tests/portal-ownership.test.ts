@@ -1,0 +1,234 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+import {
+  mergeStateForPortalUser,
+  stateForPortalUser,
+  type PortalUser,
+} from '../lib/portal-auth';
+import { mayReadCompanyFile, type CompanyFileRow } from '../lib/company-files';
+
+const permissions = {
+  ownCases: true,
+  sharedSchedule: true,
+  collaborationApply: true,
+  fileUpload: true,
+  quoteContract: false,
+};
+const user: PortalUser = {
+  id: 'password:partner-one',
+  email: 'one@example.invalid',
+  displayName: '가상 동명이인',
+  role: 'trainee',
+  memberId: 'partner-one',
+  memberName: '가상 동명이인',
+  permissions,
+  authMethod: 'password',
+};
+function fixture() {
+  return {
+    version: 1,
+    consultationNumber: 0,
+    membersRevision: 0,
+    members: [
+      {
+        id: 'partner-one',
+        name: user.memberName!,
+        email: user.email,
+        status: '활성',
+        permissions,
+      },
+      {
+        id: 'partner-two',
+        name: user.memberName!,
+        email: 'two@example.invalid',
+        status: '활성',
+        permissions,
+      },
+    ],
+    cases: [
+      {
+        id: 'own-case',
+        company: '가상 본인기업',
+        trainee: user.memberName,
+        partnerMemberId: user.memberId,
+      },
+      {
+        id: 'other-case',
+        company: '가상 타인기업',
+        trainee: user.memberName,
+        partnerMemberId: 'partner-two',
+      },
+      {
+        id: 'legacy-case',
+        company: '가상 미확정기업',
+        trainee: user.memberName,
+      },
+    ],
+    tasks: [
+      { id: 'ambiguous-task', assignee: user.memberName, title: '미확정 업무' },
+    ],
+    companyDocuments: [
+      {
+        id: 'ambiguous-doc',
+        assignedTrainee: user.memberName,
+        title: '미확정 자료',
+      },
+    ],
+    schedule: [
+      {
+        id: 'ambiguous-meeting',
+        assignedTrainee: user.memberName,
+        company: '가상 타인기업',
+        shareMode: 'all_with_assignee',
+        source: 'partner',
+        time: '10:00',
+        end: '11:00',
+        description: '비공개 상담내용',
+        meetingUrl: 'https://private.example.invalid',
+        caseId: 'other-case',
+      },
+    ],
+    timeline: [
+      {
+        caseId: 'other-case',
+        date: '2026-08-31',
+        title: '비공개 진행',
+        detail: '타인 기록',
+      },
+    ],
+  };
+}
+
+void test('same-name partners only see ID-assigned cases; ambiguous legacy data and schedule details stay private', () => {
+  const visible = stateForPortalUser(fixture(), user) as ReturnType<
+    typeof fixture
+  >;
+  assert.deepEqual(
+    visible.cases.map((item) => item.id),
+    ['own-case'],
+  );
+  assert.deepEqual(visible.tasks, []);
+  assert.deepEqual(visible.companyDocuments, []);
+  assert.deepEqual(visible.timeline, []);
+  assert.equal(visible.schedule[0].time, '10:00');
+  assert.doesNotMatch(
+    JSON.stringify(visible.schedule),
+    /가상 타인기업|비공개 상담내용|private\.example|partner-two|other-case/,
+  );
+});
+
+void test('forged incoming assignee and ID cannot rewrite another account case, timeline or ambiguous legacy records', () => {
+  const current = fixture();
+  const incoming = structuredClone(current);
+  incoming.cases[1] = {
+    ...incoming.cases[1],
+    partnerMemberId: user.memberId,
+    company: '탈취 시도',
+  };
+  incoming.cases[2].company = '레거시 탈취 시도';
+  incoming.tasks[0].title = '업무 탈취 시도';
+  incoming.companyDocuments[0].title = '자료 탈취 시도';
+  incoming.timeline[0].detail = '진행 탈취 시도';
+  const saved = mergeStateForPortalUser(
+    current,
+    incoming,
+    user,
+  ) as typeof current;
+  assert.deepEqual(saved.cases.slice(1), current.cases.slice(1));
+  assert.deepEqual(saved.tasks, current.tasks);
+  assert.deepEqual(saved.companyDocuments, current.companyDocuments);
+  assert.deepEqual(saved.timeline, current.timeline);
+  assert.deepEqual(saved.members, current.members);
+});
+
+void test('new partner records bind to the authenticated ID without changing an existing assignment', () => {
+  const current = fixture();
+  const incoming = {
+    ...structuredClone(current),
+    cases: [
+      { id: 'new-case', trainee: user.memberName, company: '새 가상기업' },
+    ],
+    timeline: [],
+  };
+  const saved = mergeStateForPortalUser(current, incoming, user) as ReturnType<
+    typeof fixture
+  >;
+  assert.equal(
+    saved.cases.find((item) => item.id === 'new-case')?.partnerMemberId,
+    user.memberId,
+  );
+  assert.equal(
+    saved.cases.find((item) => item.id === 'other-case')?.partnerMemberId,
+    'partner-two',
+  );
+});
+
+void test('unambiguous legacy names remain usable, including normalized display names', () => {
+  const current = fixture();
+  current.members = [current.members[0]];
+  current.members[0].name = ` ${user.memberName!}(가상) `;
+  const visible = stateForPortalUser(current, user) as typeof current;
+  assert.deepEqual(
+    visible.cases.map((item) => item.id),
+    ['own-case', 'legacy-case'],
+  );
+  assert.equal(visible.tasks.length, 1);
+  assert.equal(visible.companyDocuments.length, 1);
+});
+
+void test('ID-linked related records survive duplicate names but conflicting case links and suspended duplicates never grant access', () => {
+  const current = fixture();
+  current.members[1].status = '정지';
+  const raw = {
+    ...current,
+    tasks: [
+      {
+        id: 'own-task',
+        assignee: '이전 표시이름',
+        partnerMemberId: user.memberId,
+      },
+      { id: 'linked-task', caseId: 'own-case' },
+      {
+        id: 'conflicting-task',
+        caseId: 'other-case',
+        partnerMemberId: user.memberId,
+      },
+      { id: 'unknown-task', caseId: 'missing-case', assignee: user.memberName },
+      ...current.tasks,
+    ],
+  };
+  const visible = stateForPortalUser(raw, user) as typeof raw;
+  assert.deepEqual(
+    visible.tasks.map((item) => item.id),
+    ['own-task', 'linked-task'],
+  );
+  assert.deepEqual(
+    visible.cases.map((item) => item.id),
+    ['own-case'],
+  );
+});
+
+void test('legacy file permission refuses a same-name claimant and keeps administrator access', () => {
+  const row: CompanyFileRow = {
+    id: 'test-file',
+    storage_key: 'private/test-file',
+    original_name: '가상.txt',
+    company: '가상기업',
+    category: '기타자료',
+    title: '가상 자료',
+    assigned_trainee: user.memberName!,
+    uploaded_by_user_id: 'password:partner-two',
+    uploaded_by_email: 'two@example.invalid',
+    content_type: 'text/plain',
+    size_bytes: 10,
+    created_at: '2026-08-31T00:00:00Z',
+  };
+  assert.equal(mayReadCompanyFile(user, row, fixture()), false);
+  assert.equal(
+    mayReadCompanyFile({ ...user, role: 'admin' }, row, fixture()),
+    true,
+  );
+  const unique = fixture();
+  unique.members = [unique.members[0]];
+  assert.equal(mayReadCompanyFile(user, row, unique), true);
+});

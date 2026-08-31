@@ -6,6 +6,7 @@
 |---|---|
 | [최신 개발 현황](DEVELOPMENT_STATUS_2026_08_31.md) | 완료 기능, 수동 처리, 운영 반영 범위 |
 | [최신 검증](VALIDATION_2026_08_31.md) | 테스트, 서버 검증, 확인 범위와 미확인 사항 |
+| [운영 반영 준비](../RELEASE_READINESS.md) | 권한 보완, 공개 사이트 반영 전 확인사항과 실사용 제한 |
 | [현재 상담 FLOW](../CONSULTING_WORKFLOW.md) | 실제 업무 순서, 자료 등록, 생성 전 확인, 진행 단계 |
 | [화면별 초기 기획서](planning/MVP_SCREEN_SPEC_2026_08_29.md) | 관리자·파트너 화면과 MVP 구조 |
 | [Claude 프로젝트 지침 확인본](planning/CLAUDE_FLOW_INSTRUCTIONS_2026_08_30.md) | 읽기 전용으로 확인했던 지침. 개인 프로젝트 URL은 공개본에서 제외 |

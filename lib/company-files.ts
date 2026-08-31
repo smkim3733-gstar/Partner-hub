@@ -5,7 +5,7 @@ import {
   companyFileObjectsOwnerIndexSql,
   companyFileObjectsTableSql,
 } from '@/db/schema';
-import type { PortalUser } from '@/lib/portal-auth';
+import { uniqueMemberIdForName, type PortalUser } from '@/lib/portal-auth';
 
 export {
   companyFileCategories,
@@ -73,8 +73,16 @@ export function mayUploadCompanyFiles(user: PortalUser) {
   return user.role === 'admin' || Boolean(user.permissions?.fileUpload);
 }
 
-export function mayReadCompanyFile(user: PortalUser, row: CompanyFileRow) {
-  return user.role === 'admin' || row.assigned_trainee === user.memberName;
+export function mayReadCompanyFile(
+  user: PortalUser,
+  row: CompanyFileRow,
+  state: unknown,
+) {
+  return (
+    user.role === 'admin' ||
+    (Boolean(user.memberId) &&
+      uniqueMemberIdForName(state, row.assigned_trainee) === user.memberId)
+  );
 }
 
 export async function findCompanyFile(id: string) {

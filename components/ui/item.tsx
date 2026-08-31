@@ -9,6 +9,7 @@ import { Separator } from '@/components/ui/separator';
 function ItemGroup({ className, ...props }: React.ComponentProps<'div'>) {
   return (
     <div
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- Polymorphic items and separators are not necessarily li elements; consumers can supply role="listitem" on item wrappers.
       role="list"
       data-slot="item-group"
       className={cn(

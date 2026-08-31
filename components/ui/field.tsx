@@ -76,6 +76,7 @@ function Field({
 }: React.ComponentProps<'div'> & VariantProps<typeof fieldVariants>) {
   return (
     <div
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- Field also composes inside a Label; replacing it with fieldset would create invalid label content.
       role="group"
       data-slot="field"
       data-orientation={orientation}
