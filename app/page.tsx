@@ -1,6 +1,7 @@
 'use client';
 import { prepareConsultation, type ConsultationPayload } from '@/lib/legacy-consultation';
 import { prepareDocumentRequest } from '@/lib/legacy-document-request';
+import { diagnosisDocumentsForCase } from '@/lib/diagnosis-preflight';
 import { googleCalendarDraftUrl, scheduleDateGroups } from '@/lib/schedule-display';
 import { PartnerAuthPanel } from '@/components/partner-auth-panel';
 import { PartnerPasswordLink } from '@/components/partner-password-link';
@@ -466,12 +467,10 @@ const sampleDiagnosisAssessments: DiagnosisAssessment[] = [
 function diagnosisChecks(
   assessment: DiagnosisAssessment,
   documents: CompanyDocument[],
+  cases: CollaborationCase[],
+  members: TraineeMember[],
 ): DiagnosisCheck[] {
-  const usableDocuments = documents.filter((document) =>
-    document.company === assessment.company
-    && (document.caseId == null || document.caseId === assessment.caseId)
-    && (document.status === '제출완료' || document.status === '검토완료'),
-  );
+  const usableDocuments = diagnosisDocumentsForCase(assessment.caseId, documents, cases, members);
   const hasBusinessCertificate = usableDocuments.some((document) => document.category === '사업자등록증');
   const hasFinancialBasis = usableDocuments.some((document) => document.category === '크레탑' || document.category === '재무제표');
 
@@ -530,8 +529,10 @@ function diagnosisChecks(
 function evaluateDiagnosis(
   assessment: DiagnosisAssessment,
   documents: CompanyDocument[],
+  cases: CollaborationCase[],
+  members: TraineeMember[],
 ): DiagnosisAssessment {
-  const checks = diagnosisChecks(assessment, documents);
+  const checks = diagnosisChecks(assessment, documents, cases, members);
   const hasBlocked = checks.some((check) => check.status === '차단');
   const hasNeedsReview = checks.some((check) => check.status === '확인필요');
   const level: DiagnosisLevel = hasBlocked ? 'C' : hasNeedsReview ? 'B' : 'A';
@@ -775,6 +776,7 @@ function DiagnosisPreflight({
   assessments,
   setAssessments,
   cases,
+  members,
   documents,
   onOpenFiles,
   onRequestDocuments,
@@ -784,6 +786,7 @@ function DiagnosisPreflight({
   assessments: DiagnosisAssessment[];
   setAssessments: React.Dispatch<React.SetStateAction<DiagnosisAssessment[]>>;
   cases: CollaborationCase[];
+  members: TraineeMember[];
   documents: CompanyDocument[];
   onOpenFiles: () => void;
   onRequestDocuments: (caseId: string) => void;
@@ -865,7 +868,7 @@ function DiagnosisPreflight({
     return <Card><CardContent className="py-12 text-center text-sm text-slate-500">등록된 가상 사전점검이 없습니다.</CardContent></Card>;
   }
 
-  const checks = diagnosisChecks(selected, documents);
+  const checks = diagnosisChecks(selected, documents, cases, members);
   const blockers = checks.filter((check) => check.status === '차단');
   const needsReview = checks.filter((check) => check.status === '확인필요');
   const selectedCaseExists = cases.some((item) => item.id === selected.caseId);
@@ -881,13 +884,13 @@ function DiagnosisPreflight({
 
   function runAssessment(assessmentId: string) {
     setAssessments((current) => current.map((assessment) =>
-      assessment.id === assessmentId ? evaluateDiagnosis(assessment, documents) : assessment,
+      assessment.id === assessmentId ? evaluateDiagnosis(assessment, documents, cases, members) : assessment,
     ));
     notify(`${selected.company} A·B·C 가상 판정을 다시 실행했습니다.`);
   }
 
   function runAllAssessments() {
-    setAssessments((current) => current.map((assessment) => evaluateDiagnosis(assessment, documents)));
+    setAssessments((current) => current.map((assessment) => evaluateDiagnosis(assessment, documents, cases, members)));
     notify('가상 기업 3건의 AI 진단 사전점검을 다시 실행했습니다.');
   }
 
@@ -3262,8 +3265,10 @@ export default function Home() {
   }
 
   function queueDiagnosisDraft(assessment: DiagnosisAssessment) {
-    if (assessment.level !== 'A') {
-      notify('A 판정 건만 1차 초안 검토대기에 등록할 수 있습니다.');
+    const latest = evaluateDiagnosis(assessment, companyDocuments, cases, members);
+    if (latest.level !== 'A') {
+      setDiagnosisAssessments((current) => current.map((item) => item.id === assessment.id ? latest : item));
+      notify('최신 자료로 다시 판정한 결과 A가 아니므로 대기열에 등록하지 않았습니다.');
       return;
     }
     setDiagnosisAssessments((current) => current.map((item) =>
@@ -3431,7 +3436,7 @@ export default function Home() {
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}
           {view === 'tasks' ? <WorkManagement tasks={tasks} setTasks={setTasks} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} notify={notify} /> : null}
           {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} currentUserId={currentUser.id} recoveryControls={{ recoveryBusy: fileRecoveryBusy, recoveryDisabled: dataStatus !== 'saved' || fileRecoveryBusy || applicationPending || applicationDirty, beginRecovery: beginFileRecovery, finishRecovery: finishFileRecovery }} notify={notify} /> : null}
-          {view === 'ai-diagnosis' ? <DiagnosisPreflight assessments={diagnosisAssessments} setAssessments={setDiagnosisAssessments} cases={cases} documents={companyDocuments} onOpenFiles={() => navigate('files')} onRequestDocuments={(caseId) => { setSelectedCaseId(caseId); navigate('documents'); }} onQueueDraft={queueDiagnosisDraft} notify={notify} /> : null}
+          {view === 'ai-diagnosis' ? <DiagnosisPreflight assessments={diagnosisAssessments} setAssessments={setDiagnosisAssessments} cases={cases} members={members} documents={companyDocuments} onOpenFiles={() => navigate('files')} onRequestDocuments={(caseId) => { setSelectedCaseId(caseId); navigate('documents'); }} onQueueDraft={queueDiagnosisDraft} notify={notify} /> : null}
           {view === 'trainee' ? <TraineeDashboard onOpenCase={openCase} onOpenTasks={() => navigate('tasks')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} cases={previewCases} tasks={previewTasks} documents={previewDocuments} /> : null}
           {view === 'access' && isAdmin ? <AccessManagement notify={notify} members={members} setMembers={setMembers} registrationDisabled={dataStatus !== 'saved'} onRegistered={result => { setMembers(result.members); setMembersRevision(result.membersRevision); notify(`${result.member.name} 파트너 등록을 확인했습니다.`); }} /> : null}
           {view === 'application' ? <ApplicationForm onSubmissionBusy={setApplicationPending} currentUserId={currentUser.id} onDraftSaved={hasFiles => setApplicationDirty(hasFiles)} awaitingSave={applicationAwaitingSave} onDirty={() => setApplicationDirty(true)} applicant={collaborationApplicant} members={members} canUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} onCancel={() => navigate('trainee')} onDone={async (files, companyName, selectedServices, applicantType, applicantName, recordingConsent, selectedMemberId, details, draftId, draftRevision) => {
