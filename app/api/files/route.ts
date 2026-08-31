@@ -17,6 +17,7 @@ import {
 import { boundedBody } from '@/lib/consulting-flow-http';
 import { FlowError } from '@/lib/consulting-flow';
 import { uploadCaseLink } from '@/lib/company-file-case';
+import { storeCompanyUpload } from '@/lib/company-upload-store';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,11 +50,16 @@ function checkSameOrigin(request: Request) {
 }
 
 export async function POST(request: Request) {
-  let storedKey = '';
   try {
     checkSameOrigin(request);
     const state = await readPortalState();
     const currentUser = await requirePortalUser(request, state);
+    const suppliedKey = request.headers.get('idempotency-key');
+    if (suppliedKey !== null && !/^[a-zA-Z0-9_-]{10,128}$/.test(suppliedKey))
+      throw new CompanyFileError(
+        '업로드 요청 식별값이 올바르지 않습니다.',
+        400,
+      );
     if (!mayUploadCompanyFiles(currentUser)) {
       throw new CompanyFileError(
         '현재 계정에는 기업자료 업로드 권한이 없습니다.',
@@ -87,11 +93,20 @@ export async function POST(request: Request) {
         'caseId',
         'consent',
         'recordingConsent',
+        'expectedUserId',
       ].some((key) => form.getAll(key).length > 1)
     )
       throw new CompanyFileError(
         '파일과 자료정보는 요청당 한 개씩 전달해 주세요.',
         400,
+      );
+    if (
+      form.has('expectedUserId') &&
+      form.get('expectedUserId') !== currentUser.id
+    )
+      throw new CompanyFileError(
+        '작성하던 계정으로 로그인한 후 파일을 제출해 주세요.',
+        403,
       );
     if (field(form, 'consent', 20) !== 'confirmed') {
       throw new CompanyFileError(
@@ -153,90 +168,34 @@ export async function POST(request: Request) {
       company,
       partnerMemberId,
     );
-    const id = crypto.randomUUID();
-    storedKey = `company-source/${id}`;
-    const createdAt = new Date().toISOString();
-    const contentType = fileValue.type || 'application/octet-stream';
-    const bucket = companyFileBucket();
     const db = companyFileDatabase();
     await ensureCompanyFileTables(db);
-
-    await bucket.put(storedKey, await fileValue.arrayBuffer(), {
-      httpMetadata: { contentType },
-      customMetadata: {
-        fileId: id,
-        ...(category === '상담녹취'
-          ? { recordingRightsConfirmedAt: createdAt }
-          : {}),
-      },
-    });
-
-    try {
-      await db.batch([
-        db
-          .prepare(`
-          INSERT INTO company_file_objects (
-            id, storage_key, original_name, company, category, title,
-            assigned_trainee, uploaded_by_user_id, uploaded_by_email,
-            content_type, size_bytes, created_at
-          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-        `)
-          .bind(
-            id,
-            storedKey,
-            originalName,
-            company,
-            category,
-            title,
-            assignedTrainee,
-            currentUser.id,
-            currentUser.email,
-            contentType,
-            fileValue.size,
-            createdAt,
-          ),
-        db
-          .prepare(
-            'INSERT INTO company_file_assignments (file_id, partner_member_id) VALUES (?1, ?2)',
-          )
-          .bind(id, partnerMemberId),
-        ...(caseId
-          ? [
-              db
-                .prepare(
-                  'INSERT INTO company_file_case_links (file_id, case_id) VALUES (?1, ?2)',
-                )
-                .bind(id, caseId),
-            ]
-          : []),
-      ]);
-    } catch (error) {
-      await bucket.delete(storedKey);
-      storedKey = '';
-      throw error;
-    }
-
-    return Response.json(
+    const stored = await storeCompanyUpload(
+      db,
+      companyFileBucket(),
+      currentUser,
+      suppliedKey ?? `legacy-${crypto.randomUUID()}`,
       {
-        file: {
-          id,
-          fileName: originalName,
-          sizeBytes: fileValue.size,
-          contentType,
-          createdAt,
-          assignedTrainee,
-          partnerMemberId,
-          ...(caseId ? { caseId } : {}),
-          category,
-          title,
-        },
+        originalName,
+        company,
+        title,
+        category,
+        assignedTrainee,
+        partnerMemberId,
+        caseId,
+        contentType: fileValue.type || 'application/octet-stream',
+        sizeBytes: fileValue.size,
       },
-      { status: 201 },
+      await fileValue.arrayBuffer(),
+    );
+    return Response.json(
+      { file: stored },
+      { status: 201, headers: { 'cache-control': 'private, no-store' } },
     );
   } catch (error) {
     const response = errorResponse(error);
     if (response) return response;
-    console.error('Failed to upload company file', { storedKey, error });
+    console.error('Failed to upload company file', error);
     return Response.json(
       { error: '기업자료를 보안 저장소에 등록하지 못했습니다.' },
       { status: 500 },

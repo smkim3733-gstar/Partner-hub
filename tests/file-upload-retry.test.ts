@@ -1,0 +1,443 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { POST as upload } from '../app/api/files/route';
+import { GET as download, DELETE as remove } from '../app/api/files/[id]/route';
+import { writePortalState } from '../lib/portal-state';
+import {
+  companyFileDatabase,
+  companyFileBucket,
+  findCompanyFile,
+} from '../lib/company-files';
+import { uploadCompanyFile } from '../lib/company-file-upload';
+import {
+  companyUploadKey,
+  type CompanyUploadInput,
+} from '../lib/file-upload-key';
+import { ApplicationSubmission } from '../lib/application-submission';
+import {
+  listIntakeSources,
+  previewIntakeSource,
+} from '../lib/consulting-intake-sources';
+import { newConsultingFlow } from '../lib/consulting-flow';
+
+const member = {
+  id: 'retry-member',
+  name: '가상 담당자',
+  email: 'upload-retry@example.invalid',
+  status: '활성',
+  permissions: { fileUpload: true, collaborationApply: true, ownCases: true },
+};
+const peer = {
+  ...member,
+  id: 'retry-peer',
+  email: 'upload-peer@example.invalid',
+};
+async function seed() {
+  await writePortalState({
+    version: 1,
+    members: [member, peer],
+    cases: [],
+    companyDocuments: [],
+    timeline: [],
+    schedule: [],
+    tasks: [],
+  });
+}
+function input(
+  caseId = 'retry-application',
+  text = 'SYNTHETIC_DOCUMENT',
+): CompanyUploadInput {
+  return {
+    file: new File([text], 'synthetic.txt', { type: 'text/plain' }),
+    company: '가상기업',
+    title: '가상 근거자료',
+    category: '기타자료',
+    assignedTrainee: member.name,
+    partnerMemberId: member.id,
+    caseId,
+  };
+}
+function form(text = 'SYNTHETIC_DOCUMENT', company = '가상기업') {
+  const value = new FormData();
+  value.set('file', new File([text], 'synthetic.txt', { type: 'text/plain' }));
+  value.set('company', company);
+  value.set('title', '가상 근거자료');
+  value.set('category', '기타자료');
+  value.set('consent', 'confirmed');
+  return value;
+}
+function request(key: string, data = form(), user = member, method = 'POST') {
+  return new Request('http://localhost/api/files', {
+    method,
+    ...(method === 'POST' ? { body: data } : {}),
+    headers: {
+      origin: 'http://localhost',
+      'idempotency-key': key,
+      'oai-authenticated-user-id': user.email,
+      'oai-authenticated-user-email': user.email,
+    },
+  });
+}
+async function stored(response: Response) {
+  assert.equal(response.status, 201, await response.clone().text());
+  return (
+    (await response.json()) as {
+      file: { id: string; createdAt: string; partnerMemberId: string };
+    }
+  ).file;
+}
+async function rowFor(key: string) {
+  return companyFileDatabase()
+    .prepare(
+      'SELECT file_id, status FROM company_file_upload_requests WHERE owner_key = ?1 AND request_key = ?2',
+    )
+    .bind(`member:${member.id}`, key)
+    .first<{ file_id: string; status: string }>();
+}
+
+void test('application upload keys survive file reselection; standalone keys keep intentional separate uploads distinct', async () => {
+  assert.equal(
+    await companyUploadKey(input()),
+    await companyUploadKey(input()),
+  );
+  assert.notEqual(
+    await companyUploadKey(input()),
+    await companyUploadKey(input('another-application')),
+  );
+  assert.notEqual(
+    await companyUploadKey(input()),
+    await companyUploadKey(input('retry-application', 'CHANGED_BYTES')),
+  );
+  assert.notEqual(
+    await companyUploadKey(input()),
+    await companyUploadKey({ ...input(), partnerMemberId: peer.id }),
+  );
+  const standalone = { ...input(), caseId: undefined };
+  assert.equal(
+    await companyUploadKey(standalone),
+    await companyUploadKey(standalone),
+  );
+  assert.notEqual(
+    await companyUploadKey(standalone),
+    await companyUploadKey({ ...input(), caseId: undefined }),
+  );
+});
+
+void test('lost upload response recovers identical metadata and file ID without another R2 put', async () => {
+  await seed();
+  const key = 'lost-response-request';
+  const first = await stored(await upload(request(key)));
+  const bucket = companyFileBucket();
+  const original = bucket.put.bind(bucket);
+  bucket.put = async () => {
+    throw new Error('Ready files must not be uploaded again');
+  };
+  try {
+    assert.deepEqual(await stored(await upload(request(key))), first);
+  } finally {
+    bucket.put = original;
+  }
+  assert.equal((await rowFor(key))?.status, 'ready');
+  assert.equal((await findCompanyFile(first.id))?.partner_member_id, member.id);
+});
+
+void test('concurrent retries converge; different bytes or metadata cannot hijack a request, and keys are account-scoped', async () => {
+  await seed();
+  const key = 'concurrent-upload-request';
+  const responses = await Promise.all([
+    upload(request(key)),
+    upload(request(key)),
+  ]);
+  assert.equal(
+    (await stored(responses[0])).id,
+    (await stored(responses[1])).id,
+  );
+  const first = await stored(await upload(request(key)));
+  assert.equal((await upload(request(key, form('DIFFERENT')))).status, 409);
+  assert.equal(
+    (await upload(request(key, form('SYNTHETIC_DOCUMENT', '변경기업')))).status,
+    409,
+  );
+  const ownPeer = await stored(await upload(request(key, form(), peer)));
+  assert.notEqual(ownPeer.id, first.id);
+  assert.equal(ownPeer.partnerMemberId, peer.id);
+  assert.equal(
+    (
+      await download(request(key, form(), peer, 'GET'), {
+        params: Promise.resolve({ id: first.id }),
+      })
+    ).status,
+    403,
+  );
+  const racing = await Promise.all([
+    upload(request('different-byte-race', form('AAA'))),
+    upload(request('different-byte-race', form('BBB'))),
+  ]);
+  assert.deepEqual(
+    racing.map((item) => item.status).sort((a, b) => a - b),
+    [201, 409],
+  );
+});
+
+void test('R2 response loss and D1 failures before or after commit remain recoverable without deleting originals', async () => {
+  await seed();
+  const bucket = companyFileBucket();
+  const db = companyFileDatabase();
+  const originalPut = bucket.put.bind(bucket),
+    originalBatch = db.batch.bind(db),
+    originalDelete = bucket.delete.bind(bucket);
+  let deletes = 0;
+  bucket.delete = async () => {
+    deletes++;
+    throw new Error('Failure cleanup may not delete originals');
+  };
+  try {
+    let once = true;
+    bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+      const result = await originalPut.apply(bucket, args);
+      if (once) {
+        once = false;
+        throw new Error('Synthetic R2 response loss after write');
+      }
+      return result;
+    };
+    assert.equal((await upload(request('r2-response-lost'))).status, 500);
+    const pending = await rowFor('r2-response-lost');
+    assert.equal(pending?.status, 'pending');
+    assert.ok(await bucket.get(`company-source/${pending?.file_id}`));
+    assert.equal(
+      (await stored(await upload(request('r2-response-lost')))).id,
+      pending?.file_id,
+    );
+    bucket.put = originalPut;
+    for (const afterCommit of [false, true]) {
+      const key = afterCommit ? 'd1-response-lost' : 'd1-write-failed';
+      once = true;
+      db.batch = async <T = unknown>(statements: D1PreparedStatement[]) => {
+        // The upload commit has 3 statements (object, assignment, ledger); table setup has 6.
+        if (once && statements.length === 3) {
+          once = false;
+          if (afterCommit) await originalBatch.call(db, statements);
+          throw new Error('Synthetic D1 commit uncertainty');
+        }
+        return originalBatch<T>(statements);
+      };
+      assert.equal((await upload(request(key))).status, 500);
+      const failed = await rowFor(key);
+      assert.equal(failed?.status, afterCommit ? 'ready' : 'pending');
+      assert.ok(await bucket.get(`company-source/${failed?.file_id}`));
+      db.batch = originalBatch;
+      assert.equal(
+        (await stored(await upload(request(key)))).id,
+        failed?.file_id,
+      );
+    }
+    assert.equal(deletes, 0);
+  } finally {
+    bucket.put = originalPut;
+    bucket.delete = originalDelete;
+    db.batch = originalBatch;
+  }
+});
+
+void test('explicit deletion tombstones retries; failed deletion can be retried and does not expose the original', async () => {
+  await seed();
+  const key = 'deleted-upload-request';
+  const file = await stored(await upload(request(key)));
+  const context = { params: Promise.resolve({ id: file.id }) };
+  assert.equal(
+    (await remove(request(key, form(), peer, 'DELETE'), context)).status,
+    403,
+  );
+  const bucket = companyFileBucket(),
+    original = bucket.delete.bind(bucket);
+  bucket.delete = async () => {
+    throw new Error('Synthetic deletion failure');
+  };
+  try {
+    assert.equal(
+      (await remove(request(key, form(), member, 'DELETE'), context)).status,
+      500,
+    );
+  } finally {
+    bucket.delete = original;
+  }
+  assert.equal(
+    (await download(request(key, form(), member, 'GET'), context)).status,
+    404,
+  );
+  assert.equal((await upload(request(key))).status, 409);
+  assert.equal(
+    (await remove(request(key, form(), member, 'DELETE'), context)).status,
+    204,
+  );
+  assert.equal(await findCompanyFile(file.id), null);
+  assert.equal(await bucket.get(`company-source/${file.id}`), null);
+  assert.equal((await upload(request(key))).status, 409);
+});
+
+void test(
+  'a pending concurrent upload cannot resurrect an explicitly deleted file',
+  { timeout: 10_000 },
+  async () => {
+    await seed();
+    const key = 'delete-during-upload';
+    const bucket = companyFileBucket(),
+      original = bucket.put.bind(bucket);
+    let release!: () => void,
+      entered!: () => void,
+      calls = 0;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let firstEntered!: () => void, permitFirst!: () => void;
+    const firstWaiting = new Promise<void>((resolve) => {
+      firstEntered = resolve;
+    });
+    const firstGate = new Promise<void>((resolve) => {
+      permitFirst = resolve;
+    });
+    bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+      if (++calls === 1) {
+        firstEntered();
+        await firstGate;
+      } else {
+        entered();
+        permitFirst();
+        await gate;
+      }
+      return original.apply(bucket, args);
+    };
+    try {
+      const first = upload(request(key));
+      await firstWaiting;
+      const second = upload(request(key));
+      await waiting;
+      const file = await stored(await first);
+      assert.equal(
+        (
+          await remove(request(key, form(), member, 'DELETE'), {
+            params: Promise.resolve({ id: file.id }),
+          })
+        ).status,
+        204,
+      );
+      release();
+      assert.equal((await second).status, 409);
+      assert.equal(await findCompanyFile(file.id), null);
+      assert.equal(await bucket.get(`company-source/${file.id}`), null);
+    } finally {
+      release();
+      permitFirst();
+      bucket.put = original;
+    }
+  },
+);
+
+void test('multi-file application retry reuses both acknowledged and uncertain uploads without duplicate objects', async () => {
+  await seed();
+  const originalFetch = globalThis.fetch;
+  let failSecond = true;
+  const inputs = [
+    input('batch-application'),
+    input('batch-application', 'SECOND_DOCUMENT'),
+  ];
+  const secondKey = await companyUploadKey(inputs[1]);
+  globalThis.fetch = async (_url, init) => {
+    const key = new Headers(init?.headers).get('idempotency-key')!;
+    const response = await upload(request(key, init?.body as FormData));
+    if (key === secondKey && failSecond) {
+      failSecond = false;
+      throw new Error('Synthetic lost second response');
+    }
+    return response;
+  };
+  const submission = new ApplicationSubmission<string[]>();
+  const prepare = async () => {
+    const files = [];
+    for (const item of inputs) files.push((await uploadCompanyFile(item)).id);
+    return files;
+  };
+  try {
+    await assert.rejects(
+      submission.submit(prepare, async () => {}),
+      /자동 삭제하지 않습니다/,
+    );
+    const first = await rowFor(await companyUploadKey(inputs[0]));
+    const second = await rowFor(secondKey);
+    assert.ok(await findCompanyFile(first!.file_id));
+    assert.ok(await findCompanyFile(second!.file_id));
+    const ids = await submission.submit(prepare, async () => {});
+    assert.deepEqual(ids, [first!.file_id, second!.file_id]);
+    // Reselecting the original files after a reload also recovers the same IDs.
+    assert.equal(
+      (await uploadCompanyFile(input('batch-application'))).id,
+      first!.file_id,
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+void test('invalid request keys, changed login identity and cross-origin retries cannot write', async () => {
+  await seed();
+  assert.equal((await upload(request('invalid!'))).status, 400);
+  const wrong = form();
+  wrong.set('expectedUserId', 'another-account');
+  assert.equal(
+    (await upload(request('identity-retry-key', wrong))).status,
+    403,
+  );
+  const cross = request('cross-origin-retry');
+  cross.headers.set('origin', 'https://untrusted.invalid');
+  assert.equal((await upload(cross)).status, 403);
+  assert.equal(await rowFor('identity-retry-key'), null);
+});
+
+void test('abandoned draft attachments stay out of intake review; only explicitly submitted documents become selectable', async () => {
+  await seed();
+  const caseId = 'case-draft-staged-application';
+  const selectedForm = form('SYNTHETIC_DOCUMENT_FOR_INTAKE_REVIEW'),
+    abandonedForm = form('ABANDONED_SYNTHETIC');
+  selectedForm.set('caseId', caseId);
+  abandonedForm.set('caseId', caseId);
+  const selected = await stored(
+    await upload(request('staged-selected-request', selectedForm)),
+  );
+  const abandoned = await stored(
+    await upload(request('staged-abandoned-request', abandonedForm)),
+  );
+  const flow = newConsultingFlow(caseId, '가상기업', member.id, member.name);
+  assert.deepEqual(
+    (await listIntakeSources(flow)).files.filter((f) =>
+      [selected.id, abandoned.id].includes(f.id),
+    ),
+    [],
+  );
+  await writePortalState({
+    version: 1,
+    members: [member, peer],
+    cases: [{ id: caseId, company: '가상기업', partnerMemberId: member.id }],
+    companyDocuments: [
+      { id: `doc-${selected.id}`, storageFileId: selected.id, caseId },
+    ],
+  });
+  const files = (await listIntakeSources(flow)).files;
+  assert.ok(files.some((f) => f.id === selected.id));
+  assert.ok(!files.some((f) => f.id === abandoned.id));
+  assert.equal(
+    (await previewIntakeSource(flow, selected.id)).text,
+    'SYNTHETIC_DOCUMENT_FOR_INTAKE_REVIEW',
+  );
+  await assert.rejects(
+    previewIntakeSource(flow, abandoned.id),
+    /찾지 못했습니다/,
+  );
+  assert.ok(
+    await findCompanyFile(abandoned.id),
+    'Keep original for an explicit later recovery; never auto-delete it',
+  );
+});

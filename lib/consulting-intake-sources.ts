@@ -1,8 +1,10 @@
 import {
   companyFileBucket,
+  companyFileIntakeFilterSql,
   companyFileDatabase,
   ensureCompanyFileTables,
   findCompanyFile,
+  isCompanyFileIntakeVisible,
   safeFileName,
   type CompanyFileRow,
 } from './company-files';
@@ -61,6 +63,7 @@ export async function listIntakeSources(flow: ConsultingFlow) {
     WHERE company = ?1 AND ((a.partner_member_id <> '' AND a.partner_member_id = ?3)
       OR (a.file_id IS NULL AND assigned_trainee = ?2))
       AND (c.file_id IS NULL OR c.case_id = ?4)
+      AND ${companyFileIntakeFilterSql}
     ORDER BY created_at DESC, f.id DESC LIMIT 101
   `)
     .bind(flow.company, flow.partnerName, flow.partnerId, flow.caseId)
@@ -78,6 +81,7 @@ async function loadSource(flow: ConsultingFlow, fileId: unknown) {
   const row = await findCompanyFile(fileId);
   if (
     !row ||
+    !(await isCompanyFileIntakeVisible(fileId)) ||
     row.company !== flow.company ||
     (row.case_id != null && row.case_id !== flow.caseId) ||
     (row.partner_member_id != null

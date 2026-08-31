@@ -517,11 +517,16 @@ try {
   assert.ok(await bucket.get('synthetic-private-file'));
   checks.push('denied file deletion preserves the private R2 object');
 
-  async function uploadSource(headers, partnerMemberId, caseId) {
+  async function uploadSource(
+    headers,
+    partnerMemberId,
+    caseId,
+    sourceText = 'SYNTHETIC_NEW_ACCOUNT_FILE',
+  ) {
     const form = new FormData();
     form.set(
       'file',
-      new File(['SYNTHETIC_NEW_ACCOUNT_FILE'], 'synthetic.txt', {
+      new File([sourceText], 'synthetic.txt', {
         type: 'text/plain',
       }),
     );
@@ -544,6 +549,68 @@ try {
       body: await multipart.arrayBuffer(),
     });
   }
+  const retryHeaders = {
+    cookie,
+    'idempotency-key': 'worker-upload-response-retry',
+  };
+  const retryFile = (
+    await (
+      await expect(
+        await uploadSource(retryHeaders, memberId, 'runtime-own'),
+        201,
+        'idempotent upload creates a private original',
+      )
+    ).json()
+  ).file;
+  const recoveredFile = (
+    await (
+      await expect(
+        await uploadSource(retryHeaders, memberId, 'runtime-own'),
+        201,
+        'lost upload response recovers the existing file ID',
+      )
+    ).json()
+  ).file;
+  assert.deepEqual(recoveredFile, retryFile);
+  const concurrentHeaders = {
+    cookie,
+    'idempotency-key': 'worker-concurrent-upload',
+  };
+  const concurrentFiles = await Promise.all([
+    uploadSource(concurrentHeaders, memberId),
+    uploadSource(concurrentHeaders, memberId),
+  ]);
+  assert.deepEqual(
+    concurrentFiles.map((r) => r.status),
+    [201, 201],
+  );
+  assert.equal(
+    (await concurrentFiles[0].json()).file.id,
+    (await concurrentFiles[1].json()).file.id,
+  );
+  checks.push('concurrent native D1/R2 uploads converge on one original');
+  await expect(
+    await uploadSource(
+      retryHeaders,
+      memberId,
+      'runtime-own',
+      'CHANGED_ORIGINAL',
+    ),
+    409,
+    'same request key cannot replace original bytes',
+  );
+  await expect(
+    await call(`/files/${retryFile.id}`, undefined, { cookie }, 'DELETE'),
+    204,
+    'authorized deletion tombstones the original',
+  );
+  await expect(
+    await uploadSource(retryHeaders, memberId, 'runtime-own'),
+    409,
+    'deleted original cannot be recreated by a delayed upload retry',
+  );
+  assert.equal(await bucket.get(`company-source/${retryFile.id}`), null);
+  checks.push('deleted original stays absent from private R2');
   const linked = await expect(
     await uploadSource({ cookie }, peerId),
     201,

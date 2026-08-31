@@ -6,6 +6,8 @@ import {
   companyFileObjectsCompanyIndexSql,
   companyFileObjectsOwnerIndexSql,
   companyFileObjectsTableSql,
+  companyFileUploadRequestsTableSql,
+  portalStateId,
 } from '@/db/schema';
 import {
   normalizedMemberName,
@@ -43,7 +45,7 @@ export type CompanyFileRow = {
 export class CompanyFileError extends Error {
   constructor(
     message: string,
-    public readonly status: 400 | 403 | 404 | 413 | 503,
+    public readonly status: 400 | 403 | 404 | 409 | 413 | 503,
   ) {
     super(message);
   }
@@ -76,6 +78,7 @@ export async function ensureCompanyFileTables(db: D1Database) {
     db.prepare(companyFileObjectsCompanyIndexSql),
     db.prepare(companyFileAssignmentsTableSql),
     db.prepare(companyFileCaseLinksTableSql),
+    db.prepare(companyFileUploadRequestsTableSql),
   ]);
 }
 
@@ -157,6 +160,30 @@ export async function findCompanyFile(id: string) {
     `)
     .bind(id)
     .first<CompanyFileRow>();
+}
+
+/** New draft uploads are staged originals until explicitly linked by the saved
+ * application. An abandoned attachment must not silently become AI input. */
+export const companyFileIntakeFilterSql = `
+  NOT EXISTS (SELECT 1 FROM company_file_upload_requests u WHERE u.file_id = f.id AND u.status = 'deleted')
+  AND (c.case_id IS NULL OR c.case_id NOT LIKE 'case-draft-%'
+    OR NOT EXISTS (SELECT 1 FROM company_file_upload_requests u WHERE u.file_id = f.id)
+    OR EXISTS (SELECT 1 FROM portal_state p, json_each(p.payload, '$.companyDocuments') d
+      WHERE p.id = '${portalStateId}' AND json_extract(d.value, '$.storageFileId') = f.id
+      AND json_extract(d.value, '$.caseId') = c.case_id))
+`;
+
+export async function isCompanyFileIntakeVisible(id: string) {
+  const db = companyFileDatabase();
+  await ensureCompanyFileTables(db);
+  return Boolean(
+    await db
+      .prepare(`SELECT f.id FROM company_file_objects f
+    LEFT JOIN company_file_case_links c ON c.file_id = f.id
+    WHERE f.id = ?1 AND ${companyFileIntakeFilterSql}`)
+      .bind(id)
+      .first(),
+  );
 }
 
 export function safeFileName(value: string) {

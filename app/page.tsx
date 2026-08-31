@@ -6,6 +6,7 @@ import { assignmentMemberId, assignmentDisplayName, newTaskAssignment } from '@/
 import { prependApplicationCase, recordBelongsToCase } from '@/lib/application-case-links';
 import { PortalSaveQueue, putPortalSnapshot } from '@/lib/portal-save-queue';
 import { ApplicationSubmission } from '@/lib/application-submission';
+import { uploadCompanyFile, type StoredCompanyFile } from '@/lib/company-file-upload';
 import { draftCaseId, type ApplicationDraft, type DraftEnvelope } from '@/lib/application-draft';
 import { ApplicationDetailFields, ApplicationDetailsSummary } from '@/components/application-details';
 import { applicationServices, applicationCompanyMaxLength, emptyApplicationDetails, parseApplicationDetails, ApplicationDetailsError, type ApplicationDetails, type ApplicationField } from '@/lib/application-details';
@@ -540,56 +541,6 @@ function evaluateDiagnosis(
     status: level === 'A' ? '사전점검 완료' : level === 'B' ? '보완자료 대기' : '처리 중단',
     updatedAt: '방금 전 · 가상 판정',
   };
-}
-
-type StoredCompanyFile = {
-  id: string;
-  fileName: string;
-  sizeBytes: number;
-  contentType: string;
-  createdAt: string;
-  assignedTrainee: string;
-  partnerMemberId: string;
-  caseId?: string;
-  category: CompanyDocument['category'];
-  title: string;
-};
-
-async function uploadCompanyFile({
-  file,
-  company,
-  title,
-  category,
-  assignedTrainee,
-  partnerMemberId,
-  caseId,
-  recordingConsent = false,
-}: {
-  file: File;
-  company: string;
-  title: string;
-  category: CompanyDocument['category'];
-  assignedTrainee: string;
-  partnerMemberId?: string;
-  caseId?: string;
-  recordingConsent?: boolean;
-}): Promise<StoredCompanyFile> {
-  const form = new FormData();
-  form.set('file', file);
-  form.set('company', company);
-  form.set('title', title);
-  form.set('category', category);
-  form.set('assignedTrainee', assignedTrainee);
-  if (partnerMemberId !== undefined) form.set('partnerMemberId', partnerMemberId);
-  if (caseId) form.set('caseId', caseId);
-  form.set('consent', 'confirmed');
-  if (recordingConsent) form.set('recordingConsent', 'confirmed');
-  const response = await fetch('/api/files', { method: 'POST', body: form });
-  const payload = await response.json() as { file?: StoredCompanyFile; error?: string };
-  if (!response.ok || !payload.file) {
-    throw new Error(payload.error || '기업자료 업로드에 실패했습니다.');
-  }
-  return payload.file;
 }
 
 function readableFileSize(bytes?: number) {
@@ -1947,6 +1898,7 @@ function DocumentCenter({
   isAdmin,
   currentName,
   currentMemberId,
+  currentUserId,
   notify,
 }: {
   documents: CompanyDocument[];
@@ -1955,6 +1907,7 @@ function DocumentCenter({
   isAdmin: boolean;
   currentName: string;
   currentMemberId: string | null;
+  currentUserId: string;
   notify: (message: string) => void;
 }) {
   const [query, setQuery] = useState('');
@@ -2003,6 +1956,7 @@ function DocumentCenter({
     setUploadError('');
     try {
       const stored = await uploadCompanyFile({
+        expectedUserId: currentUserId,
         file: uploadFile,
         company: uploadCompany,
         title: uploadTitle.trim() || uploadCategory,
@@ -2456,7 +2410,7 @@ function ApplicationForm({
       const data = await response.json() as DraftEnvelope & { error?: string };
       if (!response.ok || !data.draftId) throw new Error(data.error || '임시저장을 확인하지 못했습니다.');
       draftRef.current = { revision: data.revision, draftId: data.draftId };
-      setDraftMessage('입력 문구를 서버에 임시저장했습니다. 첨부파일은 새로고침 후 다시 선택해야 합니다.');
+      setDraftMessage('입력 문구를 서버에 임시저장했습니다. 첨부파일은 새로고침 후 다시 선택해야 합니다. 제출 중 실패했다면 같은 파일·자료정보로 재시도하면 기존 업로드를 재사용합니다.');
       onDraftSaved(selectedFiles.length > 0);
       return data.draftId;
     } finally { draftLock.current = false; setDraftBusy(false); }
@@ -3493,7 +3447,7 @@ export default function Home() {
           {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee} · {item.id.slice(-8)}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <><ApplicationDetailsSummary details={selectedCase.applicationDetails} /><ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /></> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}
           {view === 'tasks' ? <WorkManagement tasks={tasks} setTasks={setTasks} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} notify={notify} /> : null}
-          {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} notify={notify} /> : null}
+          {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} currentUserId={currentUser.id} notify={notify} /> : null}
           {view === 'ai-diagnosis' ? <DiagnosisPreflight assessments={diagnosisAssessments} setAssessments={setDiagnosisAssessments} cases={cases} documents={companyDocuments} onOpenFiles={() => navigate('files')} onRequestDocuments={(caseId) => { setSelectedCaseId(caseId); navigate('documents'); }} onQueueDraft={queueDiagnosisDraft} notify={notify} /> : null}
           {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} /> : null}
           {view === 'access' && isAdmin ? <AccessManagement notify={notify} members={members} setMembers={setMembers} registrationDisabled={dataStatus !== 'saved'} onRegistered={result => { setMembers(result.members); setMembersRevision(result.membersRevision); notify(`${result.member.name} 파트너 등록을 확인했습니다.`); }} /> : null}
@@ -3509,16 +3463,13 @@ export default function Home() {
                 const caseId = draftCaseId(draftId);
                 if (cases.some(item => item.id === caseId)) throw new Error('이미 접수된 신청입니다. 진행 기록을 확인해 주세요.');
                 const storedFiles: Array<{ category: CompanyDocument['category']; stored: StoredCompanyFile }> = [];
-                try {
-                  for (const item of files) {
-                    const { file, category } = item;
-                    const title = applicationAttachmentTitle(item);
-                    const stored = await uploadCompanyFile({ file, company, title, category, assignedTrainee: applicantName, partnerMemberId, caseId, recordingConsent });
-                    storedFiles.push({ category, stored });
-                  }
-                } catch (error) {
-                  await Promise.allSettled(storedFiles.map(({ stored }) => fetch(`/api/files/${stored.id}`, { method: 'DELETE' })));
-                  throw error;
+                // Preserve successful uploads if a later response fails. Stable request
+                // keys recover them on retry, including after draft reload/reselection.
+                for (const item of files) {
+                  const { file, category } = item;
+                  const title = applicationAttachmentTitle(item);
+                  const stored = await uploadCompanyFile({ file, company, title, category, assignedTrainee: applicantName, partnerMemberId, caseId, recordingConsent, expectedUserId: currentUser.id });
+                  if (!storedFiles.some(item => item.stored.id === stored.id)) storedFiles.push({ category, stored });
                 }
                 const service = selectedServices.join(' · ') || '기업컨설팅';
                 const nextCases = prependApplicationCase(cases, { id: caseId, company, service, trainee: applicantName, partnerMemberId, applicantType, applicationDetails: details, applicationDraftRevision: draftRevision, stage: '접수', consultationCount: 0, nextAction: stageNextActions.접수, updatedAt: '방금 전', idleDays: 0, urgent: details.urgency === '긴급' });

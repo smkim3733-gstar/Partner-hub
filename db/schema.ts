@@ -57,6 +57,19 @@ CREATE TABLE IF NOT EXISTS company_file_case_links (
 )
 `;
 
+// Retain request records after deletion so a delayed retry cannot recreate a file.
+export const companyFileUploadRequestsTableSql = `
+CREATE TABLE IF NOT EXISTS company_file_upload_requests (
+  owner_key TEXT NOT NULL,
+  request_key TEXT NOT NULL,
+  fingerprint TEXT NOT NULL,
+  file_id TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'ready', 'deleted')),
+  PRIMARY KEY (owner_key, request_key)
+)
+`;
+
 export const aiDiagnosisRunsTableSql = `
 CREATE TABLE IF NOT EXISTS ai_diagnosis_runs (
   id TEXT PRIMARY KEY NOT NULL,

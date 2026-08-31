@@ -33,6 +33,15 @@ export async function GET(
       throw new CompanyFileError('담당기업 자료만 내려받을 수 있습니다.', 403);
     }
 
+    const deleted = await companyFileDatabase()
+      .prepare(
+        "SELECT file_id FROM company_file_upload_requests WHERE file_id = ?1 AND status = 'deleted'",
+      )
+      .bind(id)
+      .first();
+    if (deleted)
+      throw new CompanyFileError('삭제 처리 중인 기업자료입니다.', 404);
+
     const object = await companyFileBucket().get(row.storage_key);
     if (!object)
       throw new CompanyFileError('원본파일을 찾을 수 없습니다.', 404);
@@ -80,6 +89,13 @@ export async function DELETE(
 
     const db = companyFileDatabase();
     await ensureCompanyFileTables(db);
+    // Tombstone first: an in-flight or delayed upload must never recreate the file.
+    await db
+      .prepare(
+        "UPDATE company_file_upload_requests SET status = 'deleted' WHERE file_id = ?1",
+      )
+      .bind(id)
+      .run();
     await companyFileBucket().delete(row.storage_key);
     await db.batch([
       db
