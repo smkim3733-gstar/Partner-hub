@@ -666,12 +666,7 @@ const baseTimeline: TimelineItem[] = [
 
 const services = applicationServices;
 
-const metricData = [
-  { label: '신규 접수', value: '12', hint: '어제보다 3건 증가', icon: ClipboardList },
-  { label: '서류 보완 필요', value: '8', hint: '오늘 3건 마감', icon: FileCheck2 },
-  { label: '이번 주 상담', value: '15', hint: '오늘 4건 예정', icon: CalendarDays },
-  { label: '계약 검토', value: '4', hint: '대표 승인 2건', icon: FileText },
-];
+
 
 function BrandMark() {
   return (
@@ -1192,22 +1187,39 @@ function AdminDashboard({
   onOpenCase,
   onOpenSchedule,
   schedule,
+  cases,
+  documents,
 }: {
-  onOpenCase: () => void;
+  onOpenCase: (item: CollaborationCase) => void;
   onOpenSchedule: () => void;
   schedule: ScheduleItem[];
+  cases: CollaborationCase[];
+  documents: CompanyDocument[];
 }) {
+  const attentionCases = cases
+    .filter((item) => item.urgent || item.idleDays >= 7)
+    .sort((a, b) => Number(b.urgent) - Number(a.urgent) || b.idleDays - a.idleDays);
+  const staleGroups = pipelineStages.flatMap((stage) => {
+    const items = cases.filter((item) => item.stage === stage && item.idleDays >= 7);
+    return items.length ? [{ stage, count: items.length, days: Math.max(...items.map((item) => item.idleDays)) }] : [];
+  });
+  const metrics = [
+    { label: '접수 단계', value: cases.filter((item) => item.stage === '접수').length, hint: '현재 접수 단계인 진행', icon: ClipboardList },
+    { label: '자료함 보완', value: documents.filter((item) => item.status === '요청중' || item.status === '보완필요').length, hint: '기업자료함의 요청중·보완필요 자료', icon: FileCheck2 },
+    { label: '상담 전·진행', value: cases.filter((item) => item.stage === '상담예약' || item.stage === '상담진행').length, hint: '상담예약·상담진행 단계', icon: CalendarDays },
+    { label: '계약 진행', value: cases.filter((item) => item.stage === '계약').length, hint: '현재 계약 단계인 진행', icon: FileText },
+  ];
   return (
     <>
       <PageIntro
-        eyebrow="2026년 8월 29일 토요일"
+        eyebrow={new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', dateStyle: 'full' })}
         title="오늘의 협업 진행현황"
-        description="지금 확인하거나 처리해야 할 업무를 우선순위에 따라 모았습니다."
-        action={<Pill tone="amber">대표 확인 필요 4건</Pill>}
+        description="저장된 진행 단계와 자료함을 기준으로 확인할 내용을 모았습니다."
+        action={<Pill tone={attentionCases.length ? 'amber' : 'green'}>긴급·장기 미진행 {attentionCases.length}건</Pill>}
       />
 
       <section aria-label="업무 요약" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {metricData.map(({ label, value, hint, icon: Icon }) => (
+        {metrics.map(({ label, value, hint, icon: Icon }) => (
           <Card key={label} className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
             <CardHeader>
               <CardTitle className="text-sm font-semibold text-slate-600">{label}</CardTitle>
@@ -1229,17 +1241,18 @@ function AdminDashboard({
             <div>
               <CardTitle className="flex items-center gap-2 text-lg font-bold">
                 <CalendarDays className="size-5 text-[#0877b8]" aria-hidden="true" />
-                김성민 대표 다음 상담일정
+                등록된 대표 일정
               </CardTitle>
-              <CardDescription className="mt-1">파트너 허브 상담과 Google Calendar의 바쁜 시간을 함께 확인합니다.</CardDescription>
+              <CardDescription className="mt-1">사이트에 저장된 순서로 최대 3건 표시합니다. 전체 날짜와 시간은 일정 화면에서 확인하세요.</CardDescription>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <Pill tone="green">Google 계정 연결 확인</Pill>
+              <Pill tone="slate">사이트 등록 {schedule.length}건</Pill>
               <SecondaryButton onClick={onOpenSchedule}>전체 일정 보기 <ChevronRight className="size-4" aria-hidden="true" /></SecondaryButton>
             </div>
           </div>
         </CardHeader>
         <CardContent className="divide-y pt-1">
+          {!schedule.length && <p className="py-5 text-sm text-slate-500">등록된 일정이 없습니다.</p>}
           {schedule.slice(0, 3).map((item) => (
             <div key={item.id} className="grid gap-2 py-1 sm:grid-cols-[84px_minmax(0,1fr)] sm:items-center">
               <p className="px-1 text-xs font-bold text-slate-500">{item.date}({item.weekday})</p>
@@ -1254,29 +1267,26 @@ function AdminDashboard({
           <CardHeader className="border-b border-slate-100">
             <CardTitle className="flex items-center gap-2 text-lg font-bold">
               <BriefcaseBusiness className="size-5 text-[#0877b8]" aria-hidden="true" />
-              대표 확인이 필요한 진행
+              긴급·장기 미진행 확인
             </CardTitle>
-            <CardDescription>다음 행동이 멈춰 있거나 승인 대기 중인 진행입니다.</CardDescription>
+            <CardDescription>긴급 표시 또는 저장된 경과일이 7일 이상인 진행입니다. 긴급 우선으로 최대 5건 표시합니다.</CardDescription>
           </CardHeader>
           <CardContent className="divide-y p-0">
-            {[
-              ['세림테크(가상)', '정책자금 · 특허', '견적 승인 대기', '오늘'],
-              ['가온푸드(가상)', '기업인증', '서류 보완 2건', '09.01'],
-              ['더원로지스(가상)', '영업권·법인전환', '상담 일정 확정 필요', '09.02'],
-            ].map(([company, service, status, due]) => (
+            {!attentionCases.length && <p className="p-5 text-sm text-slate-500">긴급·장기 미진행으로 표시된 진행이 없습니다.</p>}
+            {attentionCases.slice(0, 5).map((item) => (
               <button
-                key={company}
+                key={item.id}
                 type="button"
-                onClick={onOpenCase}
+                onClick={() => onOpenCase(item)}
                 className="grid min-h-[84px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 text-left transition-colors hover:bg-slate-50 focus-visible:bg-sky-50 focus-visible:outline-none sm:px-5"
               >
                 <span className="min-w-0">
-                  <span className="block truncate font-semibold text-slate-900">{company}</span>
-                  <span className="mt-1 block truncate text-xs text-slate-500">{service}</span>
+                  <span className="block truncate font-semibold text-slate-900">{item.company}</span>
+                  <span className="mt-1 block truncate text-xs text-slate-500">{item.service} · {item.flowPhase || item.stage}</span>
+                  <span className="mt-1 block truncate text-xs text-slate-600">{item.nextAction || '다음 행동 확인 필요'}</span>
                 </span>
                 <span className="flex items-center gap-3">
-                  <span className="hidden min-h-6 items-center rounded-full bg-[#eaf1f7] px-2.5 text-xs font-semibold text-[#15375b] sm:inline-flex">{status}</span>
-                  <span className="w-12 text-right text-xs font-semibold text-slate-500">{due}</span>
+                  <span className="text-right text-xs font-semibold text-slate-500">{item.urgent ? '긴급' : `${item.idleDays}일 정체`}</span>
                   <ChevronRight className="size-4 text-slate-400" aria-hidden="true" />
                 </span>
               </button>
@@ -1290,20 +1300,17 @@ function AdminDashboard({
               <Clock3 className="size-5 text-[#0877b8]" aria-hidden="true" />
               단계별 장기 미진행
             </CardTitle>
-            <CardDescription>7일 이상 다음 행동이 없는 진행입니다.</CardDescription>
+            <CardDescription>저장된 경과일이 7일 이상인 진행을 단계별로 집계합니다.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 pt-1">
-            {[
-              ['기업진단·사전검토', 5, '10일'],
-              ['상담·협의 진행', 7, '8일'],
-              ['계약 진행', 2, '12일'],
-            ].map(([label, count, days]) => (
-              <div key={String(label)} className="rounded-xl border border-slate-100 bg-slate-50 p-4">
+            {!staleGroups.length && <p className="py-4 text-sm text-slate-500">7일 이상 정체로 표시된 진행이 없습니다.</p>}
+            {staleGroups.map(({ stage, count, days }) => (
+              <div key={stage} className="rounded-xl border border-slate-100 bg-slate-50 p-4">
                 <div className="flex items-center justify-between gap-4">
-                  <p className="text-sm font-semibold text-slate-800">{label}</p>
+                  <p className="text-sm font-semibold text-slate-800">{stage}</p>
                   <Pill tone="red">{count}건</Pill>
                 </div>
-                <p className="mt-2 text-xs text-slate-500">최장 체류 {days}</p>
+                <p className="mt-2 text-xs text-slate-500">최장 경과 {days}일</p>
               </div>
             ))}
           </CardContent>
@@ -3481,7 +3488,7 @@ export default function Home() {
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
           {saveError && <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800"><p className="font-bold">변경사항 저장 확인 필요</p><p>{saveError}</p><p className="mt-1">입력은 현재 화면에 남아 있습니다. 새로고침하지 말고 연결을 확인한 뒤 다시 저장해 주세요. 로그인 만료 시 같은 계정으로 새 탭에서 로그인한 후 돌아오세요.</p><div className="mt-3 flex flex-wrap gap-3"><SecondaryButton onClick={() => { void saveQueue.flush().catch(() => {}); }} disabled={dataStatus === 'saving' || applicationPending}>변경사항 다시 저장</SecondaryButton><a className="inline-flex min-h-11 items-center underline" href="/account" target="_blank" rel="noopener noreferrer">새 탭에서 로그인</a><a className="inline-flex min-h-11 items-center underline" href="/" target="_blank" rel="noopener noreferrer">새 탭에서 최신 운영 내용 확인</a></div></div>}
-          {view === 'admin' ? <AdminDashboard onOpenCase={() => navigate('case')} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} /> : null}
+          {view === 'admin' ? <AdminDashboard onOpenCase={openCase} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} cases={cases} documents={companyDocuments} /> : null}
           {view === 'pipeline' ? <PipelineBoard cases={cases} setCases={setCases} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} onOpenCase={openCase} /> : null}
           {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee} · {item.id.slice(-8)}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <><ApplicationDetailsSummary details={selectedCase.applicationDetails} /><ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /></> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}
