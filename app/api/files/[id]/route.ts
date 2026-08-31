@@ -81,10 +81,12 @@ export async function DELETE(
     const db = companyFileDatabase();
     await ensureCompanyFileTables(db);
     await companyFileBucket().delete(row.storage_key);
-    await db
-      .prepare('DELETE FROM company_file_objects WHERE id = ?1')
-      .bind(id)
-      .run();
+    await db.batch([
+      db
+        .prepare('DELETE FROM company_file_assignments WHERE file_id = ?1')
+        .bind(id),
+      db.prepare('DELETE FROM company_file_objects WHERE id = ?1').bind(id),
+    ]);
     return new Response(null, { status: 204 });
   } catch (error) {
     const response = errorResponse(error);

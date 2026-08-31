@@ -54,12 +54,14 @@ export async function listIntakeSources(flow: ConsultingFlow) {
   await ensureCompanyFileTables(db);
   const rows = await db
     .prepare(`
-    SELECT id, original_name, category, size_bytes, created_at
-    FROM company_file_objects
-    WHERE company = ?1 AND assigned_trainee = ?2
-    ORDER BY created_at DESC, id DESC LIMIT 101
+    SELECT f.id, original_name, category, size_bytes, created_at
+    FROM company_file_objects f
+    LEFT JOIN company_file_assignments a ON a.file_id = f.id
+    WHERE company = ?1 AND ((a.partner_member_id <> '' AND a.partner_member_id = ?3)
+      OR (a.file_id IS NULL AND assigned_trainee = ?2))
+    ORDER BY created_at DESC, f.id DESC LIMIT 101
   `)
-    .bind(flow.company, flow.partnerName)
+    .bind(flow.company, flow.partnerName, flow.partnerId)
     .all<SourceMetadata>();
   return {
     files: rows.results.slice(0, 100).map(option),
@@ -75,7 +77,9 @@ async function loadSource(flow: ConsultingFlow, fileId: unknown) {
   if (
     !row ||
     row.company !== flow.company ||
-    row.assigned_trainee !== flow.partnerName
+    (row.partner_member_id != null
+      ? !row.partner_member_id || row.partner_member_id !== flow.partnerId
+      : row.assigned_trainee !== flow.partnerName)
   )
     throw new FlowError(
       '이 기업·담당 파트너에게 연결된 신청자료를 찾지 못했습니다.',

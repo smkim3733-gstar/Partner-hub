@@ -41,6 +41,15 @@ CREATE INDEX IF NOT EXISTS company_file_objects_company_idx
 ON company_file_objects (company, created_at)
 `;
 
+// A missing row denotes a legacy name assignment. An empty member ID explicitly
+// means administrator-only and must never fall back to a name match.
+export const companyFileAssignmentsTableSql = `
+CREATE TABLE IF NOT EXISTS company_file_assignments (
+  file_id TEXT PRIMARY KEY NOT NULL REFERENCES company_file_objects(id) ON DELETE CASCADE,
+  partner_member_id TEXT NOT NULL
+)
+`;
+
 export const aiDiagnosisRunsTableSql = `
 CREATE TABLE IF NOT EXISTS ai_diagnosis_runs (
   id TEXT PRIMARY KEY NOT NULL,

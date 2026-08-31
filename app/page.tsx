@@ -142,6 +142,7 @@ type CompanyDocument = {
   fileSize?: number;
   status: '요청중' | '제출완료' | '보완필요' | '검토완료';
   assignedTrainee: string;
+  partnerMemberId?: string;
   submittedBy: string;
   updatedAt: string;
   dueDate?: string;
@@ -534,6 +535,7 @@ type StoredCompanyFile = {
   contentType: string;
   createdAt: string;
   assignedTrainee: string;
+  partnerMemberId: string;
   category: CompanyDocument['category'];
   title: string;
 };
@@ -544,6 +546,7 @@ async function uploadCompanyFile({
   title,
   category,
   assignedTrainee,
+  partnerMemberId,
   recordingConsent = false,
 }: {
   file: File;
@@ -551,6 +554,7 @@ async function uploadCompanyFile({
   title: string;
   category: CompanyDocument['category'];
   assignedTrainee: string;
+  partnerMemberId?: string;
   recordingConsent?: boolean;
 }): Promise<StoredCompanyFile> {
   const form = new FormData();
@@ -559,6 +563,7 @@ async function uploadCompanyFile({
   form.set('title', title);
   form.set('category', category);
   form.set('assignedTrainee', assignedTrainee);
+  if (partnerMemberId !== undefined) form.set('partnerMemberId', partnerMemberId);
   form.set('consent', 'confirmed');
   if (recordingConsent) form.set('recordingConsent', 'confirmed');
   const response = await fetch('/api/files', { method: 'POST', body: form });
@@ -1924,6 +1929,7 @@ function DocumentCenter({
   members,
   isAdmin,
   currentName,
+  currentMemberId,
   notify,
 }: {
   documents: CompanyDocument[];
@@ -1931,6 +1937,7 @@ function DocumentCenter({
   members: TraineeMember[];
   isAdmin: boolean;
   currentName: string;
+  currentMemberId: string | null;
   notify: (message: string) => void;
 }) {
   const [query, setQuery] = useState('');
@@ -1940,13 +1947,13 @@ function DocumentCenter({
   const [uploadCompany, setUploadCompany] = useState('세림테크(가상)');
   const [uploadTitle, setUploadTitle] = useState('사업자등록증');
   const [uploadCategory, setUploadCategory] = useState<CompanyDocument['category']>('사업자등록증');
-  const [uploadAssignee, setUploadAssignee] = useState(isAdmin ? '박지현' : currentName);
+  const [uploadMemberId, setUploadMemberId] = useState(isAdmin ? '' : currentMemberId ?? '');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadConsent, setUploadConsent] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
 
-  const accountDocuments = isAdmin ? documents : documents.filter((document) => document.assignedTrainee === currentName);
+  const accountDocuments = isAdmin ? documents : documents.filter((document) => document.partnerMemberId != null ? document.partnerMemberId === currentMemberId : document.assignedTrainee === currentName);
   const companies = ['전체 기업', ...Array.from(new Set(accountDocuments.map((document) => document.company)))];
   const visibleDocuments = accountDocuments.filter((document) => {
     const keywordMatch = `${document.company} ${document.title} ${document.category} ${document.fileName ?? ''}`.toLowerCase().includes(query.toLowerCase());
@@ -1983,7 +1990,8 @@ function DocumentCenter({
         company: uploadCompany,
         title: uploadTitle.trim() || uploadCategory,
         category: uploadCategory,
-        assignedTrainee: uploadAssignee,
+        assignedTrainee: isAdmin ? members.find(member => member.id === uploadMemberId)?.name ?? '김성민 대표' : currentName,
+        partnerMemberId: isAdmin ? uploadMemberId : currentMemberId ?? undefined,
         recordingConsent: uploadCategory === '상담녹취' && uploadConsent,
       });
       setDocuments((current) => [
@@ -1997,6 +2005,7 @@ function DocumentCenter({
         fileSize: stored.sizeBytes,
         status: '제출완료',
         assignedTrainee: stored.assignedTrainee,
+        partnerMemberId: stored.partnerMemberId,
         submittedBy: isAdmin ? '김성민 대표' : currentName,
         updatedAt: '방금 전',
         version: 'V1',
@@ -2068,7 +2077,7 @@ function DocumentCenter({
           <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">보안 원본파일 등록</p><h2 id="upload-modal-title" className="mt-1 text-xl font-bold">기업자료 등록</h2><p className="mt-1 text-sm text-slate-500">파일은 공개주소가 없는 기업자료 전용 저장소에 등록됩니다.</p></div><button type="button" onClick={() => setUploadOpen(false)} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="자료등록 닫기"><X className="size-5" aria-hidden="true" /></button></div>
           <div className="grid max-h-[65vh] gap-5 overflow-y-auto p-5 md:grid-cols-2">
             <Field label="기업명" required><input value={uploadCompany} onChange={(event) => setUploadCompany(event.target.value)} className={inputClass} /></Field>
-            <Field label="담당 파트너" required><select value={uploadAssignee} onChange={(event) => setUploadAssignee(event.target.value)} className={inputClass} disabled={!isAdmin}>{members.filter((member) => member.status === '활성').map((member) => <option key={member.id}>{member.name.replace('(가상)', '')}</option>)}</select></Field>
+            <Field label="담당 계정" required hint="이메일을 확인해 동명이인을 구별하세요."><select value={uploadMemberId} onChange={(event) => setUploadMemberId(event.target.value)} className={inputClass} disabled={!isAdmin}>{isAdmin && <option value="">대표 전용 보관 · 파트너 공유 없음</option>}{members.filter((member) => member.status === '활성').map((member) => <option key={member.id} value={member.id}>{member.name.replace('(가상)', '').trim()} · {member.email}</option>)}</select></Field>
             <Field label="자료종류" required><select value={uploadCategory} onChange={(event) => { setUploadCategory(event.target.value as CompanyDocument['category']); setUploadConsent(false); }} className={inputClass}><option>사업자등록증</option><option>크레탑</option><option>재무제표</option><option value="상담녹취">녹취자료</option><option>인증·특허</option><option>계약자료</option><option>요청서류</option><option>기타자료</option></select></Field>
             <Field label="자료명" required><input value={uploadTitle} onChange={(event) => setUploadTitle(event.target.value)} className={inputClass} /></Field>
             <div className="md:col-span-2"><label className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 px-4 text-center hover:border-sky-300 hover:bg-sky-50"><Upload className="size-7 text-[#0877b8]" aria-hidden="true" /><span className="mt-3 text-sm font-semibold text-slate-800">{uploadFile?.name || 'PDF·이미지·엑셀·워드·녹취 파일 선택'}</span><span className="mt-1 text-xs text-slate-500">파일당 25MB 이하 · MP3, M4A, WAV 녹취 포함</span><input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.docx,.txt,.mp3,.m4a,.wav" className="sr-only" onChange={(event) => { const file = event.target.files?.[0] ?? null; setUploadFile(file); if (file && documentCategoryFromFileName(file.name) === '상담녹취') setUploadCategory('상담녹취'); setUploadConsent(false); setUploadError(''); }} /></label></div>
@@ -2357,10 +2366,12 @@ function ApplicationForm({
   onCancel,
   applicant,
   canUpload,
+  members,
 }: {
-  onDone: (files: ApplicationAttachment[], companyName: string, selectedServices: string[], applicantType: PartnerType, applicantName: string, recordingConsent: boolean) => Promise<void>;
+  onDone: (files: ApplicationAttachment[], companyName: string, selectedServices: string[], applicantType: PartnerType, applicantName: string, recordingConsent: boolean, partnerMemberId: string) => Promise<void>;
   onCancel: () => void;
   applicant: { name: string; email: string; memberType: PartnerType; detail: string; editable: boolean };
+  members: TraineeMember[];
   canUpload: boolean;
 }) {
   const [step, setStep] = useState(1);
@@ -2371,6 +2382,7 @@ function ApplicationForm({
   const [companyName, setCompanyName] = useState('세림테크(가상)');
   const [applicantType, setApplicantType] = useState<PartnerType>(applicant.memberType);
   const [applicantName, setApplicantName] = useState(applicant.name);
+  const [applicantMemberId, setApplicantMemberId] = useState('');
   const [uploadConsent, setUploadConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
@@ -2396,7 +2408,7 @@ function ApplicationForm({
     setSubmitting(true);
     setSubmitError('');
     try {
-      await onDone(selectedFiles, companyName, selectedServices, applicantType, applicantName.trim() || applicant.name, recordingConsent);
+      await onDone(selectedFiles, companyName, selectedServices, applicantType, applicantName.trim() || applicant.name, recordingConsent, applicantMemberId);
     } catch (error) {
       setSubmitError(error instanceof Error ? error.message : '협업신청을 제출하지 못했습니다.');
     } finally {
@@ -2439,8 +2451,9 @@ function ApplicationForm({
           {step === 1 ? (
             <div className="grid gap-5 md:grid-cols-2">
               <Field label="신청자 유형" required hint={applicant.editable ? '대표님은 대리 접수할 신청자 유형을 선택할 수 있습니다.' : '등록된 파트너 유형이 자동 적용됩니다.'}><select className={inputClass} value={applicantType} onChange={(event) => setApplicantType(event.target.value as PartnerType)} disabled={!applicant.editable}>{partnerTypes.map((type) => <option key={type}>{type}</option>)}</select></Field>
-              <Field label="신청자 이름" required><input className={inputClass} value={applicantName} onChange={(event) => { setApplicantName(event.target.value); setUploadConsent(false); setRecordingConsent(false); }} readOnly={!applicant.editable} /></Field>
-              <Field label="로그인 이메일"><input className={inputClass} value={applicant.email} readOnly /></Field>
+              <Field label="신청자 이름" required><input className={inputClass} value={applicantName} onChange={(event) => { setApplicantName(event.target.value); setApplicantMemberId(''); setUploadConsent(false); setRecordingConsent(false); }} readOnly={!applicant.editable} /></Field>
+              {applicant.editable && <Field label="자료 공유 계정" hint="선택한 계정에 신청 진행과 첨부자료를 연결합니다. 이름을 직접 바꾸면 대표 전용으로 돌아갑니다."><select className={inputClass} value={applicantMemberId} onChange={(event) => { const member = members.find(item => item.id === event.target.value); setApplicantMemberId(event.target.value); setApplicantName(member?.name.replace('(가상)', '').trim() ?? applicant.name); if (member) setApplicantType(partnerTypeOf(member)); setUploadConsent(false); setRecordingConsent(false); }}><option value="">대표 전용 접수 · 파트너 공유 없음</option>{members.filter(member => member.status === '활성').map(member => <option key={member.id} value={member.id}>{member.name} · {member.email}</option>)}</select></Field>}
+              <Field label="로그인 이메일"><input className={inputClass} value={members.find(member => member.id === applicantMemberId)?.email ?? applicant.email} readOnly /></Field>
               <Field label="소속·구분"><input className={inputClass} value={applicant.editable ? '관리자 대리접수' : applicant.detail} readOnly /></Field>
               <Field label="기업과의 관계" required>
                 <select className={inputClass} defaultValue="직접 상담 중">
@@ -3357,18 +3370,19 @@ export default function Home() {
           {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}
           {view === 'tasks' ? <WorkManagement tasks={tasks} setTasks={setTasks} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} /> : null}
-          {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} /> : null}
+          {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} notify={notify} /> : null}
           {view === 'ai-diagnosis' ? <DiagnosisPreflight assessments={diagnosisAssessments} setAssessments={setDiagnosisAssessments} cases={cases} documents={companyDocuments} onOpenFiles={() => navigate('files')} onRequestDocuments={(caseId) => { setSelectedCaseId(caseId); navigate('documents'); }} onQueueDraft={queueDiagnosisDraft} notify={notify} /> : null}
           {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} /> : null}
           {view === 'access' && isAdmin ? <AccessManagement notify={notify} members={members} setMembers={setMembers} registrationDisabled={dataStatus !== 'saved'} onRegistered={result => { setMembers(result.members); setMembersRevision(result.membersRevision); notify(`${result.member.name} 파트너 등록을 확인했습니다.`); }} /> : null}
-          {view === 'application' ? <ApplicationForm applicant={collaborationApplicant} canUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} onCancel={() => navigate('trainee')} onDone={async (files, companyName, selectedServices, applicantType, applicantName, recordingConsent) => {
+          {view === 'application' ? <ApplicationForm applicant={collaborationApplicant} members={members} canUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} onCancel={() => navigate('trainee')} onDone={async (files, companyName, selectedServices, applicantType, applicantName, recordingConsent, selectedMemberId) => {
+            const partnerMemberId = isAdmin ? selectedMemberId : currentUser.memberId ?? '';
             const company = companyName.trim() || '신규기업';
             const storedFiles: Array<{ category: CompanyDocument['category']; stored: StoredCompanyFile }> = [];
             try {
               for (const item of files) {
                 const { file, category } = item;
                 const title = applicationAttachmentTitle(item);
-                const stored = await uploadCompanyFile({ file, company, title, category, assignedTrainee: applicantName, recordingConsent });
+                const stored = await uploadCompanyFile({ file, company, title, category, assignedTrainee: applicantName, partnerMemberId, recordingConsent });
                 storedFiles.push({ category, stored });
               }
             } catch (error) {
@@ -3377,7 +3391,7 @@ export default function Home() {
             }
             const caseId = `case-${Date.now()}`;
             const service = selectedServices.join(' · ') || '기업컨설팅';
-            setCases((current) => current.some((item) => item.company === company) ? current : [{ id: caseId, company, service, trainee: applicantName, applicantType, stage: '접수', consultationCount: 0, nextAction: stageNextActions.접수, updatedAt: '방금 전', idleDays: 0, urgent: false }, ...current]);
+            setCases((current) => current.some((item) => item.company === company) ? current : [{ id: caseId, company, service, trainee: applicantName, partnerMemberId, applicantType, stage: '접수', consultationCount: 0, nextAction: stageNextActions.접수, updatedAt: '방금 전', idleDays: 0, urgent: false }, ...current]);
             setTimeline((current) => current.some((item) => item.caseId === caseId) ? current : [...current, { caseId, date: '방금 전', title: '협업신청 접수', detail: `${service} 요청 / 주관 파트너 ${applicantName}`, type: '접수', tone: 'navy' }]);
             if (storedFiles.length) {
               setCompanyDocuments((current) => [...storedFiles.map(({ category, stored }): CompanyDocument => ({
@@ -3390,6 +3404,7 @@ export default function Home() {
                 fileSize: stored.sizeBytes,
                 status: '제출완료',
                 assignedTrainee: stored.assignedTrainee,
+                partnerMemberId: stored.partnerMemberId,
                 submittedBy: isAdmin ? `김성민 대표 대리접수 · ${applicantType}` : `${applicantName} · ${applicantType}`,
                 updatedAt: '방금 전',
                 version: 'V1',

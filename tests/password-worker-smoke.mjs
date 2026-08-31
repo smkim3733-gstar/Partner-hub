@@ -19,9 +19,10 @@ import { GET as getState, PUT as saveState } from '@/app/api/state/route';
 import { POST as createPartner } from '@/app/api/admin/partners/route';
 import { GET as getFlow } from '@/app/api/consulting-flow/[caseId]/route';
 import { GET as getFile, DELETE as deleteFile } from '@/app/api/files/[id]/route';
+import { POST as uploadFile } from '@/app/api/files/route';
 export default { async fetch(request) {
   const pathname = new URL(request.url).pathname;
-  const routes = { 'POST /signup': registerPassword, 'POST /login': loginPassword, 'POST /logout': logoutPassword, 'POST /setup': setupPassword, 'POST /issue': createPasswordLink, 'GET /state': getState, 'PUT /save': saveState, 'POST /partners': createPartner };
+  const routes = { 'POST /signup': registerPassword, 'POST /login': loginPassword, 'POST /logout': logoutPassword, 'POST /setup': setupPassword, 'POST /issue': createPasswordLink, 'GET /state': getState, 'PUT /save': saveState, 'POST /partners': createPartner, 'POST /files': uploadFile };
   if (pathname.startsWith('/flow/') && request.method === 'GET') return getFlow(request, { params: Promise.resolve({ caseId: pathname.slice(6) }) });
   if (pathname.startsWith('/files/') && ['GET', 'DELETE'].includes(request.method)) return (request.method === 'GET' ? getFile : deleteFile)(request, { params: Promise.resolve({ id: pathname.slice(7) }) });
   const action = routes[request.method + ' ' + pathname];
@@ -319,6 +320,154 @@ try {
   );
   assert.ok(await bucket.get('synthetic-private-file'));
   checks.push('denied file deletion preserves the private R2 object');
+
+  async function uploadSource(headers, partnerMemberId) {
+    const form = new FormData();
+    form.set(
+      'file',
+      new File(['SYNTHETIC_NEW_ACCOUNT_FILE'], 'synthetic.txt', {
+        type: 'text/plain',
+      }),
+    );
+    form.set('company', '가상 본인기업');
+    form.set('title', '새 담당계정 자료');
+    form.set('category', '기타자료');
+    form.set('assignedTrainee', '가상 런타임파트너');
+    form.set('consent', 'confirmed');
+    if (partnerMemberId !== undefined)
+      form.set('partnerMemberId', partnerMemberId);
+    const multipart = new Response(form);
+    return mf.dispatchFetch(`${origin}/files`, {
+      method: 'POST',
+      headers: {
+        origin,
+        ...headers,
+        'content-type': multipart.headers.get('content-type'),
+      },
+      body: await multipart.arrayBuffer(),
+    });
+  }
+  const linked = await expect(
+    await uploadSource({ cookie }, peerId),
+    201,
+    'multipart upload binds same-name file to authenticated account',
+  );
+  const linkedFile = (await linked.json()).file;
+  assert.equal(linkedFile.partnerMemberId, memberId);
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT partner_member_id FROM company_file_assignments WHERE file_id = ?1',
+        )
+        .bind(linkedFile.id)
+        .first()
+    ).partner_member_id,
+    memberId,
+  );
+  await expect(
+    await call(`/files/${linkedFile.id}`, undefined, { cookie }),
+    200,
+    'same-name uploader downloads their new file',
+  );
+  const peerHeaders = {
+    'oai-authenticated-user-id': 'synthetic-peer',
+    'oai-authenticated-user-email': 'peer-runtime@example.invalid',
+  };
+  await expect(
+    await call(`/files/${linkedFile.id}`, undefined, peerHeaders),
+    403,
+    'other same-name account cannot download new ID-linked file',
+  );
+  await expect(
+    await call(`/files/${linkedFile.id}`, undefined, peerHeaders, 'DELETE'),
+    403,
+    'other same-name account cannot delete new ID-linked file',
+  );
+  await expect(
+    await uploadSource(ownerHeaders),
+    400,
+    'ambiguous administrator name requires explicit account selection',
+  );
+  await expect(
+    await uploadSource(ownerHeaders, 'nonexistent-member'),
+    400,
+    'invalid administrator file account is rejected',
+  );
+  const adminCreated = await expect(
+    await uploadSource(ownerHeaders, memberId),
+    201,
+    'administrator explicitly assigns a same-name account',
+  );
+  const adminFile = (await adminCreated.json()).file;
+  await expect(
+    await call(`/files/${adminFile.id}`, undefined, { cookie }),
+    200,
+    'selected partner downloads administrator-uploaded file',
+  );
+  const adminOnly = await expect(
+    await uploadSource(ownerHeaders, ''),
+    201,
+    'explicit administrator-only file is stored with no partner grant',
+  );
+  const adminOnlyFile = (await adminOnly.json()).file;
+  await expect(
+    await call(`/files/${adminOnlyFile.id}`, undefined, { cookie }),
+    403,
+    'administrator-only file rejects name-based partner access',
+  );
+  await expect(
+    await call(`/files/${linkedFile.id}`, undefined, { cookie }, 'DELETE'),
+    204,
+    'uploader can delete their own ID-linked file',
+  );
+  assert.equal(
+    await db
+      .prepare(
+        'SELECT file_id FROM company_file_assignments WHERE file_id = ?1',
+      )
+      .bind(linkedFile.id)
+      .first(),
+    null,
+  );
+  assert.equal(await bucket.get(`company-source/${linkedFile.id}`), null);
+  // Reapply every migration with existing legacy and ID-linked file rows in place.
+  for (const name of migrations) {
+    const migration = await readFile(
+      path.join(project, 'drizzle', name),
+      'utf8',
+    );
+    for (const sql of migration
+      .replace(/^--.*$/gm, '')
+      .split(';')
+      .map((s) => s.trim())
+      .filter(Boolean))
+      await db.prepare(sql).run();
+  }
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT partner_member_id FROM company_file_assignments WHERE file_id = ?1',
+        )
+        .bind(adminFile.id)
+        .first()
+    ).partner_member_id,
+    memberId,
+  );
+  assert.ok(await bucket.get('synthetic-private-file'));
+  assert.equal(
+    await db
+      .prepare(
+        'SELECT file_id FROM company_file_assignments WHERE file_id = ?1',
+      )
+      .bind('runtime-private-file')
+      .first(),
+    null,
+  );
+  checks.push(
+    'migration replay preserves ID assignment and leaves legacy file ownership untouched',
+  );
 
   const suspended = (
     await (await call('/state', undefined, ownerHeaders)).json()

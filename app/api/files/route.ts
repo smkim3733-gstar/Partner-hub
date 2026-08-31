@@ -5,6 +5,7 @@ import {
   CompanyFileError,
   ensureCompanyFileTables,
   mayUploadCompanyFiles,
+  resolveCompanyFileAssignment,
   safeFileName,
 } from '@/lib/company-files';
 import { PortalAccessError, requirePortalUser } from '@/lib/portal-auth';
@@ -81,6 +82,7 @@ export async function POST(request: Request) {
         'title',
         'category',
         'assignedTrainee',
+        'partnerMemberId',
         'consent',
         'recordingConsent',
       ].some((key) => form.getAll(key).length > 1)
@@ -131,11 +133,18 @@ export async function POST(request: Request) {
         400,
       );
 
-    const requestedAssignee = field(form, 'assignedTrainee', 80);
-    const assignedTrainee =
-      currentUser.role === 'admin'
-        ? requestedAssignee || '김성민 대표'
-        : (currentUser.memberName ?? currentUser.displayName);
+    const rawMemberId = form.get('partnerMemberId');
+    if (
+      rawMemberId !== null &&
+      (typeof rawMemberId !== 'string' || rawMemberId.length > 120)
+    )
+      throw new CompanyFileError('담당 계정 값이 올바르지 않습니다.', 400);
+    const { assignedTrainee, partnerMemberId } = resolveCompanyFileAssignment(
+      currentUser,
+      state,
+      typeof rawMemberId === 'string' ? rawMemberId.trim() : undefined,
+      field(form, 'assignedTrainee', 80),
+    );
     const id = crypto.randomUUID();
     storedKey = `company-source/${id}`;
     const createdAt = new Date().toISOString();
@@ -155,29 +164,35 @@ export async function POST(request: Request) {
     });
 
     try {
-      await db
-        .prepare(`
+      await db.batch([
+        db
+          .prepare(`
           INSERT INTO company_file_objects (
             id, storage_key, original_name, company, category, title,
             assigned_trainee, uploaded_by_user_id, uploaded_by_email,
             content_type, size_bytes, created_at
           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
         `)
-        .bind(
-          id,
-          storedKey,
-          originalName,
-          company,
-          category,
-          title,
-          assignedTrainee,
-          currentUser.id,
-          currentUser.email,
-          contentType,
-          fileValue.size,
-          createdAt,
-        )
-        .run();
+          .bind(
+            id,
+            storedKey,
+            originalName,
+            company,
+            category,
+            title,
+            assignedTrainee,
+            currentUser.id,
+            currentUser.email,
+            contentType,
+            fileValue.size,
+            createdAt,
+          ),
+        db
+          .prepare(
+            'INSERT INTO company_file_assignments (file_id, partner_member_id) VALUES (?1, ?2)',
+          )
+          .bind(id, partnerMemberId),
+      ]);
     } catch (error) {
       await bucket.delete(storedKey);
       storedKey = '';
@@ -193,6 +208,7 @@ export async function POST(request: Request) {
           contentType,
           createdAt,
           assignedTrainee,
+          partnerMemberId,
           category,
           title,
         },
