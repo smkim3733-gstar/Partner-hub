@@ -4,6 +4,8 @@ import { PartnerPasswordLink } from '@/components/partner-password-link';
 import { PartnerSignout } from '@/components/partner-signout';
 import { assignmentMemberId, assignmentDisplayName, newTaskAssignment } from '@/lib/assignment-display';
 import { prependApplicationCase, recordBelongsToCase } from '@/lib/application-case-links';
+import { PortalSaveQueue, putPortalSnapshot } from '@/lib/portal-save-queue';
+import { ApplicationSubmission } from '@/lib/application-submission';
 /* oxlint-disable next/no-html-link-for-pages -- Sites authentication routes require native top-level navigation. */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -2386,7 +2388,11 @@ function ApplicationForm({
   applicant,
   canUpload,
   members,
+  awaitingSave,
+  onDirty,
 }: {
+  awaitingSave: boolean;
+  onDirty: () => void;
   onDone: (files: ApplicationAttachment[], companyName: string, selectedServices: string[], applicantType: PartnerType, applicantName: string, recordingConsent: boolean, partnerMemberId: string) => Promise<void>;
   onCancel: () => void;
   applicant: { name: string; email: string; memberType: PartnerType; detail: string; editable: boolean };
@@ -2408,6 +2414,7 @@ function ApplicationForm({
   const stepLabels = ['신청자', '기업정보', '요청서비스', '자료·동의'];
 
   function toggleService(service: string) {
+    onDirty();
     setSelectedServices((current) =>
       current.includes(service) ? current.filter((item) => item !== service) : [...current, service],
     );
@@ -2442,7 +2449,7 @@ function ApplicationForm({
         eyebrow="협업신청"
         title="새 기업 협업신청"
         description="기업과 요청서비스를 등록하면 관리자 검토 후 담당자와 진행방향이 배정됩니다."
-        action={<Pill tone="navy">임시저장 가능</Pill>}
+        action={<Pill tone="navy">서버 저장 확인 후 접수</Pill>}
       />
 
       <Card className="mx-auto max-w-5xl border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
@@ -2466,7 +2473,9 @@ function ApplicationForm({
           </ol>
         </CardHeader>
 
-        <CardContent className="py-2">
+        <CardContent className="py-2" onChangeCapture={onDirty}>
+          <p className="mb-4 text-xs leading-5 text-slate-500">제출 전 입력은 이 화면에서만 유지됩니다. 제출 후 저장 완료를 확인할 때까지 화면을 닫지 마세요.</p>
+          <fieldset disabled={submitting || awaitingSave} className="min-w-0">
           {step === 1 ? (
             <div className="grid gap-5 md:grid-cols-2">
               <Field label="신청자 유형" required hint={applicant.editable ? '대표님은 대리 접수할 신청자 유형을 선택할 수 있습니다.' : '등록된 파트너 유형이 자동 적용됩니다.'}><select className={inputClass} value={applicantType} onChange={(event) => setApplicantType(event.target.value as PartnerType)} disabled={!applicant.editable}>{partnerTypes.map((type) => <option key={type}>{type}</option>)}</select></Field>
@@ -2551,19 +2560,21 @@ function ApplicationForm({
                   </div>
                 </div>
               </div>
-              {submitError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{submitError}</p> : null}
+
             </div>
           ) : null}
+          </fieldset>
+          {submitError ? <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{submitError}</p> : null}
+          {awaitingSave && <p className="mt-3 text-sm leading-6 text-amber-800">이 신청의 저장 완료를 확인하고 있습니다. 실패하면 아래 버튼으로 같은 신청을 다시 저장하세요. 첨부파일은 다시 올리지 않습니다.</p>}
         </CardContent>
 
         <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-between sm:px-6">
-          <SecondaryButton onClick={step === 1 ? onCancel : () => setStep((value) => Math.max(1, value - 1))} disabled={submitting}>
+          <SecondaryButton onClick={step === 1 ? onCancel : () => setStep((value) => Math.max(1, value - 1))} disabled={submitting || awaitingSave}>
             <ChevronLeft className="size-4" aria-hidden="true" /> {step === 1 ? '취소' : '이전'}
           </SecondaryButton>
           <div className="flex gap-3">
-            <SecondaryButton className="flex-1 sm:flex-none" disabled={submitting}>임시저장</SecondaryButton>
             <PrimaryButton className="flex-1 sm:flex-none" disabled={submitting} onClick={step === 4 ? submitApplication : () => setStep((value) => Math.min(4, value + 1))}>
-              {submitting ? '보안 저장 중' : step === 4 ? '협업신청 제출' : '다음'}
+              {submitting ? '저장 완료 확인 중' : awaitingSave ? '같은 신청 다시 저장' : step === 4 ? '협업신청 제출' : '다음'}
               {submitting ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : step < 4 ? <ChevronRight className="size-4" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
             </PrimaryButton>
           </div>
@@ -3019,7 +3030,30 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState<PortalUser | null>(null);
   const [accessError, setAccessError] = useState('');
   const [accessStatus, setAccessStatus] = useState<number | null>(null);
-  const saveTimerRef = useRef<number | null>(null);
+  const saveIdentityRef = useRef('');
+  const [applicationPending, setApplicationPending] = useState(false);
+  const [applicationAwaitingSave, setApplicationAwaitingSave] = useState(false);
+  const [applicationDirty, setApplicationDirty] = useState(false);
+  const [applicationSubmission] = useState(() => new ApplicationSubmission<{ state: PortalState; caseId: string; fileCount: number; applicantType: PartnerType }>());
+  const [saveQueue] = useState(() => new PortalSaveQueue<PortalState>(
+    state => putPortalSnapshot(state, saveIdentityRef.current),
+    (status, error) => { setDataStatus(status); setSaveError(error ?? ''); },
+    revision => setMembersRevision(current => Math.max(current, revision)),
+  ));
+
+  useEffect(() => {
+    saveQueue.activate();
+    return () => saveQueue.dispose();
+  }, [saveQueue]);
+
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!saveQueue.hasUnsavedChanges() && !applicationPending && !applicationDirty) return;
+      event.preventDefault();
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [saveQueue, applicationPending, applicationDirty]);
 
   useEffect(() => {
     // Re-check authentication if Back restores a private page from the browser's page cache after logout.
@@ -3046,6 +3080,7 @@ export default function Home() {
 
         if (payload.state !== null && payload.state !== undefined) {
           if (!isPortalState(payload.state)) throw new Error('Invalid portal state');
+          saveQueue.initialize(payload.state);
           setConsultationNumber(payload.state.consultationNumber);
           setTimeline(payload.state.timeline);
           setSchedule(payload.state.schedule);
@@ -3057,6 +3092,7 @@ export default function Home() {
           setDiagnosisAssessments(payload.state.diagnosisAssessments ?? sampleDiagnosisAssessments);
         }
 
+        saveIdentityRef.current = payload.currentUser.id;
         setCurrentUser(payload.currentUser);
         setAccessStatus(null);
         if (payload.currentUser.role === 'trainee') {
@@ -3077,13 +3113,10 @@ export default function Home() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [saveQueue]);
 
   useEffect(() => {
     if (!persistenceReady || !currentUser) return;
-    // oxlint-disable-next-line react/react-compiler -- Expose the queued DB write during the debounce so direct registration cannot race unsaved edits.
-    setDataStatus('saving');
-    if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
     const state: PortalState = {
       version: 1,
       consultationNumber,
@@ -3097,35 +3130,8 @@ export default function Home() {
       diagnosisAssessments,
     };
 
-    saveTimerRef.current = window.setTimeout(async () => {
-      setDataStatus('saving');
-      try {
-        const response = await fetch('/api/state', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ state }),
-        });
-        const payload = await response.json() as { error?: string; membersRevision?: number };
-        if (!response.ok) {
-          if (response.status === 401 || response.status === 403) {
-            setAccessStatus(response.status);
-            setAccessError(payload.error || '저장 권한이 없습니다.');
-          }
-          throw new Error(payload.error || '운영 데이터를 저장하지 못했습니다.');
-        }
-        if (typeof payload.membersRevision === 'number') setMembersRevision(current => Math.max(current, payload.membersRevision!));
-        setSaveError('');
-        setDataStatus('saved');
-      } catch (error) {
-        setSaveError(error instanceof Error ? error.message : '운영 데이터를 저장하지 못했습니다.');
-        setDataStatus('error');
-      }
-    }, 700);
-
-    return () => {
-      if (saveTimerRef.current !== null) window.clearTimeout(saveTimerRef.current);
-    };
-  }, [persistenceReady, currentUser, consultationNumber, timeline, schedule, tasks, companyDocuments, cases, members, membersRevision, diagnosisAssessments]);
+    saveQueue.update(state);
+  }, [saveQueue, persistenceReady, currentUser, consultationNumber, timeline, schedule, tasks, companyDocuments, cases, members, membersRevision, diagnosisAssessments]);
 
   const currentMember = currentUser?.role === 'trainee' ? members.find((member) => member.id === currentUser.memberId) ?? null : null;
   const selectedCase = cases.find((item) => item.id === selectedCaseId) ?? cases[0] ?? sampleCases[0];
@@ -3189,6 +3195,11 @@ export default function Home() {
   const dataStatusTone = dataStatus === 'saved' ? 'green' : dataStatus === 'error' ? 'red' : 'blue';
 
   function navigate(next: View) {
+    if (applicationPending && next !== 'application') { notify('신청 저장을 확인 중입니다. 같은 신청 저장을 완료한 뒤 이동해 주세요.'); return; }
+    if (applicationDirty && next !== 'application') {
+      if (!window.confirm('제출 전 입력은 저장되지 않습니다. 신청 화면을 나갈까요?')) return;
+      setApplicationDirty(false);
+    }
     if (!allowedViews.has(next)) {
       notify('현재 로그인 계정에는 이 메뉴 권한이 없습니다.');
       return;
@@ -3361,7 +3372,7 @@ export default function Home() {
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[244px] flex-col bg-[#112f50] text-white lg:flex">
         <div className="flex h-[76px] items-center gap-3 border-b border-white/10 px-5"><BrandMark /><div><p className="text-[11px] font-semibold tracking-[0.18em] text-blue-200">KEVE</p><p className="text-[15px] font-bold tracking-tight">한기평 파트너 허브</p></div></div>
         <nav aria-label="주요 메뉴" className="flex-1 space-y-1 overflow-y-auto p-4">{availableNavItems.map(navButton)}</nav>
-        <div className="m-4 min-h-24 rounded-xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-blue-200">{isAdmin ? '대표 관리자' : currentMember ? partnerTypeOf(currentMember) : '파트너'}</p><p className="mt-1 text-sm font-semibold">{accountDisplayName}</p><p className="mt-2 flex items-center gap-1 text-xs text-blue-100/80"><ShieldCheck className="size-3.5" aria-hidden="true" /> {currentUser.authMethod === 'password' ? '이메일 로그인 확인' : 'ChatGPT 로그인 확인'}</p>{currentUser.authMethod === 'password' && <PartnerSignout disabled={dataStatus !== 'saved'} />}</div>
+        <div className="m-4 min-h-24 rounded-xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-blue-200">{isAdmin ? '대표 관리자' : currentMember ? partnerTypeOf(currentMember) : '파트너'}</p><p className="mt-1 text-sm font-semibold">{accountDisplayName}</p><p className="mt-2 flex items-center gap-1 text-xs text-blue-100/80"><ShieldCheck className="size-3.5" aria-hidden="true" /> {currentUser.authMethod === 'password' ? '이메일 로그인 확인' : 'ChatGPT 로그인 확인'}</p>{currentUser.authMethod === 'password' && <PartnerSignout disabled={dataStatus !== 'saved' || applicationPending || applicationDirty} />}</div>
       </aside>
 
       {mobileOpen ? (
@@ -3371,7 +3382,7 @@ export default function Home() {
             <div className="mb-5 flex items-center justify-between"><div className="flex items-center gap-3"><BrandMark /><span className="font-bold">파트너 허브</span></div><button type="button" onClick={() => setMobileOpen(false)} className="grid size-11 place-items-center rounded-xl hover:bg-white/10" aria-label="메뉴 닫기"><X /></button></div>
             <nav aria-label="모바일 메뉴" className="space-y-2">{availableNavItems.map(navButton)}</nav>
             <div className="mt-5 flex min-h-12 w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold"><span>{accountDisplayName}</span><ShieldCheck className="size-4" aria-hidden="true" /></div>
-            {currentUser.authMethod === 'password' && <PartnerSignout disabled={dataStatus !== 'saved'} />}
+            {currentUser.authMethod === 'password' && <PartnerSignout disabled={dataStatus !== 'saved' || applicationPending || applicationDirty} />}
           </aside>
         </div>
       ) : null}
@@ -3389,7 +3400,7 @@ export default function Home() {
         </header>
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
-          {saveError && <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800"><p className="font-bold">변경사항 저장 확인 필요</p><p>{saveError}</p><p className="mt-1">새로고침하면 저장되지 않은 입력은 사라집니다. 필요한 내용을 별도로 보관한 뒤 다시 시도해 주세요.</p></div>}
+          {saveError && <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800"><p className="font-bold">변경사항 저장 확인 필요</p><p>{saveError}</p><p className="mt-1">입력은 현재 화면에 남아 있습니다. 새로고침하지 말고 연결을 확인한 뒤 다시 저장해 주세요. 로그인 만료 시 같은 계정으로 새 탭에서 로그인한 후 돌아오세요.</p><div className="mt-3 flex flex-wrap gap-3"><SecondaryButton onClick={() => { void saveQueue.flush().catch(() => {}); }} disabled={dataStatus === 'saving' || applicationPending}>변경사항 다시 저장</SecondaryButton><a className="inline-flex min-h-11 items-center underline" href="/account" target="_blank" rel="noopener noreferrer">새 탭에서 로그인</a></div></div>}
           {view === 'admin' ? <AdminDashboard onOpenCase={() => navigate('case')} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} /> : null}
           {view === 'pipeline' ? <PipelineBoard cases={cases} setCases={setCases} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} onOpenCase={openCase} /> : null}
           {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee} · {item.id.slice(-8)}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
@@ -3399,47 +3410,59 @@ export default function Home() {
           {view === 'ai-diagnosis' ? <DiagnosisPreflight assessments={diagnosisAssessments} setAssessments={setDiagnosisAssessments} cases={cases} documents={companyDocuments} onOpenFiles={() => navigate('files')} onRequestDocuments={(caseId) => { setSelectedCaseId(caseId); navigate('documents'); }} onQueueDraft={queueDiagnosisDraft} notify={notify} /> : null}
           {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} /> : null}
           {view === 'access' && isAdmin ? <AccessManagement notify={notify} members={members} setMembers={setMembers} registrationDisabled={dataStatus !== 'saved'} onRegistered={result => { setMembers(result.members); setMembersRevision(result.membersRevision); notify(`${result.member.name} 파트너 등록을 확인했습니다.`); }} /> : null}
-          {view === 'application' ? <ApplicationForm applicant={collaborationApplicant} members={members} canUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} onCancel={() => navigate('trainee')} onDone={async (files, companyName, selectedServices, applicantType, applicantName, recordingConsent, selectedMemberId) => {
-            const partnerMemberId = isAdmin ? selectedMemberId : currentUser.memberId ?? '';
-            const company = companyName.trim() || '신규기업';
-            const caseId = `case-${crypto.randomUUID()}`;
-            const storedFiles: Array<{ category: CompanyDocument['category']; stored: StoredCompanyFile }> = [];
+          {view === 'application' ? <ApplicationForm awaitingSave={applicationAwaitingSave} onDirty={() => setApplicationDirty(true)} applicant={collaborationApplicant} members={members} canUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} onCancel={() => navigate('trainee')} onDone={async (files, companyName, selectedServices, applicantType, applicantName, recordingConsent, selectedMemberId) => {
+            setApplicationPending(true);
             try {
-              for (const item of files) {
-                const { file, category } = item;
-                const title = applicationAttachmentTitle(item);
-                const stored = await uploadCompanyFile({ file, company, title, category, assignedTrainee: applicantName, partnerMemberId, caseId, recordingConsent });
-                storedFiles.push({ category, stored });
-              }
+              const result = await applicationSubmission.submit(async () => {
+                const initial: PortalState = { version: 1, consultationNumber, timeline, schedule, tasks, companyDocuments, cases, members, membersRevision, diagnosisAssessments };
+                saveQueue.update(initial);
+                await saveQueue.flush();
+                const partnerMemberId = isAdmin ? selectedMemberId : currentUser.memberId ?? '';
+                const company = companyName.trim() || '신규기업';
+                const caseId = `case-${crypto.randomUUID()}`;
+                const storedFiles: Array<{ category: CompanyDocument['category']; stored: StoredCompanyFile }> = [];
+                try {
+                  for (const item of files) {
+                    const { file, category } = item;
+                    const title = applicationAttachmentTitle(item);
+                    const stored = await uploadCompanyFile({ file, company, title, category, assignedTrainee: applicantName, partnerMemberId, caseId, recordingConsent });
+                    storedFiles.push({ category, stored });
+                  }
+                } catch (error) {
+                  await Promise.allSettled(storedFiles.map(({ stored }) => fetch(`/api/files/${stored.id}`, { method: 'DELETE' })));
+                  throw error;
+                }
+                const service = selectedServices.join(' · ') || '기업컨설팅';
+                const nextCases = prependApplicationCase(cases, { id: caseId, company, service, trainee: applicantName, partnerMemberId, applicantType, stage: '접수', consultationCount: 0, nextAction: stageNextActions.접수, updatedAt: '방금 전', idleDays: 0, urgent: false });
+                const nextTimeline = [...timeline, { caseId, date: '방금 전', title: '협업신청 접수', detail: `${service} 요청 / 주관 파트너 ${applicantName}`, type: '접수', tone: 'navy' }];
+                const nextDocuments = [...storedFiles.map(({ category, stored }): CompanyDocument => ({
+                  id: `doc-${stored.id}`, storageFileId: stored.id, fileName: stored.fileName, fileSize: stored.sizeBytes,
+                  company, title: stored.title, category, status: '제출완료', assignedTrainee: stored.assignedTrainee,
+                  partnerMemberId: stored.partnerMemberId, caseId: stored.caseId ?? caseId,
+                  submittedBy: isAdmin ? `김성민 대표 대리접수 · ${applicantType}` : `${applicantName} · ${applicantType}`,
+                  updatedAt: '방금 전', version: 'V1', sensitive: true,
+                })), ...companyDocuments];
+                return { state: { ...initial, cases: nextCases, timeline: nextTimeline, companyDocuments: nextDocuments }, caseId, fileCount: storedFiles.length, applicantType };
+              }, async ({ state, caseId }) => {
+                setApplicationAwaitingSave(true);
+                setCases(state.cases);
+                setTimeline(state.timeline);
+                setCompanyDocuments(state.companyDocuments);
+                setSelectedCaseId(caseId);
+                saveQueue.update(state);
+                await saveQueue.flush();
+              });
+              setApplicationDirty(false);
+              setApplicationPending(false);
+              setApplicationAwaitingSave(false);
+              notify(`${result.applicantType} 협업신청 저장을 확인했습니다.${result.fileCount ? ` 첨부 ${result.fileCount}건을 연결했습니다.` : ''}`);
+              setView(allowedViews.has('pipeline') ? 'pipeline' : 'trainee');
+              setMobileOpen(false);
+              window.scrollTo({ top: 0, behavior: 'smooth' });
             } catch (error) {
-              await Promise.allSettled(storedFiles.map(({ stored }) => fetch(`/api/files/${stored.id}`, { method: 'DELETE' })));
+              setApplicationPending(applicationSubmission.hasPrepared());
               throw error;
             }
-            const service = selectedServices.join(' · ') || '기업컨설팅';
-            setCases((current) => prependApplicationCase(current, { id: caseId, company, service, trainee: applicantName, partnerMemberId, applicantType, stage: '접수', consultationCount: 0, nextAction: stageNextActions.접수, updatedAt: '방금 전', idleDays: 0, urgent: false }));
-            setSelectedCaseId(caseId);
-            setTimeline((current) => current.some((item) => item.caseId === caseId) ? current : [...current, { caseId, date: '방금 전', title: '협업신청 접수', detail: `${service} 요청 / 주관 파트너 ${applicantName}`, type: '접수', tone: 'navy' }]);
-            if (storedFiles.length) {
-              setCompanyDocuments((current) => [...storedFiles.map(({ category, stored }): CompanyDocument => ({
-                id: `file-${stored.id}`,
-                company,
-                title: stored.title,
-                category,
-                fileName: stored.fileName,
-                storageFileId: stored.id,
-                fileSize: stored.sizeBytes,
-                status: '제출완료',
-                assignedTrainee: stored.assignedTrainee,
-                partnerMemberId: stored.partnerMemberId,
-                caseId: stored.caseId ?? caseId,
-                submittedBy: isAdmin ? `김성민 대표 대리접수 · ${applicantType}` : `${applicantName} · ${applicantType}`,
-                updatedAt: '방금 전',
-                version: 'V1',
-                sensitive: ['사업자등록증', '크레탑', '재무제표', '상담녹취', '계약자료'].includes(category),
-              })), ...current]);
-            }
-            notify(storedFiles.length ? `${applicantType} 협업신청과 보안 원본파일 ${storedFiles.length}건을 등록했습니다.` : `${applicantType} 협업신청을 진행현황에 접수했습니다.`);
-            navigate(allowedViews.has('pipeline') ? 'pipeline' : 'trainee');
           }} /> : null}
           {view === 'case' ? <CaseDetail key={selectedCase.id} caseItem={selectedCase} timeline={selectedCaseTimeline} documents={companyDocuments} allCases={cases} members={members} onWorkflow={() => navigate('workflow')} onConsult={() => navigate(selectedCase.flowManaged ? 'workflow' : 'consultation')} onDocuments={() => navigate(selectedCase.flowManaged ? 'workflow' : 'documents')} onSetDocumentDueDates={updateDocumentDueDates} onDocumentModal={() => navigate('workflow')} canFileUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} canQuoteContract={isAdmin || Boolean(currentMember?.permissions.quoteContract)} /> : null}
           {view === 'consultation' ? <ConsultationForm key={selectedCase.id} number={consultationNumber} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={saveConsultation} /> : null}

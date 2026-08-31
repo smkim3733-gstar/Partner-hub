@@ -514,6 +514,40 @@ try {
     repeatReload.companyDocuments.map((item) => item.caseId).sort(),
     ['runtime-repeat-a', 'runtime-repeat-b'],
   );
+  const repeatIdentity = (
+    await (await call('/state', undefined, { cookie })).json()
+  ).currentUser.id;
+  await expect(
+    await call(
+      '/save',
+      { state: repeatState, expectedUserId: repeatIdentity },
+      { cookie },
+      'PUT',
+    ),
+    200,
+    'retry after an uncertain response keeps the original application and uploaded file IDs',
+  );
+  const retried = (await (await call('/state', undefined, { cookie })).json())
+    .state;
+  for (const field of ['cases', 'timeline', 'companyDocuments'])
+    assert.deepEqual(retried[field], repeatReload[field]);
+  const beforeWrongIdentity = (
+    await db.prepare('SELECT payload FROM portal_state').first()
+  ).payload;
+  await expect(
+    await call(
+      '/save',
+      { state: repeatState, expectedUserId: repeatIdentity },
+      ownerHeaders,
+      'PUT',
+    ),
+    403,
+    'a different authenticated account cannot resume the original page save',
+  );
+  assert.equal(
+    (await db.prepare('SELECT payload FROM portal_state').first()).payload,
+    beforeWrongIdentity,
+  );
   const intakeA = await expect(
     await call('/intake/runtime-repeat-a', undefined, ownerHeaders),
     200,

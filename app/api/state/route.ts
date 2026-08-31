@@ -87,7 +87,10 @@ export async function PUT(request: Request) {
       );
     }
 
-    const body = JSON.parse(bodyText) as { state?: unknown } | null;
+    const body = JSON.parse(bodyText) as {
+      state?: unknown;
+      expectedUserId?: unknown;
+    } | null;
     if (
       !body?.state ||
       typeof body.state !== 'object' ||
@@ -101,6 +104,14 @@ export async function PUT(request: Request) {
 
     const result = await mutatePortalState(async (currentState) => {
       const currentUser = await requirePortalUser(request, currentState);
+      if (
+        body.expectedUserId !== undefined &&
+        body.expectedUserId !== currentUser.id
+      )
+        throw new PortalAccessError(
+          '로그인 계정이 변경되었습니다. 작성하던 계정으로 다시 로그인한 후 저장해 주세요.',
+          403,
+        );
       const merged = mergeStateForPortalUser(
         currentUser.role === 'admin'
           ? currentState
