@@ -11,6 +11,10 @@ import {
 } from '@/lib/consulting-flow-store';
 import { FlowError } from '@/lib/consulting-flow';
 import {
+  ApplicationDetailsError,
+  preserveApplicationDetails,
+} from '@/lib/application-details';
+import {
   membersRevisionOf,
   sameMemberRecords,
 } from '@/lib/partner-registration';
@@ -112,12 +116,15 @@ export async function PUT(request: Request) {
           '로그인 계정이 변경되었습니다. 작성하던 계정으로 다시 로그인한 후 저장해 주세요.',
           403,
         );
-      const merged = mergeStateForPortalUser(
-        currentUser.role === 'admin'
-          ? currentState
-          : await stateWithConsultingFlows(currentState),
-        body.state,
-        currentUser,
+      const merged = preserveApplicationDetails(
+        currentState,
+        mergeStateForPortalUser(
+          currentUser.role === 'admin'
+            ? currentState
+            : await stateWithConsultingFlows(currentState),
+          body.state,
+          currentUser,
+        ),
       ) as Record<string, unknown>;
       const memberChange =
         currentUser.role === 'admin' &&
@@ -147,6 +154,8 @@ export async function PUT(request: Request) {
     if (accessResponse) return accessResponse;
     if (error instanceof PortalStateConflict)
       return privateJson({ error: error.message }, { status: 409 });
+    if (error instanceof ApplicationDetailsError)
+      return privateJson({ error: error.message }, { status: 400 });
     if (error instanceof FlowError)
       return privateJson({ error: error.message }, { status: error.status });
     if (error instanceof SyntaxError)

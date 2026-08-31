@@ -478,12 +478,30 @@ try {
   const repeatState = (
     await (await call('/state', undefined, { cookie })).json()
   ).state;
+  const applicationDetails = {
+    version: 1,
+    relationship: '기존 고객',
+    collaborator: '가상 협업 메모',
+    message: '가상 전달사항',
+    registrationNumber: '0000000000',
+    representative: '가상 대표',
+    companyType: '법인사업자',
+    business: '가상 제조',
+    location: '가상시',
+    contactName: '가상 담당',
+    contactPhone: '010-0000-0000',
+    requestedStart: '2026-09-01',
+    urgency: '긴급',
+    requestBackground: '가상 요청 배경',
+  };
   for (const file of [repeatFileA, repeatFileB]) {
     repeatState.cases.push({
       id: file.caseId,
       company: '가상 본인기업',
       trainee: '가상 런타임파트너',
       partnerMemberId: memberId,
+      service: '정책자금',
+      applicationDetails,
     });
     repeatState.companyDocuments.push({
       id: `doc-${file.id}`,
@@ -510,6 +528,30 @@ try {
   ).state;
   assert.ok(repeatReload.cases.some((item) => item.id === 'runtime-repeat-a'));
   assert.ok(repeatReload.cases.some((item) => item.id === 'runtime-repeat-b'));
+  assert.deepEqual(
+    repeatReload.cases.find((item) => item.id === 'runtime-repeat-a')
+      .applicationDetails,
+    applicationDetails,
+  );
+  checks.push(
+    'all submitted company and request fields survive a real D1 reload',
+  );
+  const invalidApplicationState = structuredClone(repeatState);
+  invalidApplicationState.cases.find(
+    (item) => item.id === 'runtime-repeat-a',
+  ).applicationDetails.requestBackground = '';
+  const beforeInvalidDetails = (
+    await db.prepare('SELECT payload FROM portal_state').first()
+  ).payload;
+  await expect(
+    await call('/save', { state: invalidApplicationState }, { cookie }, 'PUT'),
+    400,
+    'invalid application details are rejected before writing',
+  );
+  assert.equal(
+    (await db.prepare('SELECT payload FROM portal_state').first()).payload,
+    beforeInvalidDetails,
+  );
   assert.deepEqual(
     repeatReload.companyDocuments.map((item) => item.caseId).sort(),
     ['runtime-repeat-a', 'runtime-repeat-b'],
