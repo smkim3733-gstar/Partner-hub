@@ -1,5 +1,6 @@
 'use client';
 import { prepareConsultation, type ConsultationPayload } from '@/lib/legacy-consultation';
+import { prepareDocumentRequest } from '@/lib/legacy-document-request';
 import { googleCalendarDraftUrl, scheduleDateGroups } from '@/lib/schedule-display';
 import { PartnerAuthPanel } from '@/components/partner-auth-panel';
 import { PartnerPasswordLink } from '@/components/partner-password-link';
@@ -164,6 +165,7 @@ type CompanyDocument = {
 type DocumentRequestPayload = {
   items: Array<{ name: string; required: boolean }>;
   dueDate: string;
+  skippedOutstanding: number;
 };
 
 function formatKoreanDate(dateValue: string) {
@@ -2925,7 +2927,7 @@ function ConsultationForm({
   );
 }
 
-function DocumentRequest({ caseItem, onSave, onCancel }: { caseItem: CollaborationCase; onSave: (payload: DocumentRequestPayload) => void; onCancel: () => void }) {
+function DocumentRequest({ caseItem, requestNumber, outstandingNames, onSave, onCancel }: { caseItem: CollaborationCase; requestNumber: number; outstandingNames: string[]; onSave: (payload: DocumentRequestPayload) => void; onCancel: () => void }) {
   const [items, setItems] = useState([
     { name: '사업자등록증', required: true },
     { name: '크레탑 기업정보', required: true },
@@ -2944,16 +2946,14 @@ function DocumentRequest({ caseItem, onSave, onCancel }: { caseItem: Collaborati
 
   function saveRequest() {
     const dueDate = dueDateRef.current?.value ?? '';
-    if (!dueDate) {
-      setFormError('제출기한을 선택해 주세요.');
-      return;
-    }
-    if (!items.length) {
-      setFormError('요청할 서류를 한 건 이상 추가해 주세요.');
+    const result = prepareDocumentRequest(items, dueDate, outstandingNames);
+    if (!result.ok) {
+      setFormError(result.error);
+      if (result.field === 'dueDate') dueDateRef.current?.focus();
       return;
     }
     setFormError('');
-    onSave({ items, dueDate });
+    onSave(result);
   }
 
   return (
@@ -2961,21 +2961,19 @@ function DocumentRequest({ caseItem, onSave, onCancel }: { caseItem: Collaborati
       <PageIntro
         eyebrow="독립 업무 등록"
         title="새 서류요청"
-        description="접수·상담·계약·사후관리 어느 단계에서든 요청할 수 있으며 관련 상담 연결은 선택사항입니다."
+        description="현재 진행의 담당 파트너에게 제출할 자료와 기한을 등록합니다. 이미 요청 중인 같은 서류는 중복 등록하지 않습니다."
         action={<Pill tone="amber">{caseItem.company}</Pill>}
       />
 
       <Card className="mx-auto max-w-5xl border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
-        <CardHeader className="border-b border-slate-100"><CardTitle className="text-lg font-bold">서류요청 #2</CardTitle><CardDescription>요청대상과 전달 담당자를 분리해 기록합니다.</CardDescription></CardHeader>
+        <CardHeader className="border-b border-slate-100"><CardTitle className="text-lg font-bold">서류요청 #{requestNumber}</CardTitle><CardDescription>기업대표 요청 · 전달 담당 {caseItem.trainee} 파트너 · 진행 담당자 공유</CardDescription></CardHeader>
         <CardContent className="space-y-7 py-2">
           <div className="grid gap-5 md:grid-cols-2">
-            <Field label="요청대상" required><select className={inputClass}><option>기업대표</option><option>담당 파트너</option><option>내부 담당자</option><option>외부 전문가</option></select></Field>
-            <Field label="전달 담당자" required><select className={inputClass}><option>{caseItem.trainee} 파트너</option><option>김성민 대표</option></select></Field>
-            <Field label="관련 서비스"><select className={inputClass}>{caseItem.service.split(' · ').filter(Boolean).map((service) => <option key={service}>{service}</option>)}<option>전체</option></select></Field>
-            <Field label="관련 상담" hint="상담과 무관한 요청이면 선택하지 않아도 됩니다."><select className={inputClass}><option>연결하지 않음</option><option>상담 #1</option><option>상담 #2</option><option>상담 #3</option></select></Field>
-            <Field label="제출기한" required><input ref={dueDateRef} type="date" onChange={() => setFormError('')} aria-describedby={formError ? 'document-request-error' : undefined} className={inputClass} /></Field>
-            <Field label="공유범위"><select className={inputClass}><option>담당 파트너와 내부 담당자</option><option>내부 담당자만</option></select></Field>
+            <Field label="관련 서비스"><input className={inputClass} value={caseItem.service} readOnly /></Field>
+            <Field label="제출기한" required><input ref={dueDateRef} type="date" onChange={() => setFormError('')} aria-required="true" aria-describedby={formError ? 'document-request-error' : undefined} className={inputClass} /></Field>
           </div>
+
+          <p className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">이 화면은 요청 서류·제출기한만 저장합니다. 요청대상은 기업대표, 전달 담당자는 현재 진행의 담당 파트너로 기록됩니다. 별도 안내문이나 다른 공개범위가 필요하면 상담 FLOW에서 등록하세요.</p>
 
           <div>
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
@@ -2992,12 +2990,10 @@ function DocumentRequest({ caseItem, onSave, onCancel }: { caseItem: Collaborati
             </div>
           </div>
 
-          <Field label="요청사유·안내문"><textarea className={`${inputClass} min-h-28 py-3`} placeholder="기업대표와 담당 파트너에게 전달할 요청사유와 제출방법" /></Field>
-
           {formError ? <p id="document-request-error" role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{formError}</p> : null}
 
           <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-5 text-sm leading-6 text-slate-700">
-            <p className="font-bold text-[#15375b]">MVP 전달 방식</p>
+            <p className="font-bold text-[#15375b]">현재 전달 방식</p>
             <p className="mt-1">기업대표에게 별도 계정은 제공하지 않습니다. 전달 담당자가 요청내용을 안내하고 받은 파일을 사이트에 등록합니다.</p>
           </div>
         </CardContent>
@@ -3518,7 +3514,7 @@ export default function Home() {
           }} /> : null}
           {view === 'case' ? <CaseDetail key={selectedCase.id} caseItem={selectedCase} timeline={selectedCaseTimeline} documents={companyDocuments} allCases={cases} members={members} onWorkflow={() => navigate('workflow')} onConsult={() => navigate(selectedCase.flowManaged ? 'workflow' : 'consultation')} onDocuments={() => navigate(selectedCase.flowManaged ? 'workflow' : 'documents')} onSetDocumentDueDates={updateDocumentDueDates} onDocumentModal={() => navigate('workflow')} canFileUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} canQuoteContract={isAdmin || Boolean(currentMember?.permissions.quoteContract)} /> : null}
           {view === 'consultation' ? <ConsultationForm key={selectedCase.id} number={Math.max(1, consultationNumber)} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={saveConsultation} /> : null}
-          {view === 'documents' ? <DocumentRequest key={selectedCase.id} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={({ items, dueDate }) => { const requestNumber = selectedCaseTimeline.filter((item) => item.type === '서류').length + 1; const dueLabel = formatKoreanDate(dueDate); setTimeline((current) => [...current, { caseId: selectedCase.id, date: '방금 전', title: `서류요청 #${requestNumber} 등록`, detail: `요청서류 ${items.length}건 / 제출기한 ${dueLabel} / 전달 담당자: ${selectedCase.trainee} 파트너`, type: '서류', tone: 'amber' }]); setCompanyDocuments((current) => [...items.map((item, index): CompanyDocument => ({ id: `file-request-${Date.now()}-${index}`, company: selectedCase.company, title: item.name, category: '요청서류', status: '요청중', assignedTrainee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, submittedBy: '기업대표 요청', updatedAt: '방금 전', dueDate, version: '-', sensitive: true })), ...current]); setTasks((current) => [{ id: `task-request-${Date.now()}`, company: selectedCase.company, title: `요청서류 ${items.length}건 제출 확인`, kind: '서류요청', assignee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, due: dueLabel, dueState: 'upcoming', status: '대기', priority: '보통', related: `서류요청 #${requestNumber}` }, ...current]); setCases((current) => current.map((item) => item.id === selectedCase.id ? { ...item, nextAction: `요청서류 ${items.length}건 제출 확인`, updatedAt: '방금 전', idleDays: 0 } : item)); notify(`${selectedCase.company} 서류요청 ${items.length}건을 자료함과 업무목록에 등록했습니다.`); navigate('case'); }} /> : null}
+          {view === 'documents' ? <DocumentRequest key={selectedCase.id} caseItem={selectedCase} requestNumber={selectedCaseTimeline.filter((item) => item.type === '서류').length + 1} outstandingNames={companyDocuments.filter(document => recordBelongsToCase(document, document.assignedTrainee, selectedCase, cases, members) && document.category === '요청서류' && (document.status === '요청중' || document.status === '보완필요')).map(document => document.title)} onCancel={() => navigate('case')} onSave={({ items, dueDate, skippedOutstanding }) => { const requestNumber = selectedCaseTimeline.filter((item) => item.type === '서류').length + 1; const dueLabel = formatKoreanDate(dueDate); setTimeline((current) => [...current, { caseId: selectedCase.id, date: '방금 전', title: `서류요청 #${requestNumber} 등록`, detail: `요청서류 ${items.length}건 / 제출기한 ${dueLabel} / 전달 담당자: ${selectedCase.trainee} 파트너`, type: '서류', tone: 'amber' }]); setCompanyDocuments((current) => [...items.map((item, index): CompanyDocument => ({ id: `file-request-${Date.now()}-${index}`, company: selectedCase.company, title: item.name, category: '요청서류', status: '요청중', assignedTrainee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, submittedBy: '기업대표 요청', updatedAt: '방금 전', dueDate, version: '-', sensitive: true })), ...current]); setTasks((current) => [{ id: `task-request-${Date.now()}`, company: selectedCase.company, title: `요청서류 ${items.length}건 제출 확인`, kind: '서류요청', assignee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, due: dueLabel, dueState: 'upcoming', status: '대기', priority: '보통', related: `서류요청 #${requestNumber}` }, ...current]); setCases((current) => current.map((item) => item.id === selectedCase.id ? { ...item, nextAction: `요청서류 ${items.length}건 제출 확인`, updatedAt: '방금 전', idleDays: 0 } : item)); notify(`${selectedCase.company} 서류요청 ${items.length}건을 자료함과 업무목록에 등록했습니다.${skippedOutstanding ? ` 이미 요청 중인 ${skippedOutstanding}건은 제외했습니다.` : ''}`); navigate('case'); }} /> : null}
         </main>
       </div>
 

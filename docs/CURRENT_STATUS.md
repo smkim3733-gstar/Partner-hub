@@ -28,6 +28,8 @@
 
 ## 이어서 진행할 점검
 
+별도 후속 요청으로 [기존 서류요청 등록 화면 점검](LEGACY_DOCUMENT_REQUEST_REVIEW_2026_09_01.md)을 수행했다. 저장되지 않는 선택·안내 입력과 고정 요청번호를 정리하고, 날짜·서류명 정규화와 진행별 요청중·보완필요 서류의 중복 생성을 차단했다. Node 검사 195개 통과와 반영 결과는 해당 문서 및 `outputs/release/legacy-document-request-deployment.json`을 기준으로 한다.
+
 별도 후속 요청으로 [기존 상담 등록 화면 점검](LEGACY_CONSULTATION_REVIEW_2026_09_01.md)을 수행했다. 취소 상태의 후속 업무 생성, 저장되지 않는 입력란, 고정 날짜·기한과 실제 구현보다 넓은 캘린더 안내를 수정했다. 기본정보와 한국시간을 상담 기록에 보존하고, 일정 확정과 상담 완료의 일정·후속 업무 생성을 분리했다. Node 검사 192개 통과와 반영 결과는 해당 문서 및 `outputs/release/legacy-consultation-deployment.json`을 기준으로 한다.
 
 별도 후속 요청으로 [일정 날짜 표시 점검](SCHEDULE_DISPLAY_REVIEW_2026_09_01.md)을 수행했다. 고정 주간 범위 밖의 일정 누락을 날짜별 목록으로 수정하고 연도 미상·잘못된 날짜의 외부 등록을 제한했다. 실제 구현과 다른 연결·동기화·예약 가능 안내를 바로잡았으며 가상 일정의 공개범위도 확인했다. Node 검사 187개 통과와 반영 결과는 해당 문서 및 `outputs/release/schedule-display-deployment.json`을 기준으로 한다.
