@@ -48,6 +48,11 @@ async function ensurePortalTables(db: D1Database) {
 }
 
 export async function readPortalState(): Promise<unknown> {
+  return (await readPortalStateSnapshot()).state;
+}
+
+/** The exact stored payload is also usable as a conditional-write guard. */
+export async function readPortalStateSnapshot() {
   const db = database();
   await ensurePortalTables(db);
   const row = await db
@@ -55,7 +60,10 @@ export async function readPortalState(): Promise<unknown> {
     .bind(portalStateId)
     .first<PortalStateRow>();
 
-  return row ? JSON.parse(row.payload) : null;
+  return {
+    state: row ? (JSON.parse(row.payload) as unknown) : null,
+    payload: row?.payload ?? null,
+  };
 }
 
 export async function writePortalState(state: unknown) {

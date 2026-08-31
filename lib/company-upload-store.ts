@@ -5,6 +5,7 @@ import {
 } from './company-files';
 import type { PortalUser } from './portal-auth';
 import { fileDigest } from './file-upload-key';
+import { fileStateConflict, fileStateGuard } from './company-file-access';
 
 type UploadRecord = {
   file_id: string;
@@ -47,22 +48,26 @@ export async function storeCompanyUpload(
   requestKey: string,
   metadata: UploadMetadata,
   bytes: ArrayBuffer,
+  authorize: () => Promise<string | null>,
 ) {
   const owner =
     user.role === 'admin' ? `admin:${user.email}` : `member:${user.memberId}`;
   const fingerprint = await fileDigest(
     JSON.stringify(metadata) + (await fileDigest(bytes)),
   );
+  const initialPayload = await authorize();
   await db
     .prepare(`INSERT INTO company_file_upload_requests
     (owner_key, request_key, fingerprint, file_id, created_at, status)
-    VALUES (?1, ?2, ?3, ?4, ?5, 'pending') ON CONFLICT(owner_key, request_key) DO NOTHING`)
+    SELECT ?1, ?2, ?3, ?4, ?5, 'pending' WHERE ${fileStateGuard('?6')}
+    ON CONFLICT(owner_key, request_key) DO NOTHING`)
     .bind(
       owner,
       requestKey,
       fingerprint,
       crypto.randomUUID(),
       new Date().toISOString(),
+      initialPayload,
     )
     .run();
   const record = await db
@@ -71,7 +76,8 @@ export async function storeCompanyUpload(
     )
     .bind(owner, requestKey)
     .first<UploadRecord>();
-  if (!record || record.fingerprint !== fingerprint)
+  if (!record) throw fileStateConflict();
+  if (record.fingerprint !== fingerprint)
     throw new CompanyFileError(
       '같은 업로드 요청의 파일 또는 자료정보가 변경되었습니다.',
       409,
@@ -88,10 +94,13 @@ export async function storeCompanyUpload(
         '기존 파일의 보관 상태를 확인해야 합니다.',
         409,
       );
+    await authorize();
+    await assertNotDeleted(db, bucket, record.file_id, false);
     return storedFileResult(saved);
   }
   const id = record.file_id;
   const storageKey = `company-source/${id}`;
+  await authorize();
   await bucket.put(storageKey, bytes, {
     httpMetadata: { contentType: metadata.contentType },
     customMetadata: {
@@ -101,6 +110,15 @@ export async function storeCompanyUpload(
         : {}),
     },
   });
+  // A prior explicit deletion wins even if authorization was revoked during R2.put.
+  await assertNotDeleted(db, bucket, id, true);
+  let payload: string | null;
+  try {
+    payload = await authorize();
+  } catch (error) {
+    await assertNotDeleted(db, bucket, id, true);
+    throw error;
+  }
   await db.batch([
     db
       .prepare(`INSERT INTO company_file_objects
@@ -108,6 +126,7 @@ export async function storeCompanyUpload(
        uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12
       WHERE EXISTS (SELECT 1 FROM company_file_upload_requests WHERE file_id = ?1 AND status = 'pending')
+      AND ${fileStateGuard('?13')}
       ON CONFLICT(id) DO NOTHING`)
       .bind(
         id,
@@ -122,6 +141,7 @@ export async function storeCompanyUpload(
         metadata.contentType,
         metadata.sizeBytes,
         record.created_at,
+        payload,
       ),
     db
       .prepare(`INSERT INTO company_file_assignments (file_id, partner_member_id)
@@ -141,8 +161,8 @@ export async function storeCompanyUpload(
       : []),
     db
       .prepare(`UPDATE company_file_upload_requests SET status = 'ready' WHERE file_id = ?1 AND status = 'pending'
-      AND EXISTS (SELECT 1 FROM company_file_objects WHERE id = ?1)`)
-      .bind(id),
+      AND EXISTS (SELECT 1 FROM company_file_objects WHERE id = ?1) AND ${fileStateGuard('?2')}`)
+      .bind(id, payload),
   ]);
   const status = await db
     .prepare(
@@ -150,16 +170,35 @@ export async function storeCompanyUpload(
     )
     .bind(id)
     .first<{ status: string }>();
-  if (status?.status === 'deleted') {
-    // Only an explicit authorized deletion permits removing this immutable object.
-    await bucket.delete(storageKey);
-    throw new CompanyFileError(
-      '업로드 중 파일이 삭제되었습니다. 새 파일 등록으로 진행해 주세요.',
-      409,
-    );
-  }
+  if (status?.status === 'deleted')
+    await assertNotDeleted(db, bucket, id, true);
+  await authorize();
+  if (status?.status === 'pending') throw fileStateConflict();
   const row = await findCompanyFile(id);
   if (status?.status !== 'ready' || !row)
     throw new CompanyFileError('파일 저장 확인을 다시 시도해 주세요.', 503);
+  await assertNotDeleted(db, bucket, id, false);
   return storedFileResult(row);
+}
+
+async function assertNotDeleted(
+  db: D1Database,
+  bucket: R2Bucket,
+  id: string,
+  wroteBytes: boolean,
+) {
+  const deleted = await db
+    .prepare(
+      "SELECT file_id FROM company_file_upload_requests WHERE file_id = ?1 AND status = 'deleted'",
+    )
+    .bind(id)
+    .first();
+  if (!deleted) return;
+  // Never compensate an uncertain upload by deleting it. Only a durable explicit
+  // deletion allows cleanup of bytes written by this in-flight upload.
+  if (wroteBytes) await bucket.delete(`company-source/${id}`);
+  throw new CompanyFileError(
+    '업로드 중 파일이 삭제되었습니다. 새 파일 등록으로 진행해 주세요.',
+    409,
+  );
 }

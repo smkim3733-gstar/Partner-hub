@@ -1194,6 +1194,33 @@ try {
     undefined,
   );
 
+  const suspensionFile = (
+    await (
+      await expect(
+        await uploadSource({ cookie }, memberId),
+        201,
+        'create synthetic original for suspension and legacy deletion checks',
+      )
+    ).json()
+  ).file;
+  await db
+    .prepare(`INSERT INTO company_file_upload_requests
+    (owner_key, request_key, fingerprint, file_id, created_at, status)
+    VALUES (?1, 'native-pending-delete', 'synthetic', 'native-pending-delete', ?2, 'pending')`)
+    .bind(`member:${memberId}`, new Date().toISOString())
+    .run();
+  await bucket.put(
+    'company-source/native-pending-delete',
+    'SYNTHETIC_PENDING_ORIGINAL',
+  );
+  await expect(
+    await call('/files/native-pending-delete', undefined, { cookie }, 'DELETE'),
+    409,
+    'pending upload cannot report deletion success before its commit',
+  );
+  assert.ok(await bucket.get('company-source/native-pending-delete'));
+  checks.push('conflicted pending deletion preserves the synthetic original');
+
   const suspended = (
     await (await call('/state', undefined, ownerHeaders)).json()
   ).state;
@@ -1208,6 +1235,29 @@ try {
     403,
     'suspension blocks an already issued password session',
   );
+  await expect(
+    await uploadSource({ cookie }, memberId),
+    403,
+    'suspended password session cannot upload a file',
+  );
+  await expect(
+    await call(`/files/${suspensionFile.id}`, undefined, { cookie }),
+    403,
+    'suspended password session cannot download an original',
+  );
+  await expect(
+    await call(`/files/${suspensionFile.id}`, undefined, { cookie }, 'DELETE'),
+    403,
+    'suspended password session cannot delete an original',
+  );
+  assert.ok(await bucket.get(`company-source/${suspensionFile.id}`));
+  assert.ok(
+    await db
+      .prepare('SELECT id FROM company_file_objects WHERE id = ?1')
+      .bind(suspensionFile.id)
+      .first(),
+  );
+  checks.push('suspension denial preserves native R2 bytes and D1 metadata');
   const restored = (
     await (await call('/state', undefined, ownerHeaders)).json()
   ).state;
@@ -1216,6 +1266,31 @@ try {
     await call('/save', { state: restored }, ownerHeaders, 'PUT'),
     200,
     'owner restores synthetic partner for reset checks',
+  );
+  // Convert only this isolated fixture to the pre-ledger legacy shape.
+  await db
+    .prepare('DELETE FROM company_file_upload_requests WHERE file_id = ?1')
+    .bind(suspensionFile.id)
+    .run();
+  await expect(
+    await call(`/files/${suspensionFile.id}`, undefined, { cookie }, 'DELETE'),
+    204,
+    'legacy explicit deletion creates a durable tombstone in native D1',
+  );
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT status FROM company_file_upload_requests WHERE file_id = ?1',
+        )
+        .bind(suspensionFile.id)
+        .first()
+    ).status,
+    'deleted',
+  );
+  assert.equal(await bucket.get(`company-source/${suspensionFile.id}`), null);
+  checks.push(
+    'legacy deletion retains its tombstone after removing synthetic bytes',
   );
   await expect(
     await call('/issue', { memberId, confirmed: true }, { cookie }),

@@ -18,6 +18,10 @@ import { boundedBody } from '@/lib/consulting-flow-http';
 import { FlowError } from '@/lib/consulting-flow';
 import { uploadCaseLink } from '@/lib/company-file-case';
 import { storeCompanyUpload } from '@/lib/company-upload-store';
+import {
+  currentFileAccess,
+  fileStateConflict,
+} from '@/lib/company-file-access';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,7 +41,13 @@ function errorResponse(error: unknown) {
     error instanceof CompanyFileError ||
     error instanceof FlowError
   ) {
-    return Response.json({ error: error.message }, { status: error.status });
+    return Response.json(
+      { error: error.message },
+      {
+        status: error.status,
+        headers: { 'cache-control': 'private, no-store' },
+      },
+    );
   }
   return null;
 }
@@ -187,6 +197,32 @@ export async function POST(request: Request) {
         sizeBytes: fileValue.size,
       },
       await fileValue.arrayBuffer(),
+      async () => {
+        const access = await currentFileAccess(request, currentUser);
+        if (!mayUploadCompanyFiles(access.user))
+          throw new CompanyFileError(
+            '현재 계정에는 기업자료 업로드 권한이 없습니다.',
+            403,
+          );
+        const assignment = resolveCompanyFileAssignment(
+          access.user,
+          access.state,
+          typeof rawMemberId === 'string' ? rawMemberId.trim() : undefined,
+          field(form, 'assignedTrainee', 80),
+        );
+        if (
+          assignment.partnerMemberId !== partnerMemberId ||
+          assignment.assignedTrainee !== assignedTrainee
+        )
+          throw fileStateConflict();
+        await uploadCaseLink(
+          form.get('caseId'),
+          access.state,
+          company,
+          partnerMemberId,
+        );
+        return access.payload;
+      },
     );
     return Response.json(
       { file: stored },
@@ -198,7 +234,7 @@ export async function POST(request: Request) {
     console.error('Failed to upload company file', error);
     return Response.json(
       { error: '기업자료를 보안 저장소에 등록하지 못했습니다.' },
-      { status: 500 },
+      { status: 500, headers: { 'cache-control': 'private, no-store' } },
     );
   }
 }
