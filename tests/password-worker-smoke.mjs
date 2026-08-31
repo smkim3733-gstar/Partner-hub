@@ -20,10 +20,12 @@ import { POST as createPartner } from '@/app/api/admin/partners/route';
 import { GET as getFlow } from '@/app/api/consulting-flow/[caseId]/route';
 import { GET as getFile, DELETE as deleteFile } from '@/app/api/files/[id]/route';
 import { POST as uploadFile } from '@/app/api/files/route';
+import { GET as intakeFiles } from '@/app/api/consulting-flow/[caseId]/intake-files/route';
 export default { async fetch(request) {
   const pathname = new URL(request.url).pathname;
   const routes = { 'POST /signup': registerPassword, 'POST /login': loginPassword, 'POST /logout': logoutPassword, 'POST /setup': setupPassword, 'POST /issue': createPasswordLink, 'GET /state': getState, 'PUT /save': saveState, 'POST /partners': createPartner, 'POST /files': uploadFile };
   if (pathname.startsWith('/flow/') && request.method === 'GET') return getFlow(request, { params: Promise.resolve({ caseId: pathname.slice(6) }) });
+  if (pathname.startsWith('/intake/') && request.method === 'GET') return intakeFiles(request, { params: Promise.resolve({ caseId: pathname.slice(8) }) });
   if (pathname.startsWith('/files/') && ['GET', 'DELETE'].includes(request.method)) return (request.method === 'GET' ? getFile : deleteFile)(request, { params: Promise.resolve({ id: pathname.slice(7) }) });
   const action = routes[request.method + ' ' + pathname];
   return action ? action(request) : new Response('Not found', {status:404});
@@ -350,7 +352,7 @@ try {
   assert.ok(await bucket.get('synthetic-private-file'));
   checks.push('denied file deletion preserves the private R2 object');
 
-  async function uploadSource(headers, partnerMemberId) {
+  async function uploadSource(headers, partnerMemberId, caseId) {
     const form = new FormData();
     form.set(
       'file',
@@ -365,6 +367,7 @@ try {
     form.set('consent', 'confirmed');
     if (partnerMemberId !== undefined)
       form.set('partnerMemberId', partnerMemberId);
+    if (caseId !== undefined) form.set('caseId', caseId);
     const multipart = new Response(form);
     return mf.dispatchFetch(`${origin}/files`, {
       method: 'POST',
@@ -460,7 +463,89 @@ try {
     null,
   );
   assert.equal(await bucket.get(`company-source/${linkedFile.id}`), null);
-  // Reapply every migration with existing legacy and ID-linked file rows in place.
+  const repeatA = await expect(
+    await uploadSource({ cookie }, memberId, 'runtime-repeat-a'),
+    201,
+    'first repeated application file stores its proposed case ID',
+  );
+  const repeatB = await expect(
+    await uploadSource({ cookie }, memberId, 'runtime-repeat-b'),
+    201,
+    'second repeated application file stores a distinct case ID',
+  );
+  const repeatFileA = (await repeatA.json()).file;
+  const repeatFileB = (await repeatB.json()).file;
+  const repeatState = (
+    await (await call('/state', undefined, { cookie })).json()
+  ).state;
+  for (const file of [repeatFileA, repeatFileB]) {
+    repeatState.cases.push({
+      id: file.caseId,
+      company: '가상 본인기업',
+      trainee: '가상 런타임파트너',
+      partnerMemberId: memberId,
+    });
+    repeatState.companyDocuments.push({
+      id: `doc-${file.id}`,
+      company: '가상 본인기업',
+      assignedTrainee: file.assignedTrainee,
+      partnerMemberId: memberId,
+      caseId: file.caseId,
+      storageFileId: file.id,
+    });
+    repeatState.timeline.push({
+      caseId: file.caseId,
+      date: '2026-08-31',
+      title: '협업신청 접수',
+      detail: file.caseId,
+    });
+  }
+  await expect(
+    await call('/save', { state: repeatState }, { cookie }, 'PUT'),
+    200,
+    'same-company cases, timelines and attachments persist together',
+  );
+  const repeatReload = (
+    await (await call('/state', undefined, { cookie })).json()
+  ).state;
+  assert.ok(repeatReload.cases.some((item) => item.id === 'runtime-repeat-a'));
+  assert.ok(repeatReload.cases.some((item) => item.id === 'runtime-repeat-b'));
+  assert.deepEqual(
+    repeatReload.companyDocuments.map((item) => item.caseId).sort(),
+    ['runtime-repeat-a', 'runtime-repeat-b'],
+  );
+  const intakeA = await expect(
+    await call('/intake/runtime-repeat-a', undefined, ownerHeaders),
+    200,
+    'administrator lists sources for the first repeat application',
+  );
+  const intakeIdsA = (await intakeA.json()).files.map((file) => file.id);
+  assert.ok(intakeIdsA.includes(repeatFileA.id));
+  assert.ok(!intakeIdsA.includes(repeatFileB.id));
+  await expect(
+    await call(
+      `/intake/runtime-repeat-a?fileId=${repeatFileB.id}`,
+      undefined,
+      ownerHeaders,
+    ),
+    404,
+    'source from another same-company application cannot be imported',
+  );
+  await expect(
+    await call(
+      `/intake/runtime-repeat-a?fileId=${repeatFileA.id}`,
+      undefined,
+      ownerHeaders,
+    ),
+    200,
+    'source from the matching application remains usable',
+  );
+  await expect(
+    await uploadSource({ cookie }, memberId, 'runtime-peer'),
+    403,
+    'upload cannot link a new private source to another account case',
+  );
+  // Reapply every migration with existing legacy, account and case-linked rows in place.
   for (const name of migrations) {
     const migration = await readFile(
       path.join(project, 'drizzle', name),
@@ -485,6 +570,24 @@ try {
     memberId,
   );
   assert.ok(await bucket.get('synthetic-private-file'));
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT case_id FROM company_file_case_links WHERE file_id = ?1',
+        )
+        .bind(repeatFileA.id)
+        .first()
+    ).case_id,
+    'runtime-repeat-a',
+  );
+  assert.equal(
+    await db
+      .prepare('SELECT file_id FROM company_file_case_links WHERE file_id = ?1')
+      .bind('runtime-private-file')
+      .first(),
+    null,
+  );
   assert.equal(
     await db
       .prepare(

@@ -50,6 +50,13 @@ CREATE TABLE IF NOT EXISTS company_file_assignments (
 )
 `;
 
+export const companyFileCaseLinksTableSql = `
+CREATE TABLE IF NOT EXISTS company_file_case_links (
+  file_id TEXT PRIMARY KEY NOT NULL REFERENCES company_file_objects(id) ON DELETE CASCADE,
+  case_id TEXT NOT NULL
+)
+`;
+
 export const aiDiagnosisRunsTableSql = `
 CREATE TABLE IF NOT EXISTS ai_diagnosis_runs (
   id TEXT PRIMARY KEY NOT NULL,

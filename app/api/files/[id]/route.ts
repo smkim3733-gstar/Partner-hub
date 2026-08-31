@@ -83,6 +83,9 @@ export async function DELETE(
     await companyFileBucket().delete(row.storage_key);
     await db.batch([
       db
+        .prepare('DELETE FROM company_file_case_links WHERE file_id = ?1')
+        .bind(id),
+      db
         .prepare('DELETE FROM company_file_assignments WHERE file_id = ?1')
         .bind(id),
       db.prepare('DELETE FROM company_file_objects WHERE id = ?1').bind(id),

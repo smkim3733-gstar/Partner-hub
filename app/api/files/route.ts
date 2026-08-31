@@ -16,6 +16,7 @@ import {
 } from '@/lib/company-file-policy';
 import { boundedBody } from '@/lib/consulting-flow-http';
 import { FlowError } from '@/lib/consulting-flow';
+import { uploadCaseLink } from '@/lib/company-file-case';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,6 +84,7 @@ export async function POST(request: Request) {
         'category',
         'assignedTrainee',
         'partnerMemberId',
+        'caseId',
         'consent',
         'recordingConsent',
       ].some((key) => form.getAll(key).length > 1)
@@ -145,6 +147,12 @@ export async function POST(request: Request) {
       typeof rawMemberId === 'string' ? rawMemberId.trim() : undefined,
       field(form, 'assignedTrainee', 80),
     );
+    const caseId = await uploadCaseLink(
+      form.get('caseId'),
+      state,
+      company,
+      partnerMemberId,
+    );
     const id = crypto.randomUUID();
     storedKey = `company-source/${id}`;
     const createdAt = new Date().toISOString();
@@ -192,6 +200,15 @@ export async function POST(request: Request) {
             'INSERT INTO company_file_assignments (file_id, partner_member_id) VALUES (?1, ?2)',
           )
           .bind(id, partnerMemberId),
+        ...(caseId
+          ? [
+              db
+                .prepare(
+                  'INSERT INTO company_file_case_links (file_id, case_id) VALUES (?1, ?2)',
+                )
+                .bind(id, caseId),
+            ]
+          : []),
       ]);
     } catch (error) {
       await bucket.delete(storedKey);
@@ -209,6 +226,7 @@ export async function POST(request: Request) {
           createdAt,
           assignedTrainee,
           partnerMemberId,
+          ...(caseId ? { caseId } : {}),
           category,
           title,
         },

@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 
 import {
   companyFileAssignmentsTableSql,
+  companyFileCaseLinksTableSql,
   companyFileObjectsCompanyIndexSql,
   companyFileObjectsOwnerIndexSql,
   companyFileObjectsTableSql,
@@ -31,6 +32,7 @@ export type CompanyFileRow = {
   title: string;
   assigned_trainee: string;
   partner_member_id?: string | null;
+  case_id?: string | null;
   uploaded_by_user_id: string;
   uploaded_by_email: string;
   content_type: string;
@@ -73,6 +75,7 @@ export async function ensureCompanyFileTables(db: D1Database) {
     db.prepare(companyFileObjectsOwnerIndexSql),
     db.prepare(companyFileObjectsCompanyIndexSql),
     db.prepare(companyFileAssignmentsTableSql),
+    db.prepare(companyFileCaseLinksTableSql),
   ]);
 }
 
@@ -146,9 +149,10 @@ export async function findCompanyFile(id: string) {
     .prepare(`
       SELECT f.id, storage_key, original_name, company, category, title,
         assigned_trainee, uploaded_by_user_id, uploaded_by_email,
-        content_type, size_bytes, created_at, a.partner_member_id
+        content_type, size_bytes, created_at, a.partner_member_id, c.case_id
       FROM company_file_objects f
       LEFT JOIN company_file_assignments a ON a.file_id = f.id
+      LEFT JOIN company_file_case_links c ON c.file_id = f.id
       WHERE f.id = ?1
     `)
     .bind(id)

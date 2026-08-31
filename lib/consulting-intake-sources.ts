@@ -57,11 +57,13 @@ export async function listIntakeSources(flow: ConsultingFlow) {
     SELECT f.id, original_name, category, size_bytes, created_at
     FROM company_file_objects f
     LEFT JOIN company_file_assignments a ON a.file_id = f.id
+    LEFT JOIN company_file_case_links c ON c.file_id = f.id
     WHERE company = ?1 AND ((a.partner_member_id <> '' AND a.partner_member_id = ?3)
       OR (a.file_id IS NULL AND assigned_trainee = ?2))
+      AND (c.file_id IS NULL OR c.case_id = ?4)
     ORDER BY created_at DESC, f.id DESC LIMIT 101
   `)
-    .bind(flow.company, flow.partnerName, flow.partnerId)
+    .bind(flow.company, flow.partnerName, flow.partnerId, flow.caseId)
     .all<SourceMetadata>();
   return {
     files: rows.results.slice(0, 100).map(option),
@@ -77,6 +79,7 @@ async function loadSource(flow: ConsultingFlow, fileId: unknown) {
   if (
     !row ||
     row.company !== flow.company ||
+    (row.case_id != null && row.case_id !== flow.caseId) ||
     (row.partner_member_id != null
       ? !row.partner_member_id || row.partner_member_id !== flow.partnerId
       : row.assigned_trainee !== flow.partnerName)

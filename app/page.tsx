@@ -3,6 +3,7 @@ import { PartnerAuthPanel } from '@/components/partner-auth-panel';
 import { PartnerPasswordLink } from '@/components/partner-password-link';
 import { PartnerSignout } from '@/components/partner-signout';
 import { assignmentMemberId, assignmentDisplayName, newTaskAssignment } from '@/lib/assignment-display';
+import { prependApplicationCase, recordBelongsToCase } from '@/lib/application-case-links';
 /* oxlint-disable next/no-html-link-for-pages -- Sites authentication routes require native top-level navigation. */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -146,6 +147,7 @@ type CompanyDocument = {
   status: '요청중' | '제출완료' | '보완필요' | '검토완료';
   assignedTrainee: string;
   partnerMemberId?: string;
+  caseId?: string;
   submittedBy: string;
   updatedAt: string;
   dueDate?: string;
@@ -457,6 +459,7 @@ function diagnosisChecks(
 ): DiagnosisCheck[] {
   const usableDocuments = documents.filter((document) =>
     document.company === assessment.company
+    && (document.caseId == null || document.caseId === assessment.caseId)
     && (document.status === '제출완료' || document.status === '검토완료'),
   );
   const hasBusinessCertificate = usableDocuments.some((document) => document.category === '사업자등록증');
@@ -540,6 +543,7 @@ type StoredCompanyFile = {
   createdAt: string;
   assignedTrainee: string;
   partnerMemberId: string;
+  caseId?: string;
   category: CompanyDocument['category'];
   title: string;
 };
@@ -551,6 +555,7 @@ async function uploadCompanyFile({
   category,
   assignedTrainee,
   partnerMemberId,
+  caseId,
   recordingConsent = false,
 }: {
   file: File;
@@ -559,6 +564,7 @@ async function uploadCompanyFile({
   category: CompanyDocument['category'];
   assignedTrainee: string;
   partnerMemberId?: string;
+  caseId?: string;
   recordingConsent?: boolean;
 }): Promise<StoredCompanyFile> {
   const form = new FormData();
@@ -568,6 +574,7 @@ async function uploadCompanyFile({
   form.set('category', category);
   form.set('assignedTrainee', assignedTrainee);
   if (partnerMemberId !== undefined) form.set('partnerMemberId', partnerMemberId);
+  if (caseId) form.set('caseId', caseId);
   form.set('consent', 'confirmed');
   if (recordingConsent) form.set('recordingConsent', 'confirmed');
   const response = await fetch('/api/files', { method: 'POST', body: form });
@@ -1760,7 +1767,7 @@ function PipelineBoard({
             <header className="flex min-h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4"><div className="flex items-center gap-3"><span className="grid size-8 place-items-center rounded-full bg-[#15375b] text-xs font-bold text-white">{stageIndex + 1}</span><h2 className="font-bold text-slate-900">{stage}</h2></div><Pill tone={stageCases.length ? 'blue' : 'slate'}>{stageCases.length}건</Pill></header>
             <div className="min-h-32 space-y-3 p-3">
               {stageCases.length ? stageCases.map((item) => <article key={item.id} className={`rounded-xl border bg-white p-4 shadow-sm ${item.idleDays >= 7 ? 'border-red-200' : 'border-slate-200'}`}>
-                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-bold text-slate-950">{item.company}</p><p className="mt-1 text-xs leading-5 text-slate-500">{item.service}</p></div>{item.idleDays >= 7 ? <Pill tone="red">{item.idleDays}일 정체</Pill> : <Pill tone={item.urgent ? 'amber' : 'slate'}>{item.updatedAt}</Pill>}</div>
+                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-bold text-slate-950">{item.company}</p><p className="mt-1 text-xs leading-5 text-slate-500">{item.service}</p><p className="mt-1 text-[11px] text-slate-400" title={item.id}>진행번호 {item.id.slice(-8)}</p></div>{item.idleDays >= 7 ? <Pill tone="red">{item.idleDays}일 정체</Pill> : <Pill tone={item.urgent ? 'amber' : 'slate'}>{item.updatedAt}</Pill>}</div>
                 <div className="mt-3 rounded-lg bg-slate-50 p-3"><p className="text-[11px] font-semibold text-slate-500">다음 행동</p><p className="mt-1 text-sm font-bold leading-5 text-slate-800">{item.nextAction}</p></div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-semibold text-slate-600">담당 {assignmentDisplayName(item, item.trainee, members)}</span><div className="flex flex-wrap gap-2"><Pill tone="navy">{casePartnerType(item, members)}</Pill>{item.consultationCount ? <Pill tone="violet">상담 {item.consultationCount}회</Pill> : null}</div></div>
                 <label className="mt-4 block"><span className="mb-2 block text-xs font-semibold text-slate-600">{item.flowManaged ? `상담 FLOW 자동 반영 · ${item.flowPhase}` : '진행단계 변경'}</span><select disabled={item.flowManaged} value={item.stage} onChange={(event) => moveCase(item, event.target.value as PipelineStage)} className={inputClass}>{pipelineStages.map((option) => <option key={option}>{option}</option>)}</select></label>
@@ -2073,7 +2080,7 @@ function DocumentCenter({
             {visibleDocuments.map((document) => {
               const statusTone = document.status === '검토완료' ? 'green' : document.status === '보완필요' ? 'red' : document.status === '제출완료' ? 'blue' : 'amber';
               return <article key={document.id} className="rounded-2xl border border-slate-200 bg-white p-5">
-                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><Pill tone="navy">{companyCategoryLabel(document.category)}</Pill><Pill tone={statusTone}>{document.status}</Pill>{document.sensitive ? <Pill tone="slate"><LockKeyhole className="mr-1 size-3" aria-hidden="true" />민감자료</Pill> : null}{document.storageFileId ? <Pill tone="green">보안저장 완료</Pill> : null}</div><p className="mt-3 text-xs font-semibold text-slate-500">{document.company}</p><h2 className="mt-1 text-base font-bold text-slate-950">{document.title}</h2>{document.fileName ? <p className="mt-2 [overflow-wrap:anywhere] text-xs leading-5 text-slate-500">{document.fileName}{document.fileSize ? ` · ${readableFileSize(document.fileSize)}` : ''}</p> : <p className="mt-2 text-xs leading-5 text-amber-700">아직 제출된 파일이 없습니다.</p>}{document.storageFileId ? <a href={`/api/files/${document.storageFileId}`} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl border border-sky-100 bg-sky-50 px-3 text-xs font-bold text-[#075f93] hover:bg-sky-100"><LockKeyhole className="size-3.5" aria-hidden="true" /> 권한 확인 후 원본 내려받기</a> : null}</div><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-slate-50 text-[#0877b8]"><FileText className="size-5" aria-hidden="true" /></span></div>
+                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><Pill tone="navy">{companyCategoryLabel(document.category)}</Pill><Pill tone={statusTone}>{document.status}</Pill>{document.sensitive ? <Pill tone="slate"><LockKeyhole className="mr-1 size-3" aria-hidden="true" />민감자료</Pill> : null}{document.storageFileId ? <Pill tone="green">보안저장 완료</Pill> : null}</div><p className="mt-3 text-xs font-semibold text-slate-500">{document.company}</p>{document.caseId && <p className="mt-1 text-[11px] text-slate-400" title={document.caseId}>연결 진행 {document.caseId.slice(-8)}</p>}<h2 className="mt-1 text-base font-bold text-slate-950">{document.title}</h2>{document.fileName ? <p className="mt-2 [overflow-wrap:anywhere] text-xs leading-5 text-slate-500">{document.fileName}{document.fileSize ? ` · ${readableFileSize(document.fileSize)}` : ''}</p> : <p className="mt-2 text-xs leading-5 text-amber-700">아직 제출된 파일이 없습니다.</p>}{document.storageFileId ? <a href={`/api/files/${document.storageFileId}`} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl border border-sky-100 bg-sky-50 px-3 text-xs font-bold text-[#075f93] hover:bg-sky-100"><LockKeyhole className="size-3.5" aria-hidden="true" /> 권한 확인 후 원본 내려받기</a> : null}</div><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-slate-50 text-[#0877b8]"><FileText className="size-5" aria-hidden="true" /></span></div>
                 <div className="mt-4 grid grid-cols-3 gap-3 rounded-xl bg-slate-50 p-3 text-xs"><div><p className="text-slate-500">담당</p><p className="mt-1 font-bold text-slate-800">{document.assignedTrainee}</p></div><div><p className="text-slate-500">버전</p><p className="mt-1 font-bold text-slate-800">{document.version}</p></div><div><p className="text-slate-500">변경</p><p className="mt-1 font-bold text-slate-800">{document.updatedAt}</p></div></div>
                 <label className="mt-4 block"><span className="mb-2 block text-xs font-semibold text-slate-600">상태 변경</span><select value={document.status} onChange={(event) => changeStatus(document, event.target.value as CompanyDocument['status'])} className={inputClass}><option>요청중</option><option>제출완료</option><option>보완필요</option><option>검토완료</option></select></label>
               </article>;
@@ -2570,6 +2577,8 @@ function CaseDetail({
   caseItem,
   timeline,
   documents,
+  allCases,
+  members,
   onConsult,
   onDocuments,
   onSetDocumentDueDates,
@@ -2581,6 +2590,8 @@ function CaseDetail({
   caseItem: CollaborationCase;
   timeline: typeof baseTimeline;
   documents: CompanyDocument[];
+  allCases: CollaborationCase[];
+  members: TraineeMember[];
   onConsult: () => void;
   onDocuments: () => void;
   onSetDocumentDueDates: (documentIds: string[], dueDate: string) => void;
@@ -2595,7 +2606,7 @@ function CaseDetail({
   const documentEvents = timeline.filter((item) => item.type === '서류');
   const quoteEvents = timeline.filter((item) => item.type === '견적');
   const contractEvents = timeline.filter((item) => item.type === '계약');
-  const caseDocuments = documents.filter((document) => document.company === caseItem.company);
+  const caseDocuments = documents.filter(document => recordBelongsToCase(document, document.assignedTrainee, caseItem, allCases, members));
   const requestedDocuments = caseDocuments.filter((document) => document.status === '요청중' || document.status === '보완필요');
   const missingDueDateDocuments = requestedDocuments.filter((document) => !document.dueDate);
   const services = caseItem.service.split(' · ').filter(Boolean);
@@ -2694,7 +2705,7 @@ function CaseDetail({
             {tab === 'documents' ? (
               <div className="py-4">
                 <div className="flex items-center justify-between gap-4">
-                  <div><p className="font-bold">서류요청 {documentEvents.length}회</p><p className="mt-1 text-sm text-slate-500">요청중·보완필요 {requestedDocuments.length}건</p></div>
+                  <div><p className="font-bold">서류요청 {documentEvents.length}회</p><p className="mt-1 text-sm text-slate-500">요청중·보완필요 {requestedDocuments.length}건</p><p className="mt-1 text-xs text-slate-500">이 진행에 연결된 서류만 표시합니다. 연결이 불명확한 과거 자료는 기업별 자료함에서 확인해 주세요.</p></div>
                   <PrimaryButton onClick={onDocuments}><Plus className="size-4" /> 새 요청</PrimaryButton>
                 </div>
                 {missingDueDateDocuments.length ? (
@@ -3328,7 +3339,7 @@ export default function Home() {
   function updateDocumentDueDates(documentIds: string[], dueDate: string) {
     const dueLabel = formatKoreanDate(dueDate);
     setCompanyDocuments((current) => current.map((document) => documentIds.includes(document.id) ? { ...document, dueDate, updatedAt: '방금 전' } : document));
-    setTasks((current) => current.map((task) => task.company === selectedCase.company && task.kind === '서류요청' && task.due === '기한 확인' ? { ...task, due: dueLabel } : task));
+    setTasks((current) => current.map((task) => recordBelongsToCase(task, task.assignee, selectedCase, cases, members) && task.kind === '서류요청' && task.due === '기한 확인' ? { ...task, due: dueLabel } : task));
     setTimeline((current) => [...current, { caseId: selectedCase.id, date: '방금 전', title: '서류 제출기한 설정', detail: `요청서류 ${documentIds.length}건 / 제출기한 ${dueLabel}`, type: '기한', tone: 'amber' }]);
     notify(`${selectedCase.company} 요청서류 ${documentIds.length}건의 제출기한을 ${dueLabel}로 저장했습니다.`);
   }
@@ -3381,7 +3392,7 @@ export default function Home() {
           {saveError && <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800"><p className="font-bold">변경사항 저장 확인 필요</p><p>{saveError}</p><p className="mt-1">새로고침하면 저장되지 않은 입력은 사라집니다. 필요한 내용을 별도로 보관한 뒤 다시 시도해 주세요.</p></div>}
           {view === 'admin' ? <AdminDashboard onOpenCase={() => navigate('case')} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} /> : null}
           {view === 'pipeline' ? <PipelineBoard cases={cases} setCases={setCases} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} onOpenCase={openCase} /> : null}
-          {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
+          {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee} · {item.id.slice(-8)}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}
           {view === 'tasks' ? <WorkManagement tasks={tasks} setTasks={setTasks} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} notify={notify} /> : null}
           {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} notify={notify} /> : null}
@@ -3391,21 +3402,22 @@ export default function Home() {
           {view === 'application' ? <ApplicationForm applicant={collaborationApplicant} members={members} canUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} onCancel={() => navigate('trainee')} onDone={async (files, companyName, selectedServices, applicantType, applicantName, recordingConsent, selectedMemberId) => {
             const partnerMemberId = isAdmin ? selectedMemberId : currentUser.memberId ?? '';
             const company = companyName.trim() || '신규기업';
+            const caseId = `case-${crypto.randomUUID()}`;
             const storedFiles: Array<{ category: CompanyDocument['category']; stored: StoredCompanyFile }> = [];
             try {
               for (const item of files) {
                 const { file, category } = item;
                 const title = applicationAttachmentTitle(item);
-                const stored = await uploadCompanyFile({ file, company, title, category, assignedTrainee: applicantName, partnerMemberId, recordingConsent });
+                const stored = await uploadCompanyFile({ file, company, title, category, assignedTrainee: applicantName, partnerMemberId, caseId, recordingConsent });
                 storedFiles.push({ category, stored });
               }
             } catch (error) {
               await Promise.allSettled(storedFiles.map(({ stored }) => fetch(`/api/files/${stored.id}`, { method: 'DELETE' })));
               throw error;
             }
-            const caseId = `case-${Date.now()}`;
             const service = selectedServices.join(' · ') || '기업컨설팅';
-            setCases((current) => current.some((item) => item.company === company) ? current : [{ id: caseId, company, service, trainee: applicantName, partnerMemberId, applicantType, stage: '접수', consultationCount: 0, nextAction: stageNextActions.접수, updatedAt: '방금 전', idleDays: 0, urgent: false }, ...current]);
+            setCases((current) => prependApplicationCase(current, { id: caseId, company, service, trainee: applicantName, partnerMemberId, applicantType, stage: '접수', consultationCount: 0, nextAction: stageNextActions.접수, updatedAt: '방금 전', idleDays: 0, urgent: false }));
+            setSelectedCaseId(caseId);
             setTimeline((current) => current.some((item) => item.caseId === caseId) ? current : [...current, { caseId, date: '방금 전', title: '협업신청 접수', detail: `${service} 요청 / 주관 파트너 ${applicantName}`, type: '접수', tone: 'navy' }]);
             if (storedFiles.length) {
               setCompanyDocuments((current) => [...storedFiles.map(({ category, stored }): CompanyDocument => ({
@@ -3419,6 +3431,7 @@ export default function Home() {
                 status: '제출완료',
                 assignedTrainee: stored.assignedTrainee,
                 partnerMemberId: stored.partnerMemberId,
+                caseId: stored.caseId ?? caseId,
                 submittedBy: isAdmin ? `김성민 대표 대리접수 · ${applicantType}` : `${applicantName} · ${applicantType}`,
                 updatedAt: '방금 전',
                 version: 'V1',
@@ -3428,9 +3441,9 @@ export default function Home() {
             notify(storedFiles.length ? `${applicantType} 협업신청과 보안 원본파일 ${storedFiles.length}건을 등록했습니다.` : `${applicantType} 협업신청을 진행현황에 접수했습니다.`);
             navigate(allowedViews.has('pipeline') ? 'pipeline' : 'trainee');
           }} /> : null}
-          {view === 'case' ? <CaseDetail key={selectedCase.id} caseItem={selectedCase} timeline={selectedCaseTimeline} documents={companyDocuments} onWorkflow={() => navigate('workflow')} onConsult={() => navigate(selectedCase.flowManaged ? 'workflow' : 'consultation')} onDocuments={() => navigate(selectedCase.flowManaged ? 'workflow' : 'documents')} onSetDocumentDueDates={updateDocumentDueDates} onDocumentModal={() => navigate('workflow')} canFileUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} canQuoteContract={isAdmin || Boolean(currentMember?.permissions.quoteContract)} /> : null}
+          {view === 'case' ? <CaseDetail key={selectedCase.id} caseItem={selectedCase} timeline={selectedCaseTimeline} documents={companyDocuments} allCases={cases} members={members} onWorkflow={() => navigate('workflow')} onConsult={() => navigate(selectedCase.flowManaged ? 'workflow' : 'consultation')} onDocuments={() => navigate(selectedCase.flowManaged ? 'workflow' : 'documents')} onSetDocumentDueDates={updateDocumentDueDates} onDocumentModal={() => navigate('workflow')} canFileUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} canQuoteContract={isAdmin || Boolean(currentMember?.permissions.quoteContract)} /> : null}
           {view === 'consultation' ? <ConsultationForm key={selectedCase.id} number={consultationNumber} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={saveConsultation} /> : null}
-          {view === 'documents' ? <DocumentRequest key={selectedCase.id} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={({ items, dueDate }) => { const requestNumber = selectedCaseTimeline.filter((item) => item.type === '서류').length + 1; const dueLabel = formatKoreanDate(dueDate); setTimeline((current) => [...current, { caseId: selectedCase.id, date: '방금 전', title: `서류요청 #${requestNumber} 등록`, detail: `요청서류 ${items.length}건 / 제출기한 ${dueLabel} / 전달 담당자: ${selectedCase.trainee} 파트너`, type: '서류', tone: 'amber' }]); setCompanyDocuments((current) => [...items.map((item, index): CompanyDocument => ({ id: `file-request-${Date.now()}-${index}`, company: selectedCase.company, title: item.name, category: '요청서류', status: '요청중', assignedTrainee: selectedCase.trainee, submittedBy: '기업대표 요청', updatedAt: '방금 전', dueDate, version: '-', sensitive: true })), ...current]); setTasks((current) => [{ id: `task-request-${Date.now()}`, company: selectedCase.company, title: `요청서류 ${items.length}건 제출 확인`, kind: '서류요청', assignee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, due: dueLabel, dueState: 'upcoming', status: '대기', priority: '보통', related: `서류요청 #${requestNumber}` }, ...current]); setCases((current) => current.map((item) => item.id === selectedCase.id ? { ...item, nextAction: `요청서류 ${items.length}건 제출 확인`, updatedAt: '방금 전', idleDays: 0 } : item)); notify(`${selectedCase.company} 서류요청 ${items.length}건을 자료함과 업무목록에 등록했습니다.`); navigate('case'); }} /> : null}
+          {view === 'documents' ? <DocumentRequest key={selectedCase.id} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={({ items, dueDate }) => { const requestNumber = selectedCaseTimeline.filter((item) => item.type === '서류').length + 1; const dueLabel = formatKoreanDate(dueDate); setTimeline((current) => [...current, { caseId: selectedCase.id, date: '방금 전', title: `서류요청 #${requestNumber} 등록`, detail: `요청서류 ${items.length}건 / 제출기한 ${dueLabel} / 전달 담당자: ${selectedCase.trainee} 파트너`, type: '서류', tone: 'amber' }]); setCompanyDocuments((current) => [...items.map((item, index): CompanyDocument => ({ id: `file-request-${Date.now()}-${index}`, company: selectedCase.company, title: item.name, category: '요청서류', status: '요청중', assignedTrainee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, submittedBy: '기업대표 요청', updatedAt: '방금 전', dueDate, version: '-', sensitive: true })), ...current]); setTasks((current) => [{ id: `task-request-${Date.now()}`, company: selectedCase.company, title: `요청서류 ${items.length}건 제출 확인`, kind: '서류요청', assignee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, due: dueLabel, dueState: 'upcoming', status: '대기', priority: '보통', related: `서류요청 #${requestNumber}` }, ...current]); setCases((current) => current.map((item) => item.id === selectedCase.id ? { ...item, nextAction: `요청서류 ${items.length}건 제출 확인`, updatedAt: '방금 전', idleDays: 0 } : item)); notify(`${selectedCase.company} 서류요청 ${items.length}건을 자료함과 업무목록에 등록했습니다.`); navigate('case'); }} /> : null}
         </main>
       </div>
 
