@@ -12,6 +12,7 @@ import {
 } from '@/lib/consulting-flow-store';
 import { FlowError } from '@/lib/consulting-flow';
 import { portalRevision } from '@/lib/portal-revision';
+import { assertRecoveryProofUnchanged } from '@/lib/file-recovery-proof';
 import { assertNewDraftCases } from '@/lib/application-draft-store';
 import {
   ApplicationDetailsError,
@@ -160,6 +161,7 @@ export async function PUT(request: Request) {
           ...merged,
           membersRevision,
         });
+        await assertRecoveryProofUnchanged(currentState, next);
         const revision = await portalRevision(currentState);
         const expected = request.headers.get('if-match')?.replace(/^"|"$/g, '');
         if (expected !== revision) {

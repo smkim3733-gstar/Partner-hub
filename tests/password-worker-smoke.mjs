@@ -1099,6 +1099,56 @@ try {
     'older state cannot overwrite a recovered document',
   );
 
+  for (const { roleName, headers } of [
+    { roleName: 'administrator', headers: ownerHeaders },
+    { roleName: 'partner', headers: { cookie } },
+  ]) {
+    const beforeProofEdit = (
+      await (await call('/state', undefined, headers)).json()
+    ).state;
+    const forgedProof = structuredClone(beforeProofEdit);
+    forgedProof.companyDocuments.find(
+      (item) => item.storageFileId === recoverySource.id,
+    ).recovery.reason = 'forged reason';
+    forgedProof.timeline.find(
+      (item) => item.recoveryFileId === recoverySource.id,
+    ).detail = 'forged event';
+    await expect(
+      await call('/save', { state: forgedProof }, headers, 'PUT'),
+      409,
+      `${roleName} cannot rewrite server recovery evidence through state save`,
+    );
+    const normalReview = structuredClone(beforeProofEdit);
+    normalReview.companyDocuments.find(
+      (item) => item.storageFileId === recoverySource.id,
+    ).status = roleName === 'administrator' ? '보완필요' : '검토완료';
+    await expect(
+      await call('/save', { state: normalReview }, headers, 'PUT'),
+      200,
+      `${roleName} can still update review status of a recovered document`,
+    );
+  }
+  const fakeProofState = (
+    await (await call('/state', undefined, ownerHeaders)).json()
+  ).state;
+  fakeProofState.timeline.push({
+    id: 'fake-recovery-event',
+    caseId: 'runtime-own',
+    date: '2026-08-31T02:00:00Z',
+    title: '위조 확인',
+    recoveryFileId: 'fake-file',
+  });
+  await expect(
+    await call('/save', { state: fakeProofState }, ownerHeaders, 'PUT'),
+    409,
+    'ordinary state saves cannot invent a new recovery audit event',
+  );
+  await expect(
+    await call(recoveryPath, recoveryBody, ownerHeaders),
+    200,
+    'protected proof remains valid for the original idempotent recovery request',
+  );
+
   const renameState = (
     await (await call('/state', undefined, ownerHeaders)).json()
   ).state;

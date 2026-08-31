@@ -17,6 +17,7 @@ import { listIntakeSources } from '../lib/consulting-intake-sources';
 import { newConsultingFlow } from '../lib/consulting-flow';
 import type { RecoveryPreview } from '../lib/file-recovery';
 import { portalStateId } from '../db/schema';
+import { portalRevision } from '../lib/portal-revision';
 
 const email = 'seedy@sites.test';
 const member = {
@@ -77,6 +78,7 @@ async function seed() {
   );
   await writePortalState({
     version: 1,
+    consultationNumber: 0,
     members: [member, peer],
     cases: [
       {
@@ -121,6 +123,173 @@ async function seed() {
     'SYNTHETIC_ORIGINAL_BYTES',
   );
 }
+
+async function ordinarySave(next: unknown, user: string = email) {
+  const write = request({ state: next }, user);
+  write.headers.set(
+    'if-match',
+    `"${await portalRevision(await readPortalState())}"`,
+  );
+  return saveState(write);
+}
+
+void test('ordinary state saves cannot rewrite administrator recovery proof or its timeline', async () => {
+  await seed();
+  assert.equal((await recover(request(await body()), context)).status, 200);
+  const original = await state();
+  for (const user of [email, member.email]) {
+    const attack = structuredClone(original);
+    attack.companyDocuments[0].recovery = {
+      ...(attack.companyDocuments[0].recovery as Record<string, unknown>),
+      reason: 'forged reason',
+      by: 'forged administrator',
+    };
+    attack.timeline[0].detail = 'forged timeline';
+    const response = await ordinarySave(attack, user);
+    assert.equal(response.status, 409, await response.clone().text());
+    assert.deepEqual(await state(), original);
+  }
+});
+
+void test('ordinary saves reject removing, replacing or duplicating recovered identities and audit records', async () => {
+  await seed();
+  await recover(request(await body()), context);
+  const original = await state();
+  const mutations: Array<(next: Awaited<ReturnType<typeof state>>) => void> = [
+    (next) => {
+      delete next.companyDocuments[0].recovery;
+    },
+    (next) => {
+      next.companyDocuments = [];
+    },
+    (next) => {
+      next.timeline = [];
+    },
+    (next) => {
+      next.companyDocuments[0].storageFileId = 'replacement-file';
+    },
+    (next) => {
+      next.companyDocuments[0].caseId = 'different-case';
+    },
+    (next) => {
+      next.companyDocuments[0].partnerMemberId = peer.id;
+    },
+    (next) => {
+      next.companyDocuments.push({
+        ...next.companyDocuments[0],
+        id: 'duplicate',
+      });
+    },
+    (next) => {
+      next.companyDocuments.push({
+        ...next.companyDocuments[0],
+        id: 'shadow-without-proof',
+        recovery: undefined,
+      });
+    },
+    (next) => {
+      next.timeline.push({ ...next.timeline[0], id: 'duplicate-event' });
+    },
+    (next) => {
+      delete next.timeline[0].recoveryFileId;
+    },
+  ];
+  for (const mutate of mutations) {
+    const next = structuredClone(original);
+    mutate(next);
+    assert.equal((await ordinarySave(next)).status, 409);
+    assert.deepEqual(await state(), original);
+  }
+});
+
+void test('generic state saves cannot create fake recovery facts for either role', async () => {
+  await seed();
+  const original = await state();
+  const fakeDocument = {
+    id: 'fake-recovery',
+    storageFileId: id,
+    caseId,
+    company: '가상기업',
+    partnerMemberId: member.id,
+    assignedTrainee: member.name,
+    recovery: {
+      by: email,
+      reason: '위조한 대표 확인',
+      requestId: 'fake-recovery-request',
+      at: '2026-08-31T00:00:00Z',
+    },
+  };
+  const fakeEvent = {
+    id: 'fake-event',
+    caseId,
+    date: '2026-08-31T00:00:00Z',
+    title: '보관 원본 연결 회수',
+    recoveryFileId: id,
+  };
+  for (const user of [email, member.email]) {
+    for (const values of [
+      { companyDocuments: [fakeDocument] },
+      {
+        companyDocuments: [
+          { ...fakeDocument, id: `file-recovery-${id}`, recovery: undefined },
+        ],
+      },
+      { timeline: [fakeEvent] },
+      {
+        timeline: [
+          {
+            ...fakeEvent,
+            id: `timeline-recovery-${id}`,
+            recoveryFileId: undefined,
+          },
+        ],
+      },
+    ]) {
+      assert.equal(
+        (await ordinarySave({ ...original, ...values }, user)).status,
+        409,
+      );
+      assert.deepEqual(await state(), original);
+    }
+  }
+});
+
+void test('review status changes, unrelated work and reordered JSON preserve recovery proof and retries', async () => {
+  await seed();
+  const recoveryBody = await body();
+  await recover(request(recoveryBody), context);
+  const recovered = await state();
+  for (const user of [member.email, email]) {
+    const next = await state();
+    next.companyDocuments[0].status = user === email ? '검토완료' : '보완필요';
+    next.companyDocuments[0].updatedAt = '방금 전';
+    next.companyDocuments[0].recovery = Object.fromEntries(
+      Object.entries(
+        next.companyDocuments[0].recovery as Record<string, unknown>,
+      ).reverse(),
+    );
+    next.timeline.push({
+      id: `note-${user}`,
+      caseId,
+      date: '2026-08-31T01:00:00Z',
+      title: `검토 메모 ${user}`,
+      detail: '정상 업무 메모',
+      type: '서류',
+    });
+    const response = await ordinarySave(next, user);
+    assert.equal(response.status, 200, await response.clone().text());
+    const after = await state();
+    assert.deepEqual(
+      after.companyDocuments[0].recovery,
+      recovered.companyDocuments[0].recovery,
+    );
+    assert.deepEqual(
+      after.timeline.find((item) => item.recoveryFileId === id),
+      recovered.timeline[0],
+    );
+  }
+  assert.equal((await recover(request(recoveryBody), context)).status, 200);
+});
 async function body() {
   const response = await preview(request(), context);
   assert.equal(response.status, 200, await response.clone().text());
