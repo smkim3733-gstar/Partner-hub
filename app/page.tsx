@@ -1,4 +1,5 @@
 'use client';
+import { prepareConsultation, type ConsultationPayload } from '@/lib/legacy-consultation';
 import { googleCalendarDraftUrl, scheduleDateGroups } from '@/lib/schedule-display';
 import { PartnerAuthPanel } from '@/components/partner-auth-panel';
 import { PartnerPasswordLink } from '@/components/partner-password-link';
@@ -106,6 +107,8 @@ const navItems: Array<{ view: View; label: string; icon: IconType }> = [
 
 type ScheduleItem = {
   id: string;
+  caseId?: string;
+  partnerMemberId?: string;
   isoDate?: string;
   endIsoDate?: string;
   date: string;
@@ -120,16 +123,6 @@ type ScheduleItem = {
   source: 'partner' | 'google';
   private?: boolean;
   assignedTrainee?: string;
-  shareMode: 'all_with_assignee' | 'all_busy' | 'private';
-};
-
-type ConsultationPayload = {
-  followUps: string[];
-  calendarSync: boolean;
-  title: string;
-  startsAt: string;
-  method: string;
-  status: string;
   shareMode: 'all_with_assignee' | 'all_busy' | 'private';
 };
 
@@ -2665,7 +2658,7 @@ function CaseDetail({
       <ApplicationDetailsSummary details={caseItem.applicationDetails} />
       <section aria-label="진행 요약" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          ['상담', `${Math.max(caseItem.consultationCount, consultationEvents.length)}회`, '필요 횟수만큼 반복등록'],
+          ['완료 상담', `${caseItem.consultationCount}회`, `상담 기록 ${consultationEvents.length}건`],
           ['미제출 서류', `${requestedDocuments.length}건`, requestedDocuments.length ? '제출 확인 필요' : '현재 요청 없음'],
           ...(canQuoteContract ? [['견적서', quoteEvents.length ? quoteEvents.at(-1)?.title ?? '등록됨' : '미작성', quoteEvents.length ? '진행상태 확인' : '필요 시 생성'], ['계약서', contractEvents.length ? contractEvents.at(-1)?.title ?? '등록됨' : '미작성', contractEvents.length ? '진행상태 확인' : '필요 시 생성']] : []),
         ].map(([label, value, hint]) => (
@@ -2732,7 +2725,7 @@ function CaseDetail({
 
             {tab === 'consultations' ? (
               <div className="py-4">
-                <div className="flex items-center justify-between gap-4"><div><p className="font-bold">등록된 상담 {Math.max(caseItem.consultationCount, consultationEvents.length)}회</p><p className="mt-1 text-sm text-slate-500">필요 횟수만큼 계속 추가할 수 있습니다.</p></div><PrimaryButton onClick={onConsult}><Plus className="size-4" /> 상담 추가</PrimaryButton></div>
+                <div className="flex items-center justify-between gap-4"><div><p className="font-bold">등록된 상담 기록 {consultationEvents.length}건</p><p className="mt-1 text-sm text-slate-500">필요 횟수만큼 계속 추가할 수 있습니다.</p></div><PrimaryButton onClick={onConsult}><Plus className="size-4" /> 상담 추가</PrimaryButton></div>
                 {consultationEvents.length ? <div className="mt-5 space-y-3">{consultationEvents.map((item, index) => <div key={`${item.date}-${item.title}-${index}`} className="rounded-xl border p-4"><p className="text-sm font-semibold">{item.title}</p><p className="mt-1 text-xs leading-5 text-slate-500">{item.detail}</p></div>)}</div> : <div className="mt-5 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-6 text-center text-sm text-slate-500">아직 등록된 상담이 없습니다.</div>}
               </div>
             ) : null}
@@ -2817,12 +2810,27 @@ function ConsultationForm({
 }) {
   const options = ['다음 상담 등록', '서류요청', '견적서 작성', '계약서 작성', '내부업무 등록'];
   const [followUps, setFollowUps] = useState<string[]>(['서류요청']);
-  const [calendarSync, setCalendarSync] = useState(true);
+  const [addToSchedule, setAddToSchedule] = useState(true);
   const [title, setTitle] = useState(`${caseItem.service} 진행방향 및 보완사항 협의`);
-  const [startsAt, setStartsAt] = useState('2026-09-04T11:00');
+  const [startsAt, setStartsAt] = useState('');
   const [method, setMethod] = useState('화상');
   const [status, setStatus] = useState('일정 확정');
   const [shareMode, setShareMode] = useState<'all_with_assignee' | 'all_busy' | 'private'>('all_with_assignee');
+
+  const [formError, setFormError] = useState('');
+  const titleRef = useRef<HTMLInputElement>(null);
+  const dateRef = useRef<HTMLInputElement>(null);
+
+  function save() {
+    const result = prepareConsultation({ followUps, addToSchedule, title, startsAt, method, status, shareMode });
+    if (!result.ok) {
+      setFormError(result.error);
+      (result.field === 'title' ? titleRef : dateRef).current?.focus();
+      return;
+    }
+    setFormError('');
+    onSave(result.payload);
+  }
 
   function toggle(item: string) {
     setFollowUps((current) => current.includes(item) ? current.filter((value) => value !== item) : [...current, item]);
@@ -2833,44 +2841,44 @@ function ConsultationForm({
       <PageIntro
         eyebrow="상담 반복등록"
         title={`상담 #${number} 등록`}
-        description="상담 횟수에 제한이 없습니다. 상담완료 후 필요한 후속조치를 여러 개 동시에 만들 수 있습니다."
+        description="기본정보와 상담 상태를 기록합니다. 상세 상담내용·녹취·내부 기록은 상담 FLOW에서 등록하세요."
         action={<Pill tone="blue">{caseItem.company}</Pill>}
       />
 
       <Card className="mx-auto max-w-5xl border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
-        <CardHeader className="border-b border-slate-100"><CardTitle className="text-lg font-bold">상담 기본정보</CardTitle><CardDescription>상담번호는 시스템이 자동으로 부여합니다.</CardDescription></CardHeader>
+        <CardHeader className="border-b border-slate-100"><CardTitle className="text-lg font-bold">상담 기본정보</CardTitle><CardDescription>기본정보는 해당 진행을 볼 수 있는 담당자에게 공유됩니다. 일정 공개범위는 일정 화면에만 적용됩니다.</CardDescription></CardHeader>
         <CardContent className="space-y-7 py-2">
           <div className="grid gap-5 md:grid-cols-2">
-            <Field label="상담 제목·목적" required><input className={inputClass} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="예: 정책자금 신청방향 및 보완사항 협의" /></Field>
-            <Field label="관련 서비스" required><select className={inputClass}>{caseItem.service.split(' · ').filter(Boolean).map((service) => <option key={service}>{service}</option>)}<option>전체</option></select></Field>
-            <Field label="상담 일시" required><input className={inputClass} type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></Field>
+            <Field label="상담 제목·목적" required><input ref={titleRef} aria-required="true" aria-describedby={formError ? "consultation-error" : undefined} className={inputClass} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="예: 정책자금 신청방향 및 보완사항 협의" /></Field>
+            <Field label="관련 서비스"><input className={inputClass} value={caseItem.service} readOnly /></Field>
+            <Field label="상담 일시 (한국시간)" required><input ref={dateRef} aria-required="true" aria-describedby={formError ? "consultation-error" : undefined} className={inputClass} type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></Field>
             <Field label="상담방식"><select className={inputClass} value={method} onChange={(event) => setMethod(event.target.value)}><option>전화</option><option>방문</option><option>화상</option><option>기타</option></select></Field>
-            <Field label="참석자"><input className={inputClass} placeholder="기업대표, 파트너, 내부 담당자" /></Field>
             <Field label="상담상태"><select className={inputClass} value={status} onChange={(event) => setStatus(event.target.value)}><option>상담 완료</option><option>일정 요청</option><option>일정 확정</option><option>고객 회신 대기</option><option>취소</option></select></Field>
           </div>
 
-          <section aria-labelledby="calendar-sync-title" className={`rounded-2xl border p-5 ${calendarSync ? 'border-sky-200 bg-sky-50/70' : 'border-slate-200 bg-slate-50'}`}>
+          <section aria-labelledby="calendar-sync-title" className={`rounded-2xl border p-5 ${addToSchedule ? 'border-sky-200 bg-sky-50/70' : 'border-slate-200 bg-slate-50'}`}>
             <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
               <div className="flex items-start gap-3">
                 <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-white text-[#0877b8] shadow-sm"><CalendarDays className="size-5" aria-hidden="true" /></span>
                 <div>
-                  <h2 id="calendar-sync-title" className="text-sm font-bold text-[#15375b]">김성민 대표 Google Calendar 연동</h2>
-                  <p className="mt-1 text-xs leading-5 text-slate-600">상담이 일정 확정 상태이면 대표 캘린더 등록 대상으로 함께 저장합니다.</p>
+                  <h2 id="calendar-sync-title" className="text-sm font-bold text-[#15375b]">파트너 허브 일정 등록</h2>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">일정 확정 상태에서만 허브 일정에 1시간 상담을 추가합니다. Google Calendar에는 자동 등록되지 않습니다.</p>
                 </div>
               </div>
               <button
                 type="button"
                 role="switch"
-                aria-checked={calendarSync}
-                onClick={() => setCalendarSync((value) => !value)}
-                className={`relative h-11 w-[68px] shrink-0 rounded-full p-1 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200 ${calendarSync ? 'bg-[#0877b8]' : 'bg-slate-300'}`}
-                aria-label="김성민 대표 Google Calendar 등록"
+                aria-checked={addToSchedule}
+                disabled={status !== '일정 확정'}
+                onClick={() => setAddToSchedule((value) => !value)}
+                className={`relative h-11 w-[68px] shrink-0 rounded-full p-1 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200 ${addToSchedule ? 'bg-[#0877b8]' : 'bg-slate-300'}`}
+                aria-label="파트너 허브 일정에 추가"
               >
-                <span className={`block size-9 rounded-full bg-white shadow-sm transition-transform ${calendarSync ? 'translate-x-5' : 'translate-x-0'}`} />
+                <span className={`block size-9 rounded-full bg-white shadow-sm transition-transform ${addToSchedule ? 'translate-x-5' : 'translate-x-0'}`} />
               </button>
             </div>
             <p className="mt-4 rounded-xl bg-white/80 px-4 py-3 text-xs leading-5 text-slate-600">
-              {calendarSync ? '저장 후 대표 일정에 상담 제목·시간·상담방식이 등록되고, 파트너 화면에는 가능/불가 시간만 표시됩니다.' : '캘린더 연동 없이 상담기록만 저장합니다.'}
+              {status !== '일정 확정' ? '현재 상담상태에서는 일정을 추가하지 않습니다. 이 화면에서 취소를 기록해도 이전에 등록한 일정은 변경되지 않습니다.' : addToSchedule ? '허브 일정에 제목·시간·상담방식을 저장하며, 아래 공개범위를 적용합니다.' : '일정 추가 없이 상담 기본정보만 기록합니다.'}
             </p>
           </section>
 
@@ -2880,7 +2888,7 @@ function ConsultationForm({
               <div className="min-w-0 flex-1">
                 <h2 id="trainee-share-title" className="text-sm font-bold text-emerald-950">파트너 일정 공개범위</h2>
                 <p className="mt-1 text-xs leading-5 text-emerald-900/80">전체 파트너에게는 예약시간을, 담당 파트너에게는 기업명과 상담목적까지 공유할 수 있습니다.</p>
-                <select value={shareMode} onChange={(event) => setShareMode(event.target.value as 'all_with_assignee' | 'all_busy' | 'private')} className={`${inputClass} mt-4 border-emerald-200`} aria-label="파트너 일정 공개범위">
+                <select disabled={!addToSchedule || status !== '일정 확정'} value={shareMode} onChange={(event) => setShareMode(event.target.value as 'all_with_assignee' | 'all_busy' | 'private')} className={`${inputClass} mt-4 border-emerald-200`} aria-label="파트너 일정 공개범위">
                   <option value="all_with_assignee">전체 파트너 시간 공유 · 담당 파트너 상세공개</option>
                   <option value="all_busy">전체 파트너에게 예약시간만 공개</option>
                   <option value="private">대표·내부 담당자만 공개</option>
@@ -2889,19 +2897,16 @@ function ConsultationForm({
             </div>
           </section>
 
-          <div className="grid gap-5 md:grid-cols-2">
-            <Field label="주요 상담내용" required><textarea className={`${inputClass} min-h-36 py-3`} placeholder="상담에서 확인한 핵심 내용을 적어주세요." /></Field>
-            <Field label="상담 결과·다음 행동" required><textarea className={`${inputClass} min-h-36 py-3`} placeholder="결정사항, 담당자, 기한을 적어주세요." /></Field>
-          </div>
+          <p className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">이 화면은 상담 기본정보·상태와 완료 후 후속 업무를 저장합니다. 참석자·상담내용·공유 및 내부 메모 입력은 제공하지 않습니다. 상세 기록은 왼쪽 메뉴의 상담 FLOW · 보고서를 이용해 주세요.</p>
 
           <div>
             <p className="text-sm font-bold text-slate-800">상담완료 후 후속조치</p>
-            <p className="mt-1 text-xs text-slate-500">여러 항목을 동시에 선택할 수 있습니다.</p>
+            <p className="mt-1 text-xs text-slate-500">상담 완료 상태에서만 선택한 후속 업무가 생성됩니다. 업무 기한은 생성 후 별도로 확인하세요.</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {options.map((option) => {
                 const selected = followUps.includes(option);
                 return (
-                  <button key={option} type="button" aria-pressed={selected} onClick={() => toggle(option)} className={`flex min-h-12 items-center justify-between rounded-xl border px-4 text-left text-sm font-semibold ${selected ? 'border-[#0877b8] bg-sky-50 text-[#075f93]' : 'border-slate-200 hover:bg-slate-50'}`}>
+                  <button key={option} type="button" aria-pressed={selected} disabled={status !== '상담 완료'} onClick={() => toggle(option)} className={`flex min-h-12 items-center justify-between rounded-xl border px-4 text-left text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${selected ? 'border-[#0877b8] bg-sky-50 text-[#075f93]' : 'border-slate-200 hover:bg-slate-50'}`}>
                     {option} {selected ? <Check className="size-4" /> : null}
                   </button>
                 );
@@ -2909,14 +2914,11 @@ function ConsultationForm({
             </div>
           </div>
 
-          <div className="grid gap-5 md:grid-cols-2">
-            <Field label="공유 메모" hint="파트너에게 보이는 내용입니다."><textarea className={`${inputClass} min-h-28 py-3`} placeholder="파트너와 공유할 준비사항" /></Field>
-            <Field label="내부 전용 메모" hint="대표와 내부 담당자만 볼 수 있습니다."><textarea className={`${inputClass} min-h-28 py-3`} placeholder="내부 판단과 유의사항" /></Field>
-          </div>
+          {formError && <p id="consultation-error" role="alert" className="text-sm font-semibold text-rose-700">{formError}</p>}
         </CardContent>
         <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-6">
           <SecondaryButton onClick={onCancel}>취소</SecondaryButton>
-          <PrimaryButton onClick={() => onSave({ followUps, calendarSync, title, startsAt, method, status, shareMode })}><Check className="size-4" /> 상담 #{number} 저장</PrimaryButton>
+          <PrimaryButton onClick={save}><Check className="size-4" /> 상담 #{number} 저장</PrimaryButton>
         </div>
       </Card>
     </>
@@ -3324,15 +3326,18 @@ export default function Home() {
     notify(`${assessment.company}을 1차 초안 대표 검토대기에 등록했습니다. 실제 AI 전송은 하지 않았습니다.`);
   }
 
-  function saveConsultation(payload: ConsultationPayload) {
-    const number = consultationNumber;
+  function saveConsultation(input: ConsultationPayload) {
+    const result = prepareConsultation(input);
+    if (!result.ok) { notify(result.error); return; }
+    const { payload, schedule: scheduleTime, detail } = result;
+    const number = Math.max(1, consultationNumber);
     setTimeline((current) => [
       ...current,
       {
         caseId: selectedCase.id,
         date: '방금 전',
         title: `상담 #${number} 저장`,
-        detail: `후속조치: ${payload.followUps.length ? payload.followUps.join(' · ') : '없음'}${payload.calendarSync ? ' / Google Calendar 등록대상' : ''}${payload.shareMode !== 'private' ? ' / 파트너 일정 공유' : ''}`,
+        detail,
         type: '상담',
         tone: 'green',
       },
@@ -3341,19 +3346,14 @@ export default function Home() {
       const nextStage: PipelineStage = payload.status === '일정 요청' || payload.status === '일정 확정' ? '상담예약' : '상담진행';
       setCases((current) => current.map((item) => item.id === selectedCase.id ? { ...item, stage: nextStage, consultationCount: payload.status === '상담 완료' ? item.consultationCount + 1 : item.consultationCount, nextAction: payload.followUps.length ? payload.followUps.join(' · ') : stageNextActions[nextStage], updatedAt: '방금 전', idleDays: 0 } : item));
     }
-    if (payload.calendarSync && payload.status === '일정 확정' && payload.startsAt) {
-      const start = new Date(payload.startsAt);
-      const end = new Date(start.getTime() + 60 * 60 * 1000);
-      const weekdayFormatter = new Intl.DateTimeFormat('ko-KR', { weekday: 'short' });
-      const timeFormatter = new Intl.DateTimeFormat('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+    if (scheduleTime) {
       setSchedule((current) => [
         ...current,
         {
           id: `schedule-${Date.now()}`,
-          date: `${String(start.getMonth() + 1).padStart(2, '0')}.${String(start.getDate()).padStart(2, '0')}`,
-          weekday: weekdayFormatter.format(start).replace('요일', ''),
-          time: timeFormatter.format(start),
-          end: timeFormatter.format(end),
+          ...scheduleTime,
+          caseId: selectedCase.id,
+          partnerMemberId: selectedCase.partnerMemberId,
           company: selectedCase.company,
           service: payload.title || `상담 #${number}`,
           method: payload.method,
@@ -3383,7 +3383,7 @@ export default function Home() {
           assignee: taskAssignee,
           partnerMemberId: selectedCase.partnerMemberId,
           caseId: selectedCase.id,
-          due: '09.05',
+          due: '기한 확인',
           dueState: 'upcoming',
           status: '대기',
           priority: '보통',
@@ -3392,9 +3392,9 @@ export default function Home() {
         ...current,
       ]);
     }
-    setConsultationNumber((value) => value + 1);
-    notify(payload.calendarSync && payload.status === '일정 확정' ? `상담 #${number}이 대표 일정과 Google Calendar 등록대상으로 저장되었습니다.` : `상담 #${number}과 후속조치가 저장되었습니다.`);
-    if (payload.calendarSync && payload.status === '일정 확정') {
+    setConsultationNumber((value) => Math.max(1, value) + 1);
+    notify(`상담 #${number} 저장을 요청했습니다. 상단의 DB 저장됨 표시를 확인해 주세요.`);
+    if (scheduleTime) {
       openSchedule('admin');
     } else {
       navigate('case');
@@ -3517,7 +3517,7 @@ export default function Home() {
             }
           }} /> : null}
           {view === 'case' ? <CaseDetail key={selectedCase.id} caseItem={selectedCase} timeline={selectedCaseTimeline} documents={companyDocuments} allCases={cases} members={members} onWorkflow={() => navigate('workflow')} onConsult={() => navigate(selectedCase.flowManaged ? 'workflow' : 'consultation')} onDocuments={() => navigate(selectedCase.flowManaged ? 'workflow' : 'documents')} onSetDocumentDueDates={updateDocumentDueDates} onDocumentModal={() => navigate('workflow')} canFileUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} canQuoteContract={isAdmin || Boolean(currentMember?.permissions.quoteContract)} /> : null}
-          {view === 'consultation' ? <ConsultationForm key={selectedCase.id} number={consultationNumber} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={saveConsultation} /> : null}
+          {view === 'consultation' ? <ConsultationForm key={selectedCase.id} number={Math.max(1, consultationNumber)} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={saveConsultation} /> : null}
           {view === 'documents' ? <DocumentRequest key={selectedCase.id} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={({ items, dueDate }) => { const requestNumber = selectedCaseTimeline.filter((item) => item.type === '서류').length + 1; const dueLabel = formatKoreanDate(dueDate); setTimeline((current) => [...current, { caseId: selectedCase.id, date: '방금 전', title: `서류요청 #${requestNumber} 등록`, detail: `요청서류 ${items.length}건 / 제출기한 ${dueLabel} / 전달 담당자: ${selectedCase.trainee} 파트너`, type: '서류', tone: 'amber' }]); setCompanyDocuments((current) => [...items.map((item, index): CompanyDocument => ({ id: `file-request-${Date.now()}-${index}`, company: selectedCase.company, title: item.name, category: '요청서류', status: '요청중', assignedTrainee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, submittedBy: '기업대표 요청', updatedAt: '방금 전', dueDate, version: '-', sensitive: true })), ...current]); setTasks((current) => [{ id: `task-request-${Date.now()}`, company: selectedCase.company, title: `요청서류 ${items.length}건 제출 확인`, kind: '서류요청', assignee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, due: dueLabel, dueState: 'upcoming', status: '대기', priority: '보통', related: `서류요청 #${requestNumber}` }, ...current]); setCases((current) => current.map((item) => item.id === selectedCase.id ? { ...item, nextAction: `요청서류 ${items.length}건 제출 확인`, updatedAt: '방금 전', idleDays: 0 } : item)); notify(`${selectedCase.company} 서류요청 ${items.length}건을 자료함과 업무목록에 등록했습니다.`); navigate('case'); }} /> : null}
         </main>
       </div>
