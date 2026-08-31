@@ -1,4 +1,5 @@
 'use client';
+import { googleCalendarDraftUrl, scheduleDateGroups } from '@/lib/schedule-display';
 import { PartnerAuthPanel } from '@/components/partner-auth-panel';
 import { PartnerPasswordLink } from '@/components/partner-password-link';
 import { PartnerSignout } from '@/components/partner-signout';
@@ -1126,20 +1127,6 @@ function DiagnosisPreflight({
   );
 }
 
-function googleCalendarUrl(item: ScheduleItem) {
-  const date = item.isoDate?.replaceAll('-', '') ?? `2026${item.date.replace('.', '')}`;
-  const start = `${date}T${item.time.replace(':', '')}00`;
-  const end = `${item.endIsoDate?.replaceAll('-', '') ?? date}T${item.end.replace(':', '')}00`;
-  const params = new URLSearchParams({
-    action: 'TEMPLATE',
-    text: `[한기평 상담] ${item.company} - ${item.service}`,
-    dates: `${start}/${end}`,
-    details: `한기평 파트너 허브 상담일정\n상담방식: ${item.method}`,
-    ctz: 'Asia/Seoul',
-  });
-  return `https://calendar.google.com/calendar/render?${params.toString()}`;
-}
-
 function scheduleForTrainee(item: ScheduleItem, trainee = '박지현'): ScheduleItem | null {
   if (item.shareMode === 'private') return null;
   const canSeeDetails = item.shareMode === 'all_with_assignee' && item.assignedTrainee === trainee && !item.private;
@@ -1156,11 +1143,13 @@ function scheduleForTrainee(item: ScheduleItem, trainee = '박지현'): Schedule
 }
 
 function ScheduleRow({ item, compact = false, traineeView = false }: { item: ScheduleItem; compact?: boolean; traineeView?: boolean }) {
+  const calendarUrl = googleCalendarDraftUrl(item);
   return (
-    <div className={`grid items-center gap-3 ${compact ? 'grid-cols-[72px_minmax(0,1fr)] py-3' : 'grid-cols-[76px_minmax(0,1fr)_auto] rounded-2xl border border-slate-100 bg-white p-4'}`}>
+    <div className={`grid items-center gap-3 ${compact ? 'grid-cols-[72px_minmax(0,1fr)] py-3' : 'grid-cols-[76px_minmax(0,1fr)] rounded-2xl border border-slate-100 bg-white p-4'}`}>
       <div className="text-center">
         <p className="text-sm font-bold tabular-nums text-[#15375b]">{item.time}</p>
         <p className="mt-0.5 text-[11px] tabular-nums text-slate-400">~ {item.end}</p>
+        {item.endIsoDate && item.endIsoDate !== item.isoDate && <p className="mt-1 break-words text-[11px] text-slate-500">{item.endIsoDate} 종료</p>}
       </div>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
@@ -1169,16 +1158,16 @@ function ScheduleRow({ item, compact = false, traineeView = false }: { item: Sch
         </div>
         <p className="mt-1 truncate text-xs text-slate-500">{item.service} · {item.method}</p>
       </div>
-      {!compact && item.source === 'partner' && !traineeView ? (
+      {!compact && item.source === 'partner' && !traineeView ? calendarUrl ? (
         <a
-          href={googleCalendarUrl(item)}
+          href={calendarUrl}
           target="_blank"
           rel="noreferrer"
-          className="hidden min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 sm:inline-flex"
+          className="col-span-2 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100"
         >
-          <CalendarDays className="size-4 text-[#0877b8]" aria-hidden="true" /> 캘린더에 추가
+          <CalendarDays className="size-4 text-[#0877b8]" aria-hidden="true" /> Google 등록 화면 열기
         </a>
-      ) : null}
+      ) : <p className="col-span-2 text-xs text-amber-800">외부 등록 전 날짜·시간 확인 필요</p> : null}
     </div>
   );
 }
@@ -1340,14 +1329,14 @@ function SchedulePage({
   const [filter, setFilter] = useState<'all' | 'partner' | 'google'>('all');
   const audienceSchedule = audience === 'admin' ? schedule : schedule.map((item) => scheduleForTrainee(item, traineeName)).filter((item): item is ScheduleItem => item !== null);
   const visibleSchedule = audienceSchedule.filter((item) => filter === 'all' || item.source === filter);
-  const days = ['09.01|화', '09.02|수', '09.03|목', '09.04|금', '09.05|토', '09.06|일', '09.07|월'];
+  const dateGroups = scheduleDateGroups(visibleSchedule);
 
   return (
     <>
       <PageIntro
         eyebrow={audience === 'admin' ? '대표 일정관리' : '파트너 공유일정'}
         title="김성민 대표 상담일정"
-        description={audience === 'admin' ? '기업상담 일정과 Google Calendar의 바쁜 시간을 한 화면에서 확인하고 중복 예약을 예방합니다.' : '파트너는 대표님의 상담 가능시간을 확인하고, 본인이 담당하는 기업의 상담만 상세하게 볼 수 있습니다.'}
+        description={audience === 'admin' ? '사이트에 저장된 일정을 날짜별로 확인합니다. 외부 캘린더의 실시간 변경은 자동 반영되지 않습니다.' : '공유된 일정의 시간을 확인하고, 본인이 담당하는 기업의 상담만 상세하게 볼 수 있습니다.'}
         action={
           audience === 'admin' ? (
             <PrimaryButton onClick={onNewConsultation}>
@@ -1378,8 +1367,8 @@ function SchedulePage({
             </div>
             <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
               <div>
-                <CardTitle className="text-lg font-bold">2026년 9월 1주</CardTitle>
-                <CardDescription className="mt-1">상담 제목이 아닌 시간만 공유할 수 있도록 개인 일정은 비공개 처리합니다.</CardDescription>
+                <CardTitle className="text-lg font-bold">저장된 일정 · {visibleSchedule.length}건</CardTitle>
+                <CardDescription className="mt-1">확인된 날짜순으로 표시합니다. 연도가 없는 기존 일정은 별도로 확인해 주세요.</CardDescription>
               </div>
               <div className="flex flex-wrap gap-2" aria-label="일정 필터">
                 {[
@@ -1401,42 +1390,20 @@ function SchedulePage({
             </div>
           </CardHeader>
           <CardContent className="pt-1">
-            <div className="space-y-4 lg:hidden">
-              {visibleSchedule.length ? visibleSchedule.map((item) => (
-                <div key={item.id}>
-                  <p className="mb-2 text-xs font-bold text-slate-500">{item.date}({item.weekday})</p>
-                  <ScheduleRow item={item} traineeView={audience === 'trainee'} />
-                </div>
-              )) : (
-                <div className="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">선택한 조건의 일정이 없습니다.</div>
-              )}
-            </div>
-
-            <div className="hidden grid-cols-7 gap-2 lg:grid">
-              {days.map((day) => {
-                const [date, weekday] = day.split('|');
-                const events = visibleSchedule.filter((item) => item.date === date);
-                return (
-                  <section key={day} aria-label={`${date} ${weekday}요일 일정`} className="min-h-[430px] rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
-                    <div className="border-b border-slate-200 pb-3 text-center">
-                      <p className="text-xs font-semibold text-slate-500">{weekday}요일</p>
-                      <p className="mt-1 text-lg font-bold tabular-nums text-[#15375b]">{date.split('.')[1]}</p>
-                    </div>
-                    <div className="mt-3 space-y-3">
-                      {events.map((item) => (
-                        <article key={item.id} className={`rounded-xl border p-3 ${item.source === 'google' ? 'border-slate-200 bg-white' : 'border-sky-100 bg-sky-50'}`}>
-                          <p className="text-xs font-bold tabular-nums text-[#15375b]">{item.time}–{item.end}</p>
-                          <p className="mt-2 text-xs font-bold leading-5 text-slate-800">{item.company}</p>
-                          <p className="mt-1 text-[11px] leading-4 text-slate-500">{item.service}</p>
-                          <div className="mt-2"><Pill tone={item.tone}>{item.status}</Pill></div>
-                        </article>
-                      ))}
-                      {!events.length ? <p className="pt-8 text-center text-xs text-slate-400">예약 가능</p> : null}
+            {dateGroups.length ? (
+              <div className="grid gap-4 2xl:grid-cols-2">
+                {dateGroups.map((group) => (
+                  <section key={group.key} aria-label={`${group.label} 일정`} className="rounded-2xl border border-slate-100 bg-slate-50/70 p-3">
+                    <h2 className="mb-3 text-sm font-bold text-[#15375b]">{group.label}</h2>
+                    <div className="space-y-3">
+                      {group.items.map((item) => <ScheduleRow key={item.id} item={item} traineeView={audience === 'trainee'} />)}
                     </div>
                   </section>
-                );
-              })}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-slate-200 p-8 text-center text-sm text-slate-500">선택한 조건의 일정이 없습니다. 실제 예약 가능 여부는 별도로 확인해 주세요.</div>
+            )}
           </CardContent>
         </Card>
 
@@ -1446,24 +1413,24 @@ function SchedulePage({
               <CardTitle className="flex items-center gap-2 text-lg font-bold">
                 <RefreshCw className="size-5 text-[#0877b8]" aria-hidden="true" /> Google Calendar
               </CardTitle>
-              <CardDescription>김성민 대표 계정 연결을 확인했습니다.</CardDescription>
+              <CardDescription>이 사이트는 Google Calendar와 자동 동기화하지 않습니다.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4 pt-1">
-              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+              <div className="rounded-2xl border border-amber-100 bg-amber-50 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="text-sm font-bold text-emerald-900">계정 연결 확인</p>
-                    <p className="mt-1 text-xs leading-5 text-emerald-800">사이트 자동 동기화는 Google OAuth 승인 후 활성화됩니다.</p>
+                    <p className="text-sm font-bold text-amber-900">자동 동기화 미연결</p>
+                    <p className="mt-1 text-xs leading-5 text-amber-800">날짜와 시간이 확인된 상담은 Google 등록 화면을 열어 직접 저장할 수 있습니다.</p>
                   </div>
-                  <span className="grid size-10 shrink-0 place-items-center rounded-full bg-white text-emerald-700"><Check className="size-5" aria-hidden="true" /></span>
+                  <span className="grid size-10 shrink-0 place-items-center rounded-full bg-white text-amber-700"><AlertCircle className="size-5" aria-hidden="true" /></span>
                 </div>
               </div>
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                 <a href="https://calendar.google.com/calendar/u/0/r" target="_blank" rel="noreferrer" className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100">
                   <ExternalLink className="size-4 text-[#0877b8]" aria-hidden="true" /> Google Calendar 열기
                 </a>
-                <SecondaryButton onClick={() => notify('시안에서는 연동 상태만 확인합니다. 실제 양방향 동기화는 OAuth 설정 후 활성화됩니다.')}>
-                  <RefreshCw className="size-4 text-[#0877b8]" aria-hidden="true" /> 지금 동기화
+                <SecondaryButton onClick={() => notify('자동 동기화는 미연결입니다. Google에서 직접 저장한 뒤에도 변경·취소는 각각 확인해야 합니다.')}>
+                  <RefreshCw className="size-4 text-[#0877b8]" aria-hidden="true" /> 연동 상태 안내
                 </SecondaryButton>
               </div>
             </CardContent>
@@ -1474,7 +1441,7 @@ function SchedulePage({
                 <CardDescription>{traineeName} 파트너 화면 기준입니다.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 pt-1">
-                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4"><p className="text-sm font-bold text-emerald-900">김성민 대표 일정 공유 중</p><p className="mt-1 text-xs leading-5 text-emerald-800">예약 가능·불가 시간은 전체 파트너에게 표시됩니다.</p></div>
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4"><p className="text-sm font-bold text-emerald-900">김성민 대표 일정 공유 중</p><p className="mt-1 text-xs leading-5 text-emerald-800">공유된 바쁜 시간만 표시됩니다. 빈 날짜만으로 예약 가능 여부를 확정하지 마세요.</p></div>
                 <div className="space-y-3 text-sm">
                   <div className="flex items-start gap-3"><Check className="mt-0.5 size-4 shrink-0 text-emerald-700" aria-hidden="true" /><p className="text-slate-700"><strong>내 담당기업:</strong> 기업명·상담목적·방식 확인</p></div>
                   <div className="flex items-start gap-3"><LockKeyhole className="mt-0.5 size-4 shrink-0 text-slate-500" aria-hidden="true" /><p className="text-slate-700"><strong>다른 상담·개인일정:</strong> 시간만 ‘예약됨’으로 표시</p></div>
@@ -1484,13 +1451,13 @@ function SchedulePage({
           )}
 
           <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
-            <CardHeader><CardTitle className="text-lg font-bold">연동 운영 원칙</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-lg font-bold">일정 확인 안내</CardTitle></CardHeader>
             <CardContent className="space-y-4 pt-1">
               {[
-                ['상담 확정 시 자동 등록', '상담명·기업·방식·준비사항을 대표 일정에 생성'],
-                ['변경·취소 양방향 반영', '사이트와 Google Calendar 중 한쪽 변경을 동기화'],
-                ['개인 일정은 시간만 공유', '파트너에게 제목·상세내용을 공개하지 않음'],
-                ['중복 예약 방지', '예약 전 대표 일정의 바쁜 시간을 먼저 확인'],
+                ['사이트 일정 확인', '저장된 상담과 공유 일정을 날짜별로 표시합니다.'],
+                ['Google 직접 등록', '등록 화면에서 저장해야 하며 변경·취소는 자동 동기화되지 않습니다.'],
+                ['공개범위 유지', '시간 공유 항목은 상세를 숨기고 비공개 항목은 파트너 목록에서 제외합니다.'],
+                ['예약 전 별도 확인', '사이트에 없는 일정이 있을 수 있으므로 실제 예약 가능 여부를 확인하세요.'],
               ].map(([title, detail], index) => (
                 <div key={title} className="flex gap-3">
                   <span className="grid size-7 shrink-0 place-items-center rounded-full bg-[#eaf1f7] text-xs font-bold text-[#15375b]">{index + 1}</span>
