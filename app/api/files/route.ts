@@ -51,7 +51,7 @@ export async function POST(request: Request) {
   try {
     checkSameOrigin(request);
     const state = await readPortalState();
-    const currentUser = requirePortalUser(request, state);
+    const currentUser = await requirePortalUser(request, state);
     if (!mayUploadCompanyFiles(currentUser)) {
       throw new CompanyFileError(
         '현재 계정에는 기업자료 업로드 권한이 없습니다.',

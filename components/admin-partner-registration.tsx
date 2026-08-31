@@ -172,8 +172,8 @@ export function AdminPartnerRegistration({
               {success}
             </span>
             <span className="mt-2 block leading-6">
-              초대 이메일은 발송하지 않았습니다. 등록한 이메일로 ChatGPT에
-              로그인한 후 이 사이트에 접속하도록 안내해 주세요.
+              초대 이메일은 발송하지 않았습니다. 계정·권한 설정에서 본인 확인 후
+              비밀번호 설정 링크를 발급해 전달해 주세요. ChatGPT 없이 이용할 수 있습니다.
             </span>
           </output>
         )}
@@ -237,7 +237,7 @@ export function AdminPartnerRegistration({
                       id="partner-register-email-help"
                       className="text-xs leading-5 text-slate-600"
                     >
-                      파트너 본인이 ChatGPT 로그인에 사용하는 이메일을 입력해
+                      파트너 본인이 사이트 로그인 아이디로 사용할 이메일을 입력해
                       주세요.
                     </p>
                   )}

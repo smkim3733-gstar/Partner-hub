@@ -28,7 +28,7 @@ export type PartnerAccount = {
     quoteContract: boolean;
   };
   registration?: {
-    method: 'admin';
+    method: 'admin' | 'self_password';
     requestId: string;
     createdAt: string;
     createdBy: string;

@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://keve.co.kr/schemas/partner-hub-step1-response.schema.v1.json",
+  "title": "KEVE Partner Hub Step 0 and Step 1 Response",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "status",
+    "gate_summary",
+    "source_evidence_ids",
+    "assumptions",
+    "warnings",
+    "missing_document_requests",
+    "step0",
+    "step1",
+    "qa_results",
+    "approval"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "run_id": { "type": "string" },
+    "status": {
+      "type": "string",
+      "enum": [
+        "READY_FOR_REPRESENTATIVE_REVIEW",
+        "NEEDS_MORE_DOCUMENTS",
+        "HUMAN_REVIEW_REQUIRED",
+        "BLOCKED",
+        "FAILED"
+      ]
+    },
+    "gate_summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["data_level", "decision", "reason_codes", "summary"],
+      "properties": {
+        "data_level": { "type": "string", "enum": ["A", "B", "C"] },
+        "decision": {
+          "type": "string",
+          "enum": ["GENERATE_STEP_1_DRAFT", "GENERATE_STEP_0_ONLY", "STOP"]
+        },
+        "reason_codes": { "type": "array", "items": { "type": "string" } },
+        "summary": { "type": "string" }
+      }
+    },
+    "source_evidence_ids": { "type": "array", "items": { "type": "string" } },
+    "assumptions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["assumption_id", "text", "impact", "verification_action"],
+        "properties": {
+          "assumption_id": { "type": "string" },
+          "text": { "type": "string" },
+          "impact": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] },
+          "verification_action": { "type": "string" }
+        }
+      }
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message", "severity"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" },
+          "severity": { "type": "string", "enum": ["ERROR", "WARNING", "INFO"] }
+        }
+      }
+    },
+    "missing_document_requests": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["document_name", "reason", "priority", "request_target"],
+        "properties": {
+          "document_name": { "type": "string" },
+          "reason": { "type": "string" },
+          "priority": { "type": "string", "enum": ["BLOCKING", "IMPORTANT", "OPTIONAL"] },
+          "request_target": { "type": "string", "enum": ["COMPANY", "PARTNER", "INTERNAL"] }
+        }
+      }
+    },
+    "step0": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "document_reading_summary",
+        "core_issue_hypotheses",
+        "solution_hypotheses",
+        "questions_for_representative",
+        "can_start_step1"
+      ],
+      "properties": {
+        "document_reading_summary": { "type": "array", "items": { "type": "string" } },
+        "core_issue_hypotheses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "hypothesis", "evidence_ids", "confidence"],
+            "properties": {
+              "title": { "type": "string" },
+              "hypothesis": { "type": "string" },
+              "evidence_ids": { "type": "array", "items": { "type": "string" } },
+              "confidence": { "type": "string", "enum": ["HIGH", "MEDIUM", "LOW"] }
+            }
+          }
+        },
+        "solution_hypotheses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["solution", "priority", "rationale", "disclaimer"],
+            "properties": {
+              "solution": { "type": "string" },
+              "priority": { "type": "integer" },
+              "rationale": { "type": "string" },
+              "disclaimer": { "type": "string" }
+            }
+          }
+        },
+        "questions_for_representative": { "type": "array", "items": { "type": "string" } },
+        "can_start_step1": { "type": "boolean" }
+      }
+    },
+    "step1": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["report_title", "executive_conclusions", "chapters", "diagnostic_questions", "final_action_summary"],
+      "properties": {
+        "report_title": { "type": "string" },
+        "executive_conclusions": { "type": "array", "items": { "type": "string" } },
+        "chapters": {
+          "type": "array",
+          "minItems": 11,
+          "maxItems": 11,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["chapter_no", "title", "summary", "body_blocks", "evidence_ids", "disclaimer"],
+            "properties": {
+              "chapter_no": { "type": "integer" },
+              "title": { "type": "string" },
+              "summary": { "type": "string" },
+              "body_blocks": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["block_type", "heading", "content"],
+                  "properties": {
+                    "block_type": { "type": "string", "enum": ["PARAGRAPH", "BULLETS", "TABLE", "CALLOUT"] },
+                    "heading": { "type": "string" },
+                    "content": { "type": "string" }
+                  }
+                }
+              },
+              "evidence_ids": { "type": "array", "items": { "type": "string" } },
+              "disclaimer": { "type": "string" }
+            }
+          }
+        },
+        "diagnostic_questions": {
+          "type": "array",
+          "minItems": 10,
+          "maxItems": 10,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["question_no", "category", "question", "intent", "linked_solution"],
+            "properties": {
+              "question_no": { "type": "integer" },
+              "category": { "type": "string" },
+              "question": { "type": "string" },
+              "intent": { "type": "string" },
+              "linked_solution": { "type": "string" }
+            }
+          }
+        },
+        "final_action_summary": { "type": "string" }
+      }
+    },
+    "qa_results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["check_code", "check_name", "passed", "details"],
+        "properties": {
+          "check_code": { "type": "string" },
+          "check_name": { "type": "string" },
+          "passed": { "type": "boolean" },
+          "details": { "type": "string" }
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "reviewer_role", "customer_visible", "next_allowed_action"],
+      "properties": {
+        "state": { "type": "string", "const": "PENDING_REPRESENTATIVE_REVIEW" },
+        "reviewer_role": { "type": "string", "const": "KEVE_REPRESENTATIVE" },
+        "customer_visible": { "type": "boolean", "const": false },
+        "next_allowed_action": {
+          "type": "string",
+          "enum": ["APPROVE_STEP_1", "REQUEST_REVISION", "REQUEST_MORE_DOCUMENTS", "STOP"]
+        }
+      }
+    }
+  }
+}

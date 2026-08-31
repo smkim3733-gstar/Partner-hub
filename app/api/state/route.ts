@@ -23,6 +23,7 @@ import {
 } from '@/lib/portal-auth';
 
 const MAX_STATE_BYTES = 900_000;
+const privateJson = (data: unknown, init?: ResponseInit) => Response.json(data, { ...init, headers: { 'cache-control': 'private, no-store' } });
 
 export const dynamic = 'force-dynamic';
 
@@ -35,7 +36,7 @@ function accessErrorResponse(error: unknown, request: Request) {
             ?.trim()
             .toLowerCase()
         : undefined;
-    return Response.json(
+    return privateJson(
       { error: error.message, authenticatedEmail },
       { status: error.status },
     );
@@ -46,7 +47,7 @@ function accessErrorResponse(error: unknown, request: Request) {
 export async function GET(request: Request) {
   try {
     const rawState = await readPortalState();
-    const currentUser = requirePortalUser(request, rawState);
+    const currentUser = await requirePortalUser(request, rawState);
     const state = await stateWithConsultingFlows(rawState);
     if (currentUser.role === 'trainee' && currentUser.memberId) {
       await recordPortalLogin(currentUser.memberId);
@@ -55,12 +56,12 @@ export async function GET(request: Request) {
       currentUser.role === 'admin'
         ? stateWithPortalLoginStats(state, await readPortalLoginStats())
         : stateForPortalUser(state, currentUser);
-    return Response.json({ state: responseState, currentUser });
+    return privateJson({ state: responseState, currentUser });
   } catch (error) {
     const accessResponse = accessErrorResponse(error, request);
     if (accessResponse) return accessResponse;
     console.error('Failed to read portal state', error);
-    return Response.json(
+    return privateJson(
       { error: '저장된 운영 데이터를 불러오지 못했습니다.' },
       { status: 500 },
     );
@@ -69,14 +70,14 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    requirePortalUser(request, await readPortalState());
+    await requirePortalUser(request, await readPortalState());
     assertSameOrigin(request);
     const bodyText = await request.text();
     if (
       !bodyText ||
       new TextEncoder().encode(bodyText).byteLength > MAX_STATE_BYTES
     ) {
-      return Response.json(
+      return privateJson(
         { error: '저장 데이터의 크기가 허용 범위를 초과했습니다.' },
         { status: 413 },
       );
@@ -88,14 +89,14 @@ export async function PUT(request: Request) {
       typeof body.state !== 'object' ||
       Array.isArray(body.state)
     ) {
-      return Response.json(
+      return privateJson(
         { error: '저장할 운영 데이터 형식이 올바르지 않습니다.' },
         { status: 400 },
       );
     }
 
     const result = await mutatePortalState(async (currentState) => {
-      const currentUser = requirePortalUser(request, currentState);
+      const currentUser = await requirePortalUser(request, currentState);
       const merged = mergeStateForPortalUser(
         currentState,
         body.state,
@@ -119,7 +120,7 @@ export async function PUT(request: Request) {
         membersRevisionOf(currentState) + (memberChange ? 1 : 0);
       return await stateWithConsultingFlows({ ...merged, membersRevision });
     });
-    return Response.json({
+    return privateJson({
       ok: true,
       updatedAt: result.updatedAt,
       membersRevision: membersRevisionOf(result.state),
@@ -128,16 +129,16 @@ export async function PUT(request: Request) {
     const accessResponse = accessErrorResponse(error, request);
     if (accessResponse) return accessResponse;
     if (error instanceof PortalStateConflict)
-      return Response.json({ error: error.message }, { status: 409 });
+      return privateJson({ error: error.message }, { status: 409 });
     if (error instanceof FlowError)
-      return Response.json({ error: error.message }, { status: error.status });
+      return privateJson({ error: error.message }, { status: error.status });
     if (error instanceof SyntaxError)
-      return Response.json(
+      return privateJson(
         { error: '저장 요청 형식이 올바르지 않습니다.' },
         { status: 400 },
       );
     console.error('Failed to write portal state', error);
-    return Response.json(
+    return privateJson(
       { error: '운영 데이터를 저장하지 못했습니다.' },
       { status: 500 },
     );

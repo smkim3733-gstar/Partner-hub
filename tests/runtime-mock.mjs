@@ -14,10 +14,11 @@ class Statement {
       ? [Object.fromEntries(this.values.map((v, i) => [`?${i + 1}`, v]))]
       : [];
   }
-  async run() {
+  runSync() {
     const result = sqlite.prepare(this.sql).run(...this.args());
     return { success: true, meta: { changes: Number(result.changes) } };
   }
+  async run() { return this.runSync(); }
   async first() {
     return sqlite.prepare(this.sql).get(...this.args()) ?? null;
   }
@@ -34,7 +35,12 @@ export const env = {
       return new Statement(sql);
     },
     async batch(items) {
-      return Promise.all(items.map((item) => item.run()));
+      sqlite.exec('BEGIN');
+      try {
+        const results = items.map(item => item.runSync());
+        sqlite.exec('COMMIT');
+        return results;
+      } catch (error) { sqlite.exec('ROLLBACK'); throw error; }
     },
   },
   AI_SOURCE_FILES: {

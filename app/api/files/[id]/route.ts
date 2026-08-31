@@ -24,7 +24,7 @@ export async function GET(
 ) {
   try {
     const state = await readPortalState();
-    const currentUser = requirePortalUser(request, state);
+    const currentUser = await requirePortalUser(request, state);
     const { id } = await context.params;
     const row = await findCompanyFile(id);
     if (!row) throw new CompanyFileError('요청한 기업자료를 찾을 수 없습니다.', 404);
@@ -62,7 +62,7 @@ export async function DELETE(
       throw new CompanyFileError('허용되지 않은 삭제 요청입니다.', 403);
     }
     const state = await readPortalState();
-    const currentUser = requirePortalUser(request, state);
+    const currentUser = await requirePortalUser(request, state);
     const { id } = await context.params;
     const row = await findCompanyFile(id);
     if (!row) return new Response(null, { status: 204 });

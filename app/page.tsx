@@ -1,4 +1,7 @@
 'use client';
+import { PartnerAuthPanel } from '@/components/partner-auth-panel';
+import { PartnerPasswordLink } from '@/components/partner-password-link';
+import { PartnerSignout } from '@/components/partner-signout';
 /* oxlint-disable next/no-html-link-for-pages -- Sites authentication routes require native top-level navigation. */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -47,7 +50,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { hasDuplicateLoginEmail, isValidLoginEmail } from '@/lib/member-email';
+import { hasDuplicateLoginEmail, isValidLoginEmail, normalizeLoginEmail } from '@/lib/member-email';
 import { ConsultingWorkflow } from '@/components/consulting-workflow';
 import { ApplicationAttachments } from '@/components/application-attachments';
 import { AdminPartnerRegistration } from '@/components/admin-partner-registration';
@@ -288,6 +291,7 @@ type PortalUser = {
   memberId: string | null;
   memberName: string | null;
   permissions: TraineeMember['permissions'] | null;
+  authMethod?: 'password' | 'chatgpt';
 };
 
 function isPortalState(value: unknown): value is PortalState {
@@ -2101,93 +2105,6 @@ function loginActivityLabel(member: TraineeMember) {
   return `최근접속 ${formatted} · 누적 ${member.loginCount ?? 1}회`;
 }
 
-type RegistrationField = 'name' | 'phone' | 'affiliation' | 'email';
-
-function PartnerRegistrationForm({ email }: { email: string }) {
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [affiliation, setAffiliation] = useState('');
-  const [errors, setErrors] = useState<Partial<Record<RegistrationField, string>>>({});
-  const [formError, setFormError] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const errorSummaryRef = useRef<HTMLDivElement>(null);
-
-  function validateField(field: RegistrationField, value: string) {
-    const normalized = value.trim();
-    if (field === 'name' && (normalized.length < 2 || normalized.length > 40)) return '이름은 2자 이상 40자 이하로 입력해 주세요.';
-    if (field === 'phone' && !/^[0-9+()\-\s.]{7,24}$/.test(normalized)) return '연락처를 숫자와 하이픈을 사용해 입력해 주세요.';
-    if (field === 'affiliation' && (normalized.length < 2 || normalized.length > 80)) return '소속은 2자 이상 80자 이하로 입력해 주세요.';
-    if (field === 'email' && !isValidLoginEmail(normalized)) return '로그인 이메일을 확인해 주세요.';
-    return '';
-  }
-
-  function validateAll() {
-    const nextErrors: Partial<Record<RegistrationField, string>> = {};
-    const values: Record<RegistrationField, string> = { name, phone, affiliation, email };
-    (Object.keys(values) as RegistrationField[]).forEach((field) => {
-      const error = validateField(field, values[field]);
-      if (error) nextErrors[field] = error;
-    });
-    return nextErrors;
-  }
-
-  function validateOnBlur(field: RegistrationField, value: string) {
-    const error = validateField(field, value);
-    setErrors((current) => ({ ...current, [field]: error || undefined }));
-  }
-
-  async function submitRegistration(event: React.SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const nextErrors = validateAll();
-    if (Object.keys(nextErrors).length) {
-      setErrors(nextErrors);
-      window.requestAnimationFrame(() => errorSummaryRef.current?.focus());
-      return;
-    }
-
-    setSubmitting(true);
-    setFormError('');
-    try {
-      const response = await fetch('/api/register', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name, phone, affiliation, email }),
-      });
-      const payload = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(payload.error || '등록 신청을 저장하지 못했습니다.');
-      setSubmitted(true);
-    } catch (error) {
-      setFormError(error instanceof Error ? error.message : '등록 신청을 저장하지 못했습니다.');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  if (submitted) {
-    return (
-      <output className="mt-6 block rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-left">
-        <div className="flex items-start gap-3"><UserRoundCheck className="mt-0.5 size-5 shrink-0 text-emerald-700" aria-hidden="true" /><div><p className="text-sm font-bold text-emerald-900">파트너 등록 신청 완료</p><p className="mt-1 text-xs leading-5 text-emerald-800">현재 승인대기 상태입니다. 김성민 대표가 파트너 유형을 선택해 승인하면 바로 로그인할 수 있습니다.</p></div></div>
-      </output>
-    );
-  }
-
-  return (
-    <form onSubmit={submitRegistration} className="mt-6 rounded-2xl border border-sky-100 bg-sky-50/60 p-5 text-left" noValidate>
-      <div><p className="text-sm font-bold text-[#15375b]">파트너 등록 신청</p><p className="mt-1 text-xs leading-5 text-slate-600">아래 4개 항목만 입력해 주세요. 파트너 유형은 대표님이 승인할 때 지정합니다.</p></div>
-      {Object.keys(errors).length ? <div ref={errorSummaryRef} tabIndex={-1} role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800"><p>입력내용을 확인해 주세요.</p><ul className="mt-2 list-disc space-y-1 pl-5 text-xs">{Object.values(errors).filter(Boolean).map((error) => <li key={error}>{error}</li>)}</ul></div> : null}
-      {formError ? <p role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">{formError}</p> : null}
-      <div className="mt-4 grid gap-4 sm:grid-cols-2">
-        <div><Field label="이름" required><input id="registration-name" autoComplete="name" value={name} onChange={(event) => { setName(event.target.value); setErrors((current) => ({ ...current, name: undefined })); }} onBlur={() => validateOnBlur('name', name)} className={`${inputClass} ${errors.name ? 'border-red-400' : ''}`} aria-invalid={Boolean(errors.name)} aria-describedby={errors.name ? 'registration-name-error' : undefined} /></Field>{errors.name ? <p id="registration-name-error" role="alert" className="mt-2 text-xs font-semibold text-red-700">{errors.name}</p> : null}</div>
-        <div><Field label="연락처" required><input id="registration-phone" type="tel" autoComplete="tel" value={phone} onChange={(event) => { setPhone(event.target.value); setErrors((current) => ({ ...current, phone: undefined })); }} onBlur={() => validateOnBlur('phone', phone)} className={`${inputClass} ${errors.phone ? 'border-red-400' : ''}`} placeholder="010-0000-0000" aria-invalid={Boolean(errors.phone)} aria-describedby={errors.phone ? 'registration-phone-error' : undefined} /></Field>{errors.phone ? <p id="registration-phone-error" role="alert" className="mt-2 text-xs font-semibold text-red-700">{errors.phone}</p> : null}</div>
-        <div><Field label="소속" required><input id="registration-affiliation" autoComplete="organization" value={affiliation} onChange={(event) => { setAffiliation(event.target.value); setErrors((current) => ({ ...current, affiliation: undefined })); }} onBlur={() => validateOnBlur('affiliation', affiliation)} className={`${inputClass} ${errors.affiliation ? 'border-red-400' : ''}`} placeholder="회사명 또는 소속 조직" aria-invalid={Boolean(errors.affiliation)} aria-describedby={errors.affiliation ? 'registration-affiliation-error' : undefined} /></Field>{errors.affiliation ? <p id="registration-affiliation-error" role="alert" className="mt-2 text-xs font-semibold text-red-700">{errors.affiliation}</p> : null}</div>
-        <div><Field label="이메일" required hint="현재 ChatGPT 로그인 이메일입니다."><input id="registration-email" type="email" autoComplete="email" value={email} readOnly className={`${inputClass} bg-slate-100 text-slate-600 ${errors.email ? 'border-red-400' : ''}`} aria-invalid={Boolean(errors.email)} aria-describedby={errors.email ? 'registration-email-error' : undefined} /></Field>{errors.email ? <p id="registration-email-error" role="alert" className="mt-2 text-xs font-semibold text-red-700">{errors.email}</p> : null}</div>
-      </div>
-      <PrimaryButton type="submit" className="mt-5 w-full" disabled={submitting}>{submitting ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />} {submitting ? '신청 저장 중' : '등록 승인 요청'}</PrimaryButton>
-    </form>
-  );
-}
-
 function AccessManagement({
   notify,
   members,
@@ -2313,7 +2230,7 @@ function AccessManagement({
       <section aria-label="파트너 계정 요약" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           ['등록 파트너', members.length, Users, '전체 이메일 계정'],
-          ['활성 계정', members.filter((member) => member.status === '활성').length, UserRoundCheck, 'ChatGPT 로그인 후 접속'],
+          ['활성 계정', members.filter((member) => member.status === '활성').length, UserRoundCheck, '이메일·사이트 비밀번호로 접속'],
           ['승인대기', members.filter((member) => ['승인대기', '초대대기'].includes(member.status)).length, UserPlus, '대표 유형 지정 필요'],
           ['접속 확인', members.filter((member) => member.lastLoginAt).length, Clock3, '실제 로그인 기록 있음'],
         ].map(([label, value, Icon, hint]) => {
@@ -2387,7 +2304,7 @@ function AccessManagement({
             <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">{['승인대기', '초대대기'].includes(selectedMember.status) ? '신규 파트너 신청' : partnerDetail(selectedMember)}</p><h2 id="permission-modal-title" className="mt-1 text-xl font-bold">{selectedMember.name} {['승인대기', '초대대기'].includes(selectedMember.status) ? '신청 검토' : '계정·권한 설정'}</h2><p className="mt-1 text-sm text-slate-500">파트너 유형을 선택해 승인하면 바로 활성 계정으로 등록됩니다.</p></div><button type="button" onClick={closeMemberSettings} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="계정·권한 설정 닫기"><X className="size-5" /></button></div>
             <div className="max-h-[65vh] space-y-3 overflow-y-auto p-5">
               <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                <Field label="로그인 이메일" required hint="파트너가 ChatGPT에 로그인하는 이메일과 정확히 일치해야 합니다.">
+                <Field label="로그인 이메일" required hint="파트너 본인이 사용하는 이메일입니다. 변경 후에는 새 비밀번호 설정 링크를 발급해 주세요.">
                   <input
                     ref={selectedEmailRef}
                     type="email"
@@ -2406,7 +2323,8 @@ function AccessManagement({
                 {['승인대기', '초대대기'].includes(selectedMember.status) ? <Field label="신청상태"><input value="대표 승인대기" readOnly className={`${inputClass} bg-amber-50 text-amber-800`} /></Field> : <Field label="로그인 상태"><select value={selectedMember.status} onChange={(event) => updateSelectedMember({ status: event.target.value as TraineeMember['status'] })} className={inputClass}><option>활성</option><option>정지</option></select></Field>}
               </div>
               <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2"><div><p className="text-xs text-slate-500">연락처</p><p className="mt-1 text-sm font-bold text-slate-800">{selectedMember.phone || '미등록'}</p></div><div><p className="text-xs text-slate-500">소속</p><p className="mt-1 text-sm font-bold text-slate-800">{selectedMember.affiliation || '기존 계정'}</p></div></div>
-              <div className={`rounded-2xl border p-4 ${selectedMember.status === '활성' ? 'border-emerald-200 bg-emerald-50/70' : ['승인대기', '초대대기'].includes(selectedMember.status) ? 'border-amber-200 bg-amber-50/70' : 'border-slate-200 bg-slate-50'}`}><div className="flex items-start gap-3"><ShieldCheck className={`mt-0.5 size-5 shrink-0 ${selectedMember.status === '활성' ? 'text-emerald-700' : ['승인대기', '초대대기'].includes(selectedMember.status) ? 'text-amber-700' : 'text-slate-500'}`} aria-hidden="true" /><div><p className="text-sm font-bold text-slate-800">{selectedMember.status === '활성' ? '이메일 계정 활성 상태' : ['승인대기', '초대대기'].includes(selectedMember.status) ? '대표 승인 후 즉시 등록' : '이메일 계정 정지 상태'}</p><p className="mt-1 text-xs leading-5 text-slate-600">{['승인대기', '초대대기'].includes(selectedMember.status) ? '신청내용을 확인하고 파트너 유형을 선택한 뒤 승인해 주세요.' : '등록된 이메일과 같은 ChatGPT 계정으로 로그인하면 서버가 자동으로 권한을 확인합니다.'}</p>{selectedMember.status === '활성' ? <p className="mt-2 flex items-center gap-1.5 text-xs font-bold text-slate-700"><Clock3 className="size-3.5" aria-hidden="true" /> {loginActivityLabel(selectedMember)}</p> : null}</div></div></div>
+              <PartnerPasswordLink key={`${selectedMember.id}:${selectedMember.email}:${selectedMember.status}`} memberId={selectedMember.id} email={selectedMember.email} disabled={registrationDisabled || selectedMember.status === '정지' || normalizeLoginEmail(selectedEmail) !== normalizeLoginEmail(selectedMember.email)} />
+              <div className={`rounded-2xl border p-4 ${selectedMember.status === '활성' ? 'border-emerald-200 bg-emerald-50/70' : ['승인대기', '초대대기'].includes(selectedMember.status) ? 'border-amber-200 bg-amber-50/70' : 'border-slate-200 bg-slate-50'}`}><div className="flex items-start gap-3"><ShieldCheck className={`mt-0.5 size-5 shrink-0 ${selectedMember.status === '활성' ? 'text-emerald-700' : ['승인대기', '초대대기'].includes(selectedMember.status) ? 'text-amber-700' : 'text-slate-500'}`} aria-hidden="true" /><div><p className="text-sm font-bold text-slate-800">{selectedMember.status === '활성' ? '이메일 계정 활성 상태' : ['승인대기', '초대대기'].includes(selectedMember.status) ? '대표 승인 후 즉시 등록' : '이메일 계정 정지 상태'}</p><p className="mt-1 text-xs leading-5 text-slate-600">{['승인대기', '초대대기'].includes(selectedMember.status) ? '기존 연락처로 본인을 확인하고 파트너 유형을 선택한 뒤 승인해 주세요.' : '등록된 이메일과 사이트 전용 비밀번호로 로그인하면 서버가 승인 상태와 담당 권한을 확인합니다.'}</p>{selectedMember.status === '활성' ? <p className="mt-2 flex items-center gap-1.5 text-xs font-bold text-slate-700"><Clock3 className="size-3.5" aria-hidden="true" /> {loginActivityLabel(selectedMember)}</p> : null}</div></div></div>
               {permissionLabels.map(({ key, label, detail }) => {
                 const enabled = selectedMember.permissions[key];
                 return (
@@ -3065,8 +2983,14 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState<PortalUser | null>(null);
   const [accessError, setAccessError] = useState('');
   const [accessStatus, setAccessStatus] = useState<number | null>(null);
-  const [accessEmail, setAccessEmail] = useState('');
   const saveTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    // Re-check authentication if Back restores a private page from the browser's page cache after logout.
+    const recheck = (event: PageTransitionEvent) => { if (event.persisted) window.location.reload(); };
+    window.addEventListener('pageshow', recheck);
+    return () => window.removeEventListener('pageshow', recheck);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -3078,7 +3002,6 @@ export default function Home() {
         if (!response.ok) {
           if (active) {
             setAccessStatus(response.status);
-            setAccessEmail(payload.authenticatedEmail ?? '');
           }
           throw new Error(payload.error || '로그인 정보를 확인하지 못했습니다.');
         }
@@ -3100,7 +3023,6 @@ export default function Home() {
 
         setCurrentUser(payload.currentUser);
         setAccessStatus(null);
-        setAccessEmail('');
         if (payload.currentUser.role === 'trainee') {
           setView('trainee');
           setScheduleAudience('trainee');
@@ -3211,27 +3133,10 @@ export default function Home() {
   const activeLabel = useMemo(() => navItems.find((item) => item.view === view)?.label ?? '파트너 허브', [view]);
 
   if (accessError) {
-    const needsSignIn = accessStatus === 401;
-    const deniedAccount = accessStatus === 403;
-    return (
-      <div className="grid min-h-screen place-items-center bg-[radial-gradient(circle_at_top,#edf7fd_0,#f8fafc_45%,#f8fafc_100%)] p-5">
-        <Card className={`w-full border-0 text-center shadow-xl ring-slate-200 ${deniedAccount ? 'max-w-2xl' : 'max-w-xl'}`}>
-          <CardContent className="py-10 sm:px-10">
-            <span className={`mx-auto grid size-14 place-items-center rounded-2xl ${needsSignIn ? 'bg-sky-50 text-[#0877b8]' : 'bg-red-50 text-red-700'}`}><LockKeyhole className="size-7" aria-hidden="true" /></span>
-            <p className="mt-5 text-xs font-bold tracking-[0.18em] text-[#0877b8]">KEVE PARTNER HUB</p>
-            <h1 className="mt-2 text-2xl font-bold text-slate-950">{needsSignIn ? '파트너 로그인' : '파트너 허브 접근 확인 필요'}</h1>
-            <p className="mt-3 text-sm leading-6 text-slate-600">{accessError}</p>
-            <p className="mt-3 text-xs leading-5 text-slate-500">한기평 컨설턴트·타사 컨설턴트·보험설계사·기타 파트너가 승인 후 이용할 수 있습니다.</p>
-            {needsSignIn ? <a href="/signin-with-chatgpt?return_to=/" target="_top" className="mt-6 inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#0877b8] px-5 text-sm font-bold text-white transition-colors hover:bg-[#06679f] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200"><ShieldCheck className="size-4" aria-hidden="true" /> ChatGPT로 로그인</a> : null}
-            {deniedAccount && accessEmail ? <PartnerRegistrationForm email={accessEmail} /> : null}
-            {deniedAccount ? <a href="/signout-with-chatgpt?return_to=/" target="_top" className="mt-4 inline-flex min-h-12 w-full items-center justify-center rounded-xl border border-slate-200 bg-white px-5 text-sm font-bold text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200">다른 ChatGPT 계정으로 다시 로그인</a> : null}
-            {!needsSignIn && !deniedAccount ? <button type="button" onClick={() => window.location.reload()} className="mt-6 min-h-12 w-full rounded-xl bg-[#15375b] px-5 text-sm font-bold text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200">다시 확인</button> : null}
-            <div className="mt-6 rounded-xl border border-slate-100 bg-slate-50 p-4 text-left"><p className="text-xs font-bold text-slate-700">개인정보 보호</p><p className="mt-1 text-xs leading-5 text-slate-500">로그인 전에는 기업·상담·서류 정보가 제공되지 않으며, 로그인 후에도 본인에게 배정된 진행만 열람할 수 있습니다.</p></div>
-          </CardContent>
-        </Card>
-      </div>
-    );
+    if (accessStatus === 401 || accessStatus === 403) return <PartnerAuthPanel message={accessError} />;
+    return <div className="grid min-h-screen place-items-center bg-slate-50 p-5"><Card className="w-full max-w-xl"><CardContent className="py-8"><h1 className="text-xl font-bold">연결을 확인해 주세요</h1><p role="alert" className="mt-3 text-sm text-slate-600">{accessError}</p><button type="button" onClick={() => window.location.reload()} className="mt-5 min-h-11 w-full rounded-xl bg-[#15375b] px-4 font-bold text-white">다시 확인</button></CardContent></Card></div>;
   }
+
 
   if (!currentUser) {
     return <div className="grid min-h-screen place-items-center bg-slate-50 p-5"><div className="text-center"><span className="mx-auto grid size-14 place-items-center rounded-2xl bg-sky-50 text-[#0877b8]"><RefreshCw className="size-7 animate-spin" aria-hidden="true" /></span><p className="mt-4 text-sm font-semibold text-slate-700">로그인 정보와 담당 권한을 확인하고 있습니다.</p></div></div>;
@@ -3418,7 +3323,7 @@ export default function Home() {
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[244px] flex-col bg-[#112f50] text-white lg:flex">
         <div className="flex h-[76px] items-center gap-3 border-b border-white/10 px-5"><BrandMark /><div><p className="text-[11px] font-semibold tracking-[0.18em] text-blue-200">KEVE</p><p className="text-[15px] font-bold tracking-tight">한기평 파트너 허브</p></div></div>
         <nav aria-label="주요 메뉴" className="flex-1 space-y-1 overflow-y-auto p-4">{availableNavItems.map(navButton)}</nav>
-        <div className="m-4 min-h-24 rounded-xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-blue-200">{isAdmin ? '대표 관리자' : currentMember ? partnerTypeOf(currentMember) : '파트너'}</p><p className="mt-1 text-sm font-semibold">{accountDisplayName}</p><p className="mt-2 flex items-center gap-1 text-xs text-blue-100/80"><ShieldCheck className="size-3.5" aria-hidden="true" /> ChatGPT 로그인 확인</p></div>
+        <div className="m-4 min-h-24 rounded-xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-blue-200">{isAdmin ? '대표 관리자' : currentMember ? partnerTypeOf(currentMember) : '파트너'}</p><p className="mt-1 text-sm font-semibold">{accountDisplayName}</p><p className="mt-2 flex items-center gap-1 text-xs text-blue-100/80"><ShieldCheck className="size-3.5" aria-hidden="true" /> {currentUser.authMethod === 'password' ? '이메일 로그인 확인' : 'ChatGPT 로그인 확인'}</p>{currentUser.authMethod === 'password' && <PartnerSignout disabled={dataStatus !== 'saved'} />}</div>
       </aside>
 
       {mobileOpen ? (
@@ -3428,6 +3333,7 @@ export default function Home() {
             <div className="mb-5 flex items-center justify-between"><div className="flex items-center gap-3"><BrandMark /><span className="font-bold">파트너 허브</span></div><button type="button" onClick={() => setMobileOpen(false)} className="grid size-11 place-items-center rounded-xl hover:bg-white/10" aria-label="메뉴 닫기"><X /></button></div>
             <nav aria-label="모바일 메뉴" className="space-y-2">{availableNavItems.map(navButton)}</nav>
             <div className="mt-5 flex min-h-12 w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold"><span>{accountDisplayName}</span><ShieldCheck className="size-4" aria-hidden="true" /></div>
+            {currentUser.authMethod === 'password' && <PartnerSignout disabled={dataStatus !== 'saved'} />}
           </aside>
         </div>
       ) : null}

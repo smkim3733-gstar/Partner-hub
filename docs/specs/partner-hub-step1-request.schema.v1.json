@@ -1,0 +1,346 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://keve.co.kr/schemas/partner-hub-step1-request.schema.v1.json",
+  "title": "KEVE Partner Hub Step 0 and Step 1 Request",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run",
+    "application",
+    "privacy",
+    "company",
+    "documents",
+    "evidence_items",
+    "transcript_insights",
+    "missing_items",
+    "conflicts",
+    "generation_gate",
+    "output_preferences"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "run_id",
+        "requested_stage",
+        "work_mode",
+        "created_at",
+        "timezone",
+        "prompt_version"
+      ],
+      "properties": {
+        "run_id": { "type": "string" },
+        "requested_stage": {
+          "type": "string",
+          "enum": ["STEP_0", "STEP_1"]
+        },
+        "work_mode": {
+          "type": "string",
+          "enum": ["QUICK_DIAGNOSIS", "FULL_FLOW", "SINGLE_ARTIFACT"]
+        },
+        "created_at": { "type": "string", "format": "date-time" },
+        "timezone": { "type": "string", "const": "Asia/Seoul" },
+        "prompt_version": { "type": "string" }
+      }
+    },
+    "application": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "application_id",
+        "crm_stage",
+        "partner_id",
+        "partner_type",
+        "requested_solutions",
+        "request_summary"
+      ],
+      "properties": {
+        "application_id": { "type": "string" },
+        "crm_stage": {
+          "type": "string",
+          "enum": [
+            "RECEIVED",
+            "DIAGNOSIS_PREPARING",
+            "CONSULTATION_SCHEDULING",
+            "CONSULTING",
+            "CONTRACTING",
+            "AFTERCARE",
+            "ON_HOLD",
+            "CLOSED"
+          ]
+        },
+        "partner_id": { "type": "string" },
+        "partner_type": {
+          "type": "string",
+          "enum": [
+            "한기평 컨설턴트",
+            "타사 컨설턴트",
+            "보험설계사",
+            "기타"
+          ]
+        },
+        "requested_solutions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "기업인증",
+              "정책자금",
+              "특허",
+              "영업권·법인전환",
+              "부동산",
+              "CEO 자산관리",
+              "기타"
+            ]
+          }
+        },
+        "request_summary": { "type": "string" }
+      }
+    },
+    "privacy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "personal_data_consent",
+        "third_party_processing_consent",
+        "transcript_processing_consent",
+        "masking_mode",
+        "data_owner_verified",
+        "retention_policy_id"
+      ],
+      "properties": {
+        "personal_data_consent": { "type": "boolean" },
+        "third_party_processing_consent": { "type": "boolean" },
+        "transcript_processing_consent": { "type": "boolean" },
+        "masking_mode": {
+          "type": "string",
+          "enum": ["MASKED", "AUTHORIZED_MINIMUM", "FULL_WITH_EXPLICIT_APPROVAL"]
+        },
+        "data_owner_verified": { "type": "boolean" },
+        "retention_policy_id": { "type": "string" }
+      }
+    },
+    "company": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "company_id",
+        "display_alias",
+        "legal_name_token",
+        "representative_token",
+        "business_number_masked",
+        "business_type",
+        "business_items",
+        "established_date",
+        "address_region"
+      ],
+      "properties": {
+        "company_id": { "type": "string" },
+        "display_alias": { "type": "string" },
+        "legal_name_token": { "type": "string" },
+        "representative_token": { "type": "string" },
+        "business_number_masked": { "type": "string" },
+        "business_type": { "type": "string" },
+        "business_items": { "type": "array", "items": { "type": "string" } },
+        "established_date": { "type": ["string", "null"], "format": "date" },
+        "address_region": { "type": "string" }
+      }
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "document_id",
+          "document_type",
+          "file_name_masked",
+          "mime_type",
+          "page_count",
+          "checksum_sha256",
+          "server_content_ref",
+          "extraction_status",
+          "malware_scan_status",
+          "sensitive",
+          "uploaded_at"
+        ],
+        "properties": {
+          "document_id": { "type": "string" },
+          "document_type": {
+            "type": "string",
+            "enum": [
+              "BUSINESS_REGISTRATION",
+              "CRETOP_REPORT",
+              "FINANCIAL_STATEMENT",
+              "CREDIT_REPORT",
+              "TRANSCRIPT_AUDIO",
+              "TRANSCRIPT_TEXT",
+              "CORPORATE_REGISTRY",
+              "SHAREHOLDER_LIST",
+              "LOAN_STATEMENT",
+              "PATENT_CERTIFICATE",
+              "CERTIFICATION",
+              "COMPANY_PROFILE",
+              "ARTICLES_OF_INCORPORATION",
+              "REAL_ESTATE_DOCUMENT",
+              "OTHER"
+            ]
+          },
+          "file_name_masked": { "type": "string" },
+          "mime_type": { "type": "string" },
+          "page_count": { "type": ["integer", "null"] },
+          "checksum_sha256": { "type": "string" },
+          "server_content_ref": {
+            "type": "string",
+            "description": "서버에서만 해석하는 내부 참조값. 클라이언트가 Anthropic file_id를 직접 제출하면 안 된다."
+          },
+          "extraction_status": {
+            "type": "string",
+            "enum": ["PENDING", "EXTRACTED", "OCR_REQUIRED", "FAILED"]
+          },
+          "malware_scan_status": {
+            "type": "string",
+            "enum": ["CLEAN", "BLOCKED", "PENDING"]
+          },
+          "sensitive": { "type": "boolean" },
+          "uploaded_at": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "evidence_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evidence_id",
+          "field_key",
+          "value_text",
+          "value_type",
+          "unit",
+          "period",
+          "source_document_id",
+          "source_page",
+          "extraction_method",
+          "confidence",
+          "review_state"
+        ],
+        "properties": {
+          "evidence_id": { "type": "string" },
+          "field_key": { "type": "string" },
+          "value_text": { "type": "string" },
+          "value_type": {
+            "type": "string",
+            "enum": ["TEXT", "NUMBER", "DATE", "BOOLEAN", "RANGE", "UNKNOWN"]
+          },
+          "unit": { "type": ["string", "null"] },
+          "period": { "type": ["string", "null"] },
+          "source_document_id": { "type": "string" },
+          "source_page": { "type": ["integer", "null"] },
+          "extraction_method": {
+            "type": "string",
+            "enum": ["TEXT_LAYER", "OCR", "TRANSCRIPTION", "MANUAL", "CALCULATED"]
+          },
+          "confidence": { "type": "number" },
+          "review_state": {
+            "type": "string",
+            "enum": ["UNREVIEWED", "VERIFIED", "CONFLICT", "REJECTED"]
+          }
+        }
+      }
+    },
+    "transcript_insights": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["insight_id", "speaker_role", "category", "text_masked", "source_document_id"],
+        "properties": {
+          "insight_id": { "type": "string" },
+          "speaker_role": {
+            "type": "string",
+            "enum": ["COMPANY_REPRESENTATIVE", "PARTNER", "KEVE", "OTHER", "UNKNOWN"]
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "BUSINESS",
+              "FUNDING",
+              "FINANCE_CREDIT",
+              "CERTIFICATION_RND",
+              "OWNERSHIP",
+              "CEO_ASSET",
+              "RISK_LEGAL_TAX",
+              "REQUEST",
+              "OTHER"
+            ]
+          },
+          "text_masked": { "type": "string" },
+          "source_document_id": { "type": "string" }
+        }
+      }
+    },
+    "missing_items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["item_code", "label", "severity", "request_target", "reason"],
+        "properties": {
+          "item_code": { "type": "string" },
+          "label": { "type": "string" },
+          "severity": { "type": "string", "enum": ["BLOCKING", "IMPORTANT", "OPTIONAL"] },
+          "request_target": { "type": "string", "enum": ["COMPANY", "PARTNER", "INTERNAL"] },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["conflict_id", "field_key", "evidence_ids", "severity", "resolution_state"],
+        "properties": {
+          "conflict_id": { "type": "string" },
+          "field_key": { "type": "string" },
+          "evidence_ids": { "type": "array", "items": { "type": "string" } },
+          "severity": { "type": "string", "enum": ["BLOCKING", "WARNING"] },
+          "resolution_state": { "type": "string", "enum": ["UNRESOLVED", "RESOLVED_BY_HUMAN"] }
+        }
+      }
+    },
+    "generation_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["data_level", "decision", "reason_codes", "evaluated_at"],
+      "properties": {
+        "data_level": { "type": "string", "enum": ["A", "B", "C"] },
+        "decision": {
+          "type": "string",
+          "enum": ["GENERATE_STEP_1_DRAFT", "GENERATE_STEP_0_ONLY", "STOP"]
+        },
+        "reason_codes": { "type": "array", "items": { "type": "string" } },
+        "evaluated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "output_preferences": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["language", "report_tone", "question_count", "currency", "citations_required"],
+      "properties": {
+        "language": { "type": "string", "const": "ko-KR" },
+        "report_tone": { "type": "string", "const": "INTERNAL_FORMAL" },
+        "question_count": { "type": "integer", "const": 10 },
+        "currency": { "type": "string", "const": "KRW" },
+        "citations_required": { "type": "boolean", "const": true }
+      }
+    }
+  }
+}

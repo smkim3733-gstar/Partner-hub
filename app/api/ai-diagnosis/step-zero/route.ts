@@ -98,7 +98,7 @@ ${pilotContext}
 export async function GET(request: Request) {
   try {
     const state = await readPortalState();
-    const currentUser = requirePortalUser(request, state);
+    const currentUser = await requirePortalUser(request, state);
     if (currentUser.role !== 'admin') {
       return Response.json({ error: 'Step 0 결과는 대표 관리자만 확인할 수 있습니다.' }, { status: 403 });
     }
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
       return Response.json({ error: '허용되지 않은 생성 요청입니다.' }, { status: 403 });
     }
     const state = await readPortalState();
-    const currentUser = requirePortalUser(request, state);
+    const currentUser = await requirePortalUser(request, state);
     if (currentUser.role !== 'admin') {
       return Response.json({ error: 'Step 0 생성은 김성민 대표만 실행할 수 있습니다.' }, { status: 403 });
     }

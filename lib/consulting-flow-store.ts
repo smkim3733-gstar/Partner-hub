@@ -107,7 +107,7 @@ export async function loadFlowAccess(request: Request, caseId: string) {
   if (!/^[a-zA-Z0-9_-]{1,120}$/.test(caseId))
     throw new FlowError('진행번호를 확인해 주세요.');
   const state = await readPortalState();
-  const user = requirePortalUser(request, state);
+  const user = await requirePortalUser(request, state);
   const stored = await readFlow(caseId);
   const assignment = resolveFlowAssignment(state, caseId, user, stored);
   return {

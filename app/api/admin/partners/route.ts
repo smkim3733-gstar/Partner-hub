@@ -20,7 +20,7 @@ const response = (data: unknown, status = 200) =>
 
 export async function POST(request: Request) {
   try {
-    const actor = requirePortalUser(request, await readPortalState());
+    const actor = await requirePortalUser(request, await readPortalState());
     if (actor.role !== 'admin')
       throw new PortalAccessError(
         '파트너 직접등록은 대표 관리자만 할 수 있습니다.',
@@ -55,8 +55,8 @@ export async function POST(request: Request) {
     const createdAt = new Date().toISOString();
     let registered: PartnerAccount;
     let replayed = false;
-    const result = await mutatePortalState((raw) => {
-      const currentUser = requirePortalUser(request, raw);
+    const result = await mutatePortalState(async (raw) => {
+      const currentUser = await requirePortalUser(request, raw);
       if (currentUser.role !== 'admin')
         throw new PortalAccessError('대표 관리자만 등록할 수 있습니다.', 403);
       const state = raw as {

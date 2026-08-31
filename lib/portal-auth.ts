@@ -1,5 +1,6 @@
 import { hasDuplicateLoginEmail, isValidLoginEmail } from '@/lib/member-email';
 import type { PortalLoginStat } from '@/lib/portal-state';
+import { passwordIdentity, PasswordError } from '@/lib/password-store';
 
 type PortalPermissions = {
   sharedSchedule: boolean;
@@ -42,6 +43,7 @@ export type PortalUser = {
   memberId: string | null;
   memberName: string | null;
   permissions: PortalPermissions | null;
+  authMethod?: 'password' | 'chatgpt';
 };
 
 const OWNER_EMAIL = 'smkim3733@gmail.com';
@@ -86,7 +88,19 @@ export function normalizedMemberName(name: string) {
   return name.replace('(가상)', '').trim();
 }
 
-export function requirePortalUser(request: Request, rawState: unknown): PortalUser {
+export async function requirePortalUser(request: Request, rawState: unknown): Promise<PortalUser> {
+  let passwordUser;
+  try { passwordUser = await passwordIdentity(request); }
+  catch (error) {
+    if (error instanceof PasswordError && (error.status === 401 || error.status === 403)) throw new PortalAccessError(error.message, error.status);
+    throw error;
+  }
+  if (passwordUser) {
+    const member = asPortalState(rawState)?.members.find(item => item.id === passwordUser.member_id && item.email.trim().toLowerCase() === passwordUser.email);
+    if (!member || member.status !== '활성') throw new PortalAccessError('대표 승인 전이거나 이용이 정지된 계정입니다.', 403);
+    return { id: `password:${member.id}`, email: passwordUser.email, displayName: normalizedMemberName(member.name),
+      role: 'trainee', memberId: member.id, memberName: normalizedMemberName(member.name), permissions: member.permissions, authMethod: 'password' };
+  }
   const id = request.headers.get('oai-authenticated-user-id')?.trim();
   const email = request.headers.get('oai-authenticated-user-email')?.trim().toLowerCase();
   if (!id || !email) {
@@ -103,6 +117,7 @@ export function requirePortalUser(request: Request, rawState: unknown): PortalUs
       memberId: null,
       memberName: null,
       permissions: null,
+      authMethod: 'chatgpt',
     };
   }
 
@@ -121,6 +136,7 @@ export function requirePortalUser(request: Request, rawState: unknown): PortalUs
     memberId: member.id,
     memberName,
     permissions: member.permissions,
+    authMethod: 'chatgpt',
   };
 }
 

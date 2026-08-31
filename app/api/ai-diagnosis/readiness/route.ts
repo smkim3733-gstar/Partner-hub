@@ -22,7 +22,7 @@ function accessErrorResponse(error: unknown) {
 export async function GET(request: Request) {
   try {
     const state = await readPortalState();
-    const currentUser = requirePortalUser(request, state);
+    const currentUser = await requirePortalUser(request, state);
     if (currentUser.role !== 'admin') {
       return Response.json({ error: 'AI 연동 설정은 대표 관리자만 확인할 수 있습니다.' }, { status: 403 });
     }
