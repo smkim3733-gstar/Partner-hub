@@ -216,6 +216,13 @@ type FlowPayload = {
   canUpload: boolean;
   readiness: { aiConnected: boolean; model: string };
 };
+async function readFlowState(response: Response): Promise<FlowPayload> {
+  return response.json().catch(() => {
+    throw new Error(
+      '진행 정보를 불러오지 못했습니다. 연결을 확인한 뒤 다시 불러오기 또는 새로고침으로 최신 진행 상태를 확인해 주세요.',
+    );
+  }) as Promise<FlowPayload>;
+}
 function ActionForm({
   busy,
   label,
@@ -269,13 +276,14 @@ export function ConsultingWorkflow({
   async function refresh(initial = false) {
     try {
       const response = await fetch(endpoint, { cache: 'no-store' });
-      const data = (await response.json()) as FlowPayload;
+      const data = await readFlowState(response);
       if (!response.ok)
         throw new Error(data.error || '진행 정보를 불러오지 못했습니다.');
       setFlow(data.flow);
       setRole(data.role);
       setReadiness(data.readiness);
       setCanUpload(data.canUpload);
+      setError('');
       if (initial) setSection(phaseSection[phaseOf(data.flow)]);
       return data.flow as ConsultingFlow;
     } catch (e) {
@@ -289,7 +297,7 @@ export function ConsultingWorkflow({
     const controller = new AbortController();
     void fetch(endpoint, { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
-        const data = (await response.json()) as FlowPayload;
+        const data = await readFlowState(response);
         if (!response.ok)
           throw new Error(data.error || '진행을 불러오지 못했습니다.');
         return data;
