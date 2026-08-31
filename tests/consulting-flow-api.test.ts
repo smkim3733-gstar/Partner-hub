@@ -186,9 +186,9 @@ void nodeTest(
     const duplicate = await command(
       'api-case',
       flow,
-      { type: 'save_report', stage: 1, body: reportBody },
+      { type: 'save_report', stage: 1, body: reportBody, fileConsent: true },
       'seedy@sites.test',
-      undefined,
+      new File(['%PDF-1.7\nmock'], '분석.pdf', { type: 'application/pdf' }),
       'api-idempotent-01',
     );
     assert.equal(duplicate.status, 200);

@@ -140,6 +140,7 @@ export type ConsultingFlow = {
     detail: string;
   }>;
   commandIds: string[];
+  commandReceipts?: Record<string, { actorKey: string; fingerprint: string }>;
 };
 export type FlowCommand = { type: string; [key: string]: unknown };
 export class FlowError extends Error {

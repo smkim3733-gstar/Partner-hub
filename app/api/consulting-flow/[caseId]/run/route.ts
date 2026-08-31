@@ -4,6 +4,7 @@ import {
   assertSameOrigin,
   flowErrorResponse,
   loadFlowAccess,
+  recheckFlowAccess,
 } from '@/lib/consulting-flow-store';
 export const dynamic = 'force-dynamic';
 export async function POST(
@@ -12,13 +13,18 @@ export async function POST(
 ) {
   try {
     assertSameOrigin(request);
-    const { flow } = await loadFlowAccess(
+    const { flow, user } = await loadFlowAccess(
       request,
       (await context.params).caseId,
     );
+    const next = await runNextFlowJob(
+      flow,
+      async () => (await recheckFlowAccess(request, flow, user)).statePayload,
+    );
+    await recheckFlowAccess(request, next, user);
     // A partner can run only a previously queued job governed by the representative's policy.
     return Response.json(
-      { flow: publicFlow(await runNextFlowJob(flow)) },
+      { flow: publicFlow(next) },
       { headers: { 'cache-control': 'no-store' } },
     );
   } catch (error) {

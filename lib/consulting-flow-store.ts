@@ -1,13 +1,17 @@
 import { env } from 'cloudflare:workers';
-import { consultingFlowsTableSql } from '@/db/schema';
+import { consultingFlowsTableSql, portalStateId } from '@/db/schema';
 import {
   FlowError,
   newConsultingFlow,
   type ConsultingFlow,
 } from '@/lib/consulting-flow';
 import { resolveFlowAssignment } from '@/lib/consulting-flow-access';
-import { requirePortalUser, PortalAccessError } from '@/lib/portal-auth';
-import { readPortalState } from '@/lib/portal-state';
+import {
+  requirePortalUser,
+  PortalAccessError,
+  type PortalUser,
+} from '@/lib/portal-auth';
+import { readPortalStateSnapshot } from '@/lib/portal-state';
 import { projectFlowState } from '@/lib/consulting-flow-projection';
 
 export function flowEnvironment() {
@@ -45,7 +49,7 @@ export async function stateWithConsultingFlows(raw: unknown) {
   )
     // Project inside SQLite: a dashboard refresh must not load every firm's report or transcript.
     .prepare(`SELECT json_set(
-      json_remove(payload, '$.files', '$.ai.sourceText', '$.audit', '$.commandIds', '$.jobs'),
+      json_remove(payload, '$.files', '$.ai.sourceText', '$.audit', '$.commandIds', '$.commandReceipts', '$.jobs'),
       '$.reports', json((SELECT json_group_array(json_object(
         'id', json_extract(r.value, '$.id'), 'stage', json_extract(r.value, '$.stage'),
         'sourceReportId', json_extract(r.value, '$.sourceReportId'), 'sourceRecordingId', json_extract(r.value, '$.sourceRecordingId'),
@@ -62,6 +66,7 @@ export async function stateWithConsultingFlows(raw: unknown) {
 export async function commitFlow(
   before: ConsultingFlow,
   after: ConsultingFlow,
+  statePayload?: string | null,
 ) {
   if (after === before) return;
   const payload = JSON.stringify(after);
@@ -75,7 +80,9 @@ export async function commitFlow(
     before.revision === 0
       ? await db
           .prepare(
-            'INSERT INTO consulting_flows (case_id, partner_id, revision, payload, updated_at) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(case_id) DO NOTHING',
+            `INSERT INTO consulting_flows (case_id, partner_id, revision, payload, updated_at)
+            SELECT ?1, ?2, ?3, ?4, ?5 WHERE (?6 = 0 OR (SELECT payload FROM portal_state WHERE id = '${portalStateId}') IS ?7)
+            ON CONFLICT(case_id) DO NOTHING`,
           )
           .bind(
             after.caseId,
@@ -83,11 +90,14 @@ export async function commitFlow(
             after.revision,
             payload,
             after.updatedAt,
+            statePayload === undefined ? 0 : 1,
+            statePayload ?? null,
           )
           .run()
       : await db
           .prepare(
-            'UPDATE consulting_flows SET revision = ?1, payload = ?2, updated_at = ?3 WHERE case_id = ?4 AND revision = ?5',
+            `UPDATE consulting_flows SET revision = ?1, payload = ?2, updated_at = ?3 WHERE case_id = ?4 AND revision = ?5
+            AND (?6 = 0 OR (SELECT payload FROM portal_state WHERE id = '${portalStateId}') IS ?7)`,
           )
           .bind(
             after.revision,
@@ -95,6 +105,8 @@ export async function commitFlow(
             after.updatedAt,
             before.caseId,
             before.revision,
+            statePayload === undefined ? 0 : 1,
+            statePayload ?? null,
           )
           .run();
   if (result.meta.changes !== 1)
@@ -106,12 +118,15 @@ export async function commitFlow(
 export async function loadFlowAccess(request: Request, caseId: string) {
   if (!/^[a-zA-Z0-9_-]{1,120}$/.test(caseId))
     throw new FlowError('진행번호를 확인해 주세요.');
-  const state = await readPortalState();
-  const user = await requirePortalUser(request, state);
+  const initial = await readPortalStateSnapshot();
+  await requirePortalUser(request, initial.state);
   const stored = await readFlow(caseId);
+  const { state, payload } = await readPortalStateSnapshot();
+  const user = await requirePortalUser(request, state);
   const assignment = resolveFlowAssignment(state, caseId, user, stored);
   return {
     user,
+    statePayload: payload,
     flow:
       stored ??
       newConsultingFlow(
@@ -121,6 +136,31 @@ export async function loadFlowAccess(request: Request, caseId: string) {
         assignment.partnerName,
       ),
   };
+}
+export async function recheckFlowAccess(
+  request: Request,
+  flow: ConsultingFlow,
+  expected: PortalUser,
+  uploads = false,
+) {
+  const access = await loadFlowAccess(request, flow.caseId);
+  if (
+    access.user.id !== expected.id ||
+    access.user.memberId !== expected.memberId ||
+    access.user.role !== expected.role ||
+    access.flow.partnerId !== flow.partnerId
+  )
+    throw new FlowError(
+      '계정 또는 담당 정보가 변경되었습니다. 다시 확인해 주세요.',
+      403,
+    );
+  if (
+    uploads &&
+    access.user.role !== 'admin' &&
+    !access.user.permissions?.fileUpload
+  )
+    throw new FlowError('자료 업로드 권한이 필요합니다.', 403);
+  return access;
 }
 export function assertSameOrigin(request: Request) {
   const origin = request.headers.get('origin');

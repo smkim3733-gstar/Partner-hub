@@ -17,7 +17,7 @@ const bundle = await build({
 import { registerPassword, loginPassword, logoutPassword, setupPassword, createPasswordLink } from '@/lib/password-handlers';
 import { GET as getState, PUT as saveState } from '@/app/api/state/route';
 import { POST as createPartner } from '@/app/api/admin/partners/route';
-import { GET as getFlow } from '@/app/api/consulting-flow/[caseId]/route';
+import { GET as getFlow, POST as postFlow } from '@/app/api/consulting-flow/[caseId]/route';
 import { GET as getFile, DELETE as deleteFile } from '@/app/api/files/[id]/route';
 import { POST as uploadFile } from '@/app/api/files/route';
 import { GET as intakeFiles } from '@/app/api/consulting-flow/[caseId]/intake-files/route';
@@ -31,7 +31,7 @@ export default { async fetch(request) {
   if (pathname === '/inventory' && request.method === 'GET') return getInventory(request);
   if (pathname.startsWith('/recovery/') && ['GET', 'POST'].includes(request.method)) return (request.method === 'GET' ? previewRecovery : recoverOriginal)(request, { params: Promise.resolve({ id: pathname.slice(10) }) });
   if (pathname.startsWith('/inventory/') && request.method === 'GET') return getInventoryPresence(request, { params: Promise.resolve({ id: pathname.slice(11) }) });
-  if (pathname.startsWith('/flow/') && request.method === 'GET') return getFlow(request, { params: Promise.resolve({ caseId: pathname.slice(6) }) });
+  if (pathname.startsWith('/flow/') && ['GET', 'POST'].includes(request.method)) return (request.method === 'GET' ? getFlow : postFlow)(request, { params: Promise.resolve({ caseId: pathname.slice(6) }) });
   if (pathname.startsWith('/intake/') && request.method === 'GET') return intakeFiles(request, { params: Promise.resolve({ caseId: pathname.slice(8) }) });
   if (pathname.startsWith('/files/') && ['GET', 'DELETE'].includes(request.method)) return (request.method === 'GET' ? getFile : deleteFile)(request, { params: Promise.resolve({ id: pathname.slice(7) }) });
   const action = routes[request.method + ' ' + pathname];
@@ -1194,6 +1194,80 @@ try {
     undefined,
   );
 
+  const nativeFlow = (
+    await (await call('/flow/runtime-own', undefined, ownerHeaders)).json()
+  ).flow;
+  const nativeCommand = {
+    revision: nativeFlow.revision,
+    commandId: 'native-flow-report-retry',
+    command: {
+      type: 'save_report',
+      stage: 1,
+      body: '격리 런타임에서 확인하는 가상 보고서입니다. 실제 기업자료나 외부 AI 처리를 사용하지 않습니다. '.repeat(
+        4,
+      ),
+    },
+  };
+  const nativeSaved = await expect(
+    await call('/flow/runtime-own', nativeCommand, ownerHeaders),
+    200,
+    'FLOW report commits with native D1 authorization guard',
+  );
+  const nativeSavedFlow = (await nativeSaved.json()).flow;
+  const nativeRetry = await expect(
+    await call('/flow/runtime-own', nativeCommand, ownerHeaders),
+    200,
+    'identical FLOW retry reuses its native receipt',
+  );
+  const nativeRetried = await nativeRetry.json();
+  assert.equal(nativeRetried.duplicate, true);
+  assert.equal(
+    nativeRetried.flow.reports.length,
+    nativeSavedFlow.reports.length,
+  );
+  assert.equal(nativeRetried.flow.commandReceipts, undefined);
+  checks.push(
+    'FLOW retry does not duplicate reports or expose internal receipts',
+  );
+  await expect(
+    await call(
+      '/flow/runtime-own',
+      {
+        ...nativeCommand,
+        command: {
+          ...nativeCommand.command,
+          body: nativeCommand.command.body + '변경',
+        },
+      },
+      ownerHeaders,
+    ),
+    409,
+    'same FLOW request ID rejects changed report contents',
+  );
+  await expect(
+    await call('/flow/runtime-own', nativeCommand, { cookie }),
+    403,
+    'partner cannot reuse an administrator FLOW receipt',
+  );
+  const nativeAnalysis = {
+    revision: nativeSavedFlow.revision,
+    commandId: 'native-flow-partner-analysis',
+    command: {
+      type: 'confirm_analysis',
+      reportId: nativeSavedFlow.reports.at(-1).id,
+    },
+  };
+  await expect(
+    await call('/flow/runtime-own', nativeAnalysis, { cookie }),
+    200,
+    'assigned active partner confirms their own analysis',
+  );
+  await expect(
+    await call('/flow/runtime-own', nativeAnalysis, { cookie }),
+    200,
+    'partner analysis confirmation retry remains idempotent',
+  );
+
   const suspensionFile = (
     await (
       await expect(
@@ -1234,6 +1308,11 @@ try {
     await call('/state', undefined, { cookie }),
     403,
     'suspension blocks an already issued password session',
+  );
+  await expect(
+    await call('/flow/runtime-own', nativeAnalysis, { cookie }),
+    403,
+    'suspension denies even an identical previously successful FLOW command',
   );
   await expect(
     await uploadSource({ cookie }, memberId),

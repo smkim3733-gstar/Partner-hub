@@ -310,6 +310,73 @@ test('consultations and requests repeat; overlaps are rejected without mutation'
     });
   assert.equal(s.requests.length, 5);
 });
+test('meeting cancellation respects attendance and identical cancellation requests remain idempotent', () => {
+  const s = apply(consulted(), {
+    type: 'book_meeting',
+    kind: 'followup',
+    attendance: 'admin',
+    startsAt: '2026-09-01T10:00:00Z',
+    endsAt: '2026-09-01T11:00:00Z',
+    location: '가상 상담실',
+  });
+  const command = { type: 'cancel_meeting', meetingId: s.meetings.at(-1)!.id };
+  assert.throws(
+    () => apply(s, command, partner),
+    (error) => error instanceof FlowError && error.status === 403,
+  );
+  const saved = applyFlowCommand(s, command, admin, {
+    commandId: 'cancel-same-command',
+    now,
+  });
+  assert.equal(saved.meetings.at(-1)!.status, 'cancelled');
+  assert.equal(s.meetings.at(-1)!.status, 'scheduled');
+  assert.equal(
+    applyFlowCommand(saved, command, admin, {
+      commandId: 'cancel-same-command',
+      now,
+    }),
+    saved,
+  );
+  const both = booked();
+  assert.equal(
+    apply(
+      both,
+      { type: 'cancel_meeting', meetingId: firstMeeting(both)!.id },
+      partner,
+    ).meetings[0].status,
+    'cancelled',
+  );
+});
+test('document sent confirmation is an explicit record only and a repeated command adds no second audit event', () => {
+  const s = apply(decided(), {
+    type: 'request_document',
+    title: '가상 확인서류',
+    recipient: '가상 담당자',
+    channel: '이메일',
+    required: true,
+  });
+  const command = {
+    type: 'mark_request_sent',
+    requestId: s.requests[0].id,
+    sentConfirmed: true,
+  };
+  fails(s, { ...command, sentConfirmed: false }, partner);
+  const saved = applyFlowCommand(s, command, partner, {
+    commandId: 'sent-same-command',
+    now,
+  });
+  assert.equal(saved.requests[0].sentAt, now);
+  assert.equal(saved.requests[0].status, 'requested');
+  assert.equal(s.requests[0].sentAt, undefined);
+  assert.equal(saved.audit.length, s.audit.length + 1);
+  assert.equal(
+    applyFlowCommand(saved, command, partner, {
+      commandId: 'sent-same-command',
+      now,
+    }),
+    saved,
+  );
+});
 test('recording permission gates, audio-only is blocked, masked transcript is required', () => {
   const s = consulted();
   fails(s, {

@@ -69,5 +69,6 @@ export function publicFlow(flow: ConsultingFlow): ConsultingFlow {
     ...flow,
     files: flow.files.map((f) => ({ ...f, key: '' })),
     commandIds: [],
+    commandReceipts: undefined,
   };
 }

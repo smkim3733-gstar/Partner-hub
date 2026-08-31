@@ -4,12 +4,17 @@ import { describeUpload, parseFlowRequest } from '@/lib/consulting-flow-http';
 import { prepareIntakeImport } from '@/lib/consulting-intake-sources';
 import { buildAnalysisSourceBlocks } from '@/lib/consulting-flow-ai';
 import {
+  flowCommandReceipt,
+  isFlowCommandRetry,
+} from '@/lib/flow-command-receipt';
+import {
   assertSameOrigin,
   commitFlow,
   flowBucket,
   flowErrorResponse,
   flowReadiness,
   loadFlowAccess,
+  recheckFlowAccess,
 } from '@/lib/consulting-flow-store';
 
 export const dynamic = 'force-dynamic';
@@ -38,12 +43,19 @@ export async function POST(request: Request, context: Context) {
   let uploadedKeys: string[] = [];
   try {
     assertSameOrigin(request);
-    const { flow, user } = await loadFlowAccess(
+    const initial = await loadFlowAccess(
       request,
       (await context.params).caseId,
     );
     const input = await parseFlowRequest(request);
-    if (flow.commandIds.includes(input.commandId))
+    const receipt = await flowCommandReceipt(initial.user, input);
+    const { flow, user } = await recheckFlowAccess(
+      request,
+      initial.flow,
+      initial.user,
+      Boolean(input.file || input.audio),
+    );
+    if (isFlowCommandRetry(flow, input.commandId, receipt))
       return Response.json(
         { flow: publicFlow(flow), duplicate: true },
         { headers: { 'cache-control': 'no-store' } },
@@ -110,6 +122,10 @@ export async function POST(request: Request, context: Context) {
         intakeCategory: imported?.category,
       },
     );
+    next.commandReceipts = {
+      ...flow.commandReceipts,
+      [input.commandId]: receipt,
+    };
     if (imported) {
       await flowBucket().put(imported.file.key, imported.bytes, {
         httpMetadata: { contentType: imported.file.contentType },
@@ -128,7 +144,13 @@ export async function POST(request: Request, context: Context) {
       });
       uploadedKeys.push(audioUpload.key);
     }
-    await commitFlow(flow, next);
+    const access = await recheckFlowAccess(
+      request,
+      flow,
+      user,
+      Boolean(input.file || input.audio),
+    );
+    await commitFlow(flow, next, access.statePayload);
     uploadedKeys = [];
     return Response.json(
       { flow: publicFlow(next) },
