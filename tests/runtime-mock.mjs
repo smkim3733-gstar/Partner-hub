@@ -44,6 +44,10 @@ export const env = {
     },
   },
   AI_SOURCE_FILES: {
+    async head(key) {
+      const bytes = objects.get(key);
+      return bytes ? { size: bytes.byteLength } : null;
+    },
     async put(key, body) {
       const bytes = await new Response(body).arrayBuffer();
       objects.set(key, bytes);

@@ -22,9 +22,13 @@ import { GET as getFile, DELETE as deleteFile } from '@/app/api/files/[id]/route
 import { POST as uploadFile } from '@/app/api/files/route';
 import { GET as intakeFiles } from '@/app/api/consulting-flow/[caseId]/intake-files/route';
 import { GET as getDraft, PUT as saveDraft, DELETE as deleteDraft } from '@/app/api/application-draft/route';
+import { GET as getInventory } from '@/app/api/admin/file-inventory/route';
+import { GET as getInventoryPresence } from '@/app/api/admin/file-inventory/[id]/presence/route';
 export default { async fetch(request) {
   const pathname = new URL(request.url).pathname;
   const routes = { 'POST /signup': registerPassword, 'POST /login': loginPassword, 'POST /logout': logoutPassword, 'POST /setup': setupPassword, 'POST /issue': createPasswordLink, 'GET /state': getState, 'PUT /save': saveState, 'POST /partners': createPartner, 'POST /files': uploadFile, 'GET /draft': getDraft, 'PUT /draft': saveDraft, 'DELETE /draft': deleteDraft };
+  if (pathname === '/inventory' && request.method === 'GET') return getInventory(request);
+  if (pathname.startsWith('/inventory/') && request.method === 'GET') return getInventoryPresence(request, { params: Promise.resolve({ id: pathname.slice(11) }) });
   if (pathname.startsWith('/flow/') && request.method === 'GET') return getFlow(request, { params: Promise.resolve({ caseId: pathname.slice(6) }) });
   if (pathname.startsWith('/intake/') && request.method === 'GET') return intakeFiles(request, { params: Promise.resolve({ caseId: pathname.slice(8) }) });
   if (pathname.startsWith('/files/') && ['GET', 'DELETE'].includes(request.method)) return (request.method === 'GET' ? getFile : deleteFile)(request, { params: Promise.resolve({ id: pathname.slice(7) }) });
@@ -617,6 +621,78 @@ try {
     'multipart upload binds same-name file to authenticated account',
   );
   const linkedFile = (await linked.json()).file;
+  await expect(
+    await call('/inventory'),
+    401,
+    'anonymous inventory access is denied',
+  );
+  await expect(
+    await call('/inventory', undefined, { cookie }),
+    403,
+    'partner inventory access is denied even with file permission',
+  );
+  const inventory = await (
+    await expect(
+      await call('/inventory?status=all', undefined, ownerHeaders),
+      200,
+      'administrator reads bounded private inventory metadata',
+    )
+  ).json();
+  assert.ok(
+    inventory.items.some(
+      (item) => item.id === linkedFile.id && item.status === 'unlinked',
+    ),
+  );
+  assert.doesNotMatch(
+    JSON.stringify(inventory),
+    /storage_key|fingerprint|request_key|company-source\//,
+  );
+  await expect(
+    await call(`/inventory/${linkedFile.id}`, undefined, { cookie }),
+    403,
+    'partner cannot probe inventory object presence',
+  );
+  const inventoryPresence = await (
+    await expect(
+      await call(`/inventory/${linkedFile.id}`, undefined, ownerHeaders),
+      200,
+      'administrator checks native R2 head without reading original bytes',
+    )
+  ).json();
+  assert.equal(inventoryPresence.exists, true);
+  assert.equal(inventoryPresence.sizeMatches, true);
+  await db
+    .prepare(
+      "INSERT INTO company_file_upload_requests (owner_key, request_key, fingerprint, file_id, created_at, status) VALUES (?1, 'worker-inventory-request', 'private-fingerprint', 'worker-inventory-pending', ?2, 'pending')",
+    )
+    .bind(`member:${memberId}`, new Date().toISOString())
+    .run();
+  await bucket.put(
+    'company-source/worker-inventory-pending',
+    'SYNTHETIC_PENDING_BYTES',
+  );
+  const pendingInventory = await (
+    await call('/inventory?status=pending', undefined, ownerHeaders)
+  ).json();
+  assert.ok(
+    pendingInventory.items.some(
+      (item) =>
+        item.id === 'worker-inventory-pending' && item.fileName === null,
+    ),
+  );
+  const pendingPresence = await (
+    await expect(
+      await call(
+        '/inventory/worker-inventory-pending',
+        undefined,
+        ownerHeaders,
+      ),
+      200,
+      'pending-only ledger original can be checked without invented metadata',
+    )
+  ).json();
+  assert.equal(pendingPresence.exists, true);
+  assert.equal(pendingPresence.expectedSizeBytes, null);
   assert.equal(linkedFile.partnerMemberId, memberId);
   assert.equal(
     (

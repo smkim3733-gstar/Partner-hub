@@ -62,6 +62,7 @@ import { hasDuplicateLoginEmail, isValidLoginEmail, normalizeLoginEmail } from '
 import { ConsultingWorkflow } from '@/components/consulting-workflow';
 import { ApplicationAttachments } from '@/components/application-attachments';
 import { AdminPartnerRegistration } from '@/components/admin-partner-registration';
+import { AdminFileInventory } from '@/components/admin-file-inventory';
 import { partnerTypes, type PartnerType, type PartnerAccount as TraineeMember, type PartnerRegistrationResult } from '@/lib/partner-registration';
 import { companyCategoryLabel, companyFileProblem, documentCategoryFromFileName, applicationAttachmentTitle, MAX_APPLICATION_FILES, type ApplicationAttachment } from '@/lib/company-file-policy';
 
@@ -2004,7 +2005,8 @@ function DocumentCenter({
         action={<PrimaryButton onClick={() => setUploadOpen(true)}><Upload className="size-4" aria-hidden="true" /> 자료 등록</PrimaryButton>}
       />
 
-      <section aria-label="자료 제출현황 요약" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      {isAdmin && <AdminFileInventory />}
+      <section aria-label="자료 제출현황 요약" className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           ['전체 자료', counts.total, FolderOpen, '담당기업 기준'],
           ['제출 요청중', counts.requested, Clock3, '기업대표 회신 대기'],
