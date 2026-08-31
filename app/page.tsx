@@ -2010,7 +2010,7 @@ function DocumentCenter({
         action={<PrimaryButton disabled={recoveryControls.recoveryBusy} onClick={() => setUploadOpen(true)}><Upload className="size-4" aria-hidden="true" /> 자료 등록</PrimaryButton>}
       />
 
-      {isAdmin && <AdminFileInventory {...recoveryControls} recoveryDisabled={recoveryControls.recoveryDisabled || uploading} />}
+      {isAdmin && <AdminFileInventory {...recoveryControls} recoveryDisabled={recoveryControls.recoveryDisabled || uploading || uploadOpen} />}
       <fieldset disabled={recoveryControls.recoveryBusy} className="min-w-0"><legend className="sr-only">기업자료 관리</legend>
       <section aria-label="자료 제출현황 요약" className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[

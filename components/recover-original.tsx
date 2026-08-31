@@ -2,6 +2,7 @@
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import type { RecoveryControls, RecoveryPreview } from '@/lib/file-recovery';
+import { FileRecoverySubmission } from '@/lib/file-recovery-submission';
 
 export function RecoverOriginal({
   fileId,
@@ -18,6 +19,7 @@ export function RecoverOriginal({
   const requestId = useRef('');
   const lock = useRef(false);
   const [attempted, setAttempted] = useState(false);
+  const [submission] = useState(() => new FileRecoverySubmission());
   async function review() {
     if (lock.current) return;
     lock.current = true;
@@ -50,42 +52,16 @@ export function RecoverOriginal({
     lock.current = true;
     setBusy(true);
     setError('');
-    let started = false;
     try {
-      const session = await beginRecovery();
-      started = true;
-      if (!attempted && session.stateRevision !== preview.stateRevision)
-        throw new Error(
-          '운영 화면과 확인한 버전이 다릅니다. 저장되지 않은 입력을 확인하고 새로고침해 주세요.',
-        );
-      setAttempted(true);
-      const response = await fetch(
-        `/api/admin/file-inventory/${encodeURIComponent(fileId)}/recovery`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            ...session,
-            caseId: preview.caseId,
-            requestId: requestId.current,
-            reason,
-            confirmed,
-            stateRevision: preview.stateRevision,
-            fileRevision: preview.fileRevision,
-          }),
-        },
+      await submission.submit(
+        { fileId, preview, requestId: requestId.current, reason, confirmed },
+        { beginRecovery, finishRecovery },
       );
-      const result = (await response.json()) as {
-        ok?: boolean;
-        error?: string;
-      };
-      if (!response.ok || result.ok !== true)
-        throw new Error(result.error || '회수 저장을 확인하지 못했습니다.');
       setSaved(true); // Keep the parent editor locked until its fresh server state is loaded.
     } catch (issue) {
-      if (started) finishRecovery(false);
       setError((issue as Error).message);
     } finally {
+      setAttempted(submission.hasAttempt());
       lock.current = false;
       setBusy(false);
     }
@@ -169,7 +145,7 @@ export function RecoverOriginal({
                 size="sm"
                 disabled={
                   busy ||
-                  recoveryDisabled ||
+                  (recoveryDisabled && !attempted) ||
                   !confirmed ||
                   reason.trim().length < 5
                 }
@@ -182,10 +158,21 @@ export function RecoverOriginal({
                     : '확인한 원본 연결 회수'}
               </Button>
               {attempted && (
-                <p>
-                  응답이 불확실하면 같은 요청을 다시 확인하세요. 최신 화면에서
-                  이미 연결됐는지도 확인할 수 있습니다.
-                </p>
+                <div className="space-y-2">
+                  <p>
+                    회수 결과를 확인할 때까지 다른 편집은 잠겨 있습니다. 같은
+                    요청을 다시 확인하거나 최신 화면에서 연결 여부를 확인하세요.
+                    새로고침은 회수 취소가 아닙니다.
+                  </p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => finishRecovery(true)}
+                  >
+                    최신 운영 화면에서 결과 확인
+                  </Button>
+                </div>
               )}
             </div>
           )}

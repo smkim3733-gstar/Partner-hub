@@ -18,6 +18,8 @@ import { newConsultingFlow } from '../lib/consulting-flow';
 import type { RecoveryPreview } from '../lib/file-recovery';
 import { portalStateId } from '../db/schema';
 import { portalRevision } from '../lib/portal-revision';
+import { FileRecoverySubmission } from '../lib/file-recovery-submission';
+import { PortalSaveQueue } from '../lib/portal-save-queue';
 
 const email = 'seedy@sites.test';
 const member = {
@@ -309,6 +311,77 @@ async function body() {
     expectedUserId: user.id,
   };
 }
+
+void test('client retry after a committed but lost response retains the lock, sends no stale snapshot and creates one server record', async () => {
+  await seed();
+  const value = await body(),
+    original = await state();
+  const submission = new FileRecoverySubmission();
+  let locked = false,
+    begins = 0,
+    stateWrites = 0,
+    requests = 0;
+  const queue = new PortalSaveQueue<
+    Awaited<ReturnType<typeof state>> & { membersRevision?: number }
+  >(
+    async () => {
+      stateWrites++;
+      throw new Error('Stale state must not be sent after recovery');
+    },
+    () => {},
+  );
+  queue.initialize(original);
+  const control = {
+    beginRecovery: async () => {
+      begins++;
+      locked = true;
+      queue.update(original);
+      await queue.flush();
+      return {
+        expectedUserId: value.expectedUserId,
+        stateRevision: value.stateRevision,
+      };
+    },
+    finishRecovery: () => {
+      locked = false;
+    },
+  };
+  const send: typeof fetch = async (_url, options) => {
+    requests++;
+    assert.equal(typeof options?.body, 'string');
+    const result = await recover(
+      request(JSON.parse(options!.body as string)),
+      context,
+    );
+    assert.equal(result.status, 200, await result.clone().text());
+    if (requests === 1) throw new Error('Committed response lost');
+    return result;
+  };
+  try {
+    const input = {
+      fileId: id,
+      preview: value,
+      requestId: value.requestId,
+      reason: value.reason,
+      confirmed: true,
+    };
+    await assert.rejects(
+      submission.submit(input, control, send),
+      /response lost/,
+    );
+    assert.equal(locked, true);
+    assert.equal((await state()).companyDocuments.length, 1);
+    await submission.submit(input, control, send);
+    assert.equal(begins, 1);
+    assert.equal(stateWrites, 0);
+    assert.equal(locked, true);
+    assert.equal((await state()).timeline.length, 1);
+    assert.equal((await state()).companyDocuments.length, 1);
+    assert.equal(submission.isSaved(), true);
+  } finally {
+    queue.dispose();
+  }
+});
 
 void test('only administrator can preview/recover, with explicit confirmation, reason, origin and stable identity', async () => {
   await seed();
