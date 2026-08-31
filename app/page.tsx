@@ -1498,19 +1498,29 @@ function SchedulePage({
 
 function TraineeDashboard({
   onOpenCase,
+  onOpenTasks,
   onNew,
   onOpenSchedule,
   schedule,
   member,
+  cases,
+  tasks,
+  documents,
 }: {
-  onOpenCase: () => void;
+  onOpenCase: (item: CollaborationCase) => void;
+  onOpenTasks: () => void;
   onNew: () => void;
   onOpenSchedule: () => void;
   schedule: ScheduleItem[];
   member: TraineeMember;
+  cases: CollaborationCase[];
+  tasks: WorkTask[];
+  documents: CompanyDocument[];
 }) {
   const displayName = member.name.replace('(가상)', '');
   const traineeSchedule = schedule.map((item) => scheduleForTrainee(item, displayName)).filter((item): item is ScheduleItem => item !== null).slice(0, 3);
+  const pendingTasks = tasks.filter((task) => task.status !== '완료');
+  const pendingDocuments = documents.filter((document) => document.status === '요청중' || document.status === '보완필요');
   return (
     <>
       <PageIntro
@@ -1526,10 +1536,10 @@ function TraineeDashboard({
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          ['진행기업', String(member.companies), BriefcaseBusiness, '전체 협업 진행'],
-          ['추가서류 필요', '3', FileCheck2, '오늘 1건 마감'],
-          ['예정 상담', '2', CalendarDays, '가장 가까운 일정 09.04'],
-          ['확인 필요', '1', AlertCircle, '견적서 확인 요청'],
+          ['진행기업', String(cases.length), BriefcaseBusiness, '현재 계정 조회범위'],
+          ['추가서류 필요', String(pendingDocuments.length), FileCheck2, '요청중·보완필요 자료'],
+          ['상담 전·진행', String(cases.filter((item) => item.stage === '상담예약' || item.stage === '상담진행').length), CalendarDays, '상담예약·상담진행 단계'],
+          ['남은 업무', String(pendingTasks.length), AlertCircle, '완료되지 않은 업무'],
         ].map(([label, value, Icon, hint]) => {
           const MetricIcon = Icon as IconType;
           return (
@@ -1560,6 +1570,7 @@ function TraineeDashboard({
           </div>
         </CardHeader>
         <CardContent className="divide-y pt-1">
+          {!traineeSchedule.length && <p className="py-5 text-sm text-slate-500">공유된 일정이 없습니다.</p>}
           {traineeSchedule.map((item) => (
             <div key={item.id} className="grid gap-2 py-1 sm:grid-cols-[84px_minmax(0,1fr)] sm:items-center">
               <p className="px-1 text-xs font-bold text-slate-500">{item.date}({item.weekday})</p>
@@ -1573,7 +1584,7 @@ function TraineeDashboard({
         <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
           <CardHeader className="border-b border-slate-100">
             <CardTitle className="text-lg font-bold">내 진행기업</CardTitle>
-            <CardDescription>최근 변경된 진행을 우선 표시합니다.</CardDescription>
+            <CardDescription>담당기업의 현재 진행상태입니다.</CardDescription>
           </CardHeader>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
@@ -1588,17 +1599,14 @@ function TraineeDashboard({
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {[
-                    ['세림테크(가상)', '정책자금 · 특허', '상담·협의', '추가서류 제출', '오늘'],
-                    ['미래에코(가상)', '기업인증', '기업진단', '상담일 선택', '어제'],
-                    ['한빛솔루션(가상)', '부동산', '접수', '담당자 배정 대기', '08.27'],
-                  ].map((row) => (
-                    <tr key={row[0]} onClick={onOpenCase} className="cursor-pointer hover:bg-slate-50">
-                      <td className="px-5 py-4 font-semibold text-slate-900">{row[0]}</td>
-                      <td className="px-5 py-4 text-slate-600">{row[1]}</td>
-                      <td className="px-5 py-4"><Pill tone="blue">{row[2]}</Pill></td>
-                      <td className="px-5 py-4 text-slate-600">{row[3]}</td>
-                      <td className="px-5 py-4 text-slate-500">{row[4]}</td>
+                  {!cases.length && <tr><td colSpan={5} className="px-5 py-8 text-center text-slate-500">담당하는 진행기업이 없습니다.</td></tr>}
+                  {cases.map((item) => (
+                    <tr key={item.id} className="hover:bg-slate-50">
+                      <td className="px-5 py-4 font-semibold text-slate-900"><button type="button" onClick={() => onOpenCase(item)} className="min-h-11 text-left underline decoration-slate-300 underline-offset-4">{item.company}</button></td>
+                      <td className="px-5 py-4 text-slate-600">{item.service}</td>
+                      <td className="px-5 py-4"><Pill tone="blue">{item.stage}</Pill></td>
+                      <td className="px-5 py-4 text-slate-600">{item.nextAction}</td>
+                      <td className="px-5 py-4 text-slate-500">{item.updatedAt}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -1610,17 +1618,14 @@ function TraineeDashboard({
         <Card className="border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
           <CardHeader className="border-b border-slate-100">
             <CardTitle className="text-lg font-bold">내가 할 일</CardTitle>
-            <CardDescription>기한이 가까운 순서입니다.</CardDescription>
+            <CardDescription>완료되지 않은 업무입니다.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 pt-1">
-            {[
-              ['세림테크 재무제표 제출', '오늘', 'amber'],
-              ['미래에코 상담일 선택', '09.01', 'blue'],
-              ['견적서 수신 확인', '09.02', 'violet'],
-            ].map(([task, due, tone]) => (
-              <button key={task} type="button" onClick={onOpenCase} className="flex min-h-[68px] w-full items-center justify-between gap-3 rounded-xl border border-slate-100 px-4 text-left hover:bg-slate-50">
-                <span className="text-sm font-semibold text-slate-800">{task}</span>
-                <Pill tone={tone}>{due}</Pill>
+            {!pendingTasks.length && <p className="py-5 text-sm text-slate-500">남은 업무가 없습니다.</p>}
+            {pendingTasks.map((task) => (
+              <button key={task.id} type="button" onClick={() => { const linkedCase = cases.find((item) => item.id === task.caseId); if (linkedCase) onOpenCase(linkedCase); else onOpenTasks(); }} className="flex min-h-[68px] w-full items-center justify-between gap-3 rounded-xl border border-slate-100 px-4 text-left hover:bg-slate-50">
+                <span className="text-sm font-semibold text-slate-800">{task.title}</span>
+                <Pill tone={task.dueState === 'overdue' ? 'red' : task.dueState === 'today' ? 'amber' : 'blue'}>{task.due}</Pill>
               </button>
             ))}
           </CardContent>
@@ -3199,6 +3204,11 @@ export default function Home() {
   }];
   const isAdmin = currentUser?.role === 'admin';
   const previewMember = currentMember ?? members.find((member) => member.status === '활성') ?? sampleTrainees[0];
+  // Password partners already receive server-authorized records. Only the
+  // administrator's partner preview needs a presentation filter by member ID.
+  const previewCases = isAdmin ? cases.filter((item) => assignmentMemberId(item, item.trainee, members) === previewMember.id) : cases;
+  const previewTasks = isAdmin ? tasks.filter((task) => assignmentMemberId(task, task.assignee, members) === previewMember.id || previewCases.some((item) => recordBelongsToCase(task, task.assignee, item, cases, members))) : tasks;
+  const previewDocuments = isAdmin ? companyDocuments.filter((document) => assignmentMemberId(document, document.assignedTrainee, members) === previewMember.id || previewCases.some((item) => recordBelongsToCase(document, document.assignedTrainee, item, cases, members))) : companyDocuments;
   const traineeName = currentUser?.memberName ?? previewMember.name.replace('(가상)', '');
   const accountDisplayName = isAdmin ? '김성민 대표' : currentMember?.name ?? currentUser?.displayName ?? '';
   const collaborationApplicant = {
@@ -3476,7 +3486,7 @@ export default function Home() {
           {view === 'tasks' ? <WorkManagement tasks={tasks} setTasks={setTasks} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} notify={notify} /> : null}
           {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} currentUserId={currentUser.id} recoveryControls={{ recoveryBusy: fileRecoveryBusy, recoveryDisabled: dataStatus !== 'saved' || fileRecoveryBusy || applicationPending || applicationDirty, beginRecovery: beginFileRecovery, finishRecovery: finishFileRecovery }} notify={notify} /> : null}
           {view === 'ai-diagnosis' ? <DiagnosisPreflight assessments={diagnosisAssessments} setAssessments={setDiagnosisAssessments} cases={cases} documents={companyDocuments} onOpenFiles={() => navigate('files')} onRequestDocuments={(caseId) => { setSelectedCaseId(caseId); navigate('documents'); }} onQueueDraft={queueDiagnosisDraft} notify={notify} /> : null}
-          {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} /> : null}
+          {view === 'trainee' ? <TraineeDashboard onOpenCase={openCase} onOpenTasks={() => navigate('tasks')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} cases={previewCases} tasks={previewTasks} documents={previewDocuments} /> : null}
           {view === 'access' && isAdmin ? <AccessManagement notify={notify} members={members} setMembers={setMembers} registrationDisabled={dataStatus !== 'saved'} onRegistered={result => { setMembers(result.members); setMembersRevision(result.membersRevision); notify(`${result.member.name} 파트너 등록을 확인했습니다.`); }} /> : null}
           {view === 'application' ? <ApplicationForm onSubmissionBusy={setApplicationPending} currentUserId={currentUser.id} onDraftSaved={hasFiles => setApplicationDirty(hasFiles)} awaitingSave={applicationAwaitingSave} onDirty={() => setApplicationDirty(true)} applicant={collaborationApplicant} members={members} canUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} onCancel={() => navigate('trainee')} onDone={async (files, companyName, selectedServices, applicantType, applicantName, recordingConsent, selectedMemberId, details, draftId, draftRevision) => {
             setApplicationPending(true);

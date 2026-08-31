@@ -361,7 +361,9 @@ export function ConsultingWorkflow({
           file || audio ? undefined : { 'content-type': 'application/json' },
         body: file || audio ? form : payload,
       });
-      const data = (await response.json()) as FlowPayload;
+      const data = (await response.json().catch(() => {
+        throw new Error('저장 완료 응답을 확인하지 못했습니다. 입력 내용을 유지한 채 같은 저장 버튼으로 다시 시도하거나 새로고침으로 최신 진행 상태를 확인해 주세요.');
+      })) as FlowPayload;
       if (!response.ok) {
         if (response.status === 409) await refresh();
         throw new Error(data.error || '저장하지 못했습니다.');
