@@ -63,6 +63,7 @@ import { ConsultingWorkflow } from '@/components/consulting-workflow';
 import { ApplicationAttachments } from '@/components/application-attachments';
 import { AdminPartnerRegistration } from '@/components/admin-partner-registration';
 import { AdminFileInventory } from '@/components/admin-file-inventory';
+import type { RecoveryControls } from '@/lib/file-recovery';
 import { partnerTypes, type PartnerType, type PartnerAccount as TraineeMember, type PartnerRegistrationResult } from '@/lib/partner-registration';
 import { companyCategoryLabel, companyFileProblem, documentCategoryFromFileName, applicationAttachmentTitle, MAX_APPLICATION_FILES, type ApplicationAttachment } from '@/lib/company-file-policy';
 
@@ -1900,6 +1901,7 @@ function DocumentCenter({
   currentName,
   currentMemberId,
   currentUserId,
+  recoveryControls,
   notify,
 }: {
   documents: CompanyDocument[];
@@ -1909,6 +1911,7 @@ function DocumentCenter({
   currentName: string;
   currentMemberId: string | null;
   currentUserId: string;
+  recoveryControls: RecoveryControls;
   notify: (message: string) => void;
 }) {
   const [query, setQuery] = useState('');
@@ -2002,10 +2005,11 @@ function DocumentCenter({
         eyebrow={isAdmin ? '기업자료 통합관리' : '담당기업 자료관리'}
         title="기업별 자료함"
         description={isAdmin ? '사업자등록증·크레탑·재무제표와 상담 중 요청한 서류를 기업별로 모아 제출·보완·검토 상태를 관리합니다.' : '본인이 담당하는 기업의 자료만 확인하고 제출상태와 보완 여부를 변경할 수 있습니다.'}
-        action={<PrimaryButton onClick={() => setUploadOpen(true)}><Upload className="size-4" aria-hidden="true" /> 자료 등록</PrimaryButton>}
+        action={<PrimaryButton disabled={recoveryControls.recoveryBusy} onClick={() => setUploadOpen(true)}><Upload className="size-4" aria-hidden="true" /> 자료 등록</PrimaryButton>}
       />
 
-      {isAdmin && <AdminFileInventory />}
+      {isAdmin && <AdminFileInventory {...recoveryControls} recoveryDisabled={recoveryControls.recoveryDisabled || uploading} />}
+      <fieldset disabled={recoveryControls.recoveryBusy} className="min-w-0"><legend className="sr-only">기업자료 관리</legend>
       <section aria-label="자료 제출현황 요약" className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           ['전체 자료', counts.total, FolderOpen, '담당기업 기준'],
@@ -2060,6 +2064,7 @@ function DocumentCenter({
           <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setUploadOpen(false)} disabled={uploading}>취소</SecondaryButton><PrimaryButton onClick={addDocument} disabled={uploading}>{uploading ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <Upload className="size-4" aria-hidden="true" />} {uploading ? '보안 저장 중' : '자료 등록'}</PrimaryButton></div>
         </div>
       </dialog> : null}
+      </fieldset>
     </>
   );
 }
@@ -3068,6 +3073,8 @@ export default function Home() {
   const saveIdentityRef = useRef('');
   const saveStateRevisionRef = useRef('');
   const [applicationPending, setApplicationPending] = useState(false);
+  const fileRecoveryLock = useRef(false);
+  const [fileRecoveryBusy, setFileRecoveryBusy] = useState(false);
   const [applicationAwaitingSave, setApplicationAwaitingSave] = useState(false);
   const [applicationDirty, setApplicationDirty] = useState(false);
   const [applicationSubmission] = useState(() => new ApplicationSubmission<{ state: PortalState; caseId: string; fileCount: number; applicantType: PartnerType }>());
@@ -3089,7 +3096,7 @@ export default function Home() {
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
-      if (!saveQueue.hasUnsavedChanges() && !applicationPending && !applicationDirty) return;
+      if (!saveQueue.hasUnsavedChanges() && !applicationPending && !applicationDirty && !fileRecoveryLock.current) return;
       event.preventDefault();
     };
     window.addEventListener('beforeunload', warn);
@@ -3237,7 +3244,22 @@ export default function Home() {
   }[dataStatus];
   const dataStatusTone = dataStatus === 'saved' ? 'green' : dataStatus === 'error' ? 'red' : 'blue';
 
+  async function beginFileRecovery() {
+    if (fileRecoveryLock.current) throw new Error('다른 원본 회수를 확인 중입니다.');
+    fileRecoveryLock.current = true; setFileRecoveryBusy(true);
+    try {
+      const state: PortalState = { version: 1, consultationNumber, timeline, schedule, tasks, companyDocuments, cases, members, membersRevision, diagnosisAssessments };
+      saveQueue.update(state);
+      await saveQueue.flush();
+      return { expectedUserId: saveIdentityRef.current, stateRevision: saveStateRevisionRef.current };
+    } catch (error) { fileRecoveryLock.current = false; setFileRecoveryBusy(false); throw error; }
+  }
+  function finishFileRecovery(reload: boolean) {
+    fileRecoveryLock.current = false; setFileRecoveryBusy(false);
+    if (reload) window.location.reload();
+  }
   function navigate(next: View) {
+    if (fileRecoveryLock.current) { notify('원본 회수 결과를 확인하고 최신 운영 화면을 불러온 뒤 이동해 주세요.'); return; }
     if (applicationPending && next !== 'application') { notify('신청 저장을 확인 중입니다. 같은 신청 저장을 완료한 뒤 이동해 주세요.'); return; }
     if (applicationDirty && next !== 'application') {
       if (!window.confirm('제출 전 입력은 저장되지 않습니다. 신청 화면을 나갈까요?')) return;
@@ -3415,7 +3437,7 @@ export default function Home() {
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-[244px] flex-col bg-[#112f50] text-white lg:flex">
         <div className="flex h-[76px] items-center gap-3 border-b border-white/10 px-5"><BrandMark /><div><p className="text-[11px] font-semibold tracking-[0.18em] text-blue-200">KEVE</p><p className="text-[15px] font-bold tracking-tight">한기평 파트너 허브</p></div></div>
         <nav aria-label="주요 메뉴" className="flex-1 space-y-1 overflow-y-auto p-4">{availableNavItems.map(navButton)}</nav>
-        <div className="m-4 min-h-24 rounded-xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-blue-200">{isAdmin ? '대표 관리자' : currentMember ? partnerTypeOf(currentMember) : '파트너'}</p><p className="mt-1 text-sm font-semibold">{accountDisplayName}</p><p className="mt-2 flex items-center gap-1 text-xs text-blue-100/80"><ShieldCheck className="size-3.5" aria-hidden="true" /> {currentUser.authMethod === 'password' ? '이메일 로그인 확인' : 'ChatGPT 로그인 확인'}</p>{currentUser.authMethod === 'password' && <PartnerSignout disabled={dataStatus !== 'saved' || applicationPending || applicationDirty} />}</div>
+        <div className="m-4 min-h-24 rounded-xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-blue-200">{isAdmin ? '대표 관리자' : currentMember ? partnerTypeOf(currentMember) : '파트너'}</p><p className="mt-1 text-sm font-semibold">{accountDisplayName}</p><p className="mt-2 flex items-center gap-1 text-xs text-blue-100/80"><ShieldCheck className="size-3.5" aria-hidden="true" /> {currentUser.authMethod === 'password' ? '이메일 로그인 확인' : 'ChatGPT 로그인 확인'}</p>{currentUser.authMethod === 'password' && <PartnerSignout disabled={dataStatus !== 'saved' || applicationPending || applicationDirty || fileRecoveryBusy} />}</div>
       </aside>
 
       {mobileOpen ? (
@@ -3425,7 +3447,7 @@ export default function Home() {
             <div className="mb-5 flex items-center justify-between"><div className="flex items-center gap-3"><BrandMark /><span className="font-bold">파트너 허브</span></div><button type="button" onClick={() => setMobileOpen(false)} className="grid size-11 place-items-center rounded-xl hover:bg-white/10" aria-label="메뉴 닫기"><X /></button></div>
             <nav aria-label="모바일 메뉴" className="space-y-2">{availableNavItems.map(navButton)}</nav>
             <div className="mt-5 flex min-h-12 w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold"><span>{accountDisplayName}</span><ShieldCheck className="size-4" aria-hidden="true" /></div>
-            {currentUser.authMethod === 'password' && <PartnerSignout disabled={dataStatus !== 'saved' || applicationPending || applicationDirty} />}
+            {currentUser.authMethod === 'password' && <PartnerSignout disabled={dataStatus !== 'saved' || applicationPending || applicationDirty || fileRecoveryBusy} />}
           </aside>
         </div>
       ) : null}
@@ -3449,7 +3471,7 @@ export default function Home() {
           {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee} · {item.id.slice(-8)}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <><ApplicationDetailsSummary details={selectedCase.applicationDetails} /><ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /></> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}
           {view === 'tasks' ? <WorkManagement tasks={tasks} setTasks={setTasks} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} notify={notify} /> : null}
-          {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} currentUserId={currentUser.id} notify={notify} /> : null}
+          {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} currentUserId={currentUser.id} recoveryControls={{ recoveryBusy: fileRecoveryBusy, recoveryDisabled: dataStatus !== 'saved' || fileRecoveryBusy || applicationPending || applicationDirty, beginRecovery: beginFileRecovery, finishRecovery: finishFileRecovery }} notify={notify} /> : null}
           {view === 'ai-diagnosis' ? <DiagnosisPreflight assessments={diagnosisAssessments} setAssessments={setDiagnosisAssessments} cases={cases} documents={companyDocuments} onOpenFiles={() => navigate('files')} onRequestDocuments={(caseId) => { setSelectedCaseId(caseId); navigate('documents'); }} onQueueDraft={queueDiagnosisDraft} notify={notify} /> : null}
           {view === 'trainee' ? <TraineeDashboard onOpenCase={() => navigate('case')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} /> : null}
           {view === 'access' && isAdmin ? <AccessManagement notify={notify} members={members} setMembers={setMembers} registrationDisabled={dataStatus !== 'saved'} onRegistered={result => { setMembers(result.members); setMembersRevision(result.membersRevision); notify(`${result.member.name} 파트너 등록을 확인했습니다.`); }} /> : null}

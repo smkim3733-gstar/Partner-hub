@@ -1,5 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { RecoverOriginal } from '@/components/recover-original';
+import type { RecoveryControls } from '@/lib/file-recovery';
 import { Archive, RefreshCw, ShieldCheck } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -32,7 +34,7 @@ function sizeLabel(value: number | null) {
     ? '크기 미확인'
     : `${value.toLocaleString('ko-KR')} bytes`;
 }
-export function AdminFileInventory() {
+export function AdminFileInventory(controls: RecoveryControls) {
   const [opened, setOpened] = useState(false);
   const [filter, setFilter] = useState<InventoryFilter>('unlinked');
   const [page, setPage] = useState<InventoryPage | null>(null);
@@ -113,8 +115,8 @@ export function AdminFileInventory() {
           대표 전용
         </CardTitle>
         <CardDescription>
-          신청·자료 목록에 연결되지 않은 업로드와 보관 기록을 확인합니다. 조회만
-          수행하며 파일을 삭제하거나 자동 연결하지 않습니다.
+          신청·자료 목록에 연결되지 않은 업로드와 보관 기록을 확인합니다. 조건이
+          맞는 원본만 대표 확인 후 기존 신청에 회수하며 자동 삭제하지 않습니다.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -129,7 +131,7 @@ export function AdminFileInventory() {
                 보관 상태
                 <select
                   value={filter}
-                  disabled={busy}
+                  disabled={busy || controls.recoveryBusy}
                   onChange={(event) =>
                     void load(event.target.value as InventoryFilter)
                   }
@@ -145,7 +147,7 @@ export function AdminFileInventory() {
               </label>
               <Button
                 variant="outline"
-                disabled={busy}
+                disabled={busy || controls.recoveryBusy}
                 onClick={() => void load(filter)}
               >
                 <RefreshCw
@@ -252,7 +254,9 @@ export function AdminFileInventory() {
                           <Button
                             size="sm"
                             variant="outline"
-                            disabled={checking !== null || busy}
+                            disabled={
+                              checking !== null || busy || controls.recoveryBusy
+                            }
                             onClick={() => void check(item.id)}
                           >
                             {checking === item.id
@@ -266,6 +270,17 @@ export function AdminFileInventory() {
                                 : `${presence.exists ? '원본 존재' : '원본 없음'} · ${sizeLabel(presence.sizeBytes)}${presence.sizeMatches === false ? ' · 기록과 크기 불일치: 추가 확인 필요' : ''} · ${dateLabel(presence.checkedAt)}`}
                             </output>
                           )}
+                          {item.status === 'unlinked' && (
+                            <RecoverOriginal
+                              fileId={item.id}
+                              {...controls}
+                              recoveryDisabled={
+                                controls.recoveryDisabled ||
+                                busy ||
+                                checking !== null
+                              }
+                            />
+                          )}
                         </article>
                       );
                     })}
@@ -274,7 +289,7 @@ export function AdminFileInventory() {
                 {page.nextCursor && (
                   <Button
                     variant="outline"
-                    disabled={busy}
+                    disabled={busy || controls.recoveryBusy}
                     onClick={() => void load(filter, page.nextCursor)}
                   >
                     다음 25건

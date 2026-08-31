@@ -24,10 +24,12 @@ import { GET as intakeFiles } from '@/app/api/consulting-flow/[caseId]/intake-fi
 import { GET as getDraft, PUT as saveDraft, DELETE as deleteDraft } from '@/app/api/application-draft/route';
 import { GET as getInventory } from '@/app/api/admin/file-inventory/route';
 import { GET as getInventoryPresence } from '@/app/api/admin/file-inventory/[id]/presence/route';
+import { GET as previewRecovery, POST as recoverOriginal } from '@/app/api/admin/file-inventory/[id]/recovery/route';
 export default { async fetch(request) {
   const pathname = new URL(request.url).pathname;
   const routes = { 'POST /signup': registerPassword, 'POST /login': loginPassword, 'POST /logout': logoutPassword, 'POST /setup': setupPassword, 'POST /issue': createPasswordLink, 'GET /state': getState, 'PUT /save': saveState, 'POST /partners': createPartner, 'POST /files': uploadFile, 'GET /draft': getDraft, 'PUT /draft': saveDraft, 'DELETE /draft': deleteDraft };
   if (pathname === '/inventory' && request.method === 'GET') return getInventory(request);
+  if (pathname.startsWith('/recovery/') && ['GET', 'POST'].includes(request.method)) return (request.method === 'GET' ? previewRecovery : recoverOriginal)(request, { params: Promise.resolve({ id: pathname.slice(10) }) });
   if (pathname.startsWith('/inventory/') && request.method === 'GET') return getInventoryPresence(request, { params: Promise.resolve({ id: pathname.slice(11) }) });
   if (pathname.startsWith('/flow/') && request.method === 'GET') return getFlow(request, { params: Promise.resolve({ caseId: pathname.slice(6) }) });
   if (pathname.startsWith('/intake/') && request.method === 'GET') return intakeFiles(request, { params: Promise.resolve({ caseId: pathname.slice(8) }) });
@@ -983,6 +985,118 @@ try {
   );
   checks.push(
     'migration replay preserves ID assignment and leaves legacy file ownership untouched',
+  );
+
+  const recoverySource = (
+    await (
+      await expect(
+        await uploadSource(
+          { cookie, 'idempotency-key': 'worker-recovery-request-0001' },
+          memberId,
+          'runtime-own',
+        ),
+        201,
+        'upload keeps the proposed case link before recovery',
+      )
+    ).json()
+  ).file;
+  const recoveryPath = `/recovery/${recoverySource.id}`;
+  await expect(
+    await call(recoveryPath),
+    401,
+    'anonymous original recovery preview is denied',
+  );
+  await expect(
+    await call(recoveryPath, undefined, { cookie }),
+    403,
+    'partner original recovery preview is denied',
+  );
+  const recoveryPreview = await (
+    await expect(
+      await call(recoveryPath, undefined, ownerHeaders),
+      200,
+      'administrator previews an original against its recorded existing case',
+    )
+  ).json();
+  const recoveryBaseline = await (
+    await call('/state', undefined, ownerHeaders)
+  ).json();
+  const recoveryBody = {
+    ...recoveryPreview,
+    expectedUserId: recoveryBaseline.currentUser.id,
+    requestId: 'native-recovery-confirmation-0001',
+    confirmed: true,
+    reason: '가상 원본과 기업 및 담당 계정 대조 완료',
+  };
+  await expect(
+    await call(recoveryPath, recoveryBody, { cookie }),
+    403,
+    'partner cannot confirm recovery',
+  );
+  await expect(
+    await call(
+      recoveryPath,
+      { ...recoveryBody, caseId: 'runtime-peer' },
+      ownerHeaders,
+    ),
+    409,
+    'recovery cannot move an original to a different case',
+  );
+  await expect(
+    await call(recoveryPath, recoveryBody, ownerHeaders),
+    200,
+    'native D1 atomically saves recovered document and timeline',
+  );
+  const replayRecovery = await (
+    await expect(
+      await call(recoveryPath, recoveryBody, ownerHeaders),
+      200,
+      'same recovery confirmation is idempotent after the response',
+    )
+  ).json();
+  assert.equal(replayRecovery.alreadyLinked, true);
+  const recoveredState = JSON.parse(
+    (await db.prepare('SELECT payload FROM portal_state').first()).payload,
+  );
+  assert.equal(
+    recoveredState.companyDocuments.filter(
+      (item) => item.storageFileId === recoverySource.id,
+    ).length,
+    1,
+  );
+  assert.equal(
+    recoveredState.timeline.filter(
+      (item) => item.recoveryFileId === recoverySource.id,
+    ).length,
+    1,
+  );
+  assert.equal(
+    await (await bucket.get(`company-source/${recoverySource.id}`)).text(),
+    'SYNTHETIC_NEW_ACCOUNT_FILE',
+  );
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT partner_member_id FROM company_file_assignments WHERE file_id = ?1',
+        )
+        .bind(recoverySource.id)
+        .first()
+    ).partner_member_id,
+    memberId,
+  );
+  checks.push(
+    'native recovery preserves original bytes and partner ownership with one document and audit',
+  );
+  await expect(
+    await call(
+      '/save',
+      { state: recoveryBaseline.state },
+      { ...ownerHeaders, 'if-match': `"${recoveryPreview.stateRevision}"` },
+      'PUT',
+    ),
+    409,
+    'older state cannot overwrite a recovered document',
   );
 
   const renameState = (
