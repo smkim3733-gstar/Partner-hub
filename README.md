@@ -80,6 +80,8 @@ public/               브랜드 이미지·정적 리소스
 
 ## 문서 읽는 순서
 
+진행판·업무목록도 담당 계정 기준으로 정비했습니다. 동명이인 필터, 이름 변경 후 표시, 새 업무의 계정 배정 및 진행 연결 업무의 완료 저장은 [업무 계정 연결 안내](docs/TASK_ACCOUNT_LINKS_2026_08_31.md)를 참고하세요.
+
 1. [개발 현황·운영 경계](docs/DEVELOPMENT_STATUS_2026_08_31.md)
 2. [상담 FLOW 현재 구현](CONSULTING_WORKFLOW.md)
 3. [전체 문서 목록](docs/README.md)

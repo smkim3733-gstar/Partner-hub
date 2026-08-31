@@ -345,6 +345,9 @@ function mergeOwnedRecords(
         (item) => field(item, 'id') === field(record, 'caseId'),
       );
       if (!linked || caseOwnerId(state, linked) !== user.memberId) return false;
+      // A case-linked follow-up may have no legacy assignee name. Its stored
+      // case assignment must authorize editing just as it authorizes reading.
+      if (record.partnerMemberId == null) return true;
     }
     return (
       record.partnerMemberId === user.memberId ||

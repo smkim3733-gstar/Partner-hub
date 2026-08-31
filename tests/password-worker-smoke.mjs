@@ -197,6 +197,31 @@ try {
       partnerMemberId: peerId,
     },
   ];
+  state.tasks = [
+    {
+      id: 'runtime-own-task',
+      title: '본인 업무',
+      assignee: '가상 런타임파트너',
+      partnerMemberId: memberId,
+    },
+    {
+      id: 'runtime-peer-task',
+      title: '타인 업무',
+      assignee: '가상 런타임파트너',
+      partnerMemberId: peerId,
+    },
+    {
+      id: 'runtime-owner-task',
+      title: '대표 업무',
+      assignee: '김성민 대표',
+      partnerMemberId: '',
+    },
+    {
+      id: 'runtime-linked-task',
+      title: '진행 연결 업무',
+      caseId: 'runtime-own',
+    },
+  ];
   state.schedule = [
     {
       id: 'runtime-schedule',
@@ -249,6 +274,10 @@ try {
     'cookie-only partner sees own assignment and masked shared schedule',
   );
   assert.match(response.headers.get('cache-control'), /no-store/);
+  assert.deepEqual(
+    visible.state.tasks.map((task) => task.id),
+    ['runtime-own-task', 'runtime-linked-task'],
+  );
   await expect(
     await call('/flow/runtime-own', undefined, { cookie }),
     200,
@@ -467,6 +496,51 @@ try {
   );
   checks.push(
     'migration replay preserves ID assignment and leaves legacy file ownership untouched',
+  );
+
+  const renameState = (
+    await (await call('/state', undefined, ownerHeaders)).json()
+  ).state;
+  renameState.members.find((member) => member.id === memberId).name =
+    '가상 변경이름';
+  await expect(
+    await call('/save', { state: renameState }, ownerHeaders, 'PUT'),
+    200,
+    'administrator renames partner without reassigning tasks',
+  );
+  const renamedTasks = await expect(
+    await call('/state', undefined, { cookie }),
+    200,
+    'existing cookie still receives account-assigned tasks after rename',
+  );
+  const renamedVisible = await renamedTasks.json();
+  assert.deepEqual(
+    renamedVisible.state.tasks.map((task) => task.id),
+    ['runtime-own-task', 'runtime-linked-task'],
+  );
+  assert.equal(renamedVisible.currentUser.memberName, '가상 변경이름');
+  renamedVisible.state.tasks.find(
+    (task) => task.id === 'runtime-linked-task',
+  ).status = '완료';
+  await expect(
+    await call('/save', { state: renamedVisible.state }, { cookie }, 'PUT'),
+    200,
+    'partner completes a case-linked follow-up without a legacy assignee name',
+  );
+  const taskSaved = (
+    await (await call('/state', undefined, ownerHeaders)).json()
+  ).state;
+  assert.equal(
+    taskSaved.tasks.find((task) => task.id === 'runtime-linked-task').status,
+    '완료',
+  );
+  assert.equal(
+    taskSaved.tasks.find((task) => task.id === 'runtime-peer-task').status,
+    undefined,
+  );
+  assert.equal(
+    taskSaved.tasks.find((task) => task.id === 'runtime-owner-task').status,
+    undefined,
   );
 
   const suspended = (
