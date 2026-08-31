@@ -28,6 +28,8 @@
 
 ## 이어서 진행할 점검
 
+별도 후속 요청으로 [견적·계약 진입 경로 점검](QUOTE_CONTRACT_ROUTE_REVIEW_2026_09_01.md)을 수행했다. 입력을 저장하지 않으면서 호출되지도 않던 옛 초안 모달을 제거하고, 권한이 있는 사용자의 견적·계약 상태 확인을 실제 단계·권한 검사가 적용되는 상담 FLOW로 일원화했다. 권한 없는 파트너의 탭·버튼 비노출도 가상 계정으로 확인했다. Node 검사 195개 통과와 반영 결과는 해당 문서 및 `outputs/release/quote-contract-route-deployment.json`을 기준으로 한다.
+
 별도 후속 요청으로 [기존 서류요청 등록 화면 점검](LEGACY_DOCUMENT_REQUEST_REVIEW_2026_09_01.md)을 수행했다. 저장되지 않는 선택·안내 입력과 고정 요청번호를 정리하고, 날짜·서류명 정규화와 진행별 요청중·보완필요 서류의 중복 생성을 차단했다. Node 검사 195개 통과와 반영 결과는 해당 문서 및 `outputs/release/legacy-document-request-deployment.json`을 기준으로 한다.
 
 별도 후속 요청으로 [기존 상담 등록 화면 점검](LEGACY_CONSULTATION_REVIEW_2026_09_01.md)을 수행했다. 취소 상태의 후속 업무 생성, 저장되지 않는 입력란, 고정 날짜·기한과 실제 구현보다 넓은 캘린더 안내를 수정했다. 기본정보와 한국시간을 상담 기록에 보존하고, 일정 확정과 상담 완료의 일정·후속 업무 생성을 분리했다. Node 검사 192개 통과와 반영 결과는 해당 문서 및 `outputs/release/legacy-consultation-deployment.json`을 기준으로 한다.

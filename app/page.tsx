@@ -2611,7 +2611,7 @@ function CaseDetail({
   onConsult,
   onDocuments,
   onSetDocumentDueDates,
-  onDocumentModal,
+  onQuoteContract,
   onWorkflow,
   canFileUpload,
   canQuoteContract,
@@ -2624,7 +2624,7 @@ function CaseDetail({
   onConsult: () => void;
   onDocuments: () => void;
   onSetDocumentDueDates: (documentIds: string[], dueDate: string) => void;
-  onDocumentModal: (type: 'quote' | 'contract') => void;
+  onQuoteContract: () => void;
   onWorkflow: () => void;
   canFileUpload: boolean;
   canQuoteContract: boolean;
@@ -2765,11 +2765,11 @@ function CaseDetail({
             ) : null}
 
             {tab === 'quotes' ? (
-              <div className="py-4">{quoteEvents.length ? <div className="space-y-3">{quoteEvents.map((item, index) => <div key={`${item.date}-${item.title}-${index}`} className="rounded-2xl border p-5"><div className="flex items-center justify-between gap-3"><p className="font-bold">{item.title}</p><Pill tone="violet">견적</Pill></div><p className="mt-2 text-sm text-slate-600">{item.detail}</p></div>)}</div> : <div className="py-8 text-center"><FilePlus2 className="mx-auto size-9 text-slate-300" /><p className="mt-3 font-bold">등록된 견적서가 없습니다.</p><PrimaryButton className="mt-4" onClick={() => onDocumentModal('quote')}><Plus className="size-4" /> 견적서 작성</PrimaryButton></div>}</div>
+              <div className="py-4">{quoteEvents.length ? <div className="space-y-3">{quoteEvents.map((item, index) => <div key={`${item.date}-${item.title}-${index}`} className="rounded-2xl border p-5"><div className="flex items-center justify-between gap-3"><p className="font-bold">{item.title}</p><Pill tone="violet">견적</Pill></div><p className="mt-2 text-sm text-slate-600">{item.detail}</p></div>)}</div> : <div className="py-8 text-center"><FilePlus2 className="mx-auto size-9 text-slate-300" /><p className="mt-3 font-bold">등록된 견적서가 없습니다.</p><p className="mt-1 text-sm text-slate-500">새 견적·승인 절차는 상담 FLOW의 현재 단계를 확인하세요.</p><PrimaryButton className="mt-4" onClick={onQuoteContract}><ChevronRight className="size-4" /> 상담 FLOW 열기</PrimaryButton></div>}</div>
             ) : null}
 
             {tab === 'contracts' ? (
-              contractEvents.length ? <div className="space-y-3 py-4">{contractEvents.map((item, index) => <div key={`${item.date}-${item.title}-${index}`} className="rounded-2xl border p-5"><div className="flex items-center justify-between gap-3"><p className="font-bold">{item.title}</p><Pill tone="violet">계약</Pill></div><p className="mt-2 text-sm text-slate-600">{item.detail}</p></div>)}</div> : <div className="py-10 text-center"><FileText className="mx-auto size-9 text-slate-300" /><p className="mt-3 font-bold">등록된 계약서가 없습니다.</p><p className="mt-1 text-sm text-slate-500">필요한 상담 뒤에 계약서 초안을 생성하세요.</p><PrimaryButton className="mt-4" onClick={() => onDocumentModal('contract')}><Plus className="size-4" /> 계약서 작성</PrimaryButton></div>
+              contractEvents.length ? <div className="space-y-3 py-4">{contractEvents.map((item, index) => <div key={`${item.date}-${item.title}-${index}`} className="rounded-2xl border p-5"><div className="flex items-center justify-between gap-3"><p className="font-bold">{item.title}</p><Pill tone="violet">계약</Pill></div><p className="mt-2 text-sm text-slate-600">{item.detail}</p></div>)}</div> : <div className="py-10 text-center"><FileText className="mx-auto size-9 text-slate-300" /><p className="mt-3 font-bold">등록된 계약서가 없습니다.</p><p className="mt-1 text-sm text-slate-500">계약 준비·체결·입금 확인은 상담 FLOW에서 단계별로 처리하세요.</p><PrimaryButton className="mt-4" onClick={onQuoteContract}><ChevronRight className="size-4" /> 상담 FLOW 열기</PrimaryButton></div>
             ) : null}
           </CardContent>
         </Card>
@@ -2780,8 +2780,7 @@ function CaseDetail({
             <CardContent className="grid gap-3 pt-1 sm:grid-cols-2 xl:grid-cols-1">
               <SecondaryButton onClick={onConsult} className="justify-start"><MessageSquarePlus className="size-4 text-[#0877b8]" /> 상담 등록</SecondaryButton>
               {canFileUpload ? <SecondaryButton onClick={onDocuments} className="justify-start"><FileCheck2 className="size-4 text-[#0877b8]" /> 서류요청</SecondaryButton> : null}
-              {canQuoteContract ? <SecondaryButton onClick={() => onDocumentModal('quote')} className="justify-start"><FilePlus2 className="size-4 text-[#0877b8]" /> 견적서 작성</SecondaryButton> : null}
-              {canQuoteContract ? <SecondaryButton onClick={() => onDocumentModal('contract')} className="justify-start"><FileText className="size-4 text-[#0877b8]" /> 계약서 작성</SecondaryButton> : null}
+              {canQuoteContract ? <SecondaryButton onClick={onQuoteContract} className="justify-start"><FileText className="size-4 text-[#0877b8]" /> 견적·계약 상태 확인</SecondaryButton> : null}
               {!canQuoteContract ? <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600 sm:col-span-2 xl:col-span-1"><LockKeyhole className="mr-1 inline size-4 align-text-bottom" aria-hidden="true" />견적·계약 기능은 별도 승인 또는 대표 권한이 필요합니다.</div> : null}
             </CardContent>
           </Card>
@@ -3006,30 +3005,6 @@ function DocumentRequest({ caseItem, requestNumber, outstandingNames, onSave, on
   );
 }
 
-function DocumentModal({ type, onClose, onSave }: { type: 'quote' | 'contract'; onClose: () => void; onSave: () => void }) {
-  const quote = type === 'quote';
-  return (
-    <dialog open className="fixed inset-0 z-50 m-0 grid h-screen max-h-none w-screen max-w-none place-items-center border-0 bg-slate-950/40 p-4 backdrop-blur-sm" aria-labelledby="document-modal-title">
-      <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b p-5">
-          <div><p className="text-xs font-semibold text-[#0877b8]">{quote ? '견적서 독립 생성' : '경영자문용역계약서 독립 생성'}</p><h2 id="document-modal-title" className="mt-1 text-xl font-bold">{quote ? '견적서 V2 초안' : '계약서 V1 초안'}</h2><p className="mt-1 text-sm text-slate-500">관련 상담 연결은 선택사항이며 기존 버전을 덮어쓰지 않습니다.</p></div>
-          <button type="button" onClick={onClose} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="닫기"><X className="size-5" /></button>
-        </div>
-        <div className="grid max-h-[65vh] gap-5 overflow-y-auto p-5 md:grid-cols-2">
-          <Field label="관련 서비스" required><select className={inputClass}><option>정책자금</option><option>특허·지식재산</option></select></Field>
-          <Field label="관련 상담"><select className={inputClass}><option>연결하지 않음</option><option>상담 #1</option><option>상담 #2</option><option>상담 #3</option></select></Field>
-          <Field label={quote ? '서비스 범위' : '계약 목적'} required><input className={inputClass} defaultValue="정책자금 사전진단 및 신청지원" /></Field>
-          <Field label={quote ? '견적금액' : '계약금액'} required><input className={inputClass} placeholder="금액 입력" /></Field>
-          <div className="md:col-span-2"><Field label="업무 범위·산출물" required><textarea className={`${inputClass} min-h-28 py-3`} placeholder="업무 범위, 산출물, 제외사항을 작성하세요." /></Field></div>
-          <Field label={quote ? '유효기간' : '계약기간'}><input className={inputClass} type="date" /></Field>
-          <Field label="현재 상태"><select className={inputClass}><option>초안</option><option>내부검토</option><option>{quote ? '발송승인' : '조건협의'}</option></select></Field>
-        </div>
-        <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={onClose}>취소</SecondaryButton><PrimaryButton onClick={onSave}><Check className="size-4" /> 초안 저장</PrimaryButton></div>
-      </div>
-    </dialog>
-  );
-}
-
 export default function Home() {
   const [view, setView] = useState<View>('admin');
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -3044,7 +3019,6 @@ export default function Home() {
   const [members, setMembers] = useState<TraineeMember[]>(sampleTrainees);
   const [membersRevision, setMembersRevision] = useState(0);
   const [scheduleAudience, setScheduleAudience] = useState<'admin' | 'trainee'>('admin');
-  const [modal, setModal] = useState<'quote' | 'contract' | null>(null);
   const [toast, setToast] = useState('');
   const [persistenceReady, setPersistenceReady] = useState(false);
   const [dataStatus, setDataStatus] = useState<'loading' | 'saving' | 'saved' | 'error'>('loading');
@@ -3512,13 +3486,12 @@ export default function Home() {
               throw error;
             }
           }} /> : null}
-          {view === 'case' ? <CaseDetail key={selectedCase.id} caseItem={selectedCase} timeline={selectedCaseTimeline} documents={companyDocuments} allCases={cases} members={members} onWorkflow={() => navigate('workflow')} onConsult={() => navigate(selectedCase.flowManaged ? 'workflow' : 'consultation')} onDocuments={() => navigate(selectedCase.flowManaged ? 'workflow' : 'documents')} onSetDocumentDueDates={updateDocumentDueDates} onDocumentModal={() => navigate('workflow')} canFileUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} canQuoteContract={isAdmin || Boolean(currentMember?.permissions.quoteContract)} /> : null}
+          {view === 'case' ? <CaseDetail key={selectedCase.id} caseItem={selectedCase} timeline={selectedCaseTimeline} documents={companyDocuments} allCases={cases} members={members} onWorkflow={() => navigate('workflow')} onConsult={() => navigate(selectedCase.flowManaged ? 'workflow' : 'consultation')} onDocuments={() => navigate(selectedCase.flowManaged ? 'workflow' : 'documents')} onSetDocumentDueDates={updateDocumentDueDates} onQuoteContract={() => navigate('workflow')} canFileUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} canQuoteContract={isAdmin || Boolean(currentMember?.permissions.quoteContract)} /> : null}
           {view === 'consultation' ? <ConsultationForm key={selectedCase.id} number={Math.max(1, consultationNumber)} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={saveConsultation} /> : null}
           {view === 'documents' ? <DocumentRequest key={selectedCase.id} caseItem={selectedCase} requestNumber={selectedCaseTimeline.filter((item) => item.type === '서류').length + 1} outstandingNames={companyDocuments.filter(document => recordBelongsToCase(document, document.assignedTrainee, selectedCase, cases, members) && document.category === '요청서류' && (document.status === '요청중' || document.status === '보완필요')).map(document => document.title)} onCancel={() => navigate('case')} onSave={({ items, dueDate, skippedOutstanding }) => { const requestNumber = selectedCaseTimeline.filter((item) => item.type === '서류').length + 1; const dueLabel = formatKoreanDate(dueDate); setTimeline((current) => [...current, { caseId: selectedCase.id, date: '방금 전', title: `서류요청 #${requestNumber} 등록`, detail: `요청서류 ${items.length}건 / 제출기한 ${dueLabel} / 전달 담당자: ${selectedCase.trainee} 파트너`, type: '서류', tone: 'amber' }]); setCompanyDocuments((current) => [...items.map((item, index): CompanyDocument => ({ id: `file-request-${Date.now()}-${index}`, company: selectedCase.company, title: item.name, category: '요청서류', status: '요청중', assignedTrainee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, submittedBy: '기업대표 요청', updatedAt: '방금 전', dueDate, version: '-', sensitive: true })), ...current]); setTasks((current) => [{ id: `task-request-${Date.now()}`, company: selectedCase.company, title: `요청서류 ${items.length}건 제출 확인`, kind: '서류요청', assignee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, due: dueLabel, dueState: 'upcoming', status: '대기', priority: '보통', related: `서류요청 #${requestNumber}` }, ...current]); setCases((current) => current.map((item) => item.id === selectedCase.id ? { ...item, nextAction: `요청서류 ${items.length}건 제출 확인`, updatedAt: '방금 전', idleDays: 0 } : item)); notify(`${selectedCase.company} 서류요청 ${items.length}건을 자료함과 업무목록에 등록했습니다.${skippedOutstanding ? ` 이미 요청 중인 ${skippedOutstanding}건은 제외했습니다.` : ''}`); navigate('case'); }} /> : null}
         </main>
       </div>
 
-      {modal ? <DocumentModal type={modal} onClose={() => setModal(null)} onSave={() => { const kind = modal === 'quote' ? '견적서 V1' : '계약서 V1'; setTimeline((current) => [...current, { caseId: selectedCase.id, date: '방금 전', title: `${kind} 초안 저장`, detail: `${selectedCase.company} / 관련 상담: 연결하지 않음 / 내부검토 전`, type: modal === 'quote' ? '견적' : '계약', tone: 'violet' }]); setModal(null); notify(`${selectedCase.company} ${kind} 초안이 저장되었습니다.`); }} /> : null}
 
       {toast ? <output aria-live="polite" aria-atomic="true" className="fixed bottom-5 left-1/2 z-[70] flex w-[min(92vw,520px)] -translate-x-1/2 items-center gap-3 rounded-2xl bg-[#112f50] px-5 py-4 text-sm font-semibold text-white shadow-2xl"><span className="grid size-7 shrink-0 place-items-center rounded-full bg-emerald-400 text-[#112f50]"><Check className="size-4" /></span>{toast}</output> : null}
     </div>
