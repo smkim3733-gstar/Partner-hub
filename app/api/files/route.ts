@@ -22,6 +22,7 @@ import {
   currentFileAccess,
   fileStateConflict,
 } from '@/lib/company-file-access';
+import { scheduleDuplicateRequestMetric } from '@/lib/duplicate-request-metrics';
 
 export const dynamic = 'force-dynamic';
 
@@ -223,7 +224,14 @@ export async function POST(request: Request) {
         );
         return access.payload;
       },
+      (outcome) =>
+        scheduleDuplicateRequestMetric({ source: 'file_upload', outcome }),
     );
+    if (suppliedKey === null)
+      scheduleDuplicateRequestMetric({
+        source: 'file_upload',
+        outcome: 'unkeyed_request',
+      });
     return Response.json(
       { file: stored },
       { status: 201, headers: { 'cache-control': 'private, no-store' } },

@@ -8,6 +8,7 @@ import type { PortalStorageTelemetry } from '../lib/pilot-readiness';
 import type { PortalSaveConflictSummary } from '../lib/portal-conflict-metrics';
 import type { PasswordLinkSummary } from '../lib/password-link-metrics';
 import type { ApplicationConsultationSummary } from '../lib/application-consultation-metrics';
+import type { DuplicateRequestSummary } from '../lib/duplicate-request-metrics';
 import {
   failNextDatabaseBatch,
   failNextDatabaseStatement,
@@ -78,6 +79,7 @@ async function snapshot() {
     saveConflicts: PortalSaveConflictSummary | null;
     passwordLinks: PasswordLinkSummary | null;
     applicationFunnel: ApplicationConsultationSummary | null;
+    duplicateRequests: DuplicateRequestSummary | null;
   };
 }
 
@@ -107,8 +109,10 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
   assert.equal(Object.hasOwn(owner.state, 'saveConflicts'), false);
   assert.equal(Object.hasOwn(owner.state, 'passwordLinks'), false);
   assert.equal(Object.hasOwn(owner.state, 'applicationFunnel'), false);
+  assert.equal(Object.hasOwn(owner.state, 'duplicateRequests'), false);
   assert.equal(owner.passwordLinks?.windowDays, 7);
   assert.equal(owner.applicationFunnel?.trackedApplications, 0);
+  assert.equal(owner.duplicateRequests?.windowDays, 7);
 
   const partnerResponse = await GET(
     new Request('http://localhost/api/state', {
@@ -128,8 +132,16 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
   assert.equal(Object.hasOwn(partner, 'saveConflicts'), false);
   assert.equal(Object.hasOwn(partner, 'passwordLinks'), false);
   assert.equal(Object.hasOwn(partner, 'applicationFunnel'), false);
+  assert.equal(Object.hasOwn(partner, 'duplicateRequests'), false);
   assert.equal(
     Object.hasOwn(partner.state as Record<string, unknown>, 'storage'),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(
+      partner.state as Record<string, unknown>,
+      'duplicateRequests',
+    ),
     false,
   );
   assert.equal(
@@ -165,6 +177,15 @@ void test('application funnel read failure is isolated from administrator state'
   assert.equal(response.status, 200, await response.clone().text());
   const payload = (await response.json()) as { applicationFunnel?: unknown };
   assert.equal(payload.applicationFunnel, null);
+});
+
+void test('duplicate-request summary read failure is isolated from administrator state', async () => {
+  await writePortalState(seed());
+  failNextDatabaseStatement('portal_duplicate_request_stats');
+  const response = await GET(request());
+  assert.equal(response.status, 200, await response.clone().text());
+  const payload = (await response.json()) as { duplicateRequests?: unknown };
+  assert.equal(payload.duplicateRequests, null);
 });
 
 void test('admin and partner state writes cannot forge submission tracking on existing cases', async () => {

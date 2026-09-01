@@ -6,6 +6,21 @@ import {
 import type { PortalUser } from './portal-auth';
 import { fileDigest } from './file-upload-key';
 
+export type FlowCommandReceiptErrorReason =
+  | 'legacy_unknown'
+  | 'different_actor'
+  | 'changed_content';
+
+export class FlowCommandReceiptError extends FlowError {
+  constructor(
+    message: string,
+    status: number,
+    public readonly reason: FlowCommandReceiptErrorReason,
+  ) {
+    super(message, status);
+  }
+}
+
 function canonical(value: unknown, depth = 0): unknown {
   if (depth > 30) throw new FlowError('요청 내용이 너무 복잡합니다.');
   if (Array.isArray(value))
@@ -55,16 +70,22 @@ export function isFlowCommandRetry(
       ? flow.commandReceipts[commandId]
       : undefined;
   if (!saved)
-    throw new FlowError(
+    throw new FlowCommandReceiptError(
       '이전 요청의 상세 확인 정보가 없습니다. 새로고침으로 저장 결과를 확인해 주세요.',
       409,
+      'legacy_unknown',
     );
   if (saved.actorKey !== receipt.actorKey)
-    throw new FlowError('다른 계정의 요청 번호는 재사용할 수 없습니다.', 403);
+    throw new FlowCommandReceiptError(
+      '다른 계정의 요청 번호는 재사용할 수 없습니다.',
+      403,
+      'different_actor',
+    );
   if (saved.fingerprint !== receipt.fingerprint)
-    throw new FlowError(
+    throw new FlowCommandReceiptError(
       '같은 요청 번호의 내용 또는 첨부가 변경되었습니다. 저장 결과를 확인해 주세요.',
       409,
+      'changed_content',
     );
   return true;
 }

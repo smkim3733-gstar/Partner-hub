@@ -24,6 +24,9 @@ export type UploadMetadata = {
   contentType: string;
   sizeBytes: number;
 };
+export type UploadDuplicateOutcome =
+  | 'safe_retry'
+  | 'request_key_conflict';
 export function storedFileResult(row: CompanyFileRow) {
   return {
     id: row.id,
@@ -49,6 +52,7 @@ export async function storeCompanyUpload(
   metadata: UploadMetadata,
   bytes: ArrayBuffer,
   authorize: () => Promise<string | null>,
+  onDuplicateObserved?: (outcome: UploadDuplicateOutcome) => void,
 ) {
   const owner =
     user.role === 'admin' ? `admin:${user.email}` : `member:${user.memberId}`;
@@ -56,6 +60,7 @@ export async function storeCompanyUpload(
     JSON.stringify(metadata) + (await fileDigest(bytes)),
   );
   const initialPayload = await authorize();
+  const candidateFileId = crypto.randomUUID();
   await db
     .prepare(`INSERT INTO company_file_upload_requests
     (owner_key, request_key, fingerprint, file_id, created_at, status)
@@ -65,7 +70,7 @@ export async function storeCompanyUpload(
       owner,
       requestKey,
       fingerprint,
-      crypto.randomUUID(),
+      candidateFileId,
       new Date().toISOString(),
       initialPayload,
     )
@@ -77,11 +82,22 @@ export async function storeCompanyUpload(
     .bind(owner, requestKey)
     .first<UploadRecord>();
   if (!record) throw fileStateConflict();
-  if (record.fingerprint !== fingerprint)
+  const existedBefore = record.file_id !== candidateFileId;
+  const observe = (outcome: UploadDuplicateOutcome) => {
+    if (!existedBefore) return;
+    try {
+      onDuplicateObserved?.(outcome);
+    } catch {
+      // Telemetry must never change upload behavior.
+    }
+  };
+  if (record.fingerprint !== fingerprint) {
+    if (record.status !== 'deleted') observe('request_key_conflict');
     throw new CompanyFileError(
       '같은 업로드 요청의 파일 또는 자료정보가 변경되었습니다.',
       409,
     );
+  }
   if (record.status === 'deleted')
     throw new CompanyFileError(
       '이미 삭제한 업로드입니다. 새 파일 등록으로 진행해 주세요.',
@@ -96,6 +112,7 @@ export async function storeCompanyUpload(
       );
     await authorize();
     await assertNotDeleted(db, bucket, record.file_id, false);
+    observe('safe_retry');
     return storedFileResult(saved);
   }
   const id = record.file_id;
@@ -178,6 +195,7 @@ export async function storeCompanyUpload(
   if (status?.status !== 'ready' || !row)
     throw new CompanyFileError('파일 저장 확인을 다시 시도해 주세요.', 503);
   await assertNotDeleted(db, bucket, id, false);
+  observe('safe_retry');
   return storedFileResult(row);
 }
 

@@ -4,9 +4,11 @@ import { describeUpload, parseFlowRequest } from '@/lib/consulting-flow-http';
 import { prepareIntakeImport } from '@/lib/consulting-intake-sources';
 import { buildAnalysisSourceBlocks } from '@/lib/consulting-flow-ai';
 import {
+  FlowCommandReceiptError,
   flowCommandReceipt,
   isFlowCommandRetry,
 } from '@/lib/flow-command-receipt';
+import { scheduleDuplicateRequestMetric } from '@/lib/duplicate-request-metrics';
 import {
   assertSameOrigin,
   commitFlow,
@@ -55,11 +57,28 @@ export async function POST(request: Request, context: Context) {
       initial.user,
       Boolean(input.file || input.audio),
     );
-    if (isFlowCommandRetry(flow, input.commandId, receipt))
-      return Response.json(
-        { flow: publicFlow(flow), duplicate: true },
-        { headers: { 'cache-control': 'no-store' } },
-      );
+    try {
+      if (isFlowCommandRetry(flow, input.commandId, receipt)) {
+        scheduleDuplicateRequestMetric({
+          source: 'flow_command',
+          outcome: 'safe_retry',
+        });
+        return Response.json(
+          { flow: publicFlow(flow), duplicate: true },
+          { headers: { 'cache-control': 'no-store' } },
+        );
+      }
+    } catch (error) {
+      if (
+        error instanceof FlowCommandReceiptError &&
+        error.reason !== 'legacy_unknown'
+      )
+        scheduleDuplicateRequestMetric({
+          source: 'flow_command',
+          outcome: 'request_key_conflict',
+        });
+      throw error;
+    }
     if (input.revision !== flow.revision)
       throw new FlowError(
         '다른 변경이 있습니다. 새로고침 후 내용을 확인해 주세요.',

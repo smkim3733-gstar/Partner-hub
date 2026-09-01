@@ -19,6 +19,10 @@ import {
   schedulePortalConflictRecovery,
   schedulePortalSaveConflict,
 } from '@/lib/portal-conflict-metrics';
+import {
+  scheduleDuplicateRequestMetric,
+  type DuplicateRequestOutcome,
+} from '@/lib/duplicate-request-metrics';
 
 export const dynamic = 'force-dynamic';
 const headers = { 'cache-control': 'private, no-store' };
@@ -27,6 +31,15 @@ const response = (data: unknown, status = 200) =>
 
 export async function POST(request: Request) {
   const presentedReceipt = request.headers.get(PORTAL_CONFLICT_RECEIPT_HEADER);
+  let duplicateOutcome: DuplicateRequestOutcome | null = null;
+  const observeDuplicateOnce = () => {
+    if (!duplicateOutcome) return;
+    scheduleDuplicateRequestMetric({
+      source: 'admin_partner_registration',
+      outcome: duplicateOutcome,
+    });
+    duplicateOutcome = null;
+  };
   try {
     const actor = await requirePortalUser(request, await readPortalState());
     if (actor.role !== 'admin')
@@ -64,6 +77,7 @@ export async function POST(request: Request) {
     let registered: PartnerAccount;
     let replayed = false;
     const result = await mutatePortalState(async (raw) => {
+      duplicateOutcome = null;
       const currentUser = await requirePortalUser(request, raw);
       if (currentUser.role !== 'admin')
         throw new PortalAccessError('대표 관리자만 등록할 수 있습니다.', 403);
@@ -82,22 +96,27 @@ export async function POST(request: Request) {
           Object.entries(value).some(
             ([key, val]) => prior[key as keyof PartnerAccount] !== val,
           )
-        )
+        ) {
+          duplicateOutcome = 'request_key_conflict';
           throw new FlowError(
             '이 요청번호로 이미 다른 내용이 등록되었습니다. 명단을 확인해 주세요.',
             409,
           );
+        }
+        duplicateOutcome = 'safe_retry';
         registered = prior;
         replayed = true;
         return state;
       }
       if (
         state.members.some((m) => m.email.trim().toLowerCase() === value.email)
-      )
+      ) {
+        duplicateOutcome = 'existing_record_blocked';
         throw new FlowError(
           '이미 등록된 이메일입니다. 기존 계정을 검색해 확인해 주세요.',
           409,
         );
+      }
       registered = {
         id,
         ...value,
@@ -120,6 +139,7 @@ export async function POST(request: Request) {
         membersRevision: membersRevisionOf(state) + 1,
       };
     });
+    observeDuplicateOnce();
     schedulePortalConflictRecovery({
       token: presentedReceipt,
       source: 'admin_partner_registration',
@@ -135,8 +155,10 @@ export async function POST(request: Request) {
       replayed ? 200 : 201,
     );
   } catch (error) {
-    if (error instanceof PortalAccessError || error instanceof FlowError)
+    if (error instanceof PortalAccessError || error instanceof FlowError) {
+      observeDuplicateOnce();
       return response({ error: error.message }, error.status);
+    }
     if (error instanceof PortalStateConflict) {
       const metric = {
         source: 'admin_partner_registration',

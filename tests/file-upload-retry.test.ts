@@ -19,6 +19,8 @@ import {
   previewIntakeSource,
 } from '../lib/consulting-intake-sources';
 import { newConsultingFlow } from '../lib/consulting-flow';
+import { readDuplicateRequestSummary } from '../lib/duplicate-request-metrics';
+import { flushWaitUntil } from './runtime-mock.mjs';
 
 const member = {
   id: 'retry-member',
@@ -124,6 +126,10 @@ void test('application upload keys survive file reselection; standalone keys kee
 });
 
 void test('lost upload response recovers identical metadata and file ID without another R2 put', async () => {
+  await readDuplicateRequestSummary();
+  await companyFileDatabase()
+    .prepare('DELETE FROM portal_duplicate_request_stats')
+    .run();
   await seed();
   const key = 'lost-response-request';
   const first = await stored(await upload(request(key)));
@@ -139,6 +145,24 @@ void test('lost upload response recovers identical metadata and file ID without 
   }
   assert.equal((await rowFor(key))?.status, 'ready');
   assert.equal((await findCompanyFile(first.id))?.partner_member_id, member.id);
+  await flushWaitUntil();
+  assert.equal((await readDuplicateRequestSummary()).totalSafeRetries, 1);
+});
+
+void test('accepted upload without a request key records only the coverage warning', async () => {
+  await readDuplicateRequestSummary();
+  await companyFileDatabase()
+    .prepare('DELETE FROM portal_duplicate_request_stats')
+    .run();
+  await seed();
+  const unkeyed = request('unused-request-key');
+  unkeyed.headers.delete('idempotency-key');
+  assert.equal((await upload(unkeyed)).status, 201);
+  await flushWaitUntil();
+  const summary = await readDuplicateRequestSummary();
+  assert.equal(summary.unkeyedUploadRequests, 1);
+  assert.equal(summary.totalSafeRetries, 0);
+  assert.equal(summary.totalRequestKeyConflicts, 0);
 });
 
 void test('concurrent retries converge; different bytes or metadata cannot hijack a request, and keys are account-scoped', async () => {
@@ -273,7 +297,16 @@ void test('explicit deletion tombstones retries; failed deletion can be retried 
   );
   assert.equal(await findCompanyFile(file.id), null);
   assert.equal(await bucket.get(`company-source/${file.id}`), null);
+  await readDuplicateRequestSummary();
+  await companyFileDatabase()
+    .prepare('DELETE FROM portal_duplicate_request_stats')
+    .run();
   assert.equal((await upload(request(key))).status, 409);
+  assert.equal((await upload(request(key, form('CHANGED_AFTER_DELETE')))).status, 409);
+  await flushWaitUntil();
+  const summary = await readDuplicateRequestSummary();
+  assert.equal(summary.totalSafeRetries, 0);
+  assert.equal(summary.totalRequestKeyConflicts, 0);
 });
 
 void test(

@@ -16,6 +16,8 @@ import {
   flowDatabase,
 } from '../lib/consulting-flow-store';
 import { readPortalState, writePortalState } from '../lib/portal-state';
+import { readDuplicateRequestSummary } from '../lib/duplicate-request-metrics';
+import { flushWaitUntil } from './runtime-mock.mjs';
 
 const partner = {
   id: 'safety-partner',
@@ -304,6 +306,10 @@ void test('FLOW commit rejects a suspension immediately before D1 writes', async
 });
 
 void test('FLOW duplicate keys reject changed command contents and another actor', async () => {
+  await readDuplicateRequestSummary();
+  await (await flowDatabase())
+    .prepare('DELETE FROM portal_duplicate_request_stats')
+    .run();
   const flow = await fixture(),
     commandId = `flow-safety-${++sequence}`;
   const command = { type: 'confirm_analysis', reportId: flow.reports[0].id };
@@ -340,6 +346,19 @@ void test('FLOW duplicate keys reject changed command contents and another actor
     ).status,
     403,
   );
+  const exactRetry = await POST(
+    request(flow.caseId, command, flow.revision, commandId),
+    context(flow.caseId),
+  );
+  assert.equal(exactRetry.status, 200);
+  assert.equal(
+    ((await exactRetry.json()) as { duplicate?: boolean }).duplicate,
+    true,
+  );
+  await flushWaitUntil();
+  const summary = await readDuplicateRequestSummary();
+  assert.equal(summary.totalSafeRetries, 1);
+  assert.equal(summary.totalRequestKeyConflicts, 2);
   assert.deepEqual(await readFlow(flow.caseId), saved);
 });
 

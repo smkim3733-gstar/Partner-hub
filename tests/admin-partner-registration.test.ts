@@ -19,6 +19,9 @@ import {
   validatePartnerRegistration,
   type PartnerRegistrationResult,
 } from '../lib/partner-registration';
+import { env } from 'cloudflare:workers';
+import { readDuplicateRequestSummary } from '../lib/duplicate-request-metrics';
+import { flushWaitUntil } from './runtime-mock.mjs';
 
 const owner = 'seedy@sites.test';
 void test('queued field updates retain captured input values after a controlled-input reset', () => {
@@ -304,6 +307,10 @@ void test('case-insensitive duplicate, suspended account and owner address are r
 });
 
 void test('retry uses the same account; request id cannot be reused for different data', async () => {
+  await readDuplicateRequestSummary();
+  await (env as unknown as { DB: D1Database }).DB
+    .prepare('DELETE FROM portal_duplicate_request_stats')
+    .run();
   const data = body();
   const first = await created(data);
   const replay = await create(request(data));
@@ -317,9 +324,17 @@ void test('retry uses the same account; request id cannot be reused for differen
     409,
   );
   assert.equal((await state()).members.length, 3);
+  await flushWaitUntil();
+  const summary = await readDuplicateRequestSummary();
+  assert.equal(summary.totalSafeRetries, 1);
+  assert.equal(summary.totalRequestKeyConflicts, 1);
 });
 
 void test('simultaneous independent creates preserve both; concurrent identical requests create only once', async () => {
+  await readDuplicateRequestSummary();
+  await (env as unknown as { DB: D1Database }).DB
+    .prepare('DELETE FROM portal_duplicate_request_stats')
+    .run();
   const results = await Promise.all([
     create(request(body({ email: 'first@example.invalid' }))),
     create(request(body({ email: 'second@example.invalid' }))),
@@ -340,6 +355,8 @@ void test('simultaneous independent creates preserve both; concurrent identical 
   );
   assert.equal((await state()).members.length, 5);
   assert.equal(membersRevisionOf(await state()), 3);
+  await flushWaitUntil();
+  assert.equal((await readDuplicateRequestSummary()).totalSafeRetries, 1);
 });
 
 void test('stale administrator autosave cannot erase a newly registered partner; fresh edits remain available', async () => {

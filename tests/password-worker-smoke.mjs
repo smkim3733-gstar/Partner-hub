@@ -174,24 +174,31 @@ try {
   assert.match(account.password_hash, /^scrypt\$16384\$8\$5\$/);
   assert.ok(!JSON.stringify(state).includes(password));
   const memberId = state.members[0].id;
+  const peerRegistration = {
+    name: '가상 런타임파트너',
+    phone: '010-0000-0001',
+    affiliation: '가상 다른소속',
+    email: 'peer-runtime@example.invalid',
+    memberType: '기타',
+    confirmed: true,
+    requestId: 'runtime-peer-register-001',
+  };
   const peerResponse = await expect(
     await call(
       '/partners',
-      {
-        name: '가상 런타임파트너',
-        phone: '010-0000-0001',
-        affiliation: '가상 다른소속',
-        email: 'peer-runtime@example.invalid',
-        memberType: '기타',
-        confirmed: true,
-        requestId: 'runtime-peer-register-001',
-      },
+      peerRegistration,
       ownerHeaders,
     ),
     201,
     'owner directly registers a distinct same-name partner',
   );
   const peerId = (await peerResponse.json()).member.id;
+  const peerRetry = await expect(
+    await call('/partners', peerRegistration, ownerHeaders),
+    200,
+    'owner direct-registration retry reuses the existing account',
+  );
+  assert.equal((await peerRetry.json()).replayed, true);
   state.members[0].status = '활성';
   await expect(
     await call('/save', { state }, ownerHeaders, 'PUT'),
@@ -276,6 +283,7 @@ try {
   assert.equal(visible.currentUser.role, 'trainee');
   assert.equal(visible.currentUser.permissions.quoteContract, false);
   assert.equal(Object.hasOwn(visible, 'applicationFunnel'), false);
+  assert.equal(Object.hasOwn(visible, 'duplicateRequests'), false);
   assert.deepEqual(
     visible.state.cases.map((item) => item.id),
     ['runtime-own'],
@@ -416,13 +424,22 @@ try {
     Object.hasOwn(submittedPartnerState, 'applicationFunnel'),
     false,
   );
+  assert.equal(
+    Object.hasOwn(submittedPartnerState, 'duplicateRequests'),
+    false,
+  );
   const submittedOwnerState = await (
     await call('/state', undefined, ownerHeaders)
   ).json();
   assert.equal(submittedOwnerState.applicationFunnel.trackedApplications, 1);
   assert.equal(submittedOwnerState.applicationFunnel.flowStarted, 0);
+  assert.equal(submittedOwnerState.duplicateRequests.windowDays, 7);
   assert.equal(
     Object.hasOwn(submittedOwnerState.state, 'applicationFunnel'),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(submittedOwnerState.state, 'duplicateRequests'),
     false,
   );
   checks.push(
@@ -1537,8 +1554,26 @@ try {
     Object.hasOwn(ownerStateAfterReset.state, 'passwordLinks'),
     false,
   );
+  const duplicateRequestColumns = (
+    await db.prepare('PRAGMA table_info(portal_duplicate_request_stats)').all()
+  ).results.map((column) => column.name);
+  assert.deepEqual(duplicateRequestColumns, [
+    'bucket_date',
+    'source',
+    'outcome',
+    'event_count',
+  ]);
+  assert.ok(ownerStateAfterReset.duplicateRequests.totalSafeRetries >= 4);
+  assert.ok(
+    ownerStateAfterReset.duplicateRequests.totalRequestKeyConflicts >= 3,
+  );
+  assert.ok(ownerStateAfterReset.duplicateRequests.unkeyedUploadRequests >= 1);
+  assert.equal(
+    Object.hasOwn(ownerStateAfterReset.state, 'duplicateRequests'),
+    false,
+  );
   checks.push(
-    'native D1 exposes privacy-minimized password-link totals to the administrator only',
+    'native D1 exposes privacy-minimized password-link and duplicate-request totals to the administrator only',
   );
   await expect(
     await call('/state', undefined, { cookie, ...ownerHeaders }),

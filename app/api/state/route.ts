@@ -49,6 +49,7 @@ import {
   readApplicationConsultationSummary,
 } from '@/lib/application-consultation-metrics';
 import { draftCaseId } from '@/lib/application-draft';
+import { readDuplicateRequestSummary } from '@/lib/duplicate-request-metrics';
 
 const privateJson = (data: unknown, init?: ResponseInit) =>
   Response.json(data, {
@@ -88,36 +89,39 @@ export async function GET(request: Request) {
       currentUser.role === 'admin'
         ? stateWithPortalLoginStats(state, await readPortalLoginStats())
         : stateForPortalUser(state, currentUser);
-    const saveConflicts =
+    const [saveConflicts, passwordLinks, applicationFunnel, duplicateRequests] =
       currentUser.role === 'admin'
-        ? await readPortalSaveConflictSummary().catch((error) => {
+        ? await Promise.all([
+            readPortalSaveConflictSummary().catch((error) => {
             console.error(
               'Failed to read portal save conflict summary',
               error instanceof Error ? error.name : 'unknown',
             );
             return null;
-          })
-        : null;
-    const passwordLinks =
-      currentUser.role === 'admin'
-        ? await readPasswordLinkSummary().catch((error) => {
+            }),
+            readPasswordLinkSummary().catch((error) => {
             console.error(
               'Failed to read password-link summary',
               error instanceof Error ? error.name : 'unknown',
             );
             return null;
-          })
-        : null;
-    const applicationFunnel =
-      currentUser.role === 'admin'
-        ? await readApplicationConsultationSummary(rawState).catch((error) => {
+            }),
+            readApplicationConsultationSummary(rawState).catch((error) => {
             console.error(
               'Failed to read application consultation summary',
               error instanceof Error ? error.name : 'unknown',
             );
             return null;
-          })
-        : null;
+            }),
+            readDuplicateRequestSummary().catch((error) => {
+              console.error(
+                'Failed to read duplicate-request summary',
+                error instanceof Error ? error.name : 'unknown',
+              );
+              return null;
+            }),
+          ])
+        : [null, null, null, null];
     return privateJson({
       state: responseState,
       currentUser,
@@ -132,6 +136,7 @@ export async function GET(request: Request) {
             saveConflicts,
             passwordLinks,
             applicationFunnel,
+            duplicateRequests,
           }
         : {}),
     });

@@ -88,6 +88,7 @@ import {
 import type { PortalSaveConflictSummary } from '@/lib/portal-conflict-metrics';
 import type { PasswordLinkSummary } from '@/lib/password-link-metrics';
 import type { ApplicationConsultationSummary } from '@/lib/application-consultation-metrics';
+import type { DuplicateRequestSummary } from '@/lib/duplicate-request-metrics';
 
 type View =
   | 'admin'
@@ -1222,6 +1223,7 @@ function AdminDashboard({
   storage,
   saveConflicts,
   applicationFunnel,
+  duplicateRequests,
 }: {
   onOpenCase: (item: CollaborationCase) => void;
   onOpenSchedule: () => void;
@@ -1233,6 +1235,7 @@ function AdminDashboard({
   storage: PortalStorageTelemetry | null;
   saveConflicts: PortalSaveConflictSummary | null;
   applicationFunnel: ApplicationConsultationSummary | null;
+  duplicateRequests: DuplicateRequestSummary | null;
 }) {
   const operationalCases = operationalPilotRecords('case', cases);
   const operationalDocuments = operationalPilotRecords('document', documents);
@@ -1337,7 +1340,7 @@ function AdminDashboard({
         ))}
       </section>
 
-      <section aria-label="파일럿 운영 준비" className="mt-6 grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="파일럿 운영 준비" className="mt-6 grid gap-4 lg:grid-cols-2 xl:grid-cols-5">
         <Card className="border-sky-200 bg-sky-50/40 shadow-none">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base font-bold text-[#15375b]"><ClipboardCheck className="size-5 text-[#0877b8]" aria-hidden="true" /> 실사용 지표 기준</CardTitle>
@@ -1413,6 +1416,20 @@ function AdminDashboard({
               {applicationFunnel.durationBuckets ? <p className="mt-2 text-xs leading-5 text-slate-600">완료기록까지: 1일 미만 {applicationFunnel.durationBuckets.under1Day} · 1~3일 {applicationFunnel.durationBuckets.oneTo3Days} · 3~7일 {applicationFunnel.durationBuckets.threeTo7Days} · 7일 이상 {applicationFunnel.durationBuckets.sevenDaysOrMore}</p> : <p className="mt-2 text-xs leading-5 text-slate-500">유효 소요시간 {applicationFunnel.durationDisclosureThreshold}건 미만이면 구간을 표시하지 않습니다.</p>}
               <p className="mt-2 text-xs leading-5 text-slate-500">신청부터 초회상담 완료 기록까지이며 공동분석·준비 완료 시점의 영향을 받습니다. 현재 운영 흐름 확인용으로만 사용합니다.</p>
             </> : <p className="text-sm leading-6 text-slate-600">신청·상담 지표를 불러오지 못했습니다. 신청과 상담 FLOW는 계속 사용할 수 있습니다.</p>}
+          </CardContent>
+        </Card>
+        <Card className={`${(duplicateRequests?.totalRequestKeyConflicts ?? 0) + (duplicateRequests?.totalExistingRecordBlocks ?? 0) ? 'border-amber-300 bg-amber-50/60' : 'border-cyan-200 bg-cyan-50/40'} shadow-none`}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-[#15375b]"><RefreshCw className="size-5 text-cyan-700" aria-hidden="true" /> 중복 요청 관측</CardTitle>
+            <CardDescription>FLOW·파일·관리자 직접등록에서 판별 가능한 최근 7일 요청 이벤트입니다.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {duplicateRequests ? <>
+              <p className="text-2xl font-bold text-[#15375b]">안전 재시도 {duplicateRequests.totalSafeRetries.toLocaleString('ko-KR')}건</p>
+              <p className="mt-2 text-xs leading-5 text-slate-600">요청번호 충돌 {duplicateRequests.totalRequestKeyConflicts.toLocaleString('ko-KR')} · 기존 계정 중복차단 {duplicateRequests.totalExistingRecordBlocks.toLocaleString('ko-KR')}</p>
+              <p className="mt-2 text-xs leading-5 text-slate-600">식별값 없는 업로드 {duplicateRequests.unkeyedUploadRequests.toLocaleString('ko-KR')}건</p>
+              <p className="mt-2 text-xs leading-5 text-slate-500">사람·기업·진행의 고유 건수가 아닌 요청 이벤트 합계입니다. 식별값 없는 업로드의 실제 중복 여부와 레거시 FLOW 요청은 판별하지 않습니다.</p>
+            </> : <p className="text-sm leading-6 text-slate-600">중복 요청 지표를 불러오지 못했습니다. 저장과 재시도 기능은 계속 사용할 수 있습니다.</p>}
           </CardContent>
         </Card>
       </section>
@@ -3250,6 +3267,7 @@ export default function Home() {
   const [saveConflicts, setSaveConflicts] = useState<PortalSaveConflictSummary | null>(null);
   const [passwordLinks, setPasswordLinks] = useState<PasswordLinkSummary | null>(null);
   const [applicationFunnel, setApplicationFunnel] = useState<ApplicationConsultationSummary | null>(null);
+  const [duplicateRequests, setDuplicateRequests] = useState<DuplicateRequestSummary | null>(null);
   const [dataStatus, setDataStatus] = useState<'loading' | 'saving' | 'saved' | 'error'>('loading');
   const [saveError, setSaveError] = useState('');
   const [currentUser, setCurrentUser] = useState<PortalUser | null>(null);
@@ -3315,7 +3333,7 @@ export default function Home() {
     async function loadState() {
       try {
         const response = await fetch('/api/state', { cache: 'no-store' });
-        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; stateRevision?: string; storage?: PortalStorageTelemetry; saveConflicts?: PortalSaveConflictSummary | null; passwordLinks?: PasswordLinkSummary | null; applicationFunnel?: ApplicationConsultationSummary | null; error?: string; authenticatedEmail?: string };
+        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; stateRevision?: string; storage?: PortalStorageTelemetry; saveConflicts?: PortalSaveConflictSummary | null; passwordLinks?: PasswordLinkSummary | null; applicationFunnel?: ApplicationConsultationSummary | null; duplicateRequests?: DuplicateRequestSummary | null; error?: string; authenticatedEmail?: string };
         if (!response.ok) {
           if (active) {
             setAccessStatus(response.status);
@@ -3349,6 +3367,7 @@ export default function Home() {
         setSaveConflicts(payload.saveConflicts ?? null);
         setPasswordLinks(payload.passwordLinks ?? null);
         setApplicationFunnel(payload.applicationFunnel ?? null);
+        setDuplicateRequests(payload.duplicateRequests ?? null);
         setAccessStatus(null);
         if (payload.currentUser.role === 'trainee') {
           setView('trainee');
@@ -3703,7 +3722,7 @@ export default function Home() {
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
           {saveError && <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800"><p className="font-bold">변경사항 저장 확인 필요</p><p>{saveError}</p><p className="mt-1">입력은 현재 화면에 남아 있습니다. 새로고침하지 말고 연결을 확인한 뒤 다시 저장해 주세요. 로그인 만료 시 같은 계정으로 새 탭에서 로그인한 후 돌아오세요.</p><div className="mt-3 flex flex-wrap gap-3"><SecondaryButton onClick={() => { void saveQueue.flush().catch(() => {}); }} disabled={dataStatus === 'saving' || applicationPending}>변경사항 다시 저장</SecondaryButton><a className="inline-flex min-h-11 items-center underline" href="/account" target="_blank" rel="noopener noreferrer">새 탭에서 로그인</a><a className="inline-flex min-h-11 items-center underline" href="/" target="_blank" rel="noopener noreferrer">새 탭에서 최신 운영 내용 확인</a></div></div>}
-          {view === 'admin' ? <AdminDashboard onOpenCase={openCase} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} cases={cases} documents={companyDocuments} tasks={tasks} members={members} storage={storage} saveConflicts={saveConflicts} applicationFunnel={applicationFunnel} /> : null}
+          {view === 'admin' ? <AdminDashboard onOpenCase={openCase} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} cases={cases} documents={companyDocuments} tasks={tasks} members={members} storage={storage} saveConflicts={saveConflicts} applicationFunnel={applicationFunnel} duplicateRequests={duplicateRequests} /> : null}
           {view === 'pipeline' ? <PipelineBoard cases={cases} setCases={setCases} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} onOpenCase={openCase} /> : null}
           {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee} · {item.id.slice(-8)}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <><ApplicationDetailsSummary details={selectedCase.applicationDetails} /><ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /></> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate(cases.length ? 'consultation' : 'application')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}

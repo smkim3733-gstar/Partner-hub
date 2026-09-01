@@ -76,6 +76,18 @@ CREATE TABLE IF NOT EXISTS portal_password_link_stats (
 )
 `;
 
+// Count-only duplicate-request observations. Never add identity, company,
+// case, file, request-key, fingerprint, body, IP, or exact timestamps here.
+export const portalDuplicateRequestStatsTableSql = `
+CREATE TABLE IF NOT EXISTS portal_duplicate_request_stats (
+  bucket_date TEXT NOT NULL,
+  source TEXT NOT NULL CHECK (source IN ('flow_command', 'file_upload', 'admin_partner_registration')),
+  outcome TEXT NOT NULL CHECK (outcome IN ('safe_retry', 'request_key_conflict', 'existing_record_blocked', 'unkeyed_request')),
+  event_count INTEGER NOT NULL DEFAULT 1 CHECK (event_count >= 0),
+  PRIMARY KEY (bucket_date, source, outcome)
+)
+`;
+
 export const companyFileObjectsTableSql = `
 CREATE TABLE IF NOT EXISTS company_file_objects (
   id TEXT PRIMARY KEY NOT NULL,
