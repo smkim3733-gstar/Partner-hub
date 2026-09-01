@@ -71,6 +71,8 @@ export type FlowRequest = {
   sentAt?: string;
   note: string;
   createdAt: string;
+  receivedAt?: string;
+  reviewedAt?: string;
   verifiedAt?: string;
 };
 export type FlowJob = {
@@ -1051,9 +1053,16 @@ export function applyFlowCommand(
       const request = s.requests.find((r) => r.id === command.requestId);
       demand(request, '서류요청을 선택해 주세요.');
       demand(!s.contract, '계약 후 준비서류 변경은 제한됩니다.', 409);
-      request.fileId = file().id;
+      const receivedFile = file();
+      const startsReviewCycle =
+        request.fileId !== receivedFile.id || request.status !== 'received';
+      request.fileId = receivedFile.id;
       request.status = 'received';
-      request.verifiedAt = undefined;
+      if (startsReviewCycle) {
+        request.receivedAt = now;
+        request.reviewedAt = undefined;
+        request.verifiedAt = undefined;
+      }
       request.note = txt(command, 'note', 1000, false);
       detail = '요청 서류 수령 · 대표 검토 대기';
       break;
@@ -1069,6 +1078,7 @@ export function applyFlowCommand(
       );
       request.status = command.approved ? 'verified' : 'needs_fix';
       request.note = txt(command, 'note', 1000, !command.approved);
+      request.reviewedAt = now;
       request.verifiedAt = command.approved ? now : undefined;
       detail = command.approved ? '필수 서류 검토 완료' : '서류 보완 요청';
       break;

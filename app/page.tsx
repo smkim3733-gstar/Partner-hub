@@ -90,6 +90,7 @@ import type { PasswordLinkSummary } from '@/lib/password-link-metrics';
 import type { ApplicationConsultationSummary } from '@/lib/application-consultation-metrics';
 import type { DuplicateRequestSummary } from '@/lib/duplicate-request-metrics';
 import type { JointAnalysisConfirmationSummary } from '@/lib/joint-analysis-confirmation-metrics';
+import type { DocumentReviewWaitSummary } from '@/lib/document-review-wait-metrics';
 
 type View =
   | 'admin'
@@ -1226,6 +1227,7 @@ function AdminDashboard({
   applicationFunnel,
   duplicateRequests,
   jointAnalysisConfirmation,
+  documentReviewWait,
 }: {
   onOpenCase: (item: CollaborationCase) => void;
   onOpenSchedule: () => void;
@@ -1239,6 +1241,7 @@ function AdminDashboard({
   applicationFunnel: ApplicationConsultationSummary | null;
   duplicateRequests: DuplicateRequestSummary | null;
   jointAnalysisConfirmation: JointAnalysisConfirmationSummary | null;
+  documentReviewWait: DocumentReviewWaitSummary | null;
 }) {
   const operationalCases = operationalPilotRecords('case', cases);
   const operationalDocuments = operationalPilotRecords('document', documents);
@@ -1449,6 +1452,22 @@ function AdminDashboard({
               {jointAnalysisConfirmation.currentReportMismatches || jointAnalysisConfirmation.invalidTimestamps ? <p className="mt-2 text-xs font-semibold leading-5 text-amber-800">현재 보고서 불일치 {jointAnalysisConfirmation.currentReportMismatches} · 시각 확인 필요 {jointAnalysisConfirmation.invalidTimestamps}</p> : null}
               <p className="mt-2 text-xs leading-5 text-slate-500">1차 보고서는 대표가 등록하고 두 역할은 순서 강제 없이 각각 확인합니다. 전체 대표 승인 대기시간이나 실제 업무 인계를 뜻하지 않습니다.</p>
             </> : <p className="text-sm leading-6 text-slate-600">공동분석 확인 지표를 불러오지 못했습니다. FLOW 확인 기능은 계속 사용할 수 있습니다.</p>}
+          </CardContent>
+        </Card>
+        <Card className={`${(documentReviewWait?.pendingReview ?? 0) ? 'border-amber-300 bg-amber-50/60' : 'border-cyan-200 bg-cyan-50/40'} shadow-none`}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-[#15375b]"><ClipboardCheck className="size-5 text-cyan-700" aria-hidden="true" /> 서류 수령→대표 검토</CardTitle>
+            <CardDescription>현재 추가서류 요청의 최신 제출·재검토 주기를 모은 누적 스냅샷입니다.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {documentReviewWait ? <>
+              <p className="text-2xl font-bold text-[#15375b]">대표 검토 대기 {documentReviewWait.pendingReview.toLocaleString('ko-KR')}건</p>
+              <p className="mt-2 text-xs leading-5 text-slate-600">수령 대기 {documentReviewWait.awaitingReceipt.toLocaleString('ko-KR')} · 검토 완료 {documentReviewWait.reviewed.toLocaleString('ko-KR')} · 보완 요청 {documentReviewWait.needsFixReviews.toLocaleString('ko-KR')}</p>
+              {documentReviewWait.pendingAgeBuckets ? <p className="mt-2 text-xs leading-5 text-slate-600">현재 대기 연령: 4시간 미만 {documentReviewWait.pendingAgeBuckets.under4Hours} · 4~24시간 {documentReviewWait.pendingAgeBuckets.fourTo24Hours} · 1~3일 {documentReviewWait.pendingAgeBuckets.oneTo3Days} · 3일 이상 {documentReviewWait.pendingAgeBuckets.threeDaysOrMore}</p> : <p className="mt-2 text-xs leading-5 text-slate-500">유효한 검토 대기 {documentReviewWait.durationDisclosureThreshold}건 미만이면 대기 연령 구간을 표시하지 않습니다.</p>}
+              {documentReviewWait.completedDurationBuckets ? <p className="mt-2 text-xs leading-5 text-slate-600">완료 소요: 4시간 미만 {documentReviewWait.completedDurationBuckets.under4Hours} · 4~24시간 {documentReviewWait.completedDurationBuckets.fourTo24Hours} · 1~3일 {documentReviewWait.completedDurationBuckets.oneTo3Days} · 3일 이상 {documentReviewWait.completedDurationBuckets.threeDaysOrMore}</p> : <p className="mt-2 text-xs leading-5 text-slate-500">유효한 검토 완료 {documentReviewWait.durationDisclosureThreshold}건 미만이면 완료 소요 구간을 표시하지 않습니다.</p>}
+              {documentReviewWait.legacyUnmeasurable || documentReviewWait.invalidTransitions ? <p className="mt-2 text-xs font-semibold leading-5 text-amber-800">기존 기록 측정 불가 {documentReviewWait.legacyUnmeasurable} · 시각·상태 확인 필요 {documentReviewWait.invalidTransitions}</p> : null}
+              <p className="mt-2 text-xs leading-5 text-slate-500">같은 파일의 단순 재시도는 대기 시작을 유지합니다. 보완 뒤 다시 제출하면 최신 검토 주기로 새로 측정하며 과거 주기는 합산하지 않습니다.</p>
+            </> : <p className="text-sm leading-6 text-slate-600">서류 검토 지표를 불러오지 못했습니다. 추가서류 FLOW는 계속 사용할 수 있습니다.</p>}
           </CardContent>
         </Card>
       </section>
@@ -3288,6 +3307,7 @@ export default function Home() {
   const [applicationFunnel, setApplicationFunnel] = useState<ApplicationConsultationSummary | null>(null);
   const [duplicateRequests, setDuplicateRequests] = useState<DuplicateRequestSummary | null>(null);
   const [jointAnalysisConfirmation, setJointAnalysisConfirmation] = useState<JointAnalysisConfirmationSummary | null>(null);
+  const [documentReviewWait, setDocumentReviewWait] = useState<DocumentReviewWaitSummary | null>(null);
   const [dataStatus, setDataStatus] = useState<'loading' | 'saving' | 'saved' | 'error'>('loading');
   const [saveError, setSaveError] = useState('');
   const [currentUser, setCurrentUser] = useState<PortalUser | null>(null);
@@ -3353,7 +3373,7 @@ export default function Home() {
     async function loadState() {
       try {
         const response = await fetch('/api/state', { cache: 'no-store' });
-        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; stateRevision?: string; storage?: PortalStorageTelemetry; saveConflicts?: PortalSaveConflictSummary | null; passwordLinks?: PasswordLinkSummary | null; applicationFunnel?: ApplicationConsultationSummary | null; duplicateRequests?: DuplicateRequestSummary | null; jointAnalysisConfirmation?: JointAnalysisConfirmationSummary | null; error?: string; authenticatedEmail?: string };
+        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; stateRevision?: string; storage?: PortalStorageTelemetry; saveConflicts?: PortalSaveConflictSummary | null; passwordLinks?: PasswordLinkSummary | null; applicationFunnel?: ApplicationConsultationSummary | null; duplicateRequests?: DuplicateRequestSummary | null; jointAnalysisConfirmation?: JointAnalysisConfirmationSummary | null; documentReviewWait?: DocumentReviewWaitSummary | null; error?: string; authenticatedEmail?: string };
         if (!response.ok) {
           if (active) {
             setAccessStatus(response.status);
@@ -3389,6 +3409,7 @@ export default function Home() {
         setApplicationFunnel(payload.applicationFunnel ?? null);
         setDuplicateRequests(payload.duplicateRequests ?? null);
         setJointAnalysisConfirmation(payload.jointAnalysisConfirmation ?? null);
+        setDocumentReviewWait(payload.documentReviewWait ?? null);
         setAccessStatus(null);
         if (payload.currentUser.role === 'trainee') {
           setView('trainee');
@@ -3743,7 +3764,7 @@ export default function Home() {
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
           {saveError && <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800"><p className="font-bold">변경사항 저장 확인 필요</p><p>{saveError}</p><p className="mt-1">입력은 현재 화면에 남아 있습니다. 새로고침하지 말고 연결을 확인한 뒤 다시 저장해 주세요. 로그인 만료 시 같은 계정으로 새 탭에서 로그인한 후 돌아오세요.</p><div className="mt-3 flex flex-wrap gap-3"><SecondaryButton onClick={() => { void saveQueue.flush().catch(() => {}); }} disabled={dataStatus === 'saving' || applicationPending}>변경사항 다시 저장</SecondaryButton><a className="inline-flex min-h-11 items-center underline" href="/account" target="_blank" rel="noopener noreferrer">새 탭에서 로그인</a><a className="inline-flex min-h-11 items-center underline" href="/" target="_blank" rel="noopener noreferrer">새 탭에서 최신 운영 내용 확인</a></div></div>}
-          {view === 'admin' ? <AdminDashboard onOpenCase={openCase} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} cases={cases} documents={companyDocuments} tasks={tasks} members={members} storage={storage} saveConflicts={saveConflicts} applicationFunnel={applicationFunnel} duplicateRequests={duplicateRequests} jointAnalysisConfirmation={jointAnalysisConfirmation} /> : null}
+          {view === 'admin' ? <AdminDashboard onOpenCase={openCase} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} cases={cases} documents={companyDocuments} tasks={tasks} members={members} storage={storage} saveConflicts={saveConflicts} applicationFunnel={applicationFunnel} duplicateRequests={duplicateRequests} jointAnalysisConfirmation={jointAnalysisConfirmation} documentReviewWait={documentReviewWait} /> : null}
           {view === 'pipeline' ? <PipelineBoard cases={cases} setCases={setCases} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} onOpenCase={openCase} /> : null}
           {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee} · {item.id.slice(-8)}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <><ApplicationDetailsSummary details={selectedCase.applicationDetails} /><ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /></> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate(cases.length ? 'consultation' : 'application')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}

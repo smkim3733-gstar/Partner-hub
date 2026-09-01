@@ -7,6 +7,7 @@ export type ConsultingFlowMetricRow = {
   analysis_admin_at: unknown;
   analysis_partner_at: unknown;
   latest_stage1_report_id: unknown;
+  request_metrics_json: unknown;
 };
 
 /** One narrow FLOW scan shared by administrator summaries. */
@@ -29,7 +30,17 @@ export async function readConsultingFlowMetricRows() {
            FROM json_each(f.payload, '$.reports') r
            WHERE json_extract(r.value, '$.stage') = 1
            ORDER BY CAST(r.key AS INTEGER) DESC
-           LIMIT 1) AS latest_stage1_report_id
+           LIMIT 1) AS latest_stage1_report_id,
+          (SELECT json_group_array(json_object(
+            'status', json_extract(q.value, '$.status'),
+            'hasFile', CASE
+              WHEN json_type(q.value, '$.fileId') = 'text'
+                AND json_extract(q.value, '$.fileId') <> '' THEN 1
+              ELSE 0
+            END,
+            'receivedAt', json_extract(q.value, '$.receivedAt'),
+            'reviewedAt', json_extract(q.value, '$.reviewedAt')
+          )) FROM json_each(f.payload, '$.requests') q) AS request_metrics_json
         FROM consulting_flows f
       `)
       .all<ConsultingFlowMetricRow>()

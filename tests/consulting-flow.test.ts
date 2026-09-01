@@ -447,6 +447,59 @@ test('required docs need actual files and admin review; replacing a reviewed doc
   assert.equal(documentsDone(s), true);
   assert.equal(signingPreparationDone(s), false);
 });
+test('document receipt and review times preserve retries and reset only for a new review cycle', () => {
+  let s = apply(decided(), {
+    type: 'request_document',
+    title: '검토 시간 확인 자료',
+    recipient: '가상 담당',
+    channel: '기타',
+    required: true,
+  });
+  const requestId = s.requests[0].id;
+  const upload = file('requested_document');
+  s = applyFlowCommand(
+    s,
+    { type: 'receive_document', requestId },
+    partner,
+    { commandId: 'receipt-time-first', now: '2026-08-30T12:00:00.000Z', upload },
+  );
+  assert.equal(s.requests[0].receivedAt, '2026-08-30T12:00:00.000Z');
+
+  s = applyFlowCommand(
+    s,
+    { type: 'receive_document', requestId, fileId: upload.id },
+    partner,
+    { commandId: 'receipt-time-same-file', now: '2026-08-30T13:00:00.000Z' },
+  );
+  assert.equal(s.requests[0].receivedAt, '2026-08-30T12:00:00.000Z');
+
+  s = applyFlowCommand(
+    s,
+    { type: 'review_document', requestId, approved: false, note: '가상 보완' },
+    admin,
+    { commandId: 'receipt-time-needs-fix', now: '2026-08-30T14:00:00.000Z' },
+  );
+  assert.equal(s.requests[0].reviewedAt, '2026-08-30T14:00:00.000Z');
+  assert.equal(s.requests[0].verifiedAt, undefined);
+
+  s = applyFlowCommand(
+    s,
+    { type: 'receive_document', requestId, fileId: upload.id },
+    partner,
+    { commandId: 'receipt-time-correction', now: '2026-08-30T15:00:00.000Z' },
+  );
+  assert.equal(s.requests[0].receivedAt, '2026-08-30T15:00:00.000Z');
+  assert.equal(s.requests[0].reviewedAt, undefined);
+
+  s = applyFlowCommand(
+    s,
+    { type: 'review_document', requestId, approved: true },
+    admin,
+    { commandId: 'receipt-time-approved', now: '2026-08-30T16:00:00.000Z' },
+  );
+  assert.equal(s.requests[0].reviewedAt, '2026-08-30T16:00:00.000Z');
+  assert.equal(s.requests[0].verifiedAt, '2026-08-30T16:00:00.000Z');
+});
 test('no-additional-docs is an explicit representative decision, not an empty-list bypass', () => {
   assert.equal(documentsDone(decided(false)), true);
   assert.equal(documentsDone(decided(true)), false);

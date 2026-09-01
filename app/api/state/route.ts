@@ -52,6 +52,7 @@ import { draftCaseId } from '@/lib/application-draft';
 import { readDuplicateRequestSummary } from '@/lib/duplicate-request-metrics';
 import { readConsultingFlowMetricRows } from '@/lib/consulting-flow-metrics';
 import { readJointAnalysisConfirmationSummary } from '@/lib/joint-analysis-confirmation-metrics';
+import { readDocumentReviewWaitSummary } from '@/lib/document-review-wait-metrics';
 
 const privateJson = (data: unknown, init?: ResponseInit) =>
   Response.json(data, {
@@ -99,6 +100,7 @@ export async function GET(request: Request) {
       applicationFunnel,
       duplicateRequests,
       jointAnalysisConfirmation,
+      documentReviewWait,
     ] =
       currentUser.role === 'admin'
         ? await Promise.all([
@@ -145,8 +147,17 @@ export async function GET(request: Request) {
                 );
                 return null;
               }),
+            flowMetricRows!
+              .then((rows) => readDocumentReviewWaitSummary(rawState, rows))
+              .catch((error) => {
+                console.error(
+                  'Failed to read document-review wait summary',
+                  error instanceof Error ? error.name : 'unknown',
+                );
+                return null;
+              }),
           ])
-        : [null, null, null, null, null];
+        : [null, null, null, null, null, null];
     return privateJson({
       state: responseState,
       currentUser,
@@ -163,6 +174,7 @@ export async function GET(request: Request) {
             applicationFunnel,
             duplicateRequests,
             jointAnalysisConfirmation,
+            documentReviewWait,
           }
         : {}),
     });

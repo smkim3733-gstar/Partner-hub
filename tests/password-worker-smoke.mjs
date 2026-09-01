@@ -285,6 +285,7 @@ try {
   assert.equal(Object.hasOwn(visible, 'applicationFunnel'), false);
   assert.equal(Object.hasOwn(visible, 'duplicateRequests'), false);
   assert.equal(Object.hasOwn(visible, 'jointAnalysisConfirmation'), false);
+  assert.equal(Object.hasOwn(visible, 'documentReviewWait'), false);
   assert.deepEqual(
     visible.state.cases.map((item) => item.id),
     ['runtime-own'],
@@ -433,6 +434,7 @@ try {
     Object.hasOwn(submittedPartnerState, 'jointAnalysisConfirmation'),
     false,
   );
+  assert.equal(Object.hasOwn(submittedPartnerState, 'documentReviewWait'), false);
   const submittedOwnerState = await (
     await call('/state', undefined, ownerHeaders)
   ).json();
@@ -443,6 +445,7 @@ try {
     submittedOwnerState.jointAnalysisConfirmation.flowsWithFirstReport,
     0,
   );
+  assert.equal(submittedOwnerState.documentReviewWait.requestsCreated, 0);
   assert.equal(
     Object.hasOwn(submittedOwnerState.state, 'applicationFunnel'),
     false,
@@ -453,6 +456,10 @@ try {
   );
   assert.equal(
     Object.hasOwn(submittedOwnerState.state, 'jointAnalysisConfirmation'),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(submittedOwnerState.state, 'documentReviewWait'),
     false,
   );
   checks.push(
@@ -1410,6 +1417,30 @@ try {
     200,
     'partner analysis confirmation retry remains idempotent',
   );
+  const metricFlowRow = await db
+    .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+    .bind('runtime-own')
+    .first();
+  const metricFlow = JSON.parse(metricFlowRow.payload);
+  metricFlow.requests.push({
+    id: 'synthetic-review-wait',
+    title: '가상 검토 대기',
+    required: true,
+    channel: '기타',
+    recipient: '가상 담당',
+    dueDate: '',
+    status: 'received',
+    fileId: 'synthetic-requested-document',
+    note: '',
+    createdAt: '2026-08-31T00:00:00.000Z',
+    receivedAt: '2026-08-31T00:00:00.000Z',
+  });
+  await db
+    .prepare(
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    )
+    .bind(JSON.stringify(metricFlow), 'runtime-own')
+    .run();
 
   const suspensionFile = (
     await (
@@ -1592,11 +1623,20 @@ try {
     Object.hasOwn(ownerStateAfterReset.state, 'jointAnalysisConfirmation'),
     false,
   );
+  assert.ok(ownerStateAfterReset.documentReviewWait.requestsCreated >= 1);
+  assert.ok(ownerStateAfterReset.documentReviewWait.pendingReview >= 1);
+  assert.equal(
+    Object.hasOwn(ownerStateAfterReset.state, 'documentReviewWait'),
+    false,
+  );
   checks.push(
     'native D1 exposes privacy-minimized password-link and duplicate-request totals to the administrator only',
   );
   checks.push(
     'native D1 exposes only current joint-analysis confirmation intervals to the administrator',
+  );
+  checks.push(
+    'native D1 exposes only current document review wait aggregates to the administrator',
   );
   await expect(
     await call('/state', undefined, { cookie, ...ownerHeaders }),
