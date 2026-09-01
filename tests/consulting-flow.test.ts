@@ -730,6 +730,15 @@ test('pipeline stages derive from verified events; partner-only meeting omitted 
     location: '가상 파트너 방문',
   });
   assert.equal((projectFlowState(raw, [t]) as typeof raw).schedule.length, 0);
+  const staleProjection = projectFlowState(
+    {
+      ...raw,
+      cases: [{ ...raw.cases[0], flowManaged: true, flowPhase: '위조 단계' }],
+    },
+    [],
+  ) as typeof raw & { cases: Array<Record<string, unknown>> };
+  assert.equal(staleProjection.cases[0].flowManaged, undefined);
+  assert.equal(staleProjection.cases[0].flowPhase, undefined);
 });
 test('shared schedule masks other companies; projection is repeatable without duplicate meetings', () => {
   const s = booked();

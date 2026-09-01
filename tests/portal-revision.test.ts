@@ -13,6 +13,7 @@ import type { DuplicateRequestSummary } from '../lib/duplicate-request-metrics';
 import type { JointAnalysisConfirmationSummary } from '../lib/joint-analysis-confirmation-metrics';
 import type { DocumentReviewWaitSummary } from '../lib/document-review-wait-metrics';
 import type { SupportRequestSummary } from '../lib/support-request-metrics';
+import type { PipelineDropoffSummary } from '../lib/pipeline-dropoff-metrics';
 import {
   failNextDatabaseBatch,
   failNextDatabaseStatement,
@@ -87,6 +88,7 @@ async function snapshot() {
     jointAnalysisConfirmation: JointAnalysisConfirmationSummary | null;
     documentReviewWait: DocumentReviewWaitSummary | null;
     supportRequests: SupportRequestSummary | null;
+    pipelineDropoff: PipelineDropoffSummary | null;
   };
 }
 
@@ -120,12 +122,14 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
   assert.equal(Object.hasOwn(owner.state, 'jointAnalysisConfirmation'), false);
   assert.equal(Object.hasOwn(owner.state, 'documentReviewWait'), false);
   assert.equal(Object.hasOwn(owner.state, 'supportRequests'), false);
+  assert.equal(Object.hasOwn(owner.state, 'pipelineDropoff'), false);
   assert.equal(owner.passwordLinks?.windowDays, 7);
   assert.equal(owner.applicationFunnel?.trackedApplications, 0);
   assert.equal(owner.duplicateRequests?.windowDays, 7);
   assert.equal(owner.jointAnalysisConfirmation?.flowsWithFirstReport, 0);
   assert.equal(owner.documentReviewWait?.requestsCreated, 0);
   assert.equal(owner.supportRequests?.trackedRequests, 0);
+  assert.equal(owner.pipelineDropoff?.trackedCases, 0);
 
   const partnerResponse = await GET(
     new Request('http://localhost/api/state', {
@@ -149,6 +153,7 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
   assert.equal(Object.hasOwn(partner, 'jointAnalysisConfirmation'), false);
   assert.equal(Object.hasOwn(partner, 'documentReviewWait'), false);
   assert.equal(Object.hasOwn(partner, 'supportRequests'), false);
+  assert.equal(Object.hasOwn(partner, 'pipelineDropoff'), false);
   assert.equal(
     Object.hasOwn(partner.state as Record<string, unknown>, 'storage'),
     false,
@@ -176,6 +181,10 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
   );
   assert.equal(
     Object.hasOwn(partner.state as Record<string, unknown>, 'supportRequests'),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(partner.state as Record<string, unknown>, 'pipelineDropoff'),
     false,
   );
   assert.equal(

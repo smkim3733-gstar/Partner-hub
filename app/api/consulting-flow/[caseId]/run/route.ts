@@ -1,6 +1,7 @@
 import { publicFlow } from '@/lib/consulting-flow-access';
 import { runNextFlowJob } from '@/lib/consulting-flow-ai';
 import {
+  assertFlowLifecycleActive,
   assertSameOrigin,
   flowErrorResponse,
   loadFlowAccess,
@@ -13,15 +14,21 @@ export async function POST(
 ) {
   try {
     assertSameOrigin(request);
-    const { flow, user } = await loadFlowAccess(
+    const { flow, user, state } = await loadFlowAccess(
       request,
       (await context.params).caseId,
     );
+    assertFlowLifecycleActive(state, flow.caseId);
     const next = await runNextFlowJob(
       flow,
-      async () => (await recheckFlowAccess(request, flow, user)).statePayload,
+      async () => {
+        const access = await recheckFlowAccess(request, flow, user);
+        assertFlowLifecycleActive(access.state, flow.caseId);
+        return access.statePayload;
+      },
     );
-    await recheckFlowAccess(request, next, user);
+    const access = await recheckFlowAccess(request, next, user);
+    assertFlowLifecycleActive(access.state, flow.caseId);
     // A partner can run only a previously queued job governed by the representative's policy.
     return Response.json(
       { flow: publicFlow(next) },

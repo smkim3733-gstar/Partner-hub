@@ -6,7 +6,7 @@ import { GET as download } from '../app/api/consulting-flow/[caseId]/files/[file
 import { GET as print } from '../app/api/consulting-flow/[caseId]/reports/[reportId]/route';
 import { POST as run } from '../app/api/consulting-flow/[caseId]/run/route';
 import { GET as stateGet, PUT as statePut } from './state-request';
-import { writePortalState } from '../lib/portal-state';
+import { readPortalState, writePortalState } from '../lib/portal-state';
 import { commitFlow, readFlow } from '../lib/consulting-flow-store';
 import {
   applyFlowCommand,
@@ -523,5 +523,46 @@ void nodeTest(
       globalThis.fetch = originalFetch;
       delete runtime.ANTHROPIC_API_KEY;
     }
+    const closedState = (await readPortalState()) as Omit<typeof source, 'cases'> & {
+      cases: Array<Record<string, unknown>>;
+    };
+    closedState.cases[0] = {
+      ...closedState.cases[0],
+      pipelineLifecycleVersion: 1,
+      pipelineLifecycleStatus: 'discontinued',
+      pipelineHighestStage: '상담진행',
+      pipelineStageSource: 'flow_verified',
+      pipelineDiscontinuedAt: '2026-09-01T00:00:00.000Z',
+      pipelineDiscontinuedStage: '상담진행',
+      pipelineReopenCount: 0,
+    };
+    await writePortalState(closedState);
+    assert.equal(
+      (
+        await command('api-case', flow, {
+          type: 'set_ai_policy',
+          enabled: false,
+        })
+      ).status,
+      409,
+    );
+    assert.equal(
+      (
+        await run(
+          request('/api/consulting-flow/api-case/run', {}),
+          context('api-case'),
+        )
+      ).status,
+      409,
+    );
+    assert.equal(
+      (
+        await GET(
+          request('/api/consulting-flow/api-case'),
+          context('api-case'),
+        )
+      ).status,
+      200,
+    );
   },
 );

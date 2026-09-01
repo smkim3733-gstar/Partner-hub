@@ -13,6 +13,7 @@ import {
 } from '@/lib/portal-auth';
 import { readPortalStateSnapshot } from '@/lib/portal-state';
 import { projectFlowState } from '@/lib/consulting-flow-projection';
+import { isPipelineDiscontinued } from '@/lib/pipeline-dropoff-metrics';
 
 export function flowEnvironment() {
   return env as unknown as {
@@ -126,6 +127,7 @@ export async function loadFlowAccess(request: Request, caseId: string) {
   const assignment = resolveFlowAssignment(state, caseId, user, stored);
   return {
     user,
+    state,
     statePayload: payload,
     flow:
       stored ??
@@ -136,6 +138,14 @@ export async function loadFlowAccess(request: Request, caseId: string) {
         assignment.partnerName,
       ),
   };
+}
+
+export function assertFlowLifecycleActive(state: unknown, caseId: string) {
+  if (isPipelineDiscontinued(state, caseId))
+    throw new FlowError(
+      '대표가 진행을 중단한 상태입니다. 진행판에서 다시 연 뒤 이용해 주세요.',
+      409,
+    );
 }
 export async function recheckFlowAccess(
   request: Request,

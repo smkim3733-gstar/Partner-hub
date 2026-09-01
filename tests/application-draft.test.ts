@@ -288,6 +288,10 @@ void test('final submission requires this account draft and its current revision
     String(savedCase.submittedAt),
     /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
   );
+  assert.equal(savedCase.pipelineLifecycleVersion, 1);
+  assert.equal(savedCase.pipelineLifecycleStatus, 'active');
+  assert.equal(savedCase.pipelineHighestStage, '접수');
+  assert.equal(savedCase.pipelineStageSource, 'manual_reported');
 
   const originalRevision = await portalRevision(state);
   const lostResponseRetry = await rawSaveState(

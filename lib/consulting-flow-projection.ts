@@ -44,7 +44,14 @@ export function projectFlowState(
     ...state,
     cases: state.cases.map((item) => {
       const flow = byId.get(String(item.id));
-      if (!flow) return item;
+      if (!flow) {
+        const {
+          flowManaged: _flowManaged,
+          flowPhase: _flowPhase,
+          ...unmanaged
+        } = item;
+        return unmanaged;
+      }
       return {
         ...item,
         company: flow.company,

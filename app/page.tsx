@@ -54,6 +54,7 @@ import {
   Share2,
   ShieldCheck,
   Trash2,
+  TrendingUp,
   Upload,
   UserCog,
   UserPlus,
@@ -97,6 +98,7 @@ import {
   type SupportCategory,
   type SupportRequestSummary,
 } from '@/lib/support-request-metrics';
+import type { PipelineDropoffSummary } from '@/lib/pipeline-dropoff-metrics';
 
 type View =
   | 'admin'
@@ -222,6 +224,13 @@ type CollaborationCase = {
   partnerMemberId?: string;
   flowManaged?: boolean;
   flowPhase?: string;
+  pipelineLifecycleVersion?: 1;
+  pipelineLifecycleStatus?: 'active' | 'discontinued';
+  pipelineHighestStage?: PipelineStage;
+  pipelineStageSource?: 'flow_verified' | 'manual_reported';
+  pipelineDiscontinuedAt?: string;
+  pipelineDiscontinuedStage?: PipelineStage;
+  pipelineReopenCount?: number;
   stage: PipelineStage;
   consultationCount: number;
   nextAction: string;
@@ -1243,6 +1252,7 @@ function AdminDashboard({
   jointAnalysisConfirmation,
   documentReviewWait,
   supportRequests,
+  pipelineDropoff,
 }: {
   onOpenCase: (item: CollaborationCase) => void;
   onOpenSchedule: () => void;
@@ -1258,6 +1268,7 @@ function AdminDashboard({
   jointAnalysisConfirmation: JointAnalysisConfirmationSummary | null;
   documentReviewWait: DocumentReviewWaitSummary | null;
   supportRequests: SupportRequestSummary | null;
+  pipelineDropoff: PipelineDropoffSummary | null;
 }) {
   const operationalCases = operationalPilotRecords('case', cases);
   const operationalDocuments = operationalPilotRecords('document', documents);
@@ -1502,6 +1513,25 @@ function AdminDashboard({
               {supportRequests.legacyUnmeasurable || supportRequests.invalidTransitions ? <p className="mt-2 text-xs font-semibold leading-5 text-amber-800">기존 기록 측정 불가 {supportRequests.legacyUnmeasurable} · 시각·상태 확인 필요 {supportRequests.invalidTransitions}</p> : null}
               <p className="mt-2 text-xs leading-5 text-slate-500">요청자 자가종료는 대표 처리시간에서 제외합니다. 현재 상태 스냅샷이므로 삭제된 요청의 과거 이력은 포함하지 않습니다.</p>
             </> : <p className="text-sm leading-6 text-slate-600">지원 요청 지표를 불러오지 못했습니다. 업무·알림 기능은 계속 사용할 수 있습니다.</p>}
+          </CardContent>
+        </Card>
+        <Card className={`${(pipelineDropoff?.discontinuedCases ?? 0) ? 'border-amber-300 bg-amber-50/60' : 'border-teal-200 bg-teal-50/40'} shadow-none`}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-[#15375b]"><TrendingUp className="size-5 text-teal-700" aria-hidden="true" /> 진행 단계별 명시적 중단</CardTitle>
+            <CardDescription>장기 미진행을 추정하지 않고 대표가 중단 처리한 신규 진행만 집계합니다.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {pipelineDropoff ? <>
+              <p className="text-2xl font-bold text-[#15375b]">명시적 중단 {pipelineDropoff.discontinuedCases.toLocaleString('ko-KR')}건</p>
+              <p className="mt-2 text-xs leading-5 text-slate-600">추적 {pipelineDropoff.trackedCases} · 활성 {pipelineDropoff.activeCases} · 재개 경험 {pipelineDropoff.reopenedCases} · 사후관리 도달 {pipelineDropoff.reachedAftercare}</p>
+              {pipelineDropoff.observationStatus === 'no_discontinuations_observed' ? <p className="mt-2 text-xs font-semibold leading-5 text-teal-800">아직 관측된 명시적 중단이 없습니다. 과거 이탈이 없었다는 뜻은 아닙니다.</p> : null}
+              <div className="mt-3 space-y-3">
+                <div><p className="text-xs font-bold text-slate-700">FLOW 검증 단계 · {pipelineDropoff.flowVerified.cases}건</p><p className="mt-1 text-xs leading-5 text-slate-600">{pipelineDropoff.flowVerified.stages.map((item) => `${item.stage} ${item.discontinued}/${item.reached}${item.discontinuationRatePercent === null ? '' : ` (${item.discontinuationRatePercent}%)`}`).join(' · ')}</p></div>
+                <div><p className="text-xs font-bold text-slate-700">수동 입력 단계 · {pipelineDropoff.manualReported.cases}건</p><p className="mt-1 text-xs leading-5 text-slate-600">{pipelineDropoff.manualReported.stages.map((item) => `${item.stage} ${item.discontinued}/${item.reached}${item.discontinuationRatePercent === null ? '' : ` (${item.discontinuationRatePercent}%)`}`).join(' · ')}</p></div>
+              </div>
+              {pipelineDropoff.legacyUnmeasurable || pipelineDropoff.invalidStates ? <p className="mt-2 text-xs font-semibold leading-5 text-amber-800">기존 기록 측정 불가 {pipelineDropoff.legacyUnmeasurable} · 상태 확인 필요 {pipelineDropoff.invalidStates}</p> : null}
+              <p className="mt-2 text-xs leading-5 text-slate-500">각 값은 해당 단계 중단/해당 단계 이상 도달 건수입니다. 수동 입력 단계는 담당자가 선택한 운영 상태이므로 FLOW 검증 단계와 합산하지 않습니다.</p>
+            </> : <p className="text-sm leading-6 text-slate-600">진행 중단 지표를 불러오지 못했습니다. 진행판과 상담 FLOW는 계속 사용할 수 있습니다.</p>}
           </CardContent>
         </Card>
       </section>
@@ -1944,6 +1974,19 @@ function PipelineBoard({
     notify('담당 계정을 지정했습니다. 상단 DB 저장 완료 후 상담 FLOW를 열어 주세요.');
   }
 
+  function togglePipelineLifecycle(item: CollaborationCase) {
+    if (!isAdmin || item.pipelineLifecycleVersion !== 1) return;
+    const nextStatus = item.pipelineLifecycleStatus === 'discontinued'
+      ? 'active'
+      : 'discontinued';
+    setCases((current) => current.map((record) => record.id === item.id
+      ? { ...record, pipelineLifecycleStatus: nextStatus }
+      : record));
+    notify(nextStatus === 'discontinued'
+      ? `${item.company} 진행을 현재 단계에서 중단 처리했습니다.`
+      : `${item.company} 진행을 다시 열었습니다.`);
+  }
+
   return (
     <>
       <PageIntro
@@ -1983,12 +2026,13 @@ function PipelineBoard({
             <header className="flex min-h-16 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4"><div className="flex items-center gap-3"><span className="grid size-8 place-items-center rounded-full bg-[#15375b] text-xs font-bold text-white">{stageIndex + 1}</span><h2 className="font-bold text-slate-900">{stage}</h2></div><Pill tone={stageCases.length ? 'blue' : 'slate'}>{stageCases.length}건</Pill></header>
             <div className="min-h-32 space-y-3 p-3">
               {stageCases.length ? stageCases.map((item) => <article key={item.id} className={`rounded-xl border bg-white p-4 shadow-sm ${item.idleDays >= 7 ? 'border-red-200' : 'border-slate-200'}`}>
-                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-bold text-slate-950">{item.company}</p><p className="mt-1 text-xs leading-5 text-slate-500">{item.service}</p><p className="mt-1 text-[11px] text-slate-400" title={item.id}>진행번호 {item.id.slice(-8)}</p></div>{item.idleDays >= 7 ? <Pill tone="red">{item.idleDays}일 정체</Pill> : <Pill tone={item.urgent ? 'amber' : 'slate'}>{item.updatedAt}</Pill>}</div>
+                <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-bold text-slate-950">{item.company}</p><p className="mt-1 text-xs leading-5 text-slate-500">{item.service}</p><p className="mt-1 text-[11px] text-slate-400" title={item.id}>진행번호 {item.id.slice(-8)}</p></div><div className="flex flex-wrap justify-end gap-2">{item.pipelineLifecycleStatus === 'discontinued' ? <Pill tone="red">진행 중단</Pill> : null}{item.idleDays >= 7 ? <Pill tone="red">{item.idleDays}일 정체</Pill> : <Pill tone={item.urgent ? 'amber' : 'slate'}>{item.updatedAt}</Pill>}</div></div>
                 <div className="mt-3 rounded-lg bg-slate-50 p-3"><p className="text-[11px] font-semibold text-slate-500">다음 행동</p><p className="mt-1 text-sm font-bold leading-5 text-slate-800">{item.nextAction}</p></div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-semibold text-slate-600">담당 {assignmentDisplayName(item, item.trainee, members)}</span><div className="flex flex-wrap gap-2"><Pill tone="navy">{casePartnerType(item, members)}</Pill>{item.consultationCount ? <Pill tone="violet">상담 {item.consultationCount}회</Pill> : null}</div></div>
-                <label className="mt-4 block"><span className="mb-2 block text-xs font-semibold text-slate-600">{item.flowManaged ? `상담 FLOW 자동 반영 · ${item.flowPhase}` : '진행단계 변경'}</span><select disabled={item.flowManaged} value={item.stage} onChange={(event) => moveCase(item, event.target.value as PipelineStage)} className={inputClass}>{pipelineStages.map((option) => <option key={option}>{option}</option>)}</select></label>
+                <label className="mt-4 block"><span className="mb-2 block text-xs font-semibold text-slate-600">{item.pipelineLifecycleStatus === 'discontinued' ? '대표가 진행을 다시 열 때까지 단계 변경 중단' : item.flowManaged ? `상담 FLOW 자동 반영 · ${item.flowPhase}` : '진행단계 변경'}</span><select disabled={item.flowManaged || item.pipelineLifecycleStatus === 'discontinued'} value={item.stage} onChange={(event) => moveCase(item, event.target.value as PipelineStage)} className={inputClass}>{pipelineStages.map((option) => <option key={option}>{option}</option>)}</select></label>
                 {isAdmin && !item.flowManaged && <label className="mt-3 grid gap-2 text-xs font-semibold text-slate-600">상담 FLOW 담당 계정<select className={inputClass} value={item.partnerMemberId ?? ''} onChange={event => assignPartner(item,event.target.value)}><option value="">이름 일치 계정 자동 연결 / 직접 지정</option>{members.filter(m => m.status === '활성').map(m => <option key={m.id} value={m.id}>{m.name} · {m.email}</option>)}</select></label>}
                 <SecondaryButton className="mt-3 w-full" onClick={() => onOpenCase(item)}>컨설팅 진행 현황 <ChevronRight className="size-4" aria-hidden="true" /></SecondaryButton>
+                {isAdmin && item.pipelineLifecycleVersion === 1 ? <button type="button" onClick={() => togglePipelineLifecycle(item)} className={`mt-2 min-h-11 w-full rounded-xl border px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-4 ${item.pipelineLifecycleStatus === 'discontinued' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 focus-visible:ring-emerald-100' : 'border-red-200 bg-red-50 text-red-800 focus-visible:ring-red-100'}`}>{item.pipelineLifecycleStatus === 'discontinued' ? '진행 다시 열기' : '현재 단계에서 진행 중단'}</button> : null}
               </article>) : <div className="grid min-h-28 place-items-center rounded-xl border border-dashed border-slate-200 bg-white/60 p-4 text-center text-xs text-slate-400">현재 조건의 진행이 없습니다.</div>}
             </div>
           </section>;
@@ -3353,6 +3397,7 @@ export default function Home() {
   const [jointAnalysisConfirmation, setJointAnalysisConfirmation] = useState<JointAnalysisConfirmationSummary | null>(null);
   const [documentReviewWait, setDocumentReviewWait] = useState<DocumentReviewWaitSummary | null>(null);
   const [supportRequests, setSupportRequests] = useState<SupportRequestSummary | null>(null);
+  const [pipelineDropoff, setPipelineDropoff] = useState<PipelineDropoffSummary | null>(null);
   const [dataStatus, setDataStatus] = useState<'loading' | 'saving' | 'saved' | 'error'>('loading');
   const [saveError, setSaveError] = useState('');
   const [currentUser, setCurrentUser] = useState<PortalUser | null>(null);
@@ -3418,7 +3463,7 @@ export default function Home() {
     async function loadState() {
       try {
         const response = await fetch('/api/state', { cache: 'no-store' });
-        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; stateRevision?: string; storage?: PortalStorageTelemetry; saveConflicts?: PortalSaveConflictSummary | null; passwordLinks?: PasswordLinkSummary | null; applicationFunnel?: ApplicationConsultationSummary | null; duplicateRequests?: DuplicateRequestSummary | null; jointAnalysisConfirmation?: JointAnalysisConfirmationSummary | null; documentReviewWait?: DocumentReviewWaitSummary | null; supportRequests?: SupportRequestSummary | null; error?: string; authenticatedEmail?: string };
+        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; stateRevision?: string; storage?: PortalStorageTelemetry; saveConflicts?: PortalSaveConflictSummary | null; passwordLinks?: PasswordLinkSummary | null; applicationFunnel?: ApplicationConsultationSummary | null; duplicateRequests?: DuplicateRequestSummary | null; jointAnalysisConfirmation?: JointAnalysisConfirmationSummary | null; documentReviewWait?: DocumentReviewWaitSummary | null; supportRequests?: SupportRequestSummary | null; pipelineDropoff?: PipelineDropoffSummary | null; error?: string; authenticatedEmail?: string };
         if (!response.ok) {
           if (active) {
             setAccessStatus(response.status);
@@ -3456,6 +3501,7 @@ export default function Home() {
         setJointAnalysisConfirmation(payload.jointAnalysisConfirmation ?? null);
         setDocumentReviewWait(payload.documentReviewWait ?? null);
         setSupportRequests(payload.supportRequests ?? null);
+        setPipelineDropoff(payload.pipelineDropoff ?? null);
         setAccessStatus(null);
         if (payload.currentUser.role === 'trainee') {
           setView('trainee');
@@ -3810,7 +3856,7 @@ export default function Home() {
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
           {saveError && <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800"><p className="font-bold">변경사항 저장 확인 필요</p><p>{saveError}</p><p className="mt-1">입력은 현재 화면에 남아 있습니다. 새로고침하지 말고 연결을 확인한 뒤 다시 저장해 주세요. 로그인 만료 시 같은 계정으로 새 탭에서 로그인한 후 돌아오세요.</p><div className="mt-3 flex flex-wrap gap-3"><SecondaryButton onClick={() => { void saveQueue.flush().catch(() => {}); }} disabled={dataStatus === 'saving' || applicationPending}>변경사항 다시 저장</SecondaryButton><a className="inline-flex min-h-11 items-center underline" href="/account" target="_blank" rel="noopener noreferrer">새 탭에서 로그인</a><a className="inline-flex min-h-11 items-center underline" href="/" target="_blank" rel="noopener noreferrer">새 탭에서 최신 운영 내용 확인</a></div></div>}
-          {view === 'admin' ? <AdminDashboard onOpenCase={openCase} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} cases={cases} documents={companyDocuments} tasks={tasks} members={members} storage={storage} saveConflicts={saveConflicts} applicationFunnel={applicationFunnel} duplicateRequests={duplicateRequests} jointAnalysisConfirmation={jointAnalysisConfirmation} documentReviewWait={documentReviewWait} supportRequests={supportRequests} /> : null}
+          {view === 'admin' ? <AdminDashboard onOpenCase={openCase} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} cases={cases} documents={companyDocuments} tasks={tasks} members={members} storage={storage} saveConflicts={saveConflicts} applicationFunnel={applicationFunnel} duplicateRequests={duplicateRequests} jointAnalysisConfirmation={jointAnalysisConfirmation} documentReviewWait={documentReviewWait} supportRequests={supportRequests} pipelineDropoff={pipelineDropoff} /> : null}
           {view === 'pipeline' ? <PipelineBoard cases={cases} setCases={setCases} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} onOpenCase={openCase} /> : null}
           {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee} · {item.id.slice(-8)}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <><ApplicationDetailsSummary details={selectedCase.applicationDetails} /><ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /></> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate(cases.length ? 'consultation' : 'application')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}

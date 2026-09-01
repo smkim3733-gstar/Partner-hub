@@ -58,6 +58,11 @@ import {
   readSupportRequestSummary,
   SupportRequestError,
 } from '@/lib/support-request-metrics';
+import {
+  PipelineLifecycleError,
+  protectPipelineLifecycle,
+  readPipelineDropoffSummary,
+} from '@/lib/pipeline-dropoff-metrics';
 
 const privateJson = (data: unknown, init?: ResponseInit) =>
   Response.json(data, {
@@ -107,6 +112,7 @@ export async function GET(request: Request) {
       jointAnalysisConfirmation,
       documentReviewWait,
       supportRequests,
+      pipelineDropoff,
     ] =
       currentUser.role === 'admin'
         ? await Promise.all([
@@ -171,8 +177,17 @@ export async function GET(request: Request) {
                 );
                 return null;
               }),
+            Promise.resolve()
+              .then(() => readPipelineDropoffSummary(state))
+              .catch((error) => {
+                console.error(
+                  'Failed to read pipeline dropoff summary',
+                  error instanceof Error ? error.name : 'unknown',
+                );
+                return null;
+              }),
           ])
-        : [null, null, null, null, null, null, null];
+        : [null, null, null, null, null, null, null, null];
     return privateJson({
       state: responseState,
       currentUser,
@@ -191,6 +206,7 @@ export async function GET(request: Request) {
             jointAnalysisConfirmation,
             documentReviewWait,
             supportRequests,
+            pipelineDropoff,
           }
         : {}),
     });
@@ -245,6 +261,7 @@ export async function PUT(request: Request) {
     const result = await mutatePortalState(
       async (currentState) => {
         const currentUser = await requirePortalUser(request, currentState);
+        const revision = await portalRevision(currentState);
         if (
           body.expectedUserId !== undefined &&
           body.expectedUserId !== currentUser.id
@@ -253,12 +270,11 @@ export async function PUT(request: Request) {
             '로그인 계정이 변경되었습니다. 작성하던 계정으로 다시 로그인한 후 저장해 주세요.',
             403,
           );
+        const currentProjectedState = await stateWithConsultingFlows(currentState);
         const merged = preserveApplicationDetails(
           currentState,
           mergeStateForPortalUser(
-            currentUser.role === 'admin'
-              ? currentState
-              : await stateWithConsultingFlows(currentState),
+            currentProjectedState,
             body.state,
             currentUser,
           ),
@@ -273,7 +289,7 @@ export async function PUT(request: Request) {
           merged,
           draftGuard ? draftCaseId(draftGuard.draftId) : null,
         );
-        const protectedMerged = protectSupportRequestTracking(
+        const supportProtected = protectSupportRequestTracking(
           currentState,
           applicationProtected,
           currentUser.role === 'admin' ? 'admin' : 'partner',
@@ -282,7 +298,7 @@ export async function PUT(request: Request) {
           currentUser.role === 'admin' &&
           !sameMemberRecords(
             (currentState as Record<string, unknown> | null)?.members,
-            protectedMerged.members,
+            supportProtected.members,
           );
         if (
           memberChange &&
@@ -295,12 +311,16 @@ export async function PUT(request: Request) {
         }
         const membersRevision =
           membersRevisionOf(currentState) + (memberChange ? 1 : 0);
-        const next = await stateWithConsultingFlows({
-          ...protectedMerged,
+        const projectedMerged = await stateWithConsultingFlows({
+          ...supportProtected,
           membersRevision,
         });
+        const next = protectPipelineLifecycle(
+          currentProjectedState,
+          projectedMerged as Record<string, unknown>,
+          currentUser.role === 'admin' ? 'admin' : 'partner',
+        );
         await assertRecoveryProofUnchanged(currentState, next);
-        const revision = await portalRevision(currentState);
         const expected = request.headers.get('if-match')?.replace(/^"|"$/g, '');
         if (expected !== revision) {
           // An uncertain response may be retried only when it makes no changes.
@@ -370,6 +390,8 @@ export async function PUT(request: Request) {
     if (error instanceof ApplicationDetailsError)
       return privateJson({ error: error.message }, { status: 400 });
     if (error instanceof SupportRequestError)
+      return privateJson({ error: error.message }, { status: 400 });
+    if (error instanceof PipelineLifecycleError)
       return privateJson({ error: error.message }, { status: 400 });
     if (error instanceof FlowError)
       return privateJson({ error: error.message }, { status: error.status });

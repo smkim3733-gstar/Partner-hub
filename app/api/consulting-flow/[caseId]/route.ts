@@ -10,6 +10,7 @@ import {
 } from '@/lib/flow-command-receipt';
 import { scheduleDuplicateRequestMetric } from '@/lib/duplicate-request-metrics';
 import {
+  assertFlowLifecycleActive,
   assertSameOrigin,
   commitFlow,
   flowBucket,
@@ -49,14 +50,16 @@ export async function POST(request: Request, context: Context) {
       request,
       (await context.params).caseId,
     );
+    assertFlowLifecycleActive(initial.state, initial.flow.caseId);
     const input = await parseFlowRequest(request);
     const receipt = await flowCommandReceipt(initial.user, input);
-    const { flow, user } = await recheckFlowAccess(
+    const { flow, user, state } = await recheckFlowAccess(
       request,
       initial.flow,
       initial.user,
       Boolean(input.file || input.audio),
     );
+    assertFlowLifecycleActive(state, flow.caseId);
     try {
       if (isFlowCommandRetry(flow, input.commandId, receipt)) {
         scheduleDuplicateRequestMetric({
@@ -169,6 +172,7 @@ export async function POST(request: Request, context: Context) {
       user,
       Boolean(input.file || input.audio),
     );
+    assertFlowLifecycleActive(access.state, flow.caseId);
     await commitFlow(flow, next, access.statePayload);
     uploadedKeys = [];
     return Response.json(

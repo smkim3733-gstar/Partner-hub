@@ -423,6 +423,10 @@ try {
     submittedCase.submittedAt,
     /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
   );
+  assert.equal(submittedCase.pipelineLifecycleVersion, 1);
+  assert.equal(submittedCase.pipelineLifecycleStatus, 'active');
+  assert.equal(submittedCase.pipelineHighestStage, '접수');
+  assert.equal(submittedCase.pipelineStageSource, 'manual_reported');
   assert.equal(
     Object.hasOwn(submittedPartnerState, 'applicationFunnel'),
     false,
@@ -437,6 +441,7 @@ try {
   );
   assert.equal(Object.hasOwn(submittedPartnerState, 'documentReviewWait'), false);
   assert.equal(Object.hasOwn(submittedPartnerState, 'supportRequests'), false);
+  assert.equal(Object.hasOwn(submittedPartnerState, 'pipelineDropoff'), false);
   const submittedOwnerState = await (
     await call('/state', undefined, ownerHeaders)
   ).json();
@@ -449,6 +454,8 @@ try {
   );
   assert.equal(submittedOwnerState.documentReviewWait.requestsCreated, 0);
   assert.equal(submittedOwnerState.supportRequests.trackedRequests, 0);
+  assert.equal(submittedOwnerState.pipelineDropoff.trackedCases, 1);
+  assert.equal(submittedOwnerState.pipelineDropoff.manualReported.cases, 1);
   assert.equal(
     Object.hasOwn(submittedOwnerState.state, 'applicationFunnel'),
     false,
@@ -466,6 +473,17 @@ try {
     false,
   );
   assert.equal(Object.hasOwn(submittedOwnerState.state, 'supportRequests'), false);
+  assert.equal(Object.hasOwn(submittedOwnerState.state, 'pipelineDropoff'), false);
+  submittedCase.pipelineLifecycleStatus = 'discontinued';
+  await expect(
+    await call('/save', { state: submittedPartnerState.state }, { cookie }, 'PUT'),
+    200,
+    'partner cannot create a pipeline discontinuation event',
+  );
+  const protectedPipelineCase = (
+    await (await call('/state', undefined, { cookie })).json()
+  ).state.cases.find((item) => item.id === `case-draft-${draftId}`);
+  assert.equal(protectedPipelineCase.pipelineLifecycleStatus, 'active');
   checks.push(
     'server stamps application submission time and exposes only aggregate funnel data to the administrator',
   );
@@ -1484,6 +1502,56 @@ try {
     200,
     'administrator resolves the synthetic support request',
   );
+  const trackedCaseId = `case-draft-${draftId}`;
+  const trackedFlowInitial = (
+    await (
+      await call(`/flow/${trackedCaseId}`, undefined, ownerHeaders)
+    ).json()
+  ).flow;
+  const trackedFlowCommand = {
+    revision: trackedFlowInitial.revision,
+    commandId: 'native-tracked-flow-report',
+    command: {
+      type: 'save_report',
+      stage: 1,
+      body: '명시적 진행 중단 검증을 위한 가상 보고서입니다. 실제 자료나 외부 처리를 사용하지 않습니다. '.repeat(4),
+    },
+  };
+  await expect(
+    await call(`/flow/${trackedCaseId}`, trackedFlowCommand, ownerHeaders),
+    200,
+    'tracked application enters a server-verified FLOW stage',
+  );
+  const ownerDropoffState = await (
+    await call('/state', undefined, ownerHeaders)
+  ).json();
+  const trackedDropoffCase = ownerDropoffState.state.cases.find(
+    (item) => item.id === trackedCaseId,
+  );
+  assert.equal(trackedDropoffCase.flowManaged, true);
+  assert.equal(trackedDropoffCase.stage, '기업진단');
+  trackedDropoffCase.pipelineLifecycleStatus = 'discontinued';
+  await expect(
+    await call('/save', { state: ownerDropoffState.state }, ownerHeaders, 'PUT'),
+    200,
+    'administrator explicitly discontinues the tracked FLOW case',
+  );
+  const closedDropoffState = await (
+    await call('/state', undefined, ownerHeaders)
+  ).json();
+  const closedDropoffCase = closedDropoffState.state.cases.find(
+    (item) => item.id === trackedCaseId,
+  );
+  assert.equal(closedDropoffCase.pipelineLifecycleStatus, 'discontinued');
+  assert.equal(closedDropoffCase.pipelineHighestStage, '기업진단');
+  assert.equal(closedDropoffCase.pipelineStageSource, 'flow_verified');
+  assert.equal(closedDropoffCase.pipelineDiscontinuedStage, '기업진단');
+  assert.match(closedDropoffCase.pipelineDiscontinuedAt, /^\d{4}-\d{2}-\d{2}T/);
+  await expect(
+    await call(`/flow/${trackedCaseId}`, trackedFlowCommand, ownerHeaders),
+    409,
+    'discontinued tracked FLOW rejects even an identical command retry',
+  );
   const metricFlowRow = await db
     .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
     .bind('runtime-own')
@@ -1702,6 +1770,15 @@ try {
     Object.hasOwn(ownerStateAfterReset.state, 'supportRequests'),
     false,
   );
+  assert.equal(ownerStateAfterReset.pipelineDropoff.trackedCases, 1);
+  assert.equal(ownerStateAfterReset.pipelineDropoff.discontinuedCases, 1);
+  assert.equal(ownerStateAfterReset.pipelineDropoff.flowVerified.cases, 1);
+  assert.equal(ownerStateAfterReset.pipelineDropoff.manualReported.cases, 0);
+  assert.equal(ownerStateAfterReset.pipelineDropoff.observationStatus, 'observed');
+  assert.equal(
+    Object.hasOwn(ownerStateAfterReset.state, 'pipelineDropoff'),
+    false,
+  );
   checks.push(
     'native D1 exposes privacy-minimized password-link and duplicate-request totals to the administrator only',
   );
@@ -1713,6 +1790,9 @@ try {
   );
   checks.push(
     'native state protects support request actors and exposes only administrator aggregates',
+  );
+  checks.push(
+    'native state separates server-verified pipeline discontinuation aggregates and blocks closed FLOW writes',
   );
   await expect(
     await call('/state', undefined, { cookie, ...ownerHeaders }),
