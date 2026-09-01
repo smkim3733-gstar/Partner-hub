@@ -36,6 +36,8 @@ Claude 프로젝트 웹 화면을 자동 조작하는 구조가 아니라 프로
 
 ## 로컬 실행
 
+다른 컴퓨터로 개발을 옮길 때는 [개발 인수인계 안내](docs/CONTINUE_ON_ANOTHER_COMPUTER.md)에서 현재 커밋, 검증 결과, 기존 Sites 배포 대기 상태와 제외해야 할 비밀값을 먼저 확인하세요.
+
 Windows에서 이 작업 폴더를 사용하는 경우 `partner-hub.cmd`를 실행하면 개발 서버가 시작됩니다. Node.js 경로 설정과 검증 명령은 [Windows 로컬 설정 안내](docs/LOCAL_SETUP.md)를 참고하세요.
 
 검증 환경은 Node.js 24 계열이며 프로젝트 엔진 최소값은 Node.js 22.13입니다. 기존 패키지 관리자와 lockfile을 유지합니다.
