@@ -2,6 +2,7 @@
 import { prepareConsultation, type ConsultationPayload } from '@/lib/legacy-consultation';
 import { prepareDocumentRequest } from '@/lib/legacy-document-request';
 import { diagnosisDocumentsForCase, hasOpenDiagnosisReviewTask } from '@/lib/diagnosis-preflight';
+import { companyDocumentStatusError } from '@/lib/company-document-review';
 import { googleCalendarDraftUrl, scheduleDateGroups } from '@/lib/schedule-display';
 import { PartnerAuthPanel } from '@/components/partner-auth-panel';
 import { PartnerPasswordLink } from '@/components/partner-password-link';
@@ -1924,6 +1925,8 @@ function DocumentCenter({
   };
 
   function changeStatus(document: CompanyDocument, status: CompanyDocument['status']) {
+    const error = companyDocumentStatusError(document, status);
+    if (error) { notify(error); return; }
     setDocuments((current) => current.map((item) => item.id === document.id ? { ...item, status, updatedAt: '방금 전' } : item));
     notify(`${document.title} 상태를 ${status}(으)로 변경했습니다.`);
   }
@@ -2022,7 +2025,7 @@ function DocumentCenter({
                 <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><Pill tone="navy">{companyCategoryLabel(document.category)}</Pill><Pill tone={statusTone}>{document.status}</Pill>{document.sensitive ? <Pill tone="slate"><LockKeyhole className="mr-1 size-3" aria-hidden="true" />민감자료</Pill> : null}{document.storageFileId ? <Pill tone="green">보안저장 완료</Pill> : null}</div><p className="mt-3 text-xs font-semibold text-slate-500">{document.company}</p>{document.caseId && <p className="mt-1 text-[11px] text-slate-400" title={document.caseId}>연결 진행 {document.caseId.slice(-8)}</p>}<h2 className="mt-1 text-base font-bold text-slate-950">{document.title}</h2>{document.fileName ? <p className="mt-2 [overflow-wrap:anywhere] text-xs leading-5 text-slate-500">{document.fileName}{document.fileSize ? ` · ${readableFileSize(document.fileSize)}` : ''}</p> : <p className="mt-2 text-xs leading-5 text-amber-700">아직 제출된 파일이 없습니다.</p>}{document.storageFileId ? <a href={`/api/files/${document.storageFileId}`} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl border border-sky-100 bg-sky-50 px-3 text-xs font-bold text-[#075f93] hover:bg-sky-100"><LockKeyhole className="size-3.5" aria-hidden="true" /> 권한 확인 후 원본 내려받기</a> : null}</div><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-slate-50 text-[#0877b8]"><FileText className="size-5" aria-hidden="true" /></span></div>
                 <div className="mt-4 grid grid-cols-3 gap-3 rounded-xl bg-slate-50 p-3 text-xs"><div><p className="text-slate-500">담당</p><p className="mt-1 font-bold text-slate-800">{document.assignedTrainee}</p></div><div><p className="text-slate-500">버전</p><p className="mt-1 font-bold text-slate-800">{document.version}</p></div><div><p className="text-slate-500">변경</p><p className="mt-1 font-bold text-slate-800">{document.updatedAt}</p></div></div>
                 <FileRecoveryNote recovery={document.recovery} />
-                <label className="mt-4 block"><span className="mb-2 block text-xs font-semibold text-slate-600">상태 변경</span><select value={document.status} onChange={(event) => changeStatus(document, event.target.value as CompanyDocument['status'])} className={inputClass}><option>요청중</option><option>제출완료</option><option>보완필요</option><option>검토완료</option></select></label>
+                <label className="mt-4 block"><span className="mb-2 block text-xs font-semibold text-slate-600">상태 변경</span><select value={document.status} onChange={(event) => changeStatus(document, event.target.value as CompanyDocument['status'])} className={inputClass}><option>요청중</option><option disabled={!document.storageFileId}>제출완료</option><option>보완필요</option><option disabled={!document.storageFileId}>검토완료</option></select>{!document.storageFileId ? <span className="mt-2 block text-xs text-amber-700">실제 파일 등록 후 제출·검토 완료로 변경할 수 있습니다.</span> : null}</label>
               </article>;
             })}
           </div> : <div className="rounded-2xl border border-dashed border-slate-200 p-10 text-center"><FolderOpen className="mx-auto size-9 text-slate-300" aria-hidden="true" /><p className="mt-3 text-sm font-bold text-slate-700">조건에 맞는 자료가 없습니다.</p><button type="button" onClick={() => { setQuery(''); setStatusFilter('전체'); setCompanyFilter('전체 기업'); }} className="mt-3 min-h-11 rounded-xl px-4 text-sm font-semibold text-[#0877b8] hover:bg-sky-50">필터 초기화</button></div>}

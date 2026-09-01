@@ -28,6 +28,8 @@
 
 ## 이어서 진행할 점검
 
+별도 후속 요청으로 [자료 완료상태·AI 판정 근거 점검](DOCUMENT_EVIDENCE_REVIEW_2026_09_01.md)을 수행했다. 보안 저장 파일이 없는 요청 카드의 제출·검토 완료 변경을 막고, AI 사전점검도 실제 저장 파일이 있는 완료 자료만 근거로 사용한다. Node 검사 201개 통과와 반영 결과는 해당 문서 및 `outputs/release/document-evidence-deployment.json`을 기준으로 한다.
+
 별도 후속 요청으로 [AI 진단 검토업무 진행 연결 점검](DIAGNOSIS_TASK_LINK_REVIEW_2026_09_01.md)을 수행했다. 동일 기업의 반복 신청에서 대표 검토업무가 합쳐지지 않도록 진행 ID 기준 중복 확인과 업무 연결을 적용했다. Node 검사 198개 통과와 반영 결과는 해당 문서 및 `outputs/release/diagnosis-task-link-deployment.json`을 기준으로 한다.
 
 별도 후속 요청으로 [AI 진단 사전점검 자료 연결 점검](DIAGNOSIS_PREFLIGHT_REVIEW_2026_09_01.md)을 수행했다. 동일 기업의 반복 진행·다른 담당 자료가 판정 근거에 섞이지 않도록 진행 ID·담당 계정 연결을 적용하고, 초안 검토대기 등록 직전에 최신 자료로 A 판정을 다시 확인한다. Node 검사 197개 통과와 반영 결과는 해당 문서 및 `outputs/release/diagnosis-preflight-deployment.json`을 기준으로 한다.

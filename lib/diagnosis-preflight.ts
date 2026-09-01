@@ -8,6 +8,7 @@ type DiagnosisDocument = {
   caseId?: string;
   partnerMemberId?: string;
   status: string;
+  storageFileId?: string;
 };
 
 /** Select evidence by the stored case/account link; never by company name alone. */
@@ -21,6 +22,7 @@ export function diagnosisDocumentsForCase<T extends DiagnosisDocument>(
   if (!selected) return [];
   return documents.filter(document =>
     (document.status === '제출완료' || document.status === '검토완료')
+    && Boolean(document.storageFileId)
     && recordBelongsToCase(document, document.assignedTrainee, selected, cases, members),
   );
 }
