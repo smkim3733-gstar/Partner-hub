@@ -44,6 +44,11 @@ import {
   type PortalConflictActorRole,
 } from '@/lib/portal-conflict-metrics';
 import { readPasswordLinkSummary } from '@/lib/password-link-metrics';
+import {
+  protectApplicationSubmissionTimes,
+  readApplicationConsultationSummary,
+} from '@/lib/application-consultation-metrics';
+import { draftCaseId } from '@/lib/application-draft';
 
 const privateJson = (data: unknown, init?: ResponseInit) =>
   Response.json(data, {
@@ -103,6 +108,16 @@ export async function GET(request: Request) {
             return null;
           })
         : null;
+    const applicationFunnel =
+      currentUser.role === 'admin'
+        ? await readApplicationConsultationSummary(rawState).catch((error) => {
+            console.error(
+              'Failed to read application consultation summary',
+              error instanceof Error ? error.name : 'unknown',
+            );
+            return null;
+          })
+        : null;
     return privateJson({
       state: responseState,
       currentUser,
@@ -116,6 +131,7 @@ export async function GET(request: Request) {
             }),
             saveConflicts,
             passwordLinks,
+            applicationFunnel,
           }
         : {}),
     });
@@ -138,8 +154,7 @@ export async function PUT(request: Request) {
       request,
       await readPortalState(),
     );
-    conflictActorRole =
-      currentUser.role === 'admin' ? 'admin' : 'partner';
+    conflictActorRole = currentUser.role === 'admin' ? 'admin' : 'partner';
     assertSameOrigin(request);
     const bodyText = await request.text();
     if (
@@ -194,11 +209,16 @@ export async function PUT(request: Request) {
           merged,
           currentUser,
         );
+        const protectedMerged = protectApplicationSubmissionTimes(
+          currentState,
+          merged,
+          draftGuard ? draftCaseId(draftGuard.draftId) : null,
+        );
         const memberChange =
           currentUser.role === 'admin' &&
           !sameMemberRecords(
             (currentState as Record<string, unknown> | null)?.members,
-            merged.members,
+            protectedMerged.members,
           );
         if (
           memberChange &&
@@ -212,7 +232,7 @@ export async function PUT(request: Request) {
         const membersRevision =
           membersRevisionOf(currentState) + (memberChange ? 1 : 0);
         const next = await stateWithConsultingFlows({
-          ...merged,
+          ...protectedMerged,
           membersRevision,
         });
         await assertRecoveryProofUnchanged(currentState, next);

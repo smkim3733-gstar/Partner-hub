@@ -8,6 +8,8 @@ import {
 } from '../lib/portal-state';
 import { applicationDraftDatabase } from '../lib/application-draft-store';
 import { PUT as saveState } from './state-request';
+import { PUT as rawSaveState } from '../app/api/state/route';
+import { portalRevision } from '../lib/portal-revision';
 import {
   draftCaseId,
   parseApplicationDraft,
@@ -278,4 +280,46 @@ void test('final submission requires this account draft and its current revision
     }),
   );
   assert.equal(response.status, 200, await response.clone().text());
+  const firstAck = (await response.json()) as { stateRevision: string };
+  const savedState = (await readPortalState()) as typeof state;
+  const savedCase = savedState.cases[0];
+  assert.equal(savedCase.submissionTrackingVersion, 1);
+  assert.match(
+    String(savedCase.submittedAt),
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+  );
+
+  const originalRevision = await portalRevision(state);
+  const lostResponseRetry = await rawSaveState(
+    new Request('http://localhost/api/state', {
+      method: 'PUT',
+      headers: {
+        origin: 'http://localhost',
+        'content-type': 'application/json',
+        'oai-authenticated-user-id': member.email,
+        'oai-authenticated-user-email': member.email,
+        'if-match': `"${originalRevision}"`,
+      },
+      body: JSON.stringify({
+        state: {
+          ...state,
+          cases: [{ ...caseRecord, applicationDraftRevision: 2 }],
+        },
+      }),
+    }),
+  );
+  assert.equal(
+    lostResponseRetry.status,
+    200,
+    await lostResponseRetry.clone().text(),
+  );
+  assert.equal(
+    ((await lostResponseRetry.json()) as { stateRevision: string })
+      .stateRevision,
+    firstAck.stateRevision,
+  );
+  assert.equal(
+    ((await readPortalState()) as typeof state).cases[0].submittedAt,
+    savedCase.submittedAt,
+  );
 });

@@ -7,6 +7,7 @@ import { PortalSaveQueue, putPortalSnapshot } from '../lib/portal-save-queue';
 import type { PortalStorageTelemetry } from '../lib/pilot-readiness';
 import type { PortalSaveConflictSummary } from '../lib/portal-conflict-metrics';
 import type { PasswordLinkSummary } from '../lib/password-link-metrics';
+import type { ApplicationConsultationSummary } from '../lib/application-consultation-metrics';
 import {
   failNextDatabaseBatch,
   failNextDatabaseStatement,
@@ -76,6 +77,7 @@ async function snapshot() {
     storage: PortalStorageTelemetry;
     saveConflicts: PortalSaveConflictSummary | null;
     passwordLinks: PasswordLinkSummary | null;
+    applicationFunnel: ApplicationConsultationSummary | null;
   };
 }
 
@@ -104,7 +106,9 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
   assert.equal(Object.hasOwn(owner.state, 'storage'), false);
   assert.equal(Object.hasOwn(owner.state, 'saveConflicts'), false);
   assert.equal(Object.hasOwn(owner.state, 'passwordLinks'), false);
+  assert.equal(Object.hasOwn(owner.state, 'applicationFunnel'), false);
   assert.equal(owner.passwordLinks?.windowDays, 7);
+  assert.equal(owner.applicationFunnel?.trackedApplications, 0);
 
   const partnerResponse = await GET(
     new Request('http://localhost/api/state', {
@@ -114,11 +118,16 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
       },
     }),
   );
-  assert.equal(partnerResponse.status, 200, await partnerResponse.clone().text());
+  assert.equal(
+    partnerResponse.status,
+    200,
+    await partnerResponse.clone().text(),
+  );
   const partner = (await partnerResponse.json()) as Record<string, unknown>;
   assert.equal(Object.hasOwn(partner, 'storage'), false);
   assert.equal(Object.hasOwn(partner, 'saveConflicts'), false);
   assert.equal(Object.hasOwn(partner, 'passwordLinks'), false);
+  assert.equal(Object.hasOwn(partner, 'applicationFunnel'), false);
   assert.equal(
     Object.hasOwn(partner.state as Record<string, unknown>, 'storage'),
     false,
@@ -131,6 +140,13 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
     Object.hasOwn(partner.state as Record<string, unknown>, 'passwordLinks'),
     false,
   );
+  assert.equal(
+    Object.hasOwn(
+      partner.state as Record<string, unknown>,
+      'applicationFunnel',
+    ),
+    false,
+  );
 });
 
 void test('password-link summary read failure is isolated from administrator state', async () => {
@@ -140,6 +156,90 @@ void test('password-link summary read failure is isolated from administrator sta
   assert.equal(response.status, 200, await response.clone().text());
   const payload = (await response.json()) as { passwordLinks?: unknown };
   assert.equal(payload.passwordLinks, null);
+});
+
+void test('application funnel read failure is isolated from administrator state', async () => {
+  await writePortalState(seed());
+  failNextDatabaseStatement('MIN(json_extract');
+  const response = await GET(request());
+  assert.equal(response.status, 200, await response.clone().text());
+  const payload = (await response.json()) as { applicationFunnel?: unknown };
+  assert.equal(payload.applicationFunnel, null);
+});
+
+void test('admin and partner state writes cannot forge submission tracking on existing cases', async () => {
+  await writePortalState(seed());
+  const owner = await snapshot();
+  Object.assign(owner.state.cases[0], {
+    submittedAt: '2099-01-01T00:00:00.000Z',
+    submissionTrackingVersion: 1,
+  });
+  assert.equal(
+    (await PUT(request(owner.state, owner.stateRevision))).status,
+    200,
+  );
+  let stored = (await readPortalState()) as ReturnType<typeof seed>;
+  assert.equal(Object.hasOwn(stored.cases[0], 'submittedAt'), false);
+  assert.equal(
+    Object.hasOwn(stored.cases[0], 'submissionTrackingVersion'),
+    false,
+  );
+
+  const partnerMember = {
+    id: 'tracking-partner',
+    name: '가상 추적파트너',
+    email: 'tracking-partner@example.invalid',
+    status: '활성',
+    permissions: {
+      ownCases: true,
+      sharedSchedule: true,
+      collaborationApply: true,
+      fileUpload: true,
+      quoteContract: false,
+    },
+  };
+  stored.members.push(partnerMember as never);
+  stored.cases[0].partnerMemberId = partnerMember.id;
+  stored.cases[0].trainee = partnerMember.name;
+  await writePortalState(stored);
+  const partnerHeaders = {
+    origin: 'http://localhost',
+    'content-type': 'application/json',
+    'oai-authenticated-user-id': 'tracking-partner-user',
+    'oai-authenticated-user-email': partnerMember.email,
+  };
+  const partnerSnapshotResponse = await GET(
+    new Request('http://localhost/api/state', { headers: partnerHeaders }),
+  );
+  const partnerSnapshot = (await partnerSnapshotResponse.json()) as {
+    state: ReturnType<typeof seed>;
+    currentUser: { id: string };
+    stateRevision: string;
+  };
+  Object.assign(partnerSnapshot.state.cases[0], {
+    submittedAt: '2099-01-01T00:00:00.000Z',
+    submissionTrackingVersion: 1,
+  });
+  const partnerSave = await PUT(
+    new Request('http://localhost/api/state', {
+      method: 'PUT',
+      headers: {
+        ...partnerHeaders,
+        'if-match': `"${partnerSnapshot.stateRevision}"`,
+      },
+      body: JSON.stringify({
+        state: partnerSnapshot.state,
+        expectedUserId: partnerSnapshot.currentUser.id,
+      }),
+    }),
+  );
+  assert.equal(partnerSave.status, 200, await partnerSave.clone().text());
+  stored = (await readPortalState()) as ReturnType<typeof seed>;
+  assert.equal(Object.hasOwn(stored.cases[0], 'submittedAt'), false);
+  assert.equal(
+    Object.hasOwn(stored.cases[0], 'submissionTrackingVersion'),
+    false,
+  );
 });
 
 void test('revision ignores key order and login metadata but tracks business content', async () => {

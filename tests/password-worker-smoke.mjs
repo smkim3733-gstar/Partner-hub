@@ -275,6 +275,7 @@ try {
   assert.equal(visible.currentUser.authMethod, 'password');
   assert.equal(visible.currentUser.role, 'trainee');
   assert.equal(visible.currentUser.permissions.quoteContract, false);
+  assert.equal(Object.hasOwn(visible, 'applicationFunnel'), false);
   assert.deepEqual(
     visible.state.cases.map((item) => item.id),
     ['runtime-own'],
@@ -399,6 +400,33 @@ try {
     await call('/save', { state: submittedDraftState }, { cookie }, 'PUT'),
     200,
     'draft uses a stable case ID for final submission',
+  );
+  const submittedPartnerState = await (
+    await call('/state', undefined, { cookie })
+  ).json();
+  const submittedCase = submittedPartnerState.state.cases.find(
+    (item) => item.id === `case-draft-${draftId}`,
+  );
+  assert.equal(submittedCase.submissionTrackingVersion, 1);
+  assert.match(
+    submittedCase.submittedAt,
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+  );
+  assert.equal(
+    Object.hasOwn(submittedPartnerState, 'applicationFunnel'),
+    false,
+  );
+  const submittedOwnerState = await (
+    await call('/state', undefined, ownerHeaders)
+  ).json();
+  assert.equal(submittedOwnerState.applicationFunnel.trackedApplications, 1);
+  assert.equal(submittedOwnerState.applicationFunnel.flowStarted, 0);
+  assert.equal(
+    Object.hasOwn(submittedOwnerState.state, 'applicationFunnel'),
+    false,
+  );
+  checks.push(
+    'server stamps application submission time and exposes only aggregate funnel data to the administrator',
   );
   assert.equal(
     (await (await call('/draft', undefined, { cookie })).json())
