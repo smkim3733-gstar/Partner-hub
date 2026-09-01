@@ -12,7 +12,11 @@ import { PortalDialog } from '@/components/portal-dialog';
 import { DialogClose } from '@/components/ui/dialog';
 import { assignmentMemberId, assignmentDisplayName, newTaskAssignment } from '@/lib/assignment-display';
 import { prependApplicationCase, recordBelongsToCase } from '@/lib/application-case-links';
-import { PortalSaveQueue, putPortalSnapshot } from '@/lib/portal-save-queue';
+import {
+  PortalSaveError,
+  PortalSaveQueue,
+  putPortalSnapshot,
+} from '@/lib/portal-save-queue';
 import { ApplicationSubmission } from '@/lib/application-submission';
 import { uploadCompanyFile, type StoredCompanyFile } from '@/lib/company-file-upload';
 import { draftCaseId, type ApplicationDraft, type DraftEnvelope } from '@/lib/application-draft';
@@ -1255,6 +1259,46 @@ function AdminDashboard({
     }),
     {},
   ) ?? {};
+  const recoverySourceLabels = {
+    state_save: '운영 상태',
+    public_registration: '자가가입(API 응답만)',
+    admin_partner_registration: '관리자 직접등록',
+  } as const;
+  const recoveryBySource = saveConflicts?.recovery.rows.reduce<
+    Partial<Record<keyof typeof recoverySourceLabels, { issued: number; recovered: number }>>
+  >((result, row) => {
+    const current = result[row.source] ?? { issued: 0, recovered: 0 };
+    result[row.source] = {
+      issued: current.issued + row.issued,
+      recovered: current.recovered + row.recovered,
+    };
+    return result;
+  }, {}) ?? {};
+  const disclosedDurationBuckets = saveConflicts?.recovery.rows.reduce(
+    (total, row) => {
+      if (!row.durationBuckets) return total;
+      return {
+        under1Minute: total.under1Minute + row.durationBuckets.under1Minute,
+        oneTo5Minutes: total.oneTo5Minutes + row.durationBuckets.oneTo5Minutes,
+        fiveTo30Minutes:
+          total.fiveTo30Minutes + row.durationBuckets.fiveTo30Minutes,
+        thirtyMinutesTo2Hours:
+          total.thirtyMinutesTo2Hours +
+          row.durationBuckets.thirtyMinutesTo2Hours,
+        twoTo24Hours: total.twoTo24Hours + row.durationBuckets.twoTo24Hours,
+      };
+    },
+    {
+      under1Minute: 0,
+      oneTo5Minutes: 0,
+      fiveTo30Minutes: 0,
+      thirtyMinutesTo2Hours: 0,
+      twoTo24Hours: 0,
+    },
+  );
+  const disclosedDurationTotal = disclosedDurationBuckets
+    ? Object.values(disclosedDurationBuckets).reduce((sum, count) => sum + count, 0)
+    : 0;
   const metrics = [
     { label: '접수 단계', value: operationalCases.filter((item) => item.stage === '접수').length, hint: '가상 예시를 제외한 접수 진행', icon: ClipboardList },
     { label: '자료함 보완', value: operationalDocuments.filter((item) => item.status === '요청중' || item.status === '보완필요').length, hint: '가상 예시를 제외한 보완 자료', icon: FileCheck2 },
@@ -1322,7 +1366,30 @@ function AdminDashboard({
               <p className="text-2xl font-bold text-[#15375b]">{saveConflicts.total.toLocaleString('ko-KR')}건</p>
               <p className="mt-2 text-xs leading-5 text-slate-600">{Object.entries(conflictCounts).length ? Object.entries(conflictCounts).map(([kind, count]) => `${conflictKindLabels[kind as keyof typeof conflictKindLabels]} ${count}`).join(' · ') : '기록된 충돌 없음'}</p>
               <p className="mt-2 text-xs leading-5 text-slate-500">마지막 발생 {saveConflicts.lastConflictAt ? new Date(saveConflicts.lastConflictAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '없음'}</p>
-              <p className="mt-2 text-xs leading-5 text-slate-500">역할별 집계는 소규모 파일럿에서 개인 활동과 가까울 수 있습니다. 복구 성공률과 재입력 시간은 아직 측정하지 않습니다.</p>
+              {Object.entries(recoveryBySource).length ? (
+                <ul className="mt-3 space-y-1 text-xs leading-5 text-slate-700">
+                  {Object.entries(recoveryBySource).map(([source, value]) => (
+                    <li key={source}>
+                      {recoverySourceLabels[source as keyof typeof recoverySourceLabels]} 관측 회수{' '}
+                      {value.recovered}/{value.issued}건 ·{' '}
+                      {value.issued
+                        ? Math.round((value.recovered / value.issued) * 1000) / 10
+                        : 0}
+                      %
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-xs leading-5 text-slate-500">발급된 익명 회수 영수증이 없습니다.</p>
+              )}
+              {disclosedDurationTotal ? (
+                <p className="mt-2 text-xs leading-5 text-slate-600">
+                  충돌 응답→다음 동일 경로 저장: 1분 미만 {disclosedDurationBuckets?.under1Minute} · 1~5분 {disclosedDurationBuckets?.oneTo5Minutes} · 5~30분 {disclosedDurationBuckets?.fiveTo30Minutes} · 30분~2시간 {disclosedDurationBuckets?.thirtyMinutesTo2Hours} · 2~24시간 {disclosedDurationBuckets?.twoTo24Hours}
+                </p>
+              ) : (
+                <p className="mt-2 text-xs leading-5 text-slate-500">경로·충돌 종류·역할별 회수 {saveConflicts.recovery.disclosureThreshold}건 미만의 시간 분포는 표시하지 않습니다.</p>
+              )}
+              <p className="mt-2 text-xs leading-5 text-slate-500">회수는 충돌 응답 뒤 같은 경로의 다음 성공 요청을 뜻하며 실제 재입력 시간과 다를 수 있습니다. 개인 평가 자료로 사용하지 않습니다.</p>
             </> : <p className="text-sm leading-6 text-slate-600">충돌 지표를 불러오지 못했습니다. 운영 데이터 저장과 재시도 기능은 계속 사용할 수 있습니다.</p>}
           </CardContent>
         </Card>
@@ -3143,6 +3210,7 @@ export default function Home() {
   const [accessStatus, setAccessStatus] = useState<number | null>(null);
   const saveIdentityRef = useRef('');
   const saveStateRevisionRef = useRef('');
+  const saveRecoveryReceiptRef = useRef('');
   const [applicationPending, setApplicationPending] = useState(false);
   const fileRecoveryLock = useRef(false);
   const [fileRecoveryBusy, setFileRecoveryBusy] = useState(false);
@@ -3151,11 +3219,23 @@ export default function Home() {
   const [applicationSubmission] = useState(() => new ApplicationSubmission<{ state: PortalState; caseId: string; fileCount: number; applicantType: PartnerType }>());
   const [saveQueue] = useState(() => new PortalSaveQueue<PortalState>(
     async state => {
-      const result = await putPortalSnapshot(state, saveIdentityRef.current, saveStateRevisionRef.current);
-      if (typeof result.stateRevision !== 'string') throw new Error('저장 버전을 확인하지 못했습니다. 화면을 유지하고 다시 시도해 주세요.');
-      saveStateRevisionRef.current = result.stateRevision;
-      if (result.storage) setStorage(result.storage);
-      return result;
+      try {
+        const result = await putPortalSnapshot(
+          state,
+          saveIdentityRef.current,
+          saveStateRevisionRef.current,
+          saveRecoveryReceiptRef.current || undefined,
+        );
+        if (typeof result.stateRevision !== 'string') throw new Error('저장 버전을 확인하지 못했습니다. 화면을 유지하고 다시 시도해 주세요.');
+        saveRecoveryReceiptRef.current = '';
+        saveStateRevisionRef.current = result.stateRevision;
+        if (result.storage) setStorage(result.storage);
+        return result;
+      } catch (error) {
+        if (error instanceof PortalSaveError && error.recoveryReceipt)
+          saveRecoveryReceiptRef.current = error.recoveryReceipt;
+        throw error;
+      }
     },
     (status, error) => { setDataStatus(status); setSaveError(error ?? ''); },
     revision => setMembersRevision(current => Math.max(current, revision)),

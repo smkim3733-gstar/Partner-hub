@@ -35,7 +35,11 @@ import {
   portalStorageTelemetry,
 } from '@/lib/pilot-readiness';
 import {
+  issuePortalConflictReceipt,
+  PORTAL_CONFLICT_RECEIPT_HEADER,
+  PORTAL_CONFLICT_RECEIPT_TTL_SECONDS,
   readPortalSaveConflictSummary,
+  schedulePortalConflictRecovery,
   schedulePortalSaveConflict,
   type PortalConflictActorRole,
 } from '@/lib/portal-conflict-metrics';
@@ -116,6 +120,7 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
   let conflictActorRole: PortalConflictActorRole = 'unauthenticated';
+  const presentedReceipt = request.headers.get(PORTAL_CONFLICT_RECEIPT_HEADER);
   try {
     const currentUser = await requirePortalUser(
       request,
@@ -213,6 +218,11 @@ export async function PUT(request: Request) {
       },
       () => draftGuard,
     );
+    schedulePortalConflictRecovery({
+      token: presentedReceipt,
+      source: 'state_save',
+      actorRole: conflictActorRole,
+    });
     return privateJson({
       ok: true,
       updatedAt: result.updatedAt,
@@ -232,12 +242,34 @@ export async function PUT(request: Request) {
     const accessResponse = accessErrorResponse(error, request);
     if (accessResponse) return accessResponse;
     if (error instanceof PortalStateConflict) {
-      schedulePortalSaveConflict({
+      const metric = {
         source: 'state_save',
         kind: error.kind,
         actorRole: conflictActorRole,
-      });
-      return privateJson({ error: error.message }, { status: 409 });
+      } as const;
+      schedulePortalSaveConflict(metric);
+      const recoveryReceipt = await issuePortalConflictReceipt(metric).catch(
+        (receiptError) => {
+          console.error(
+            'Failed to issue portal conflict receipt',
+            receiptError instanceof Error ? receiptError.name : 'unknown',
+          );
+          return null;
+        },
+      );
+      return privateJson(
+        {
+          error: error.message,
+          ...(recoveryReceipt
+            ? {
+                recoveryReceipt,
+                recoveryReceiptExpiresInSeconds:
+                  PORTAL_CONFLICT_RECEIPT_TTL_SECONDS,
+              }
+            : {}),
+        },
+        { status: 409 },
+      );
     }
     if (error instanceof ApplicationDetailsError)
       return privateJson({ error: error.message }, { status: 400 });

@@ -3,6 +3,8 @@ const sqlite = new DatabaseSync(':memory:');
 export const objects = new Map();
 const waitUntilTasks = [];
 let waitUntilFailure = false;
+let batchFailure = false;
+let batchFailurePattern = '';
 export function waitUntil(task) {
   if (waitUntilFailure) {
     waitUntilFailure = false;
@@ -16,6 +18,10 @@ export async function flushWaitUntil() {
 }
 export function failNextWaitUntil() {
   waitUntilFailure = true;
+}
+export function failNextDatabaseBatch(sqlPattern = '') {
+  batchFailure = true;
+  batchFailurePattern = sqlPattern;
 }
 class Statement {
   constructor(sql, values = []) {
@@ -51,6 +57,15 @@ export const env = {
       return new Statement(sql);
     },
     async batch(items) {
+      if (
+        batchFailure &&
+        (!batchFailurePattern ||
+          items.some((item) => item.sql.includes(batchFailurePattern)))
+      ) {
+        batchFailure = false;
+        batchFailurePattern = '';
+        throw new Error('synthetic database batch failure');
+      }
       sqlite.exec('BEGIN');
       try {
         const results = items.map(item => item.runSync());

@@ -25,6 +25,10 @@ import {
   type PartnerRegistrationResult,
   type RegistrationErrors,
 } from '@/lib/partner-registration';
+import {
+  portalConflictReceiptFrom,
+  portalConflictReceiptHeaders,
+} from '@/lib/portal-conflict-receipt';
 
 const emptyForm: PartnerRegistration = {
   name: '',
@@ -82,6 +86,7 @@ export function AdminPartnerRegistration({
   const errorRef = useRef<HTMLDivElement>(null);
   const sendingRef = useRef(false);
   const requestRef = useRef<{ fingerprint: string; id: string } | null>(null);
+  const recoveryReceiptRef = useRef('');
 
   useEffect(() => {
     if (error || Object.keys(errors).length) errorRef.current?.focus();
@@ -104,7 +109,12 @@ export function AdminPartnerRegistration({
     try {
       const response = await fetch('/api/admin/partners', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: {
+          'content-type': 'application/json',
+          ...portalConflictReceiptHeaders(
+            recoveryReceiptRef.current || undefined,
+          ),
+        },
         body: JSON.stringify({
           ...checked.value,
           confirmed: true,
@@ -115,8 +125,13 @@ export function AdminPartnerRegistration({
       const result = (await response.json()) as PartnerRegistrationResult & {
         error?: string;
         errors?: RegistrationErrors;
+        recoveryReceipt?: string;
       };
       if (!response.ok) {
+        const recoveryReceipt = portalConflictReceiptFrom(
+          result.recoveryReceipt,
+        );
+        if (recoveryReceipt) recoveryReceiptRef.current = recoveryReceipt;
         setErrors(result.errors ?? {});
         throw new Error(
           result.error ||
@@ -132,6 +147,7 @@ export function AdminPartnerRegistration({
           '등록 결과를 확인하지 못했습니다. 명단을 먼저 확인해 주세요.',
         );
       onRegistered(result);
+      recoveryReceiptRef.current = '';
       setSuccess(
         `${result.member.name}님 · ${result.member.memberType} · ${result.member.status}${result.replayed ? ' (기존 등록 확인)' : ' 등록 완료'}`,
       );

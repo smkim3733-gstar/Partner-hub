@@ -6,7 +6,11 @@ import { portalRevision } from '../lib/portal-revision';
 import { PortalSaveQueue, putPortalSnapshot } from '../lib/portal-save-queue';
 import type { PortalStorageTelemetry } from '../lib/pilot-readiness';
 import type { PortalSaveConflictSummary } from '../lib/portal-conflict-metrics';
-import { flushWaitUntil } from './runtime-mock.mjs';
+import {
+  failNextDatabaseBatch,
+  failNextWaitUntil,
+  flushWaitUntil,
+} from './runtime-mock.mjs';
 
 const seed = () => ({
   version: 1,
@@ -27,7 +31,27 @@ const seed = () => ({
   members: [],
   schedule: [],
 });
-function request(state?: unknown, revision?: string) {
+
+void test('a receipt persistence failure preserves the existing 409 without a dud token', async () => {
+  await writePortalState(seed());
+  const stale = await snapshot();
+  const current = structuredClone(stale.state);
+  current.tasks[0].status = '완료';
+  assert.equal((await PUT(request(current, stale.stateRevision))).status, 200);
+  stale.state.cases[0].stage = '상담진행';
+  failNextDatabaseBatch('portal_conflict_receipts');
+  const conflict = await PUT(request(stale.state, stale.stateRevision));
+  assert.equal(conflict.status, 409);
+  const payload = (await conflict.json()) as Record<string, unknown>;
+  assert.equal(typeof payload.error, 'string');
+  assert.equal(Object.hasOwn(payload, 'recoveryReceipt'), false);
+  await flushWaitUntil();
+});
+function request(
+  state?: unknown,
+  revision?: string,
+  extraHeaders: Record<string, string> = {},
+) {
   return new Request('http://localhost/api/state', {
     method: state ? 'PUT' : 'GET',
     headers: {
@@ -36,6 +60,7 @@ function request(state?: unknown, revision?: string) {
       'oai-authenticated-user-id': 'revision-owner',
       'oai-authenticated-user-email': 'smkim3733@gmail.com',
       ...(revision ? { 'if-match': `"${revision}"` } : {}),
+      ...extraHeaders,
     },
     ...(state
       ? { body: JSON.stringify({ state, expectedUserId: 'revision-owner' }) }
@@ -120,7 +145,14 @@ void test('stale and versionless writers cannot replace a newer case or task; fr
   const first = await PUT(request(a.state, a.stateRevision));
   assert.equal(first.status, 200, await first.clone().text());
   b.state.cases[0].stage = '상담진행';
-  assert.equal((await PUT(request(b.state, b.stateRevision))).status, 409);
+  const conflict = await PUT(request(b.state, b.stateRevision));
+  assert.equal(conflict.status, 409);
+  const conflictPayload = (await conflict.json()) as {
+    recoveryReceipt?: string;
+    recoveryReceiptExpiresInSeconds?: number;
+  };
+  assert.match(conflictPayload.recoveryReceipt ?? '', /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(conflictPayload.recoveryReceiptExpiresInSeconds, 86_400);
   await flushWaitUntil();
   const conflictSummary = await snapshot();
   assert.ok((conflictSummary.saveConflicts?.total ?? 0) >= 1);
@@ -139,13 +171,41 @@ void test('stale and versionless writers cannot replace a newer case or task; fr
   );
   const latest = await snapshot();
   latest.state.cases[0].stage = '상담진행';
-  assert.equal(
-    (await PUT(request(latest.state, latest.stateRevision))).status,
-    200,
+  const recovered = await PUT(
+    request(latest.state, latest.stateRevision, {
+      'x-portal-conflict-receipt': conflictPayload.recoveryReceipt!,
+    }),
+  );
+  assert.equal(recovered.status, 200, await recovered.clone().text());
+  await flushWaitUntil();
+  const recoverySummary = await snapshot();
+  assert.ok(
+    recoverySummary.saveConflicts?.recovery.rows.some(
+      (row) =>
+        row.source === 'state_save' &&
+        row.actorRole === 'admin' &&
+        row.issued >= 1 &&
+        row.recovered >= 1,
+    ),
   );
   const after = (await readPortalState()) as ReturnType<typeof seed>;
   assert.equal(after.tasks[0].status, '완료');
   assert.equal(after.cases[0].stage, '상담진행');
+});
+
+void test('recovery telemetry scheduling failure cannot change a successful state response', async () => {
+  await writePortalState(seed());
+  const baseline = await snapshot();
+  const token = 'A'.repeat(43);
+  baseline.state.tasks[0].status = '완료';
+  failNextWaitUntil();
+  const saved = await PUT(
+    request(baseline.state, baseline.stateRevision, {
+      'x-portal-conflict-receipt': token,
+    }),
+  );
+  assert.equal(saved.status, 200, await saved.clone().text());
+  assert.equal(((await saved.json()) as { ok?: boolean }).ok, true);
 });
 
 void test('concurrent writers with the same baseline cannot silently overwrite one another', async () => {

@@ -3,7 +3,13 @@ import { mutatePortalState, PortalStateConflict } from '@/lib/portal-state';
 import { membersRevisionOf } from '@/lib/partner-registration';
 import { assertSameOrigin } from '@/lib/consulting-flow-store';
 import { FlowError } from '@/lib/consulting-flow';
-import { schedulePortalSaveConflict } from '@/lib/portal-conflict-metrics';
+import {
+  issuePortalConflictReceipt,
+  PORTAL_CONFLICT_RECEIPT_HEADER,
+  PORTAL_CONFLICT_RECEIPT_TTL_SECONDS,
+  schedulePortalConflictRecovery,
+  schedulePortalSaveConflict,
+} from '@/lib/portal-conflict-metrics';
 
 const MAX_REQUEST_BYTES = 12_000;
 
@@ -62,6 +68,7 @@ function registrationError(
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
+  const presentedReceipt = request.headers.get(PORTAL_CONFLICT_RECEIPT_HEADER);
   try {
     const authenticatedId = request.headers
       .get('oai-authenticated-user-id')
@@ -172,17 +179,44 @@ export async function POST(request: Request) {
       };
     });
 
+    schedulePortalConflictRecovery({
+      token: presentedReceipt,
+      source: 'public_registration',
+      actorRole: 'unauthenticated',
+    });
     return Response.json({ ok: true, status: '승인대기' });
   } catch (error) {
     if (error instanceof FlowError)
       return Response.json({ error: error.message }, { status: error.status });
     if (error instanceof PortalStateConflict) {
-      schedulePortalSaveConflict({
+      const metric = {
         source: 'public_registration',
         kind: error.kind,
         actorRole: 'unauthenticated',
-      });
-      return Response.json({ error: error.message }, { status: 409 });
+      } as const;
+      schedulePortalSaveConflict(metric);
+      const recoveryReceipt = await issuePortalConflictReceipt(metric).catch(
+        (receiptError) => {
+          console.error(
+            'Failed to issue portal conflict receipt',
+            receiptError instanceof Error ? receiptError.name : 'unknown',
+          );
+          return null;
+        },
+      );
+      return Response.json(
+        {
+          error: error.message,
+          ...(recoveryReceipt
+            ? {
+                recoveryReceipt,
+                recoveryReceiptExpiresInSeconds:
+                  PORTAL_CONFLICT_RECEIPT_TTL_SECONDS,
+              }
+            : {}),
+        },
+        { status: 409 },
+      );
     }
     console.error('Failed to submit partner registration', error);
     return Response.json(

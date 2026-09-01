@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { PortalSaveQueue, putPortalSnapshot } from '../lib/portal-save-queue';
+import {
+  PortalSaveError,
+  PortalSaveQueue,
+  putPortalSnapshot,
+} from '../lib/portal-save-queue';
 import { ApplicationSubmission } from '../lib/application-submission';
 import { GET, PUT } from './state-request';
 import { readPortalState, writePortalState } from '../lib/portal-state';
@@ -251,6 +255,46 @@ void test('HTTP success without an explicit save acknowledgement is not accepted
       (await putPortalSnapshot<Snapshot>({ value: 'example' }, 'bound-user'))
         .membersRevision,
       7,
+    );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('save client accepts only valid conflict receipts and carries one on retry', async () => {
+  const original = globalThis.fetch;
+  const receipt = 'R'.repeat(43);
+  let call = 0;
+  try {
+    globalThis.fetch = async (_url, init) => {
+      call++;
+      const headers = new Headers(init?.headers);
+      if (call === 1) {
+        assert.equal(headers.has('x-portal-conflict-receipt'), false);
+        return Response.json(
+          { error: 'synthetic conflict', recoveryReceipt: receipt },
+          { status: 409 },
+        );
+      }
+      assert.equal(headers.get('x-portal-conflict-receipt'), receipt);
+      return Response.json({ ok: true, membersRevision: 2 });
+    };
+    const error = await putPortalSnapshot<Snapshot>(
+      { value: 'example' },
+      'bound-user',
+    ).catch((cause) => cause);
+    assert.ok(error instanceof PortalSaveError);
+    assert.equal(error.recoveryReceipt, receipt);
+    assert.equal(
+      (
+        await putPortalSnapshot<Snapshot>(
+          { value: 'example' },
+          'bound-user',
+          undefined,
+          error.recoveryReceipt,
+        )
+      ).membersRevision,
+      2,
     );
   } finally {
     globalThis.fetch = original;

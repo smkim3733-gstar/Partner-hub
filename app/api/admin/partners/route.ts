@@ -12,7 +12,13 @@ import {
   validatePartnerRegistration,
   type PartnerAccount,
 } from '@/lib/partner-registration';
-import { schedulePortalSaveConflict } from '@/lib/portal-conflict-metrics';
+import {
+  issuePortalConflictReceipt,
+  PORTAL_CONFLICT_RECEIPT_HEADER,
+  PORTAL_CONFLICT_RECEIPT_TTL_SECONDS,
+  schedulePortalConflictRecovery,
+  schedulePortalSaveConflict,
+} from '@/lib/portal-conflict-metrics';
 
 export const dynamic = 'force-dynamic';
 const headers = { 'cache-control': 'private, no-store' };
@@ -20,6 +26,7 @@ const response = (data: unknown, status = 200) =>
   Response.json(data, { status, headers });
 
 export async function POST(request: Request) {
+  const presentedReceipt = request.headers.get(PORTAL_CONFLICT_RECEIPT_HEADER);
   try {
     const actor = await requirePortalUser(request, await readPortalState());
     if (actor.role !== 'admin')
@@ -113,6 +120,11 @@ export async function POST(request: Request) {
         membersRevision: membersRevisionOf(state) + 1,
       };
     });
+    schedulePortalConflictRecovery({
+      token: presentedReceipt,
+      source: 'admin_partner_registration',
+      actorRole: 'admin',
+    });
     return response(
       {
         member: registered!,
@@ -126,12 +138,34 @@ export async function POST(request: Request) {
     if (error instanceof PortalAccessError || error instanceof FlowError)
       return response({ error: error.message }, error.status);
     if (error instanceof PortalStateConflict) {
-      schedulePortalSaveConflict({
+      const metric = {
         source: 'admin_partner_registration',
         kind: error.kind,
         actorRole: 'admin',
-      });
-      return response({ error: error.message }, 409);
+      } as const;
+      schedulePortalSaveConflict(metric);
+      const recoveryReceipt = await issuePortalConflictReceipt(metric).catch(
+        (receiptError) => {
+          console.error(
+            'Failed to issue portal conflict receipt',
+            receiptError instanceof Error ? receiptError.name : 'unknown',
+          );
+          return null;
+        },
+      );
+      return response(
+        {
+          error: error.message,
+          ...(recoveryReceipt
+            ? {
+                recoveryReceipt,
+                recoveryReceiptExpiresInSeconds:
+                  PORTAL_CONFLICT_RECEIPT_TTL_SECONDS,
+              }
+            : {}),
+        },
+        409,
+      );
     }
     if (error instanceof SyntaxError)
       return response({ error: '등록 요청 형식이 올바르지 않습니다.' }, 400);

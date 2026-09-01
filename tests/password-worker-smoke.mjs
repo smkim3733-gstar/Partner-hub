@@ -450,7 +450,7 @@ try {
   );
   const staleWindow = structuredClone(staleBaseline.state);
   staleWindow.tasks.push({ id: 'stale-window-task', status: '대기' });
-  await expect(
+  const staleResponse = await expect(
     await call(
       '/save',
       { state: staleWindow },
@@ -460,6 +460,91 @@ try {
     409,
     'stale browser window cannot replace a newer portal state',
   );
+  const stalePayload = await staleResponse.json();
+  assert.match(stalePayload.recoveryReceipt, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(stalePayload.recoveryReceiptExpiresInSeconds, 86_400);
+  const receiptRecord = await db
+    .prepare(
+      `SELECT token_hash, source, kind, actor_role, started_at, expires_at
+       FROM portal_conflict_receipts WHERE source = 'state_save'
+       ORDER BY started_at DESC LIMIT 1`,
+    )
+    .first();
+  assert.match(receiptRecord.token_hash, /^[a-f0-9]{64}$/);
+  assert.notEqual(receiptRecord.token_hash, stalePayload.recoveryReceipt);
+  assert.deepEqual(Object.keys(receiptRecord).sort(), [
+    'actor_role',
+    'expires_at',
+    'kind',
+    'source',
+    'started_at',
+    'token_hash',
+  ]);
+  checks.push('native D1 stores only the anonymous conflict receipt hash');
+  const conflictRecoveryBaseline = await (
+    await call('/state', undefined, ownerHeaders)
+  ).json();
+  const receiptRecoveredState = structuredClone(conflictRecoveryBaseline.state);
+  receiptRecoveredState.tasks.push({
+    id: 'recovered-window-task',
+    status: '대기',
+  });
+  await expect(
+    await call(
+      '/save',
+      { state: receiptRecoveredState },
+      {
+        ...ownerHeaders,
+        'if-match': `"${conflictRecoveryBaseline.stateRevision}"`,
+        'x-portal-conflict-receipt': stalePayload.recoveryReceipt,
+      },
+      'PUT',
+    ),
+    200,
+    'same-route successful retry presents the conflict receipt',
+  );
+  assert.equal(
+    (
+      await db
+        .prepare(
+          `SELECT SUM(recovered_count) AS count
+           FROM portal_conflict_recovery_stats
+           WHERE source = 'state_save' AND actor_role = 'admin'`,
+        )
+        .first()
+    ).count,
+    1,
+  );
+  const receiptReplayBaseline = await (
+    await call('/state', undefined, ownerHeaders)
+  ).json();
+  await expect(
+    await call(
+      '/save',
+      { state: receiptReplayBaseline.state },
+      {
+        ...ownerHeaders,
+        'if-match': `"${receiptReplayBaseline.stateRevision}"`,
+        'x-portal-conflict-receipt': stalePayload.recoveryReceipt,
+      },
+      'PUT',
+    ),
+    200,
+    'used conflict receipt cannot disrupt a later successful save',
+  );
+  assert.equal(
+    (
+      await db
+        .prepare(
+          `SELECT SUM(recovered_count) AS count
+           FROM portal_conflict_recovery_stats
+           WHERE source = 'state_save' AND actor_role = 'admin'`,
+        )
+        .first()
+    ).count,
+    1,
+  );
+  checks.push('native D1 conflict receipt is counted exactly once');
   assert.ok(
     !(
       await db.prepare('SELECT payload FROM portal_state').first()

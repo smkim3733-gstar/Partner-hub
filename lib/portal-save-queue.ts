@@ -1,8 +1,22 @@
 import type { PortalStorageTelemetry } from '@/lib/pilot-readiness';
+import {
+  portalConflictReceiptFrom,
+  portalConflictReceiptHeaders,
+} from '@/lib/portal-conflict-receipt';
 
 export type SaveStatus = 'saving' | 'saved' | 'error';
 type State = { membersRevision?: number };
 type Acknowledgement = { membersRevision?: number };
+
+export class PortalSaveError extends Error {
+  constructor(
+    message: string,
+    readonly recoveryReceipt?: string,
+  ) {
+    super(message);
+    this.name = 'PortalSaveError';
+  }
+}
 
 /** One writer per open page. Failed snapshots stay in memory for explicit retry. */
 export class PortalSaveQueue<T extends State> {
@@ -135,12 +149,14 @@ export async function putPortalSnapshot<T extends State>(
   state: T,
   expectedUserId: string,
   stateRevision?: string,
+  recoveryReceipt?: string,
 ) {
   const response = await fetch('/api/state', {
     method: 'PUT',
     headers: {
       'content-type': 'application/json',
       ...(stateRevision ? { 'if-match': `"${stateRevision}"` } : {}),
+      ...portalConflictReceiptHeaders(recoveryReceipt),
     },
     body: JSON.stringify({ state, expectedUserId }),
   });
@@ -150,11 +166,13 @@ export async function putPortalSnapshot<T extends State>(
     membersRevision?: number;
     stateRevision?: string;
     storage?: PortalStorageTelemetry;
+    recoveryReceipt?: string;
   };
   if (!response.ok || payload.ok !== true)
-    throw new Error(
+    throw new PortalSaveError(
       payload.error ||
         '저장 완료 응답을 확인하지 못했습니다. 같은 내용을 다시 저장해 주세요.',
+      portalConflictReceiptFrom(payload.recoveryReceipt),
     );
   return payload;
 }
