@@ -306,6 +306,60 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
       201,
     );
     assert.equal(externalCalls, 4, 'a distinct deliberate retry can proceed');
+
+    globalThis.fetch = async () => {
+      externalCalls++;
+      await writePortalState(
+        state({
+          diagnosisAssessments: [{ ...assessment, transcriptConsent: false }],
+        }),
+      );
+      return modelResponse();
+    };
+    const revokedDuringRunId = 'step-zero-revoked-during-run-0001';
+    const revokedDuringRun = await POST(
+      request(revokedDuringRunId, concurrentContext),
+    );
+    assert.equal(revokedDuringRun.status, 409);
+    assert.equal(externalCalls, 5);
+    const revokedRow = await db
+      .prepare('SELECT status FROM ai_diagnosis_runs WHERE id = ?1')
+      .bind(revokedDuringRunId)
+      .first<{ status: string }>();
+    assert.equal(revokedRow?.status, '생성실패');
+    await writePortalState(state());
+    assert.equal(
+      (await POST(request(revokedDuringRunId, concurrentContext))).status,
+      409,
+    );
+    assert.equal(
+      externalCalls,
+      5,
+      'a response received after consent revocation is not saved or replayed',
+    );
+
+    globalThis.fetch = async () => {
+      externalCalls++;
+      await companyFileBucket().delete('company-source/step-zero-finance');
+      return modelResponse();
+    };
+    const removedDuringRunId = 'step-zero-file-removed-during-run-0001';
+    assert.equal(
+      (await POST(request(removedDuringRunId, concurrentContext))).status,
+      409,
+    );
+    assert.equal(externalCalls, 6);
+    assert.equal(
+      (await db
+        .prepare('SELECT status FROM ai_diagnosis_runs WHERE id = ?1')
+        .bind(removedDuringRunId)
+        .first<{ status: string }>())?.status,
+      '생성실패',
+    );
+    await companyFileBucket().put(
+      'company-source/step-zero-finance',
+      new Uint8Array([1, 2, 3, 4]),
+    );
   } finally {
     runtime.ANTHROPIC_API_KEY = oldKey;
     runtime.ANTHROPIC_MODEL = oldModel;

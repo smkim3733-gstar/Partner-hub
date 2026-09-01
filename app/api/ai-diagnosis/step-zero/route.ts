@@ -230,6 +230,28 @@ export async function POST(request: Request) {
 
       const rawText = payload.content?.filter((block) => block.type === 'text').map((block) => block.text ?? '').join('\n').trim() ?? '';
       const result = parseStepZeroResult(rawText);
+      const latestState = await readPortalState();
+      const latestUser = await requirePortalUser(request, latestState);
+      const finalPreflight = await stepZeroPreflight(
+        latestState,
+        caseId,
+        company,
+      );
+      if (
+        latestUser.role !== 'admin' ||
+        latestUser.id !== currentUser.id ||
+        !finalPreflight.eligible
+      ) {
+        await failStepZeroRequest(requestId, currentUser.id, fingerprint);
+        return Response.json(
+          {
+            error:
+              finalPreflight.reason ??
+              '생성 중 권한 또는 동의 상태가 변경되어 결과를 저장하지 않았습니다.',
+          },
+          { status: 409 },
+        );
+      }
       const run: SavedStepZeroRun = {
         id: requestId,
         caseId,
