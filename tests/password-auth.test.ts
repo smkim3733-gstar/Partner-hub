@@ -29,6 +29,15 @@ import {
 } from '../lib/partner-registration';
 import { PartnerAuthPanel } from '../components/partner-auth-panel';
 import { PartnerPasswordLink } from '../components/partner-password-link';
+import {
+  readPasswordLinkSummary,
+  recordPasswordLinkMetric,
+} from '../lib/password-link-metrics';
+import { portalPasswordSchemaSql } from '../db/schema';
+import {
+  failNextDatabaseStatement,
+  flushWaitUntil,
+} from './runtime-mock.mjs';
 
 const origin = 'https://portal.example.invalid';
 const database = (env as unknown as { DB: D1Database }).DB;
@@ -101,6 +110,7 @@ async function link(memberId = 'existing') {
   return result.path.split('#token=')[1];
 }
 beforeEach(async () => {
+  await flushWaitUntil();
   const db = await passwordDatabase();
   await db.batch(
     [
@@ -110,6 +120,8 @@ beforeEach(async () => {
       'portal_auth_limits',
     ].map((t) => db.prepare(`DELETE FROM ${t}`)),
   );
+  await readPasswordLinkSummary();
+  await database.prepare('DELETE FROM portal_password_link_stats').run();
   await writePortalState({
     version: 1,
     consultationNumber: 0,
@@ -465,6 +477,96 @@ void test('replacement link invalidates earlier link; expired/changed/suspended/
     await writePortalState(changed);
     assert.equal((await setup(request({ token, password }))).status, 400);
   }
+});
+void test('password-link operations record anonymous seven-day totals without changing link semantics', async () => {
+  const first = await link();
+  await flushWaitUntil();
+  const second = await link();
+  await flushWaitUntil();
+  assert.equal((await setup(request({ token: first, password }))).status, 400);
+
+  await database
+    .prepare('UPDATE portal_password_links SET expires_at = 0 WHERE token_hash = ?1')
+    .bind(tokenHash(second))
+    .run();
+  const expiredResponse = await setup(request({ token: second, password }));
+  assert.equal(expiredResponse.status, 400);
+  const expiredError = (await expiredResponse.json()) as { error: string };
+  const unknownError = (await setup(request({ token: 'f'.repeat(64), password }))) as Response;
+  assert.equal(unknownError.status, 400);
+  assert.equal(
+    ((await unknownError.json()) as { error: string }).error,
+    expiredError.error,
+  );
+  await flushWaitUntil();
+
+  const third = await link();
+  await flushWaitUntil();
+  await expectStatus(await setup(request({ token: third, password })), 200);
+  await flushWaitUntil();
+
+  assert.deepEqual(await readPasswordLinkSummary(), {
+    windowDays: 7,
+    issued: 3,
+    activeReplacements: 1,
+    expiredAtReissue: 1,
+    redeemed: 1,
+    observedExpiredAttempts: 1,
+  });
+  const columns = await database
+    .prepare('PRAGMA table_info(portal_password_link_stats)')
+    .all<{ name: string }>();
+  assert.deepEqual(
+    columns.results.map((column) => column.name),
+    [
+      'bucket_date',
+      'issued_count',
+      'active_replacement_count',
+      'expired_at_reissue_count',
+      'redeemed_count',
+      'observed_expired_attempt_count',
+    ],
+  );
+});
+void test('password-link summary uses Korean date boundaries and stays outside credential schema', async () => {
+  assert.equal(portalPasswordSchemaSql.join('\n').includes('portal_password_link_stats'), false);
+  await recordPasswordLinkMetric({
+    issued: 1,
+    occurredAt: '2026-08-31T14:59:59.000Z',
+  });
+  await recordPasswordLinkMetric({
+    redeemed: 1,
+    occurredAt: '2026-08-31T15:00:00.000Z',
+  });
+  assert.deepEqual(
+    await readPasswordLinkSummary(1, '2026-09-01T03:00:00.000Z'),
+    {
+      windowDays: 1,
+      issued: 0,
+      activeReplacements: 0,
+      expiredAtReissue: 0,
+      redeemed: 1,
+      observedExpiredAttempts: 0,
+    },
+  );
+});
+void test('password-link metric DDL and scheduling failures cannot change issuance', async () => {
+  failNextDatabaseStatement('SELECT expires_at, consumed_by');
+  const classificationFailure = await issue(
+    request({ memberId: 'existing', confirmed: true }, ownerHeaders),
+  );
+  assert.equal(
+    classificationFailure.status,
+    201,
+    await classificationFailure.clone().text(),
+  );
+  await flushWaitUntil();
+  failNextDatabaseStatement('portal_password_link_stats');
+  const response = await issue(
+    request({ memberId: 'existing', confirmed: true }, ownerHeaders),
+  );
+  assert.equal(response.status, 201, await response.clone().text());
+  await flushWaitUntil();
 });
 void test('concurrent redemption succeeds once and preserves the winning password', async () => {
   const token = await link();

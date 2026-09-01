@@ -63,6 +63,19 @@ CREATE TABLE IF NOT EXISTS portal_conflict_recovery_stats (
 )
 `;
 
+// Privacy-minimized operational totals. Keep identity, actor, token, IP,
+// request and exact event timestamps out of this aggregate.
+export const portalPasswordLinkStatsTableSql = `
+CREATE TABLE IF NOT EXISTS portal_password_link_stats (
+  bucket_date TEXT PRIMARY KEY NOT NULL,
+  issued_count INTEGER NOT NULL DEFAULT 0,
+  active_replacement_count INTEGER NOT NULL DEFAULT 0,
+  expired_at_reissue_count INTEGER NOT NULL DEFAULT 0,
+  redeemed_count INTEGER NOT NULL DEFAULT 0,
+  observed_expired_attempt_count INTEGER NOT NULL DEFAULT 0
+)
+`;
+
 export const companyFileObjectsTableSql = `
 CREATE TABLE IF NOT EXISTS company_file_objects (
   id TEXT PRIMARY KEY NOT NULL,

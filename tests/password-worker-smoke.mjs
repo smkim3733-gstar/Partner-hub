@@ -1461,6 +1461,11 @@ try {
     403,
     'partner cannot reset other accounts',
   );
+  const partnerStateBeforeReset = await (
+    await call('/state', undefined, { cookie })
+  ).json();
+  assert.equal(Object.hasOwn(partnerStateBeforeReset, 'passwordLinks'), false);
+  checks.push('password-link summary is absent from the partner response');
   const issued = await expect(
     await call('/issue', { memberId, confirmed: true }, ownerHeaders),
     201,
@@ -1471,6 +1476,41 @@ try {
     await call('/setup', { token, password: `${password} new` }),
     200,
     'native workerd reset with transactional D1 upsert',
+  );
+  const passwordLinkStats = await db
+    .prepare(`SELECT issued_count, active_replacement_count,
+      expired_at_reissue_count, redeemed_count, observed_expired_attempt_count
+      FROM portal_password_link_stats`)
+    .first();
+  assert.deepEqual(passwordLinkStats, {
+    issued_count: 1,
+    active_replacement_count: 0,
+    expired_at_reissue_count: 0,
+    redeemed_count: 1,
+    observed_expired_attempt_count: 0,
+  });
+  const passwordLinkColumns = (
+    await db.prepare('PRAGMA table_info(portal_password_link_stats)').all()
+  ).results.map((column) => column.name);
+  assert.deepEqual(passwordLinkColumns, [
+    'bucket_date',
+    'issued_count',
+    'active_replacement_count',
+    'expired_at_reissue_count',
+    'redeemed_count',
+    'observed_expired_attempt_count',
+  ]);
+  const ownerStateAfterReset = await (
+    await call('/state', undefined, ownerHeaders)
+  ).json();
+  assert.equal(ownerStateAfterReset.passwordLinks.issued, 1);
+  assert.equal(ownerStateAfterReset.passwordLinks.redeemed, 1);
+  assert.equal(
+    Object.hasOwn(ownerStateAfterReset.state, 'passwordLinks'),
+    false,
+  );
+  checks.push(
+    'native D1 exposes privacy-minimized password-link totals to the administrator only',
   );
   await expect(
     await call('/state', undefined, { cookie, ...ownerHeaders }),

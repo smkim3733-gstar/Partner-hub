@@ -10,6 +10,7 @@ import {
 import { normalizeLoginEmail, isValidLoginEmail } from '@/lib/member-email';
 import { passwordProblem } from '@/lib/password-policy';
 import { PORTAL_STATE_LIMIT_BYTES } from '@/lib/pilot-readiness';
+import { schedulePasswordLinkMetric } from '@/lib/password-link-metrics';
 import {
   hashPassword,
   verifyPassword,
@@ -259,13 +260,35 @@ export const createPasswordLink = passwordHandler(async (request) => {
   await limitPasswordAttempts(request, 'setup-link');
   const db = await passwordDatabase();
   const token = opaqueToken();
-  const expiresAt = Date.now() + 30 * 60_000;
+  const nowTime = Date.now();
+  const expiresAt = nowTime + 30 * 60_000;
+  const priorLink = await db
+    .prepare(
+      'SELECT expires_at, consumed_by FROM portal_password_links WHERE member_id = ?1 ORDER BY created_at DESC LIMIT 1',
+    )
+    .bind(member.id)
+    .first<{ expires_at: number; consumed_by: string | null }>()
+    .catch((error) => {
+      console.error(
+        'Failed to classify prior password link',
+        error instanceof Error ? error.name : 'unknown',
+      );
+      return null;
+    });
+  const replacesActive =
+    Boolean(priorLink) &&
+    priorLink!.consumed_by == null &&
+    Number(priorLink!.expires_at) > nowTime;
+  const replacesExpired =
+    Boolean(priorLink) &&
+    priorLink!.consumed_by == null &&
+    Number(priorLink!.expires_at) <= nowTime;
   await db.batch([
     db
       .prepare(
         'DELETE FROM portal_password_links WHERE member_id = ?1 OR expires_at <= ?2',
       )
-      .bind(member.id, Date.now()),
+      .bind(member.id, nowTime),
     db
       .prepare(
         'INSERT INTO portal_password_links (token_hash, member_id, email, expires_at, created_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)',
@@ -279,6 +302,11 @@ export const createPasswordLink = passwordHandler(async (request) => {
         new Date().toISOString(),
       ),
   ]);
+  schedulePasswordLinkMetric({
+    issued: 1,
+    activeReplacement: replacesActive ? 1 : 0,
+    expiredAtReissue: replacesExpired ? 1 : 0,
+  });
   // Fragment keeps the one-time bearer secret out of HTTP requests, access logs and Referer headers.
   return passwordResponse(
     { path: `/account/setup#token=${token}`, expiresAt },
@@ -296,17 +324,34 @@ export const setupPassword = passwordHandler(async (request) => {
     );
   const db = await passwordDatabase();
   const digest = tokenHash(body.token);
+  const nowTime = Date.now();
   const link = await db
     .prepare(
-      'SELECT member_id, email FROM portal_password_links WHERE token_hash = ?1 AND expires_at > ?2 AND consumed_by IS NULL',
+      'SELECT member_id, email, expires_at, consumed_by FROM portal_password_links WHERE token_hash = ?1',
     )
-    .bind(digest, Date.now())
-    .first<{ member_id: string; email: string }>();
+    .bind(digest)
+    .first<{
+      member_id: string;
+      email: string;
+      expires_at: number;
+      consumed_by: string | null;
+    }>();
   const state = stateWithMembers(await readPortalState());
-  if (!link || !usableMember(state, link.member_id, link.email))
+  const observedExpired =
+    Boolean(link) &&
+    link!.consumed_by == null &&
+    Number(link!.expires_at) <= nowTime;
+  if (
+    !link ||
+    Number(link.expires_at) <= nowTime ||
+    !usableMember(state, link.member_id, link.email)
+  ) {
+    if (observedExpired)
+      schedulePasswordLinkMetric({ observedExpiredAttempt: 1 });
     throw new PasswordError(
       '설정 링크가 만료되었거나 계정이 변경되었습니다. 대표님께 새 링크를 요청해 주세요.',
     );
+  }
   const encoded = hashPassword(password);
   const version = crypto.randomUUID();
   const now = new Date().toISOString();
@@ -321,7 +366,7 @@ export const setupPassword = passwordHandler(async (request) => {
           AND lower(trim(json_extract(m.value, '$.email'))) = l.email AND json_extract(m.value, '$.status') != '정지')
       ON CONFLICT(member_id) DO UPDATE SET email = excluded.email, password_hash = excluded.password_hash,
         credential_version = excluded.credential_version, updated_at = excluded.updated_at`)
-      .bind(encoded, version, now, digest, Date.now(), portalStateId),
+      .bind(encoded, version, now, digest, nowTime, portalStateId),
     db
       .prepare(`UPDATE portal_password_links SET consumed_by = ?1 WHERE token_hash = ?2 AND consumed_by IS NULL
       AND EXISTS (SELECT 1 FROM portal_password_accounts a WHERE a.member_id = portal_password_links.member_id AND a.credential_version = ?1)`)
@@ -336,6 +381,7 @@ export const setupPassword = passwordHandler(async (request) => {
     throw new PasswordError(
       '이미 사용했거나 만료된 설정 링크입니다. 대표님께 새 링크를 요청해 주세요.',
     );
+  schedulePasswordLinkMetric({ redeemed: 1 });
   return passwordResponse({
     message:
       '사이트 비밀번호가 설정되었습니다. 대표 승인 완료 계정은 이메일과 새 비밀번호로 로그인할 수 있습니다.',

@@ -43,6 +43,7 @@ import {
   schedulePortalSaveConflict,
   type PortalConflictActorRole,
 } from '@/lib/portal-conflict-metrics';
+import { readPasswordLinkSummary } from '@/lib/password-link-metrics';
 
 const privateJson = (data: unknown, init?: ResponseInit) =>
   Response.json(data, {
@@ -92,6 +93,16 @@ export async function GET(request: Request) {
             return null;
           })
         : null;
+    const passwordLinks =
+      currentUser.role === 'admin'
+        ? await readPasswordLinkSummary().catch((error) => {
+            console.error(
+              'Failed to read password-link summary',
+              error instanceof Error ? error.name : 'unknown',
+            );
+            return null;
+          })
+        : null;
     return privateJson({
       state: responseState,
       currentUser,
@@ -104,6 +115,7 @@ export async function GET(request: Request) {
               expectedUserId: currentUser.id,
             }),
             saveConflicts,
+            passwordLinks,
           }
         : {}),
     });

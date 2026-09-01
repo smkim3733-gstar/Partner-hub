@@ -6,8 +6,10 @@ import { portalRevision } from '../lib/portal-revision';
 import { PortalSaveQueue, putPortalSnapshot } from '../lib/portal-save-queue';
 import type { PortalStorageTelemetry } from '../lib/pilot-readiness';
 import type { PortalSaveConflictSummary } from '../lib/portal-conflict-metrics';
+import type { PasswordLinkSummary } from '../lib/password-link-metrics';
 import {
   failNextDatabaseBatch,
+  failNextDatabaseStatement,
   failNextWaitUntil,
   flushWaitUntil,
 } from './runtime-mock.mjs';
@@ -73,6 +75,7 @@ async function snapshot() {
     stateRevision: string;
     storage: PortalStorageTelemetry;
     saveConflicts: PortalSaveConflictSummary | null;
+    passwordLinks: PasswordLinkSummary | null;
   };
 }
 
@@ -100,6 +103,8 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
   );
   assert.equal(Object.hasOwn(owner.state, 'storage'), false);
   assert.equal(Object.hasOwn(owner.state, 'saveConflicts'), false);
+  assert.equal(Object.hasOwn(owner.state, 'passwordLinks'), false);
+  assert.equal(owner.passwordLinks?.windowDays, 7);
 
   const partnerResponse = await GET(
     new Request('http://localhost/api/state', {
@@ -113,6 +118,7 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
   const partner = (await partnerResponse.json()) as Record<string, unknown>;
   assert.equal(Object.hasOwn(partner, 'storage'), false);
   assert.equal(Object.hasOwn(partner, 'saveConflicts'), false);
+  assert.equal(Object.hasOwn(partner, 'passwordLinks'), false);
   assert.equal(
     Object.hasOwn(partner.state as Record<string, unknown>, 'storage'),
     false,
@@ -121,6 +127,19 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
     Object.hasOwn(partner.state as Record<string, unknown>, 'saveConflicts'),
     false,
   );
+  assert.equal(
+    Object.hasOwn(partner.state as Record<string, unknown>, 'passwordLinks'),
+    false,
+  );
+});
+
+void test('password-link summary read failure is isolated from administrator state', async () => {
+  await writePortalState(seed());
+  failNextDatabaseStatement('portal_password_link_stats');
+  const response = await GET(request());
+  assert.equal(response.status, 200, await response.clone().text());
+  const payload = (await response.json()) as { passwordLinks?: unknown };
+  assert.equal(payload.passwordLinks, null);
 });
 
 void test('revision ignores key order and login metadata but tracks business content', async () => {

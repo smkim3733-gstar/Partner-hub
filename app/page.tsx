@@ -86,6 +86,7 @@ import {
   type PortalStorageTelemetry,
 } from '@/lib/pilot-readiness';
 import type { PortalSaveConflictSummary } from '@/lib/portal-conflict-metrics';
+import type { PasswordLinkSummary } from '@/lib/password-link-metrics';
 
 type View =
   | 'admin'
@@ -2255,12 +2256,14 @@ function AccessManagement({
   setMembers,
   registrationDisabled,
   onRegistered,
+  passwordLinks,
 }: {
   notify: (message: string) => void;
   members: TraineeMember[];
   setMembers: React.Dispatch<React.SetStateAction<TraineeMember[]>>;
   registrationDisabled: boolean;
   onRegistered: (result: PartnerRegistrationResult) => void;
+  passwordLinks: PasswordLinkSummary | null;
 }) {
   const [registrationBusy, setRegistrationBusy] = useState(false);
   const [query, setQuery] = useState('');
@@ -2387,6 +2390,27 @@ function AccessManagement({
           );
         })}
       </section>
+
+      <Card className="mt-6 border-sky-200 bg-sky-50/40 shadow-none">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base font-bold text-[#15375b]"><LockKeyhole className="size-5 text-[#0877b8]" aria-hidden="true" /> 비밀번호 설정 링크 운영</CardTitle>
+          <CardDescription>최근 7일의 식별정보 없는 합계입니다. 발급·재발급과 링크 완료 상태만 확인합니다.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {passwordLinks ? <>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              {[
+                ['발급', passwordLinks.issued],
+                ['활성 링크 교체', passwordLinks.activeReplacements],
+                ['만료 후 재발급', passwordLinks.expiredAtReissue],
+                ['설정 완료', passwordLinks.redeemed],
+                ['관측된 만료 시도', passwordLinks.observedExpiredAttempts],
+              ].map(([label, value]) => <div key={String(label)} className="rounded-xl border border-white bg-white/90 p-3 shadow-sm"><p className="text-xs text-slate-500">{String(label)}</p><p className="mt-1 text-2xl font-bold tabular-nums text-[#15375b]">{Number(value).toLocaleString('ko-KR')}건</p></div>)}
+            </div>
+            <p className="mt-3 text-xs leading-5 text-slate-600">관측된 만료 시도는 서버에 만료 행이 남아 있을 때만 집계되는 하한값입니다. 사용 완료 링크의 재사용은 포함하지 않으며 개인 평가 자료로 사용하지 않습니다.</p>
+          </> : <p className="text-sm leading-6 text-slate-600">링크 지표를 불러오지 못했습니다. 링크 발급과 비밀번호 설정 기능은 계속 사용할 수 있습니다.</p>}
+        </CardContent>
+      </Card>
 
       <section aria-label="파트너 등록 승인 순서" className="mt-6 rounded-2xl border border-sky-100 bg-gradient-to-r from-[#edf7fd] to-white p-5 shadow-[0_8px_30px_rgb(15_23_42/4%)]">
         <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
@@ -3203,6 +3227,7 @@ export default function Home() {
   const [initializationBusy, setInitializationBusy] = useState(false);
   const [storage, setStorage] = useState<PortalStorageTelemetry | null>(null);
   const [saveConflicts, setSaveConflicts] = useState<PortalSaveConflictSummary | null>(null);
+  const [passwordLinks, setPasswordLinks] = useState<PasswordLinkSummary | null>(null);
   const [dataStatus, setDataStatus] = useState<'loading' | 'saving' | 'saved' | 'error'>('loading');
   const [saveError, setSaveError] = useState('');
   const [currentUser, setCurrentUser] = useState<PortalUser | null>(null);
@@ -3268,7 +3293,7 @@ export default function Home() {
     async function loadState() {
       try {
         const response = await fetch('/api/state', { cache: 'no-store' });
-        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; stateRevision?: string; storage?: PortalStorageTelemetry; saveConflicts?: PortalSaveConflictSummary | null; error?: string; authenticatedEmail?: string };
+        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; stateRevision?: string; storage?: PortalStorageTelemetry; saveConflicts?: PortalSaveConflictSummary | null; passwordLinks?: PasswordLinkSummary | null; error?: string; authenticatedEmail?: string };
         if (!response.ok) {
           if (active) {
             setAccessStatus(response.status);
@@ -3300,6 +3325,7 @@ export default function Home() {
         setCurrentUser(payload.currentUser);
         setStorage(payload.storage ?? null);
         setSaveConflicts(payload.saveConflicts ?? null);
+        setPasswordLinks(payload.passwordLinks ?? null);
         setAccessStatus(null);
         if (payload.currentUser.role === 'trainee') {
           setView('trainee');
@@ -3662,7 +3688,7 @@ export default function Home() {
           {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} currentUserId={currentUser.id} recoveryControls={{ recoveryBusy: fileRecoveryBusy, recoveryDisabled: dataStatus !== 'saved' || fileRecoveryBusy || applicationPending || applicationDirty, beginRecovery: beginFileRecovery, finishRecovery: finishFileRecovery }} notify={notify} /> : null}
           {view === 'ai-diagnosis' ? <DiagnosisPreflight assessments={diagnosisAssessments} setAssessments={setDiagnosisAssessments} cases={cases} members={members} documents={companyDocuments} onOpenFiles={() => navigate('files')} onRequestDocuments={(caseId) => { setSelectedCaseId(caseId); navigate('documents'); }} onQueueDraft={queueDiagnosisDraft} notify={notify} /> : null}
           {view === 'trainee' ? <TraineeDashboard onOpenCase={openCase} onOpenTasks={() => navigate('tasks')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} cases={previewCases} tasks={previewTasks} documents={previewDocuments} /> : null}
-          {view === 'access' && isAdmin ? <AccessManagement notify={notify} members={members} setMembers={setMembers} registrationDisabled={dataStatus !== 'saved'} onRegistered={result => { setMembers(result.members); setMembersRevision(result.membersRevision); notify(`${result.member.name} 파트너 등록을 확인했습니다.`); }} /> : null}
+          {view === 'access' && isAdmin ? <AccessManagement notify={notify} members={members} setMembers={setMembers} registrationDisabled={dataStatus !== 'saved'} passwordLinks={passwordLinks} onRegistered={result => { setMembers(result.members); setMembersRevision(result.membersRevision); notify(`${result.member.name} 파트너 등록을 확인했습니다.`); }} /> : null}
           {view === 'application' ? <ApplicationForm onSubmissionBusy={setApplicationPending} currentUserId={currentUser.id} onDraftSaved={hasFiles => setApplicationDirty(hasFiles)} awaitingSave={applicationAwaitingSave} onDirty={() => setApplicationDirty(true)} applicant={collaborationApplicant} members={members} canUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} onCancel={() => navigate('trainee')} onDone={async (files, companyName, selectedServices, applicantType, applicantName, recordingConsent, selectedMemberId, details, draftId, draftRevision) => {
             setApplicationPending(true);
             try {

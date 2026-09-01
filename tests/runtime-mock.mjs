@@ -5,6 +5,8 @@ const waitUntilTasks = [];
 let waitUntilFailure = false;
 let batchFailure = false;
 let batchFailurePattern = '';
+let statementFailure = false;
+let statementFailurePattern = '';
 export function waitUntil(task) {
   if (waitUntilFailure) {
     waitUntilFailure = false;
@@ -23,6 +25,20 @@ export function failNextDatabaseBatch(sqlPattern = '') {
   batchFailure = true;
   batchFailurePattern = sqlPattern;
 }
+export function failNextDatabaseStatement(sqlPattern = '') {
+  statementFailure = true;
+  statementFailurePattern = sqlPattern;
+}
+function failStatementIfRequested(sql) {
+  if (
+    statementFailure &&
+    (!statementFailurePattern || sql.includes(statementFailurePattern))
+  ) {
+    statementFailure = false;
+    statementFailurePattern = '';
+    throw new Error('synthetic database statement failure');
+  }
+}
 class Statement {
   constructor(sql, values = []) {
     this.sql = sql;
@@ -37,14 +53,17 @@ class Statement {
       : [];
   }
   runSync() {
+    failStatementIfRequested(this.sql);
     const result = sqlite.prepare(this.sql).run(...this.args());
     return { success: true, meta: { changes: Number(result.changes) } };
   }
   async run() { return this.runSync(); }
   async first() {
+    failStatementIfRequested(this.sql);
     return sqlite.prepare(this.sql).get(...this.args()) ?? null;
   }
   async all() {
+    failStatementIfRequested(this.sql);
     return {
       success: true,
       results: sqlite.prepare(this.sql).all(...this.args()),
