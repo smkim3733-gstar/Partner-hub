@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { diagnosisDocumentsForCase } from '../lib/diagnosis-preflight';
+import { diagnosisDocumentsForCase, hasOpenDiagnosisReviewTask } from '../lib/diagnosis-preflight';
 
 const member = { id: 'member-a', name: '가상 담당자', status: '활성' };
 const peer = { id: 'member-b', name: '가상 다른담당', status: '활성' };
@@ -31,4 +31,15 @@ void test('a unique same-account legacy document remains usable while pending fi
   ];
   assert.deepEqual(diagnosisDocumentsForCase('case-a', documents, onlyCase, [member, peer]).map(item => item.id), ['legacy']);
   assert.deepEqual(documents.map(item => item.id), ['legacy', 'pending', 'needs-fix']);
+});
+
+void test('open AI review tasks are deduplicated by exact case rather than repeated company name', () => {
+  const tasks = [
+    { caseId: 'case-a', company: '같은 가상기업', related: 'AI 진단 사전점검', status: '대기' },
+    { company: '같은 가상기업', related: 'AI 진단 사전점검', status: '대기' },
+    { caseId: 'case-b', company: '같은 가상기업', related: 'AI 진단 사전점검', status: '완료' },
+  ];
+  assert.equal(hasOpenDiagnosisReviewTask(tasks, 'case-a'), true);
+  assert.equal(hasOpenDiagnosisReviewTask(tasks, 'case-b'), false);
+  assert.equal(hasOpenDiagnosisReviewTask(tasks, 'case-peer'), false);
 });

@@ -1,7 +1,7 @@
 'use client';
 import { prepareConsultation, type ConsultationPayload } from '@/lib/legacy-consultation';
 import { prepareDocumentRequest } from '@/lib/legacy-document-request';
-import { diagnosisDocumentsForCase } from '@/lib/diagnosis-preflight';
+import { diagnosisDocumentsForCase, hasOpenDiagnosisReviewTask } from '@/lib/diagnosis-preflight';
 import { googleCalendarDraftUrl, scheduleDateGroups } from '@/lib/schedule-display';
 import { PartnerAuthPanel } from '@/components/partner-auth-panel';
 import { PartnerPasswordLink } from '@/components/partner-password-link';
@@ -3284,10 +3284,11 @@ export default function Home() {
         type: '기업진단',
         tone: 'blue',
       }]);
-    setTasks((current) => current.some((task) => task.company === assessment.company && task.related === 'AI 진단 사전점검' && task.status !== '완료')
+    setTasks((current) => hasOpenDiagnosisReviewTask(current, assessment.caseId)
       ? current
       : [{
         id: `task-ai-${Date.now()}`,
+        caseId: assessment.caseId,
         company: assessment.company,
         title: '1차 정밀진단 초안 생성 전 근거·동의 검토',
         kind: '내부업무',

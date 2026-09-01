@@ -24,3 +24,14 @@ export function diagnosisDocumentsForCase<T extends DiagnosisDocument>(
     && recordBelongsToCase(document, document.assignedTrainee, selected, cases, members),
   );
 }
+
+export function hasOpenDiagnosisReviewTask(
+  tasks: Array<{ caseId?: string; related: string; status: string }>,
+  caseId: string,
+) {
+  return tasks.some(task =>
+    task.caseId === caseId
+    && task.related === 'AI 진단 사전점검'
+    && task.status !== '완료',
+  );
+}
