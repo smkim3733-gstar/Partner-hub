@@ -30,3 +30,7 @@
 ## Duet 검수 반영
 
 Duet의 중요 의견에 따라 레거시 상담을 FLOW 완료율에서 분리하고, 모든 클라이언트 입력에서 추적 필드를 제거한 뒤 현재 임시저장 검사를 통과한 정확한 신규 진행에만 서버 시각을 부여했다. 네이티브 Windows에서는 Duet의 결정론적 샌드박스 검사를 실행할 수 없으므로 최종 차이 검토를 고위험 운영 배포의 완전 승인으로 해석하지 않는다.
+
+## 운영 반영
+
+사용자 승인 후 기능 커밋 `bef1940`을 GitHub `main`과 기존 공개 Sites 버전 66에 반영했다. 기존 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결을 유지했으며 새 사이트나 외부 연동을 추가하지 않았다. 배포 결과는 `outputs/release/application-first-consultation-deployment.json`에 기록한다.
