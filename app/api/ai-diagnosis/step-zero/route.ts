@@ -12,6 +12,8 @@ import {
 } from '@/lib/claude-flow';
 import { PortalAccessError, requirePortalUser } from '@/lib/portal-auth';
 import { readPortalState } from '@/lib/portal-state';
+import { CompanyFileError } from '@/lib/company-files';
+import { stepZeroPreflight } from '@/lib/step-zero-preflight';
 
 export const dynamic = 'force-dynamic';
 
@@ -36,7 +38,7 @@ type AnthropicMessageResponse = {
 };
 
 function accessErrorResponse(error: unknown) {
-  if (error instanceof PortalAccessError) {
+  if (error instanceof PortalAccessError || error instanceof CompanyFileError) {
     return Response.json({ error: error.message }, { status: error.status });
   }
   return null;
@@ -44,17 +46,6 @@ function accessErrorResponse(error: unknown) {
 
 function asText(value: unknown, maxLength: number) {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
-}
-
-function assessmentForCase(rawState: unknown, caseId: string, company: string) {
-  if (!rawState || typeof rawState !== 'object' || Array.isArray(rawState)) return null;
-  const assessments = (rawState as { diagnosisAssessments?: unknown }).diagnosisAssessments;
-  if (!Array.isArray(assessments)) return null;
-  return assessments.find((item) => {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
-    const record = item as Record<string, unknown>;
-    return record.caseId === caseId && record.company === company;
-  }) as Record<string, unknown> | undefined;
 }
 
 function hasPotentialRealIdentifier(value: string) {
@@ -142,14 +133,15 @@ export async function POST(request: Request) {
       return Response.json({ error: '전화번호·이메일·사업자번호·주민번호 형태의 정보는 가상 시험에 입력할 수 없습니다.' }, { status: 400 });
     }
 
-    const assessment = assessmentForCase(state, caseId, company);
-    const eligible = assessment?.level === 'A'
-      && assessment.identityStatus === '일치'
-      && assessment.privacyMasked === true
-      && assessment.personalDataConsent === true
-      && assessment.thirdPartyAiConsent === true;
-    if (!eligible) {
-      return Response.json({ error: 'A 판정과 마스킹·개인정보·제3자 AI 동의가 모두 확인된 건만 실행할 수 있습니다.' }, { status: 403 });
+    // Consent or evidence can change while this screen is open. Read it again and
+    // verify D1 metadata plus the R2 object before any external request.
+    const preflight = await stepZeroPreflight(
+      await readPortalState(),
+      caseId,
+      company,
+    );
+    if (!preflight.eligible) {
+      return Response.json({ error: preflight.reason }, { status: 403 });
     }
 
     const runtime = env as unknown as AiRuntimeEnvironment;
