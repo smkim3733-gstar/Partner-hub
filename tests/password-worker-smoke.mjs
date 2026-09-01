@@ -284,6 +284,7 @@ try {
   assert.equal(visible.currentUser.permissions.quoteContract, false);
   assert.equal(Object.hasOwn(visible, 'applicationFunnel'), false);
   assert.equal(Object.hasOwn(visible, 'duplicateRequests'), false);
+  assert.equal(Object.hasOwn(visible, 'jointAnalysisConfirmation'), false);
   assert.deepEqual(
     visible.state.cases.map((item) => item.id),
     ['runtime-own'],
@@ -428,6 +429,10 @@ try {
     Object.hasOwn(submittedPartnerState, 'duplicateRequests'),
     false,
   );
+  assert.equal(
+    Object.hasOwn(submittedPartnerState, 'jointAnalysisConfirmation'),
+    false,
+  );
   const submittedOwnerState = await (
     await call('/state', undefined, ownerHeaders)
   ).json();
@@ -435,11 +440,19 @@ try {
   assert.equal(submittedOwnerState.applicationFunnel.flowStarted, 0);
   assert.equal(submittedOwnerState.duplicateRequests.windowDays, 7);
   assert.equal(
+    submittedOwnerState.jointAnalysisConfirmation.flowsWithFirstReport,
+    0,
+  );
+  assert.equal(
     Object.hasOwn(submittedOwnerState.state, 'applicationFunnel'),
     false,
   );
   assert.equal(
     Object.hasOwn(submittedOwnerState.state, 'duplicateRequests'),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(submittedOwnerState.state, 'jointAnalysisConfirmation'),
     false,
   );
   checks.push(
@@ -1572,8 +1585,18 @@ try {
     Object.hasOwn(ownerStateAfterReset.state, 'duplicateRequests'),
     false,
   );
+  assert.ok(
+    ownerStateAfterReset.jointAnalysisConfirmation.partnerFirstPending >= 1,
+  );
+  assert.equal(
+    Object.hasOwn(ownerStateAfterReset.state, 'jointAnalysisConfirmation'),
+    false,
+  );
   checks.push(
     'native D1 exposes privacy-minimized password-link and duplicate-request totals to the administrator only',
+  );
+  checks.push(
+    'native D1 exposes only current joint-analysis confirmation intervals to the administrator',
   );
   await expect(
     await call('/state', undefined, { cookie, ...ownerHeaders }),

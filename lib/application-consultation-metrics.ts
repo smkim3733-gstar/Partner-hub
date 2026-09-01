@@ -1,15 +1,13 @@
-import { flowDatabase } from '@/lib/consulting-flow-store';
+import {
+  readConsultingFlowMetricRows,
+  type ConsultingFlowMetricRow,
+} from '@/lib/consulting-flow-metrics';
 import { operationalPilotRecords } from '@/lib/pilot-readiness';
 
 const SUBMISSION_TRACKING_VERSION = 1;
 const DURATION_DISCLOSURE_THRESHOLD = 5;
 
 type CaseRecord = Record<string, unknown> & { id?: unknown };
-type FlowMetricRow = {
-  case_id: string;
-  first_completed_at: string | null;
-};
-
 export type ApplicationConsultationSummary = {
   trackedApplications: number;
   flowStarted: number;
@@ -114,24 +112,13 @@ function durationBucket(elapsedMs: number) {
 
 export async function readApplicationConsultationSummary(
   state: unknown,
+  suppliedRows?: ConsultingFlowMetricRow[],
 ): Promise<ApplicationConsultationSummary> {
   const tracked = operationalPilotRecords('case', casesOf(state)).filter(
     trackedSubmission,
   );
-  const rows = await (
-    await flowDatabase()
-  )
-    .prepare(`
-      SELECT f.case_id,
-        (SELECT MIN(json_extract(m.value, '$.completedAt'))
-         FROM json_each(f.payload, '$.meetings') m
-         WHERE json_extract(m.value, '$.kind') = 'first'
-           AND json_extract(m.value, '$.status') = 'completed'
-           AND json_type(m.value, '$.completedAt') = 'text') AS first_completed_at
-      FROM consulting_flows f
-    `)
-    .all<FlowMetricRow>();
-  const flowByCase = new Map(rows.results.map((row) => [row.case_id, row]));
+  const rows = suppliedRows ?? (await readConsultingFlowMetricRows());
+  const flowByCase = new Map(rows.map((row) => [row.case_id, row]));
   let flowStarted = 0;
   let firstConsultationsCompleted = 0;
   let flowPending = 0;
@@ -154,7 +141,7 @@ export async function readApplicationConsultationSummary(
       continue;
     }
     flowStarted++;
-    if (!flow.first_completed_at) {
+    if (typeof flow.first_completed_at !== 'string') {
       flowPending++;
       continue;
     }

@@ -50,6 +50,8 @@ import {
 } from '@/lib/application-consultation-metrics';
 import { draftCaseId } from '@/lib/application-draft';
 import { readDuplicateRequestSummary } from '@/lib/duplicate-request-metrics';
+import { readConsultingFlowMetricRows } from '@/lib/consulting-flow-metrics';
+import { readJointAnalysisConfirmationSummary } from '@/lib/joint-analysis-confirmation-metrics';
 
 const privateJson = (data: unknown, init?: ResponseInit) =>
   Response.json(data, {
@@ -89,30 +91,42 @@ export async function GET(request: Request) {
       currentUser.role === 'admin'
         ? stateWithPortalLoginStats(state, await readPortalLoginStats())
         : stateForPortalUser(state, currentUser);
-    const [saveConflicts, passwordLinks, applicationFunnel, duplicateRequests] =
+    const flowMetricRows =
+      currentUser.role === 'admin' ? readConsultingFlowMetricRows() : null;
+    const [
+      saveConflicts,
+      passwordLinks,
+      applicationFunnel,
+      duplicateRequests,
+      jointAnalysisConfirmation,
+    ] =
       currentUser.role === 'admin'
         ? await Promise.all([
             readPortalSaveConflictSummary().catch((error) => {
-            console.error(
-              'Failed to read portal save conflict summary',
-              error instanceof Error ? error.name : 'unknown',
-            );
-            return null;
+              console.error(
+                'Failed to read portal save conflict summary',
+                error instanceof Error ? error.name : 'unknown',
+              );
+              return null;
             }),
             readPasswordLinkSummary().catch((error) => {
-            console.error(
-              'Failed to read password-link summary',
-              error instanceof Error ? error.name : 'unknown',
-            );
-            return null;
+              console.error(
+                'Failed to read password-link summary',
+                error instanceof Error ? error.name : 'unknown',
+              );
+              return null;
             }),
-            readApplicationConsultationSummary(rawState).catch((error) => {
-            console.error(
-              'Failed to read application consultation summary',
-              error instanceof Error ? error.name : 'unknown',
-            );
-            return null;
-            }),
+            flowMetricRows!
+              .then((rows) =>
+                readApplicationConsultationSummary(rawState, rows),
+              )
+              .catch((error) => {
+                console.error(
+                  'Failed to read application consultation summary',
+                  error instanceof Error ? error.name : 'unknown',
+                );
+                return null;
+              }),
             readDuplicateRequestSummary().catch((error) => {
               console.error(
                 'Failed to read duplicate-request summary',
@@ -120,8 +134,19 @@ export async function GET(request: Request) {
               );
               return null;
             }),
+            flowMetricRows!
+              .then((rows) =>
+                readJointAnalysisConfirmationSummary(rawState, rows),
+              )
+              .catch((error) => {
+                console.error(
+                  'Failed to read joint-analysis confirmation summary',
+                  error instanceof Error ? error.name : 'unknown',
+                );
+                return null;
+              }),
           ])
-        : [null, null, null, null];
+        : [null, null, null, null, null];
     return privateJson({
       state: responseState,
       currentUser,
@@ -137,6 +162,7 @@ export async function GET(request: Request) {
             passwordLinks,
             applicationFunnel,
             duplicateRequests,
+            jointAnalysisConfirmation,
           }
         : {}),
     });

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { env } from 'cloudflare:workers';
 import { GET, PUT } from '../app/api/state/route';
 import { writePortalState, readPortalState } from '../lib/portal-state';
 import { portalRevision } from '../lib/portal-revision';
@@ -9,6 +10,7 @@ import type { PortalSaveConflictSummary } from '../lib/portal-conflict-metrics';
 import type { PasswordLinkSummary } from '../lib/password-link-metrics';
 import type { ApplicationConsultationSummary } from '../lib/application-consultation-metrics';
 import type { DuplicateRequestSummary } from '../lib/duplicate-request-metrics';
+import type { JointAnalysisConfirmationSummary } from '../lib/joint-analysis-confirmation-metrics';
 import {
   failNextDatabaseBatch,
   failNextDatabaseStatement,
@@ -80,6 +82,7 @@ async function snapshot() {
     passwordLinks: PasswordLinkSummary | null;
     applicationFunnel: ApplicationConsultationSummary | null;
     duplicateRequests: DuplicateRequestSummary | null;
+    jointAnalysisConfirmation: JointAnalysisConfirmationSummary | null;
   };
 }
 
@@ -110,9 +113,11 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
   assert.equal(Object.hasOwn(owner.state, 'passwordLinks'), false);
   assert.equal(Object.hasOwn(owner.state, 'applicationFunnel'), false);
   assert.equal(Object.hasOwn(owner.state, 'duplicateRequests'), false);
+  assert.equal(Object.hasOwn(owner.state, 'jointAnalysisConfirmation'), false);
   assert.equal(owner.passwordLinks?.windowDays, 7);
   assert.equal(owner.applicationFunnel?.trackedApplications, 0);
   assert.equal(owner.duplicateRequests?.windowDays, 7);
+  assert.equal(owner.jointAnalysisConfirmation?.flowsWithFirstReport, 0);
 
   const partnerResponse = await GET(
     new Request('http://localhost/api/state', {
@@ -133,6 +138,7 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
   assert.equal(Object.hasOwn(partner, 'passwordLinks'), false);
   assert.equal(Object.hasOwn(partner, 'applicationFunnel'), false);
   assert.equal(Object.hasOwn(partner, 'duplicateRequests'), false);
+  assert.equal(Object.hasOwn(partner, 'jointAnalysisConfirmation'), false);
   assert.equal(
     Object.hasOwn(partner.state as Record<string, unknown>, 'storage'),
     false,
@@ -141,6 +147,13 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
     Object.hasOwn(
       partner.state as Record<string, unknown>,
       'duplicateRequests',
+    ),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(
+      partner.state as Record<string, unknown>,
+      'jointAnalysisConfirmation',
     ),
     false,
   );
@@ -159,6 +172,25 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
     ),
     false,
   );
+});
+
+void test('administrator funnel and joint-analysis summaries share one narrow FLOW scan', async () => {
+  await writePortalState(seed());
+  const db = (env as unknown as { DB: D1Database }).DB;
+  const prepare = db.prepare.bind(db);
+  let metricScans = 0;
+  db.prepare = (sql: string) => {
+    if (sql.includes("json_extract(f.payload, '$.analysis.reportId')"))
+      metricScans++;
+    return prepare(sql);
+  };
+  try {
+    const response = await GET(request());
+    assert.equal(response.status, 200, await response.clone().text());
+  } finally {
+    db.prepare = prepare;
+  }
+  assert.equal(metricScans, 1);
 });
 
 void test('password-link summary read failure is isolated from administrator state', async () => {
@@ -186,6 +218,19 @@ void test('duplicate-request summary read failure is isolated from administrator
   assert.equal(response.status, 200, await response.clone().text());
   const payload = (await response.json()) as { duplicateRequests?: unknown };
   assert.equal(payload.duplicateRequests, null);
+});
+
+void test('joint-analysis summary read failure is isolated from administrator state', async () => {
+  await writePortalState(seed());
+  failNextDatabaseStatement('$.analysis.reportId');
+  const response = await GET(request());
+  assert.equal(response.status, 200, await response.clone().text());
+  const payload = (await response.json()) as {
+    applicationFunnel?: unknown;
+    jointAnalysisConfirmation?: unknown;
+  };
+  assert.equal(payload.applicationFunnel, null);
+  assert.equal(payload.jointAnalysisConfirmation, null);
 });
 
 void test('admin and partner state writes cannot forge submission tracking on existing cases', async () => {
