@@ -286,6 +286,7 @@ try {
   assert.equal(Object.hasOwn(visible, 'duplicateRequests'), false);
   assert.equal(Object.hasOwn(visible, 'jointAnalysisConfirmation'), false);
   assert.equal(Object.hasOwn(visible, 'documentReviewWait'), false);
+  assert.equal(Object.hasOwn(visible, 'supportRequests'), false);
   assert.deepEqual(
     visible.state.cases.map((item) => item.id),
     ['runtime-own'],
@@ -435,6 +436,7 @@ try {
     false,
   );
   assert.equal(Object.hasOwn(submittedPartnerState, 'documentReviewWait'), false);
+  assert.equal(Object.hasOwn(submittedPartnerState, 'supportRequests'), false);
   const submittedOwnerState = await (
     await call('/state', undefined, ownerHeaders)
   ).json();
@@ -446,6 +448,7 @@ try {
     0,
   );
   assert.equal(submittedOwnerState.documentReviewWait.requestsCreated, 0);
+  assert.equal(submittedOwnerState.supportRequests.trackedRequests, 0);
   assert.equal(
     Object.hasOwn(submittedOwnerState.state, 'applicationFunnel'),
     false,
@@ -462,6 +465,7 @@ try {
     Object.hasOwn(submittedOwnerState.state, 'documentReviewWait'),
     false,
   );
+  assert.equal(Object.hasOwn(submittedOwnerState.state, 'supportRequests'), false);
   checks.push(
     'server stamps application submission time and exposes only aggregate funnel data to the administrator',
   );
@@ -1417,6 +1421,69 @@ try {
     200,
     'partner analysis confirmation retry remains idempotent',
   );
+  const supportDraft = await (
+    await call('/state', undefined, { cookie })
+  ).json();
+  supportDraft.state.tasks.unshift({
+    id: 'runtime-support-request',
+    company: '위조된 고객사',
+    title: '격리 저장 확인 지원 요청',
+    kind: '지원요청',
+    supportCategory: 'save_sync',
+    supportOpenedAt: '2099-01-01T00:00:00.000Z',
+    supportResolvedAt: '2099-01-01T00:00:00.000Z',
+    supportResolvedByRole: 'admin',
+    supportCycle: 99,
+    assignee: '가상 변경이름',
+    partnerMemberId: memberId,
+    due: '미정',
+    dueState: 'upcoming',
+    status: '완료',
+    priority: '보통',
+    related: '직접 등록',
+  });
+  await expect(
+    await call('/save', { state: supportDraft.state }, { cookie }, 'PUT'),
+    200,
+    'partner creates a server-timed synthetic support request',
+  );
+  const partnerSupportState = await (
+    await call('/state', undefined, { cookie })
+  ).json();
+  const partnerSupport = partnerSupportState.state.tasks.find(
+    (task) => task.id === 'runtime-support-request',
+  );
+  assert.equal(partnerSupport.company, '파트너 허브 지원');
+  assert.equal(partnerSupport.status, '대기');
+  assert.equal(partnerSupport.supportOrigin, 'partner_self_service');
+  assert.equal(partnerSupport.supportCycle, 1);
+  assert.match(partnerSupport.supportOpenedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(partnerSupport.supportResolvedAt, undefined);
+
+  const ownerSupportState = await (
+    await call('/state', undefined, ownerHeaders)
+  ).json();
+  ownerSupportState.state.tasks.find(
+    (task) => task.id === 'runtime-support-request',
+  ).status = '진행';
+  await expect(
+    await call('/save', { state: ownerSupportState.state }, ownerHeaders, 'PUT'),
+    200,
+    'administrator acknowledges the synthetic support request',
+  );
+  const ownerSupportProgress = await (
+    await call('/state', undefined, ownerHeaders)
+  ).json();
+  const acknowledgedSupport = ownerSupportProgress.state.tasks.find(
+    (task) => task.id === 'runtime-support-request',
+  );
+  assert.match(acknowledgedSupport.supportAcknowledgedAt, /^\d{4}-\d{2}-\d{2}T/);
+  acknowledgedSupport.status = '완료';
+  await expect(
+    await call('/save', { state: ownerSupportProgress.state }, ownerHeaders, 'PUT'),
+    200,
+    'administrator resolves the synthetic support request',
+  );
   const metricFlowRow = await db
     .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
     .bind('runtime-own')
@@ -1629,6 +1696,12 @@ try {
     Object.hasOwn(ownerStateAfterReset.state, 'documentReviewWait'),
     false,
   );
+  assert.ok(ownerStateAfterReset.supportRequests.adminResolved >= 1);
+  assert.equal(ownerStateAfterReset.supportRequests.requesterClosed, 0);
+  assert.equal(
+    Object.hasOwn(ownerStateAfterReset.state, 'supportRequests'),
+    false,
+  );
   checks.push(
     'native D1 exposes privacy-minimized password-link and duplicate-request totals to the administrator only',
   );
@@ -1637,6 +1710,9 @@ try {
   );
   checks.push(
     'native D1 exposes only current document review wait aggregates to the administrator',
+  );
+  checks.push(
+    'native state protects support request actors and exposes only administrator aggregates',
   );
   await expect(
     await call('/state', undefined, { cookie, ...ownerHeaders }),

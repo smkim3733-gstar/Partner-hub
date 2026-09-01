@@ -53,6 +53,11 @@ import { readDuplicateRequestSummary } from '@/lib/duplicate-request-metrics';
 import { readConsultingFlowMetricRows } from '@/lib/consulting-flow-metrics';
 import { readJointAnalysisConfirmationSummary } from '@/lib/joint-analysis-confirmation-metrics';
 import { readDocumentReviewWaitSummary } from '@/lib/document-review-wait-metrics';
+import {
+  protectSupportRequestTracking,
+  readSupportRequestSummary,
+  SupportRequestError,
+} from '@/lib/support-request-metrics';
 
 const privateJson = (data: unknown, init?: ResponseInit) =>
   Response.json(data, {
@@ -101,6 +106,7 @@ export async function GET(request: Request) {
       duplicateRequests,
       jointAnalysisConfirmation,
       documentReviewWait,
+      supportRequests,
     ] =
       currentUser.role === 'admin'
         ? await Promise.all([
@@ -156,8 +162,17 @@ export async function GET(request: Request) {
                 );
                 return null;
               }),
+            Promise.resolve()
+              .then(() => readSupportRequestSummary(rawState))
+              .catch((error) => {
+                console.error(
+                  'Failed to read support-request summary',
+                  error instanceof Error ? error.name : 'unknown',
+                );
+                return null;
+              }),
           ])
-        : [null, null, null, null, null, null];
+        : [null, null, null, null, null, null, null];
     return privateJson({
       state: responseState,
       currentUser,
@@ -175,6 +190,7 @@ export async function GET(request: Request) {
             duplicateRequests,
             jointAnalysisConfirmation,
             documentReviewWait,
+            supportRequests,
           }
         : {}),
     });
@@ -252,10 +268,15 @@ export async function PUT(request: Request) {
           merged,
           currentUser,
         );
-        const protectedMerged = protectApplicationSubmissionTimes(
+        const applicationProtected = protectApplicationSubmissionTimes(
           currentState,
           merged,
           draftGuard ? draftCaseId(draftGuard.draftId) : null,
+        );
+        const protectedMerged = protectSupportRequestTracking(
+          currentState,
+          applicationProtected,
+          currentUser.role === 'admin' ? 'admin' : 'partner',
         );
         const memberChange =
           currentUser.role === 'admin' &&
@@ -347,6 +368,8 @@ export async function PUT(request: Request) {
       );
     }
     if (error instanceof ApplicationDetailsError)
+      return privateJson({ error: error.message }, { status: 400 });
+    if (error instanceof SupportRequestError)
       return privateJson({ error: error.message }, { status: 400 });
     if (error instanceof FlowError)
       return privateJson({ error: error.message }, { status: error.status });

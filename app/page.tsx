@@ -91,6 +91,12 @@ import type { ApplicationConsultationSummary } from '@/lib/application-consultat
 import type { DuplicateRequestSummary } from '@/lib/duplicate-request-metrics';
 import type { JointAnalysisConfirmationSummary } from '@/lib/joint-analysis-confirmation-metrics';
 import type { DocumentReviewWaitSummary } from '@/lib/document-review-wait-metrics';
+import {
+  SUPPORT_CATEGORY_LABELS,
+  SUPPORT_REQUEST_COMPANY,
+  type SupportCategory,
+  type SupportRequestSummary,
+} from '@/lib/support-request-metrics';
 
 type View =
   | 'admin'
@@ -150,7 +156,7 @@ type WorkTask = {
   id: string;
   company: string;
   title: string;
-  kind: '서류요청' | '상담' | '견적서' | '계약서' | '사후관리' | '내부업무';
+  kind: '서류요청' | '상담' | '견적서' | '계약서' | '사후관리' | '내부업무' | '지원요청';
   assignee: string;
   partnerMemberId?: string;
   caseId?: string;
@@ -159,6 +165,14 @@ type WorkTask = {
   status: '대기' | '진행' | '완료';
   priority: '긴급' | '보통';
   related: string;
+  supportCategory?: SupportCategory;
+  supportTrackingVersion?: number;
+  supportOrigin?: 'partner_self_service' | 'admin_logged';
+  supportOpenedAt?: string;
+  supportAcknowledgedAt?: string;
+  supportResolvedAt?: string;
+  supportResolvedByRole?: 'admin' | 'requester';
+  supportCycle?: number;
 };
 
 type CompanyDocument = {
@@ -1228,6 +1242,7 @@ function AdminDashboard({
   duplicateRequests,
   jointAnalysisConfirmation,
   documentReviewWait,
+  supportRequests,
 }: {
   onOpenCase: (item: CollaborationCase) => void;
   onOpenSchedule: () => void;
@@ -1242,6 +1257,7 @@ function AdminDashboard({
   duplicateRequests: DuplicateRequestSummary | null;
   jointAnalysisConfirmation: JointAnalysisConfirmationSummary | null;
   documentReviewWait: DocumentReviewWaitSummary | null;
+  supportRequests: SupportRequestSummary | null;
 }) {
   const operationalCases = operationalPilotRecords('case', cases);
   const operationalDocuments = operationalPilotRecords('document', documents);
@@ -1468,6 +1484,24 @@ function AdminDashboard({
               {documentReviewWait.legacyUnmeasurable || documentReviewWait.invalidTransitions ? <p className="mt-2 text-xs font-semibold leading-5 text-amber-800">기존 기록 측정 불가 {documentReviewWait.legacyUnmeasurable} · 시각·상태 확인 필요 {documentReviewWait.invalidTransitions}</p> : null}
               <p className="mt-2 text-xs leading-5 text-slate-500">같은 파일의 단순 재시도는 대기 시작을 유지합니다. 보완 뒤 다시 제출하면 최신 검토 주기로 새로 측정하며 과거 주기는 합산하지 않습니다.</p>
             </> : <p className="text-sm leading-6 text-slate-600">서류 검토 지표를 불러오지 못했습니다. 추가서류 FLOW는 계속 사용할 수 있습니다.</p>}
+          </CardContent>
+        </Card>
+        <Card className={`${(supportRequests?.waitingForAcknowledgement ?? 0) ? 'border-amber-300 bg-amber-50/60' : 'border-violet-200 bg-violet-50/40'} shadow-none`}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-[#15375b]"><Bell className="size-5 text-violet-700" aria-hidden="true" /> 지원 요청 처리</CardTitle>
+            <CardDescription>지원 요청의 최신 처리 주기를 유형과 서버 시각으로 집계합니다.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {supportRequests ? <>
+              <p className="text-2xl font-bold text-[#15375b]">대표 인지 대기 {supportRequests.waitingForAcknowledgement.toLocaleString('ko-KR')}건</p>
+              <p className="mt-2 text-xs leading-5 text-slate-600">처리 중 {supportRequests.acknowledgedOpen} · 대표 완료 {supportRequests.adminResolved} · 요청자 종료 {supportRequests.requesterClosed} · 재개 주기 {supportRequests.reopenedCurrentCycles}</p>
+              <p className="mt-2 text-xs leading-5 text-slate-600">{Object.entries(SUPPORT_CATEGORY_LABELS).map(([category, label]) => `${label} ${supportRequests.byCategory[category as SupportCategory]}`).join(' · ')}</p>
+              {supportRequests.responseTimeBuckets ? <p className="mt-2 text-xs leading-5 text-slate-600">대표 인지: 4시간 미만 {supportRequests.responseTimeBuckets.under4Hours} · 4~24시간 {supportRequests.responseTimeBuckets.fourTo24Hours} · 1~3일 {supportRequests.responseTimeBuckets.oneTo3Days} · 3일 이상 {supportRequests.responseTimeBuckets.threeDaysOrMore}</p> : <p className="mt-2 text-xs leading-5 text-slate-500">유효한 대표 인지 {supportRequests.durationDisclosureThreshold}건 미만이면 응답시간 구간을 표시하지 않습니다.</p>}
+              {supportRequests.adminHandlingTimeBuckets ? <p className="mt-2 text-xs leading-5 text-slate-600">대표 처리 완료: 4시간 미만 {supportRequests.adminHandlingTimeBuckets.under4Hours} · 4~24시간 {supportRequests.adminHandlingTimeBuckets.fourTo24Hours} · 1~3일 {supportRequests.adminHandlingTimeBuckets.oneTo3Days} · 3일 이상 {supportRequests.adminHandlingTimeBuckets.threeDaysOrMore}</p> : <p className="mt-2 text-xs leading-5 text-slate-500">대표 완료 {supportRequests.durationDisclosureThreshold}건 미만이면 처리시간 구간을 표시하지 않습니다.</p>}
+              {supportRequests.unacknowledgedAgeBuckets ? <p className="mt-2 text-xs leading-5 text-slate-600">미인지 대기: 4시간 미만 {supportRequests.unacknowledgedAgeBuckets.under4Hours} · 4~24시간 {supportRequests.unacknowledgedAgeBuckets.fourTo24Hours} · 1~3일 {supportRequests.unacknowledgedAgeBuckets.oneTo3Days} · 3일 이상 {supportRequests.unacknowledgedAgeBuckets.threeDaysOrMore}</p> : <p className="mt-2 text-xs leading-5 text-slate-500">유효한 미인지 대기 {supportRequests.durationDisclosureThreshold}건 미만이면 대기 연령을 표시하지 않습니다.</p>}
+              {supportRequests.legacyUnmeasurable || supportRequests.invalidTransitions ? <p className="mt-2 text-xs font-semibold leading-5 text-amber-800">기존 기록 측정 불가 {supportRequests.legacyUnmeasurable} · 시각·상태 확인 필요 {supportRequests.invalidTransitions}</p> : null}
+              <p className="mt-2 text-xs leading-5 text-slate-500">요청자 자가종료는 대표 처리시간에서 제외합니다. 현재 상태 스냅샷이므로 삭제된 요청의 과거 이력은 포함하지 않습니다.</p>
+            </> : <p className="text-sm leading-6 text-slate-600">지원 요청 지표를 불러오지 못했습니다. 업무·알림 기능은 계속 사용할 수 있습니다.</p>}
           </CardContent>
         </Card>
       </section>
@@ -1989,6 +2023,7 @@ function WorkManagement({
   const [newTitle, setNewTitle] = useState('');
   const [newCompany, setNewCompany] = useState('세림테크(가상)');
   const [newKind, setNewKind] = useState<WorkTask['kind']>('내부업무');
+  const [newSupportCategory, setNewSupportCategory] = useState<SupportCategory>('account_access');
   const [newMemberId, setNewMemberId] = useState(isAdmin ? '' : currentMemberId ?? '');
   const [newDue, setNewDue] = useState('09.05');
   const [newDueState, setNewDueState] = useState<WorkTask['dueState']>('upcoming');
@@ -2013,9 +2048,16 @@ function WorkManagement({
   };
 
   function toggleComplete(task: WorkTask) {
-    const nextStatus: WorkTask['status'] = task.status === '완료' ? '진행' : '완료';
+    const nextStatus: WorkTask['status'] = task.status === '완료'
+      ? task.kind === '지원요청' && !isAdmin ? '대기' : '진행'
+      : '완료';
     setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: nextStatus } : item));
-    notify(nextStatus === '완료' ? `${task.title} 업무를 완료 처리했습니다.` : `${task.title} 업무를 다시 진행 상태로 변경했습니다.`);
+    notify(nextStatus === '완료' ? `${task.title} 업무를 완료 처리했습니다.` : task.kind === '지원요청' && !isAdmin ? `${task.title} 지원 요청을 다시 열었습니다.` : `${task.title} 업무를 다시 진행 상태로 변경했습니다.`);
+  }
+
+  function acknowledgeSupport(task: WorkTask) {
+    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: '진행' } : item));
+    notify(`${task.title} 지원 요청의 처리를 시작했습니다.`);
   }
 
   function addTask() {
@@ -2029,9 +2071,10 @@ function WorkManagement({
     setTasks((current) => [
       {
         id: `task-${crypto.randomUUID()}`,
-        company: newCompany.trim() || '내부업무',
+        company: newKind === '지원요청' ? SUPPORT_REQUEST_COMPANY : newCompany.trim() || '내부업무',
         title: newTitle.trim(),
         kind: newKind,
+        ...(newKind === '지원요청' ? { supportCategory: newSupportCategory } : {}),
         ...assignment,
         due: newDue.trim() || '미정',
         dueState: newDueState,
@@ -2095,7 +2138,7 @@ function WorkManagement({
               const dueTone = task.dueState === 'overdue' ? 'red' : task.dueState === 'today' ? 'amber' : 'blue';
               return (
                 <article key={task.id} className={`rounded-2xl border p-5 ${completed ? 'border-slate-200 bg-slate-50/70' : task.dueState === 'overdue' ? 'border-red-200 bg-red-50/40' : 'border-slate-200 bg-white'}`}>
-                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><Pill tone={task.priority === '긴급' ? 'red' : 'slate'}>{task.priority}</Pill><Pill tone="blue">{task.kind}</Pill></div><p className="mt-3 text-xs font-semibold text-slate-500">{task.company}</p><h2 className={`mt-1 text-base font-bold leading-6 ${completed ? 'text-slate-500 line-through' : 'text-slate-950'}`}>{task.title}</h2></div><button type="button" aria-pressed={completed} aria-label={`${task.title} ${completed ? '다시 진행' : '완료 처리'}`} onClick={() => toggleComplete(task)} className={`grid size-11 shrink-0 place-items-center rounded-xl border transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${completed ? 'border-emerald-200 bg-emerald-100 text-emerald-800' : 'border-slate-200 bg-white text-slate-400 hover:border-emerald-300 hover:text-emerald-700'}`}><Check className="size-5" aria-hidden="true" /></button></div>
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><Pill tone={task.priority === '긴급' ? 'red' : 'slate'}>{task.priority}</Pill><Pill tone="blue">{task.kind}</Pill>{task.kind === '지원요청' && task.supportCategory ? <Pill tone="slate">{SUPPORT_CATEGORY_LABELS[task.supportCategory]}</Pill> : null}</div><p className="mt-3 text-xs font-semibold text-slate-500">{task.company}</p><h2 className={`mt-1 text-base font-bold leading-6 ${completed ? 'text-slate-500 line-through' : 'text-slate-950'}`}>{task.title}</h2></div><div className="flex shrink-0 gap-2">{isAdmin && task.kind === '지원요청' && task.status === '대기' ? <button type="button" onClick={() => acknowledgeSupport(task)} className="min-h-11 rounded-xl border border-violet-200 bg-violet-50 px-3 text-xs font-bold text-violet-800 hover:bg-violet-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-violet-100">처리 시작</button> : null}<button type="button" aria-pressed={completed} aria-label={`${task.title} ${completed ? task.kind === '지원요청' && !isAdmin ? '다시 열기' : '다시 진행' : task.kind === '지원요청' && !isAdmin ? '요청 종료' : '완료 처리'}`} onClick={() => toggleComplete(task)} className={`grid size-11 shrink-0 place-items-center rounded-xl border transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${completed ? 'border-emerald-200 bg-emerald-100 text-emerald-800' : 'border-slate-200 bg-white text-slate-400 hover:border-emerald-300 hover:text-emerald-700'}`}><Check className="size-5" aria-hidden="true" /></button></div></div>
                   <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-white/80 p-3 text-xs sm:grid-cols-3"><div><p className="text-slate-500">담당자</p><p className="mt-1 font-bold text-slate-800">{assignmentDisplayName(task, task.assignee, members)}</p></div><div><p className="text-slate-500">마감</p><div className="mt-1"><Pill tone={dueTone}>{task.due}</Pill></div></div><div className="col-span-2 sm:col-span-1"><p className="text-slate-500">관련 업무</p><p className="mt-1 font-bold text-slate-800">{task.related}</p></div></div>
                 </article>
               );
@@ -2111,8 +2154,9 @@ function WorkManagement({
           <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">독립 업무 등록</p><h2 id="task-modal-title" className="mt-1 text-xl font-bold">새 업무 추가</h2><p className="mt-1 text-sm text-slate-500">상담 단계와 무관하게 필요한 업무를 즉시 만들 수 있습니다.</p></div><DialogClose className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="업무 추가 닫기"><X className="size-5" aria-hidden="true" /></DialogClose></div>
           <div className="grid max-h-[65vh] gap-5 overflow-y-auto p-5 md:grid-cols-2">
             <div className="md:col-span-2"><Field label="업무명" required><input value={newTitle} onChange={(event) => setNewTitle(event.target.value)} className={inputClass} placeholder="예: 추가서류 제출 여부 확인" /></Field></div>
-            <Field label="기업명" required><input value={newCompany} onChange={(event) => setNewCompany(event.target.value)} className={inputClass} /></Field>
-            <Field label="업무유형" required><select value={newKind} onChange={(event) => setNewKind(event.target.value as WorkTask['kind'])} className={inputClass}><option>서류요청</option><option>상담</option><option>견적서</option><option>계약서</option><option>사후관리</option><option>내부업무</option></select></Field>
+            {newKind === '지원요청' ? <Field label="지원 범위"><input value={SUPPORT_REQUEST_COMPANY} className={inputClass} disabled /></Field> : <Field label="기업명" required><input value={newCompany} onChange={(event) => setNewCompany(event.target.value)} className={inputClass} /></Field>}
+            <Field label="업무유형" required><select value={newKind} onChange={(event) => setNewKind(event.target.value as WorkTask['kind'])} className={inputClass}><option>서류요청</option><option>상담</option><option>견적서</option><option>계약서</option><option>사후관리</option><option>내부업무</option><option>지원요청</option></select></Field>
+            {newKind === '지원요청' ? <Field label="지원 요청 유형" required><select value={newSupportCategory} onChange={(event) => setNewSupportCategory(event.target.value as SupportCategory)} className={inputClass}>{Object.entries(SUPPORT_CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field> : null}
             <Field label="담당 계정" required hint="이메일로 동명이인을 구별합니다."><select value={newMemberId} onChange={(event) => setNewMemberId(event.target.value)} className={inputClass} disabled={!isAdmin}>{isAdmin ? <option value="">김성민 대표 · 대표 전용</option> : null}{members.filter((member) => member.status === '활성').map((member) => <option key={member.id} value={member.id}>{member.name.replace('(가상)', '').trim()} · {member.email}</option>)}</select></Field>
             <Field label="마감일" required><input value={newDue} onChange={(event) => setNewDue(event.target.value)} className={inputClass} placeholder="예: 09.05 또는 오늘 16:00" /></Field>
             <div className="md:col-span-2"><Field label="마감 구분" required><div className="grid gap-2 sm:grid-cols-3">{[['upcoming', '예정'], ['today', '오늘 마감'], ['overdue', '기한 지연']].map(([value, label]) => <button key={value} type="button" aria-pressed={newDueState === value} onClick={() => setNewDueState(value as WorkTask['dueState'])} className={`min-h-11 rounded-xl border px-4 text-sm font-semibold ${newDueState === value ? 'border-[#0877b8] bg-sky-50 text-[#075f93]' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>{label}</button>)}</div></Field></div>
@@ -3308,6 +3352,7 @@ export default function Home() {
   const [duplicateRequests, setDuplicateRequests] = useState<DuplicateRequestSummary | null>(null);
   const [jointAnalysisConfirmation, setJointAnalysisConfirmation] = useState<JointAnalysisConfirmationSummary | null>(null);
   const [documentReviewWait, setDocumentReviewWait] = useState<DocumentReviewWaitSummary | null>(null);
+  const [supportRequests, setSupportRequests] = useState<SupportRequestSummary | null>(null);
   const [dataStatus, setDataStatus] = useState<'loading' | 'saving' | 'saved' | 'error'>('loading');
   const [saveError, setSaveError] = useState('');
   const [currentUser, setCurrentUser] = useState<PortalUser | null>(null);
@@ -3373,7 +3418,7 @@ export default function Home() {
     async function loadState() {
       try {
         const response = await fetch('/api/state', { cache: 'no-store' });
-        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; stateRevision?: string; storage?: PortalStorageTelemetry; saveConflicts?: PortalSaveConflictSummary | null; passwordLinks?: PasswordLinkSummary | null; applicationFunnel?: ApplicationConsultationSummary | null; duplicateRequests?: DuplicateRequestSummary | null; jointAnalysisConfirmation?: JointAnalysisConfirmationSummary | null; documentReviewWait?: DocumentReviewWaitSummary | null; error?: string; authenticatedEmail?: string };
+        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; stateRevision?: string; storage?: PortalStorageTelemetry; saveConflicts?: PortalSaveConflictSummary | null; passwordLinks?: PasswordLinkSummary | null; applicationFunnel?: ApplicationConsultationSummary | null; duplicateRequests?: DuplicateRequestSummary | null; jointAnalysisConfirmation?: JointAnalysisConfirmationSummary | null; documentReviewWait?: DocumentReviewWaitSummary | null; supportRequests?: SupportRequestSummary | null; error?: string; authenticatedEmail?: string };
         if (!response.ok) {
           if (active) {
             setAccessStatus(response.status);
@@ -3410,6 +3455,7 @@ export default function Home() {
         setDuplicateRequests(payload.duplicateRequests ?? null);
         setJointAnalysisConfirmation(payload.jointAnalysisConfirmation ?? null);
         setDocumentReviewWait(payload.documentReviewWait ?? null);
+        setSupportRequests(payload.supportRequests ?? null);
         setAccessStatus(null);
         if (payload.currentUser.role === 'trainee') {
           setView('trainee');
@@ -3764,7 +3810,7 @@ export default function Home() {
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
           {saveError && <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800"><p className="font-bold">변경사항 저장 확인 필요</p><p>{saveError}</p><p className="mt-1">입력은 현재 화면에 남아 있습니다. 새로고침하지 말고 연결을 확인한 뒤 다시 저장해 주세요. 로그인 만료 시 같은 계정으로 새 탭에서 로그인한 후 돌아오세요.</p><div className="mt-3 flex flex-wrap gap-3"><SecondaryButton onClick={() => { void saveQueue.flush().catch(() => {}); }} disabled={dataStatus === 'saving' || applicationPending}>변경사항 다시 저장</SecondaryButton><a className="inline-flex min-h-11 items-center underline" href="/account" target="_blank" rel="noopener noreferrer">새 탭에서 로그인</a><a className="inline-flex min-h-11 items-center underline" href="/" target="_blank" rel="noopener noreferrer">새 탭에서 최신 운영 내용 확인</a></div></div>}
-          {view === 'admin' ? <AdminDashboard onOpenCase={openCase} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} cases={cases} documents={companyDocuments} tasks={tasks} members={members} storage={storage} saveConflicts={saveConflicts} applicationFunnel={applicationFunnel} duplicateRequests={duplicateRequests} jointAnalysisConfirmation={jointAnalysisConfirmation} documentReviewWait={documentReviewWait} /> : null}
+          {view === 'admin' ? <AdminDashboard onOpenCase={openCase} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} cases={cases} documents={companyDocuments} tasks={tasks} members={members} storage={storage} saveConflicts={saveConflicts} applicationFunnel={applicationFunnel} duplicateRequests={duplicateRequests} jointAnalysisConfirmation={jointAnalysisConfirmation} documentReviewWait={documentReviewWait} supportRequests={supportRequests} /> : null}
           {view === 'pipeline' ? <PipelineBoard cases={cases} setCases={setCases} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} onOpenCase={openCase} /> : null}
           {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee} · {item.id.slice(-8)}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <><ApplicationDetailsSummary details={selectedCase.applicationDetails} /><ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /></> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate(cases.length ? 'consultation' : 'application')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}

@@ -12,6 +12,7 @@ import type { ApplicationConsultationSummary } from '../lib/application-consulta
 import type { DuplicateRequestSummary } from '../lib/duplicate-request-metrics';
 import type { JointAnalysisConfirmationSummary } from '../lib/joint-analysis-confirmation-metrics';
 import type { DocumentReviewWaitSummary } from '../lib/document-review-wait-metrics';
+import type { SupportRequestSummary } from '../lib/support-request-metrics';
 import {
   failNextDatabaseBatch,
   failNextDatabaseStatement,
@@ -85,6 +86,7 @@ async function snapshot() {
     duplicateRequests: DuplicateRequestSummary | null;
     jointAnalysisConfirmation: JointAnalysisConfirmationSummary | null;
     documentReviewWait: DocumentReviewWaitSummary | null;
+    supportRequests: SupportRequestSummary | null;
   };
 }
 
@@ -117,11 +119,13 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
   assert.equal(Object.hasOwn(owner.state, 'duplicateRequests'), false);
   assert.equal(Object.hasOwn(owner.state, 'jointAnalysisConfirmation'), false);
   assert.equal(Object.hasOwn(owner.state, 'documentReviewWait'), false);
+  assert.equal(Object.hasOwn(owner.state, 'supportRequests'), false);
   assert.equal(owner.passwordLinks?.windowDays, 7);
   assert.equal(owner.applicationFunnel?.trackedApplications, 0);
   assert.equal(owner.duplicateRequests?.windowDays, 7);
   assert.equal(owner.jointAnalysisConfirmation?.flowsWithFirstReport, 0);
   assert.equal(owner.documentReviewWait?.requestsCreated, 0);
+  assert.equal(owner.supportRequests?.trackedRequests, 0);
 
   const partnerResponse = await GET(
     new Request('http://localhost/api/state', {
@@ -144,6 +148,7 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
   assert.equal(Object.hasOwn(partner, 'duplicateRequests'), false);
   assert.equal(Object.hasOwn(partner, 'jointAnalysisConfirmation'), false);
   assert.equal(Object.hasOwn(partner, 'documentReviewWait'), false);
+  assert.equal(Object.hasOwn(partner, 'supportRequests'), false);
   assert.equal(
     Object.hasOwn(partner.state as Record<string, unknown>, 'storage'),
     false,
@@ -167,6 +172,10 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
       partner.state as Record<string, unknown>,
       'documentReviewWait',
     ),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(partner.state as Record<string, unknown>, 'supportRequests'),
     false,
   );
   assert.equal(
