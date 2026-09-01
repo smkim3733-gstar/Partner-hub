@@ -7,6 +7,7 @@ import { googleCalendarDraftUrl, scheduleDateGroups } from '@/lib/schedule-displ
 import { PartnerAuthPanel } from '@/components/partner-auth-panel';
 import { PartnerPasswordLink } from '@/components/partner-password-link';
 import { PartnerSignout } from '@/components/partner-signout';
+import { PortalInitializationGate } from '@/components/portal-initialization-gate';
 import { PortalDialog } from '@/components/portal-dialog';
 import { DialogClose } from '@/components/ui/dialog';
 import { assignmentMemberId, assignmentDisplayName, newTaskAssignment } from '@/lib/assignment-display';
@@ -74,6 +75,12 @@ import { FileRecoveryNote } from '@/components/file-recovery-note';
 import type { RecoveryControls } from '@/lib/file-recovery';
 import { partnerTypes, type PartnerType, type PartnerAccount as TraineeMember, type PartnerRegistrationResult } from '@/lib/partner-registration';
 import { companyCategoryLabel, companyFileProblem, documentCategoryFromFileName, applicationAttachmentTitle, MAX_APPLICATION_FILES, type ApplicationAttachment } from '@/lib/company-file-policy';
+import {
+  countPilotSeedRecords,
+  emptyPortalStateBaseline,
+  operationalPilotRecords,
+  type PortalStorageTelemetry,
+} from '@/lib/pilot-readiness';
 
 type View =
   | 'admin'
@@ -372,6 +379,24 @@ const sampleTrainees: TraineeMember[] = [
     permissions: { sharedSchedule: false, collaborationApply: false, ownCases: true, fileUpload: false, quoteContract: false },
   },
 ];
+
+const emptyPreviewMember: TraineeMember = {
+  id: 'partner-preview-empty',
+  name: '등록된 파트너 없음',
+  email: '',
+  cohort: '',
+  memberType: '한기평 컨설턴트',
+  role: '일반 파트너',
+  status: '정지',
+  companies: 0,
+  permissions: {
+    sharedSchedule: false,
+    collaborationApply: false,
+    ownCases: false,
+    fileUpload: false,
+    quoteContract: false,
+  },
+};
 
 const sampleTasks: WorkTask[] = [
   { id: 'task-1', company: '세림테크(가상)', title: '최근 재무제표 제출 여부 확인', kind: '서류요청', assignee: '박지현', due: '오늘 16:00', dueState: 'today', status: '진행', priority: '긴급', related: '서류요청 #1' },
@@ -1183,33 +1208,49 @@ function AdminDashboard({
   schedule,
   cases,
   documents,
+  tasks,
+  members,
+  storage,
 }: {
   onOpenCase: (item: CollaborationCase) => void;
   onOpenSchedule: () => void;
   schedule: ScheduleItem[];
   cases: CollaborationCase[];
   documents: CompanyDocument[];
+  tasks: WorkTask[];
+  members: TraineeMember[];
+  storage: PortalStorageTelemetry | null;
 }) {
-  const attentionCases = cases
+  const operationalCases = operationalPilotRecords('case', cases);
+  const operationalDocuments = operationalPilotRecords('document', documents);
+  const attentionCases = operationalCases
     .filter((item) => item.urgent || item.idleDays >= 7)
     .sort((a, b) => Number(b.urgent) - Number(a.urgent) || b.idleDays - a.idleDays);
   const staleGroups = pipelineStages.flatMap((stage) => {
-    const items = cases.filter((item) => item.stage === stage && item.idleDays >= 7);
+    const items = operationalCases.filter((item) => item.stage === stage && item.idleDays >= 7);
     return items.length ? [{ stage, count: items.length, days: Math.max(...items.map((item) => item.idleDays)) }] : [];
   });
+  const seedCounts = {
+    cases: countPilotSeedRecords('case', cases),
+    documents: countPilotSeedRecords('document', documents),
+    tasks: countPilotSeedRecords('task', tasks),
+    schedule: countPilotSeedRecords('schedule', schedule),
+    members: countPilotSeedRecords('member', members),
+  };
+  const totalSeedRecords = Object.values(seedCounts).reduce((sum, count) => sum + count, 0);
   const metrics = [
-    { label: '접수 단계', value: cases.filter((item) => item.stage === '접수').length, hint: '현재 접수 단계인 진행', icon: ClipboardList },
-    { label: '자료함 보완', value: documents.filter((item) => item.status === '요청중' || item.status === '보완필요').length, hint: '기업자료함의 요청중·보완필요 자료', icon: FileCheck2 },
-    { label: '상담 전·진행', value: cases.filter((item) => item.stage === '상담예약' || item.stage === '상담진행').length, hint: '상담예약·상담진행 단계', icon: CalendarDays },
-    { label: '계약 진행', value: cases.filter((item) => item.stage === '계약').length, hint: '현재 계약 단계인 진행', icon: FileText },
+    { label: '접수 단계', value: operationalCases.filter((item) => item.stage === '접수').length, hint: '가상 예시를 제외한 접수 진행', icon: ClipboardList },
+    { label: '자료함 보완', value: operationalDocuments.filter((item) => item.status === '요청중' || item.status === '보완필요').length, hint: '가상 예시를 제외한 보완 자료', icon: FileCheck2 },
+    { label: '상담 전·진행', value: operationalCases.filter((item) => item.stage === '상담예약' || item.stage === '상담진행').length, hint: '가상 예시를 제외한 상담 진행', icon: CalendarDays },
+    { label: '계약 진행', value: operationalCases.filter((item) => item.stage === '계약').length, hint: '가상 예시를 제외한 계약 진행', icon: FileText },
   ];
   return (
     <>
       <PageIntro
         eyebrow={new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', dateStyle: 'full' })}
         title="오늘의 협업 진행현황"
-        description="저장된 진행 단계와 자료함을 기준으로 확인할 내용을 모았습니다."
-        action={<Pill tone={attentionCases.length ? 'amber' : 'green'}>긴급·장기 미진행 {attentionCases.length}건</Pill>}
+        description="가상 예시를 제외한 운영 진행과 자료함을 기준으로 확인할 내용을 모았습니다."
+        action={<div className="flex flex-wrap gap-2"><Pill tone={attentionCases.length ? 'amber' : 'green'}>긴급·장기 미진행 {attentionCases.length}건</Pill>{totalSeedRecords ? <Pill tone="slate">가상 예시 {totalSeedRecords}건 별도</Pill> : null}</div>}
       />
 
       <section aria-label="업무 요약" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -1227,6 +1268,33 @@ function AdminDashboard({
             </CardContent>
           </Card>
         ))}
+      </section>
+
+      <section aria-label="파일럿 운영 준비" className="mt-6 grid gap-4 lg:grid-cols-2">
+        <Card className="border-sky-200 bg-sky-50/40 shadow-none">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-[#15375b]"><ClipboardCheck className="size-5 text-[#0877b8]" aria-hidden="true" /> 실사용 지표 기준</CardTitle>
+            <CardDescription>가상 예시 레코드는 저장 상태에 보존하되 대표 운영 지표에서는 제외합니다.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-2xl font-bold text-[#15375b]">실사용 진행 {operationalCases.length}건</p>
+            <p className="mt-2 text-xs leading-5 text-slate-600">제외: 진행 {seedCounts.cases} · 자료 {seedCounts.documents} · 업무 {seedCounts.tasks} · 일정 {seedCounts.schedule} · 파트너 {seedCounts.members}</p>
+          </CardContent>
+        </Card>
+        <Card className={`${storage?.warning ? 'border-amber-300 bg-amber-50/60' : 'border-emerald-200 bg-emerald-50/50'} shadow-none`}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-[#15375b]"><ShieldCheck className={`size-5 ${storage?.warning ? 'text-amber-700' : 'text-emerald-700'}`} aria-hidden="true" /> 운영 상태 저장 여유</CardTitle>
+            <CardDescription>저장 원문과 다음 저장 요청 중 큰 값을 기준으로 계산합니다.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {storage ? <>
+              <div className="flex items-end justify-between gap-3"><p className="text-2xl font-bold text-[#15375b]">{storage.usagePercent}%</p><p className="text-xs font-semibold text-slate-600">남은 여유 {Math.ceil(storage.remainingBytes / 1024).toLocaleString('ko-KR')}KB</p></div>
+              <progress className={`mt-3 h-2 w-full overflow-hidden rounded-full bg-white ${storage.warning ? 'accent-amber-500' : 'accent-emerald-600'}`} aria-label="운영 상태 저장공간 사용률" max={100} value={Math.min(100, storage.usagePercent)} />
+              <p className="mt-3 text-xs leading-5 text-slate-600">저장 원문 {Math.ceil(storage.storedBytes / 1024).toLocaleString('ko-KR')}KB · 다음 요청 {Math.ceil(storage.nextRequestBytes / 1024).toLocaleString('ko-KR')}KB · 잠정 경보 {storage.warningPercent}%</p>
+              {storage.warning ? <p role="alert" className="mt-2 text-xs font-bold leading-5 text-amber-800">상태 분할·아카이브 검토가 필요한 잠정 경보 구간입니다. 자동 삭제나 분할은 수행하지 않습니다.</p> : null}
+            </> : <p className="text-sm text-slate-600">운영 상태를 저장한 뒤 정확한 사용량을 표시합니다.</p>}
+          </CardContent>
+        </Card>
       </section>
 
       <Card className="mt-6 border-0 shadow-[0_8px_30px_rgb(15_23_42/6%)] ring-slate-200/80">
@@ -3033,6 +3101,9 @@ export default function Home() {
   const [scheduleAudience, setScheduleAudience] = useState<'admin' | 'trainee'>('admin');
   const [toast, setToast] = useState('');
   const [persistenceReady, setPersistenceReady] = useState(false);
+  const [initializationRequired, setInitializationRequired] = useState(false);
+  const [initializationBusy, setInitializationBusy] = useState(false);
+  const [storage, setStorage] = useState<PortalStorageTelemetry | null>(null);
   const [dataStatus, setDataStatus] = useState<'loading' | 'saving' | 'saved' | 'error'>('loading');
   const [saveError, setSaveError] = useState('');
   const [currentUser, setCurrentUser] = useState<PortalUser | null>(null);
@@ -3051,6 +3122,7 @@ export default function Home() {
       const result = await putPortalSnapshot(state, saveIdentityRef.current, saveStateRevisionRef.current);
       if (typeof result.stateRevision !== 'string') throw new Error('저장 버전을 확인하지 못했습니다. 화면을 유지하고 다시 시도해 주세요.');
       saveStateRevisionRef.current = result.stateRevision;
+      if (result.storage) setStorage(result.storage);
       return result;
     },
     (status, error) => { setDataStatus(status); setSaveError(error ?? ''); },
@@ -3084,7 +3156,7 @@ export default function Home() {
     async function loadState() {
       try {
         const response = await fetch('/api/state', { cache: 'no-store' });
-        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; stateRevision?: string; error?: string; authenticatedEmail?: string };
+        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; stateRevision?: string; storage?: PortalStorageTelemetry; error?: string; authenticatedEmail?: string };
         if (!response.ok) {
           if (active) {
             setAccessStatus(response.status);
@@ -3107,18 +3179,21 @@ export default function Home() {
           setMembers(payload.state.members);
           setMembersRevision(payload.state.membersRevision ?? 0);
           setDiagnosisAssessments(payload.state.diagnosisAssessments ?? sampleDiagnosisAssessments);
+        } else if (payload.currentUser.role === 'admin') {
+          setInitializationRequired(true);
         }
 
         saveIdentityRef.current = payload.currentUser.id;
         saveStateRevisionRef.current = payload.stateRevision;
         setCurrentUser(payload.currentUser);
+        setStorage(payload.storage ?? null);
         setAccessStatus(null);
         if (payload.currentUser.role === 'trainee') {
           setView('trainee');
           setScheduleAudience('trainee');
         }
-        setPersistenceReady(true);
-        setDataStatus(payload.state === null ? 'saving' : 'saved');
+        setPersistenceReady(payload.state !== null && payload.state !== undefined);
+        setDataStatus(payload.state === null ? 'loading' : 'saved');
       } catch (error) {
         if (active) {
           setDataStatus('error');
@@ -3163,7 +3238,7 @@ export default function Home() {
     tone: 'navy',
   }];
   const isAdmin = currentUser?.role === 'admin';
-  const previewMember = currentMember ?? members.find((member) => member.status === '활성') ?? sampleTrainees[0];
+  const previewMember = currentMember ?? members.find((member) => member.status === '활성') ?? emptyPreviewMember;
   // Password partners already receive server-authorized records. Only the
   // administrator's partner preview needs a presentation filter by member ID.
   const previewCases = isAdmin ? cases.filter((item) => assignmentMemberId(item, item.trainee, members) === previewMember.id) : cases;
@@ -3197,6 +3272,28 @@ export default function Home() {
   const allowedViews = useMemo(() => new Set(availableNavItems.map((item) => item.view)), [availableNavItems]);
   const activeLabel = useMemo(() => navItems.find((item) => item.view === view)?.label ?? '파트너 허브', [view]);
 
+  function choosePortalBaseline(mode: 'empty' | 'sample') {
+    if (!currentUser || currentUser.role !== 'admin' || initializationBusy) return;
+    setInitializationBusy(true);
+    if (mode === 'empty') {
+      const empty = emptyPortalStateBaseline();
+      setConsultationNumber(empty.consultationNumber);
+      setTimeline(empty.timeline);
+      setSchedule(empty.schedule);
+      setTasks(empty.tasks);
+      setCompanyDocuments(empty.companyDocuments);
+      setCases(empty.cases);
+      setMembers(empty.members);
+      setMembersRevision(empty.membersRevision);
+      setDiagnosisAssessments(empty.diagnosisAssessments);
+    }
+    setView('admin');
+    setDataStatus('saving');
+    setInitializationRequired(false);
+    setPersistenceReady(true);
+    setInitializationBusy(false);
+  }
+
   if (accessError) {
     if (accessStatus === 401 || accessStatus === 403) return <PartnerAuthPanel message={accessError} />;
     return <div className="grid min-h-screen place-items-center bg-slate-50 p-5"><Card className="w-full max-w-xl"><CardContent className="py-8"><h1 className="text-xl font-bold">연결을 확인해 주세요</h1><p role="alert" className="mt-3 text-sm text-slate-600">{accessError}</p><button type="button" onClick={() => window.location.reload()} className="mt-5 min-h-11 w-full rounded-xl bg-[#15375b] px-4 font-bold text-white">다시 확인</button></CardContent></Card></div>;
@@ -3205,6 +3302,10 @@ export default function Home() {
 
   if (!currentUser) {
     return <div className="grid min-h-screen place-items-center bg-slate-50 p-5"><div className="text-center"><span className="mx-auto grid size-14 place-items-center rounded-2xl bg-sky-50 text-[#0877b8]"><RefreshCw className="size-7 animate-spin" aria-hidden="true" /></span><p className="mt-4 text-sm font-semibold text-slate-700">로그인 정보와 담당 권한을 확인하고 있습니다.</p></div></div>;
+  }
+
+  if (initializationRequired) {
+    return <PortalInitializationGate busy={initializationBusy} onChoose={choosePortalBaseline} />;
   }
 
   const accountTasks = tasks; // Server-authorized tasks, including assignments made before a name change.
@@ -3440,10 +3541,10 @@ export default function Home() {
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
           {saveError && <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800"><p className="font-bold">변경사항 저장 확인 필요</p><p>{saveError}</p><p className="mt-1">입력은 현재 화면에 남아 있습니다. 새로고침하지 말고 연결을 확인한 뒤 다시 저장해 주세요. 로그인 만료 시 같은 계정으로 새 탭에서 로그인한 후 돌아오세요.</p><div className="mt-3 flex flex-wrap gap-3"><SecondaryButton onClick={() => { void saveQueue.flush().catch(() => {}); }} disabled={dataStatus === 'saving' || applicationPending}>변경사항 다시 저장</SecondaryButton><a className="inline-flex min-h-11 items-center underline" href="/account" target="_blank" rel="noopener noreferrer">새 탭에서 로그인</a><a className="inline-flex min-h-11 items-center underline" href="/" target="_blank" rel="noopener noreferrer">새 탭에서 최신 운영 내용 확인</a></div></div>}
-          {view === 'admin' ? <AdminDashboard onOpenCase={openCase} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} cases={cases} documents={companyDocuments} /> : null}
+          {view === 'admin' ? <AdminDashboard onOpenCase={openCase} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} cases={cases} documents={companyDocuments} tasks={tasks} members={members} storage={storage} /> : null}
           {view === 'pipeline' ? <PipelineBoard cases={cases} setCases={setCases} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} onOpenCase={openCase} /> : null}
           {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee} · {item.id.slice(-8)}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <><ApplicationDetailsSummary details={selectedCase.applicationDetails} /><ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /></> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
-          {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate('consultation')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}
+          {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate(cases.length ? 'consultation' : 'application')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}
           {view === 'tasks' ? <WorkManagement tasks={tasks} setTasks={setTasks} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} notify={notify} /> : null}
           {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} currentUserId={currentUser.id} recoveryControls={{ recoveryBusy: fileRecoveryBusy, recoveryDisabled: dataStatus !== 'saved' || fileRecoveryBusy || applicationPending || applicationDirty, beginRecovery: beginFileRecovery, finishRecovery: finishFileRecovery }} notify={notify} /> : null}
           {view === 'ai-diagnosis' ? <DiagnosisPreflight assessments={diagnosisAssessments} setAssessments={setDiagnosisAssessments} cases={cases} members={members} documents={companyDocuments} onOpenFiles={() => navigate('files')} onRequestDocuments={(caseId) => { setSelectedCaseId(caseId); navigate('documents'); }} onQueueDraft={queueDiagnosisDraft} notify={notify} /> : null}
@@ -3501,9 +3602,9 @@ export default function Home() {
               throw error;
             }
           }} /> : null}
-          {view === 'case' ? <CaseDetail key={selectedCase.id} caseItem={selectedCase} timeline={selectedCaseTimeline} documents={companyDocuments} allCases={cases} members={members} onWorkflow={() => navigate('workflow')} onConsult={() => navigate(selectedCase.flowManaged ? 'workflow' : 'consultation')} onDocuments={() => navigate(selectedCase.flowManaged ? 'workflow' : 'documents')} onSetDocumentDueDates={updateDocumentDueDates} onQuoteContract={() => navigate('workflow')} canFileUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} canQuoteContract={isAdmin || Boolean(currentMember?.permissions.quoteContract)} /> : null}
-          {view === 'consultation' ? <ConsultationForm key={selectedCase.id} number={Math.max(1, consultationNumber)} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={saveConsultation} /> : null}
-          {view === 'documents' ? <DocumentRequest key={selectedCase.id} caseItem={selectedCase} requestNumber={selectedCaseTimeline.filter((item) => item.type === '서류').length + 1} outstandingNames={companyDocuments.filter(document => recordBelongsToCase(document, document.assignedTrainee, selectedCase, cases, members) && document.category === '요청서류' && (document.status === '요청중' || document.status === '보완필요')).map(document => document.title)} onCancel={() => navigate('case')} onSave={({ items, dueDate, skippedOutstanding }) => { const requestNumber = selectedCaseTimeline.filter((item) => item.type === '서류').length + 1; const dueLabel = formatKoreanDate(dueDate); setTimeline((current) => [...current, { caseId: selectedCase.id, date: '방금 전', title: `서류요청 #${requestNumber} 등록`, detail: `요청서류 ${items.length}건 / 제출기한 ${dueLabel} / 전달 담당자: ${selectedCase.trainee} 파트너`, type: '서류', tone: 'amber' }]); setCompanyDocuments((current) => [...items.map((item, index): CompanyDocument => ({ id: `file-request-${Date.now()}-${index}`, company: selectedCase.company, title: item.name, category: '요청서류', status: '요청중', assignedTrainee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, submittedBy: '기업대표 요청', updatedAt: '방금 전', dueDate, version: '-', sensitive: true })), ...current]); setTasks((current) => [{ id: `task-request-${Date.now()}`, company: selectedCase.company, title: `요청서류 ${items.length}건 제출 확인`, kind: '서류요청', assignee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, due: dueLabel, dueState: 'upcoming', status: '대기', priority: '보통', related: `서류요청 #${requestNumber}` }, ...current]); setCases((current) => current.map((item) => item.id === selectedCase.id ? { ...item, nextAction: `요청서류 ${items.length}건 제출 확인`, updatedAt: '방금 전', idleDays: 0 } : item)); notify(`${selectedCase.company} 서류요청 ${items.length}건을 자료함과 업무목록에 등록했습니다.${skippedOutstanding ? ` 이미 요청 중인 ${skippedOutstanding}건은 제외했습니다.` : ''}`); navigate('case'); }} /> : null}
+          {view === 'case' ? cases.length ? <CaseDetail key={selectedCase.id} caseItem={selectedCase} timeline={selectedCaseTimeline} documents={companyDocuments} allCases={cases} members={members} onWorkflow={() => navigate('workflow')} onConsult={() => navigate(selectedCase.flowManaged ? 'workflow' : 'consultation')} onDocuments={() => navigate(selectedCase.flowManaged ? 'workflow' : 'documents')} onSetDocumentDueDates={updateDocumentDueDates} onQuoteContract={() => navigate('workflow')} canFileUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} canQuoteContract={isAdmin || Boolean(currentMember?.permissions.quoteContract)} /> : <Card><CardContent className="py-8"><p className="font-bold text-slate-900">등록된 진행이 없습니다.</p><p className="mt-2 text-sm text-slate-600">새 협업신청을 접수한 뒤 진행 기록을 확인할 수 있습니다.</p><PrimaryButton className="mt-5" onClick={() => navigate('application')}>새 협업신청</PrimaryButton></CardContent></Card> : null}
+          {view === 'consultation' ? cases.length ? <ConsultationForm key={selectedCase.id} number={Math.max(1, consultationNumber)} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={saveConsultation} /> : <Card><CardContent className="py-8">상담을 등록할 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card> : null}
+          {view === 'documents' ? cases.length ? <DocumentRequest key={selectedCase.id} caseItem={selectedCase} requestNumber={selectedCaseTimeline.filter((item) => item.type === '서류').length + 1} outstandingNames={companyDocuments.filter(document => recordBelongsToCase(document, document.assignedTrainee, selectedCase, cases, members) && document.category === '요청서류' && (document.status === '요청중' || document.status === '보완필요')).map(document => document.title)} onCancel={() => navigate('case')} onSave={({ items, dueDate, skippedOutstanding }) => { const requestNumber = selectedCaseTimeline.filter((item) => item.type === '서류').length + 1; const dueLabel = formatKoreanDate(dueDate); setTimeline((current) => [...current, { caseId: selectedCase.id, date: '방금 전', title: `서류요청 #${requestNumber} 등록`, detail: `요청서류 ${items.length}건 / 제출기한 ${dueLabel} / 전달 담당자: ${selectedCase.trainee} 파트너`, type: '서류', tone: 'amber' }]); setCompanyDocuments((current) => [...items.map((item, index): CompanyDocument => ({ id: `file-request-${Date.now()}-${index}`, company: selectedCase.company, title: item.name, category: '요청서류', status: '요청중', assignedTrainee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, submittedBy: '기업대표 요청', updatedAt: '방금 전', dueDate, version: '-', sensitive: true })), ...current]); setTasks((current) => [{ id: `task-request-${Date.now()}`, company: selectedCase.company, title: `요청서류 ${items.length}건 제출 확인`, kind: '서류요청', assignee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, due: dueLabel, dueState: 'upcoming', status: '대기', priority: '보통', related: `서류요청 #${requestNumber}` }, ...current]); setCases((current) => current.map((item) => item.id === selectedCase.id ? { ...item, nextAction: `요청서류 ${items.length}건 제출 확인`, updatedAt: '방금 전', idleDays: 0 } : item)); notify(`${selectedCase.company} 서류요청 ${items.length}건을 자료함과 업무목록에 등록했습니다.${skippedOutstanding ? ` 이미 요청 중인 ${skippedOutstanding}건은 제외했습니다.` : ''}`); navigate('case'); }} /> : <Card><CardContent className="py-8">서류를 요청할 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card> : null}
         </main>
       </div>
 

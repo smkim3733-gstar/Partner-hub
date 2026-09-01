@@ -10,6 +10,7 @@ import {
   portalStateId,
   portalStateTableSql,
 } from '@/db/schema';
+import { PORTAL_STATE_LIMIT_BYTES } from '@/lib/pilot-readiness';
 
 type PortalStateRow = {
   payload: string;
@@ -105,7 +106,7 @@ export async function mutatePortalState<T>(
       .first<PortalStateRow>();
     const state = await update(row ? JSON.parse(row.payload) : null);
     const payload = JSON.stringify(state);
-    if (new TextEncoder().encode(payload).length > 900_000)
+    if (new TextEncoder().encode(payload).length > PORTAL_STATE_LIMIT_BYTES)
       throw new PortalStateConflict(
         '운영 데이터 저장 한도에 도달했습니다. 관리자 확인이 필요합니다.',
       );

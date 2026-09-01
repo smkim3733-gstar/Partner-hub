@@ -17,6 +17,7 @@ import { boundedBody } from './consulting-flow-http';
 import { FlowError } from './consulting-flow';
 import { portalStateId } from '@/db/schema';
 import type { RecoveryPreview } from './file-recovery';
+import { PORTAL_STATE_LIMIT_BYTES } from './pilot-readiness';
 
 type RecordValue = Record<string, unknown>;
 type RecoveryState = {
@@ -297,7 +298,7 @@ export async function recoverFile(request: Request, id: string) {
     timeline: [...state.timeline, timeline],
   };
   const payload = JSON.stringify(next);
-  if (new TextEncoder().encode(payload).length > 900_000)
+  if (new TextEncoder().encode(payload).length > PORTAL_STATE_LIMIT_BYTES)
     throw new PortalStateConflict('운영 데이터 저장 한도에 도달했습니다.');
   const current = await companyFileDatabase()
     .prepare('SELECT payload FROM portal_state WHERE id = ?1')

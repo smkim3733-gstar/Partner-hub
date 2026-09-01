@@ -9,6 +9,7 @@ import {
 } from '@/lib/partner-registration';
 import { normalizeLoginEmail, isValidLoginEmail } from '@/lib/member-email';
 import { passwordProblem } from '@/lib/password-policy';
+import { PORTAL_STATE_LIMIT_BYTES } from '@/lib/pilot-readiness';
 import {
   hashPassword,
   verifyPassword,
@@ -130,7 +131,7 @@ export const registerPassword = passwordHandler(async (request) => {
       members: [...state.members, member],
       membersRevision: membersRevisionOf(state) + 1,
     });
-    if (new TextEncoder().encode(payload).length > 900_000)
+    if (new TextEncoder().encode(payload).length > PORTAL_STATE_LIMIT_BYTES)
       throw new PasswordError(
         '등록 저장 한도에 도달했습니다. 대표님께 문의해 주세요.',
         503,

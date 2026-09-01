@@ -1,6 +1,7 @@
 import { hasDuplicateLoginEmail, isValidLoginEmail } from '@/lib/member-email';
 import type { PortalLoginStat } from '@/lib/portal-state';
 import { passwordIdentity, PasswordError } from '@/lib/password-store';
+import { isPilotSeedId, type PilotSeedKind } from '@/lib/pilot-readiness';
 
 type PortalPermissions = {
   sharedSchedule: boolean;
@@ -331,6 +332,7 @@ function mergeOwnedRecords(
   incoming: PortalRecord[],
   ownerKey: string,
   user: PortalUser,
+  seedKind: PilotSeedKind,
 ) {
   const owner = user.memberName ?? '';
   const incomingOwned = incoming.filter((record) => {
@@ -367,12 +369,19 @@ function mergeOwnedRecords(
       : record;
   });
   for (const record of incomingOwned) {
-    if (!existingIds.has(field(record, 'id')))
+    const id = field(record, 'id');
+    if (!existingIds.has(id)) {
+      if (isPilotSeedId(seedKind, id))
+        throw new PortalAccessError(
+          '가상 예시 식별자는 새 운영 기록에 사용할 수 없습니다.',
+          403,
+        );
       merged.push({
         ...record,
         [ownerKey]: owner,
         partnerMemberId: user.memberId,
       });
+    }
   }
   return merged;
 }
@@ -417,6 +426,7 @@ export function mergeStateForPortalUser(
     incoming.cases,
     'trainee',
     user,
+    'case',
   );
   const relatedState = { ...current, cases };
   const ownCaseIds = new Set(
@@ -463,6 +473,7 @@ export function mergeStateForPortalUser(
       incoming.tasks,
       'assignee',
       user,
+      'task',
     ),
     companyDocuments: mergeOwnedRecords(
       relatedState,
@@ -470,6 +481,7 @@ export function mergeStateForPortalUser(
       incoming.companyDocuments,
       'assignedTrainee',
       user,
+      'document',
     ),
     schedule: mergeOwnedRecords(
       relatedState,
@@ -477,6 +489,7 @@ export function mergeStateForPortalUser(
       incoming.schedule,
       'assignedTrainee',
       user,
+      'schedule',
     ),
     timeline: mergedTimeline,
     members: current.members,

@@ -163,6 +163,26 @@ void test('new partner records bind to the authenticated ID without changing an 
   );
 });
 
+void test('partner cannot create an operational record with a reserved seed ID', () => {
+  const current = fixture();
+  const incoming = {
+    ...structuredClone(current),
+    cases: [
+      ...structuredClone(current.cases),
+      {
+        id: 'case-1',
+        trainee: user.memberName,
+        partnerMemberId: user.memberId,
+        company: '실제 진행 위장 시도',
+      },
+    ],
+  };
+  assert.throws(
+    () => mergeStateForPortalUser(current, incoming, user),
+    /가상 예시 식별자는 새 운영 기록에 사용할 수 없습니다/,
+  );
+});
+
 void test('unambiguous legacy names remain usable, including normalized display names', () => {
   const current = fixture();
   current.members = [current.members[0]];

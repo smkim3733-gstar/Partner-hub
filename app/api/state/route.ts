@@ -1,6 +1,7 @@
 import {
   readPortalLoginStats,
   readPortalState,
+  readPortalStateSnapshot,
   recordPortalLogin,
   mutatePortalState,
   PortalStateConflict,
@@ -29,8 +30,11 @@ import {
   stateForPortalUser,
   stateWithPortalLoginStats,
 } from '@/lib/portal-auth';
+import {
+  PORTAL_STATE_LIMIT_BYTES,
+  portalStorageTelemetry,
+} from '@/lib/pilot-readiness';
 
-const MAX_STATE_BYTES = 900_000;
 const privateJson = (data: unknown, init?: ResponseInit) =>
   Response.json(data, {
     ...init,
@@ -58,7 +62,8 @@ function accessErrorResponse(error: unknown, request: Request) {
 
 export async function GET(request: Request) {
   try {
-    const rawState = await readPortalState();
+    const snapshot = await readPortalStateSnapshot();
+    const rawState = snapshot.state;
     const currentUser = await requirePortalUser(request, rawState);
     const state = await stateWithConsultingFlows(rawState);
     if (currentUser.role === 'trainee' && currentUser.memberId) {
@@ -72,6 +77,15 @@ export async function GET(request: Request) {
       state: responseState,
       currentUser,
       stateRevision: await portalRevision(rawState),
+      ...(currentUser.role === 'admin'
+        ? {
+            storage: portalStorageTelemetry({
+              payload: snapshot.payload,
+              state: rawState,
+              expectedUserId: currentUser.id,
+            }),
+          }
+        : {}),
     });
   } catch (error) {
     const accessResponse = accessErrorResponse(error, request);
@@ -86,12 +100,15 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    await requirePortalUser(request, await readPortalState());
+    const currentUser = await requirePortalUser(
+      request,
+      await readPortalState(),
+    );
     assertSameOrigin(request);
     const bodyText = await request.text();
     if (
       !bodyText ||
-      new TextEncoder().encode(bodyText).byteLength > MAX_STATE_BYTES
+      new TextEncoder().encode(bodyText).byteLength > PORTAL_STATE_LIMIT_BYTES
     ) {
       return privateJson(
         { error: '저장 데이터의 크기가 허용 범위를 초과했습니다.' },
@@ -180,6 +197,15 @@ export async function PUT(request: Request) {
       updatedAt: result.updatedAt,
       membersRevision: membersRevisionOf(result.state),
       stateRevision: await portalRevision(result.state),
+      ...(currentUser.role === 'admin'
+        ? {
+            storage: portalStorageTelemetry({
+              payload: JSON.stringify(result.state),
+              state: result.state,
+              expectedUserId: currentUser.id,
+            }),
+          }
+        : {}),
     });
   } catch (error) {
     const accessResponse = accessErrorResponse(error, request);

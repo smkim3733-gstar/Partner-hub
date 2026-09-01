@@ -1,3 +1,5 @@
+import type { PortalStorageTelemetry } from '@/lib/pilot-readiness';
+
 export type SaveStatus = 'saving' | 'saved' | 'error';
 type State = { membersRevision?: number };
 type Acknowledgement = { membersRevision?: number };
@@ -147,6 +149,7 @@ export async function putPortalSnapshot<T extends State>(
     error?: string;
     membersRevision?: number;
     stateRevision?: string;
+    storage?: PortalStorageTelemetry;
   };
   if (!response.ok || payload.ok !== true)
     throw new Error(

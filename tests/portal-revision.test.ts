@@ -4,6 +4,7 @@ import { GET, PUT } from '../app/api/state/route';
 import { writePortalState, readPortalState } from '../lib/portal-state';
 import { portalRevision } from '../lib/portal-revision';
 import { PortalSaveQueue, putPortalSnapshot } from '../lib/portal-save-queue';
+import type { PortalStorageTelemetry } from '../lib/pilot-readiness';
 
 const seed = () => ({
   version: 1,
@@ -43,8 +44,50 @@ async function snapshot() {
   return (await (await GET(request())).json()) as {
     state: ReturnType<typeof seed>;
     stateRevision: string;
+    storage: PortalStorageTelemetry;
   };
 }
+
+void test('state capacity telemetry is exact, top-level, and administrator-only', async () => {
+  const state = seed();
+  state.members.push({
+    id: 'partner-telemetry',
+    name: '가상 파트너',
+    email: 'partner-telemetry@example.invalid',
+    status: '활성',
+    permissions: {
+      ownCases: true,
+      sharedSchedule: true,
+      collaborationApply: true,
+      fileUpload: true,
+      quoteContract: false,
+    },
+  } as never);
+  await writePortalState(state);
+
+  const owner = await snapshot();
+  assert.equal(
+    owner.storage.storedBytes,
+    new TextEncoder().encode(JSON.stringify(state)).byteLength,
+  );
+  assert.equal(Object.hasOwn(owner.state, 'storage'), false);
+
+  const partnerResponse = await GET(
+    new Request('http://localhost/api/state', {
+      headers: {
+        'oai-authenticated-user-id': 'partner-telemetry-user',
+        'oai-authenticated-user-email': 'partner-telemetry@example.invalid',
+      },
+    }),
+  );
+  assert.equal(partnerResponse.status, 200, await partnerResponse.clone().text());
+  const partner = (await partnerResponse.json()) as Record<string, unknown>;
+  assert.equal(Object.hasOwn(partner, 'storage'), false);
+  assert.equal(
+    Object.hasOwn(partner.state as Record<string, unknown>, 'storage'),
+    false,
+  );
+});
 
 void test('revision ignores key order and login metadata but tracks business content', async () => {
   const a = {
