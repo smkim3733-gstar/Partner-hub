@@ -12,6 +12,7 @@ import {
   validatePartnerRegistration,
   type PartnerAccount,
 } from '@/lib/partner-registration';
+import { schedulePortalSaveConflict } from '@/lib/portal-conflict-metrics';
 
 export const dynamic = 'force-dynamic';
 const headers = { 'cache-control': 'private, no-store' };
@@ -124,8 +125,14 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof PortalAccessError || error instanceof FlowError)
       return response({ error: error.message }, error.status);
-    if (error instanceof PortalStateConflict)
+    if (error instanceof PortalStateConflict) {
+      schedulePortalSaveConflict({
+        source: 'admin_partner_registration',
+        kind: error.kind,
+        actorRole: 'admin',
+      });
       return response({ error: error.message }, 409);
+    }
     if (error instanceof SyntaxError)
       return response({ error: '등록 요청 형식이 올바르지 않습니다.' }, 400);
     console.error(

@@ -5,6 +5,8 @@ import { writePortalState, readPortalState } from '../lib/portal-state';
 import { portalRevision } from '../lib/portal-revision';
 import { PortalSaveQueue, putPortalSnapshot } from '../lib/portal-save-queue';
 import type { PortalStorageTelemetry } from '../lib/pilot-readiness';
+import type { PortalSaveConflictSummary } from '../lib/portal-conflict-metrics';
+import { flushWaitUntil } from './runtime-mock.mjs';
 
 const seed = () => ({
   version: 1,
@@ -45,6 +47,7 @@ async function snapshot() {
     state: ReturnType<typeof seed>;
     stateRevision: string;
     storage: PortalStorageTelemetry;
+    saveConflicts: PortalSaveConflictSummary | null;
   };
 }
 
@@ -71,6 +74,7 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
     new TextEncoder().encode(JSON.stringify(state)).byteLength,
   );
   assert.equal(Object.hasOwn(owner.state, 'storage'), false);
+  assert.equal(Object.hasOwn(owner.state, 'saveConflicts'), false);
 
   const partnerResponse = await GET(
     new Request('http://localhost/api/state', {
@@ -83,8 +87,13 @@ void test('state capacity telemetry is exact, top-level, and administrator-only'
   assert.equal(partnerResponse.status, 200, await partnerResponse.clone().text());
   const partner = (await partnerResponse.json()) as Record<string, unknown>;
   assert.equal(Object.hasOwn(partner, 'storage'), false);
+  assert.equal(Object.hasOwn(partner, 'saveConflicts'), false);
   assert.equal(
     Object.hasOwn(partner.state as Record<string, unknown>, 'storage'),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(partner.state as Record<string, unknown>, 'saveConflicts'),
     false,
   );
 });
@@ -112,6 +121,17 @@ void test('stale and versionless writers cannot replace a newer case or task; fr
   assert.equal(first.status, 200, await first.clone().text());
   b.state.cases[0].stage = '상담진행';
   assert.equal((await PUT(request(b.state, b.stateRevision))).status, 409);
+  await flushWaitUntil();
+  const conflictSummary = await snapshot();
+  assert.ok((conflictSummary.saveConflicts?.total ?? 0) >= 1);
+  assert.ok(
+    conflictSummary.saveConflicts?.rows.some(
+      (row) =>
+        row.source === 'state_save' &&
+        row.kind === 'state_revision' &&
+        row.actorRole === 'admin',
+    ),
+  );
   assert.equal((await PUT(request(b.state))).status, 409);
   assert.equal(
     ((await readPortalState()) as ReturnType<typeof seed>).tasks[0].status,

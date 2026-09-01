@@ -1,6 +1,22 @@
 import { DatabaseSync } from 'node:sqlite';
 const sqlite = new DatabaseSync(':memory:');
 export const objects = new Map();
+const waitUntilTasks = [];
+let waitUntilFailure = false;
+export function waitUntil(task) {
+  if (waitUntilFailure) {
+    waitUntilFailure = false;
+    throw new Error('synthetic waitUntil failure');
+  }
+  waitUntilTasks.push(Promise.resolve(task));
+}
+export async function flushWaitUntil() {
+  const tasks = waitUntilTasks.splice(0);
+  await Promise.allSettled(tasks);
+}
+export function failNextWaitUntil() {
+  waitUntilFailure = true;
+}
 class Statement {
   constructor(sql, values = []) {
     this.sql = sql;

@@ -81,6 +81,7 @@ import {
   operationalPilotRecords,
   type PortalStorageTelemetry,
 } from '@/lib/pilot-readiness';
+import type { PortalSaveConflictSummary } from '@/lib/portal-conflict-metrics';
 
 type View =
   | 'admin'
@@ -1211,6 +1212,7 @@ function AdminDashboard({
   tasks,
   members,
   storage,
+  saveConflicts,
 }: {
   onOpenCase: (item: CollaborationCase) => void;
   onOpenSchedule: () => void;
@@ -1220,6 +1222,7 @@ function AdminDashboard({
   tasks: WorkTask[];
   members: TraineeMember[];
   storage: PortalStorageTelemetry | null;
+  saveConflicts: PortalSaveConflictSummary | null;
 }) {
   const operationalCases = operationalPilotRecords('case', cases);
   const operationalDocuments = operationalPilotRecords('document', documents);
@@ -1238,6 +1241,20 @@ function AdminDashboard({
     members: countPilotSeedRecords('member', members),
   };
   const totalSeedRecords = Object.values(seedCounts).reduce((sum, count) => sum + count, 0);
+  const conflictKindLabels: Record<PortalSaveConflictSummary['rows'][number]['kind'], string> = {
+    member_revision: '명단 버전',
+    state_revision: '화면 버전',
+    recovery_proof: '회수 증적 보호',
+    cas_exhausted: '동시 저장 반복',
+    other: '분류 확인 필요',
+  };
+  const conflictCounts = saveConflicts?.rows.reduce<Record<string, number>>(
+    (result, row) => ({
+      ...result,
+      [row.kind]: (result[row.kind] ?? 0) + row.count,
+    }),
+    {},
+  ) ?? {};
   const metrics = [
     { label: '접수 단계', value: operationalCases.filter((item) => item.stage === '접수').length, hint: '가상 예시를 제외한 접수 진행', icon: ClipboardList },
     { label: '자료함 보완', value: operationalDocuments.filter((item) => item.status === '요청중' || item.status === '보완필요').length, hint: '가상 예시를 제외한 보완 자료', icon: FileCheck2 },
@@ -1270,7 +1287,7 @@ function AdminDashboard({
         ))}
       </section>
 
-      <section aria-label="파일럿 운영 준비" className="mt-6 grid gap-4 lg:grid-cols-2">
+      <section aria-label="파일럿 운영 준비" className="mt-6 grid gap-4 lg:grid-cols-3">
         <Card className="border-sky-200 bg-sky-50/40 shadow-none">
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base font-bold text-[#15375b]"><ClipboardCheck className="size-5 text-[#0877b8]" aria-hidden="true" /> 실사용 지표 기준</CardTitle>
@@ -1293,6 +1310,20 @@ function AdminDashboard({
               <p className="mt-3 text-xs leading-5 text-slate-600">저장 원문 {Math.ceil(storage.storedBytes / 1024).toLocaleString('ko-KR')}KB · 다음 요청 {Math.ceil(storage.nextRequestBytes / 1024).toLocaleString('ko-KR')}KB · 잠정 경보 {storage.warningPercent}%</p>
               {storage.warning ? <p role="alert" className="mt-2 text-xs font-bold leading-5 text-amber-800">상태 분할·아카이브 검토가 필요한 잠정 경보 구간입니다. 자동 삭제나 분할은 수행하지 않습니다.</p> : null}
             </> : <p className="text-sm text-slate-600">운영 상태를 저장한 뒤 정확한 사용량을 표시합니다.</p>}
+          </CardContent>
+        </Card>
+        <Card className={`${saveConflicts?.total ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200 bg-white'} shadow-none`}>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base font-bold text-[#15375b]"><AlertCircle className={`size-5 ${saveConflicts?.total ? 'text-amber-700' : 'text-slate-500'}`} aria-hidden="true" /> 최근 저장 충돌</CardTitle>
+            <CardDescription>자가가입·파트너 등록·운영 상태 저장의 최근 7일 익명 집계입니다.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {saveConflicts ? <>
+              <p className="text-2xl font-bold text-[#15375b]">{saveConflicts.total.toLocaleString('ko-KR')}건</p>
+              <p className="mt-2 text-xs leading-5 text-slate-600">{Object.entries(conflictCounts).length ? Object.entries(conflictCounts).map(([kind, count]) => `${conflictKindLabels[kind as keyof typeof conflictKindLabels]} ${count}`).join(' · ') : '기록된 충돌 없음'}</p>
+              <p className="mt-2 text-xs leading-5 text-slate-500">마지막 발생 {saveConflicts.lastConflictAt ? new Date(saveConflicts.lastConflictAt).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '없음'}</p>
+              <p className="mt-2 text-xs leading-5 text-slate-500">역할별 집계는 소규모 파일럿에서 개인 활동과 가까울 수 있습니다. 복구 성공률과 재입력 시간은 아직 측정하지 않습니다.</p>
+            </> : <p className="text-sm leading-6 text-slate-600">충돌 지표를 불러오지 못했습니다. 운영 데이터 저장과 재시도 기능은 계속 사용할 수 있습니다.</p>}
           </CardContent>
         </Card>
       </section>
@@ -3104,6 +3135,7 @@ export default function Home() {
   const [initializationRequired, setInitializationRequired] = useState(false);
   const [initializationBusy, setInitializationBusy] = useState(false);
   const [storage, setStorage] = useState<PortalStorageTelemetry | null>(null);
+  const [saveConflicts, setSaveConflicts] = useState<PortalSaveConflictSummary | null>(null);
   const [dataStatus, setDataStatus] = useState<'loading' | 'saving' | 'saved' | 'error'>('loading');
   const [saveError, setSaveError] = useState('');
   const [currentUser, setCurrentUser] = useState<PortalUser | null>(null);
@@ -3156,7 +3188,7 @@ export default function Home() {
     async function loadState() {
       try {
         const response = await fetch('/api/state', { cache: 'no-store' });
-        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; stateRevision?: string; storage?: PortalStorageTelemetry; error?: string; authenticatedEmail?: string };
+        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; stateRevision?: string; storage?: PortalStorageTelemetry; saveConflicts?: PortalSaveConflictSummary | null; error?: string; authenticatedEmail?: string };
         if (!response.ok) {
           if (active) {
             setAccessStatus(response.status);
@@ -3187,6 +3219,7 @@ export default function Home() {
         saveStateRevisionRef.current = payload.stateRevision;
         setCurrentUser(payload.currentUser);
         setStorage(payload.storage ?? null);
+        setSaveConflicts(payload.saveConflicts ?? null);
         setAccessStatus(null);
         if (payload.currentUser.role === 'trainee') {
           setView('trainee');
@@ -3541,7 +3574,7 @@ export default function Home() {
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
           {saveError && <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800"><p className="font-bold">변경사항 저장 확인 필요</p><p>{saveError}</p><p className="mt-1">입력은 현재 화면에 남아 있습니다. 새로고침하지 말고 연결을 확인한 뒤 다시 저장해 주세요. 로그인 만료 시 같은 계정으로 새 탭에서 로그인한 후 돌아오세요.</p><div className="mt-3 flex flex-wrap gap-3"><SecondaryButton onClick={() => { void saveQueue.flush().catch(() => {}); }} disabled={dataStatus === 'saving' || applicationPending}>변경사항 다시 저장</SecondaryButton><a className="inline-flex min-h-11 items-center underline" href="/account" target="_blank" rel="noopener noreferrer">새 탭에서 로그인</a><a className="inline-flex min-h-11 items-center underline" href="/" target="_blank" rel="noopener noreferrer">새 탭에서 최신 운영 내용 확인</a></div></div>}
-          {view === 'admin' ? <AdminDashboard onOpenCase={openCase} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} cases={cases} documents={companyDocuments} tasks={tasks} members={members} storage={storage} /> : null}
+          {view === 'admin' ? <AdminDashboard onOpenCase={openCase} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} cases={cases} documents={companyDocuments} tasks={tasks} members={members} storage={storage} saveConflicts={saveConflicts} /> : null}
           {view === 'pipeline' ? <PipelineBoard cases={cases} setCases={setCases} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} onOpenCase={openCase} /> : null}
           {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee} · {item.id.slice(-8)}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <><ApplicationDetailsSummary details={selectedCase.applicationDetails} /><ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /></> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate(cases.length ? 'consultation' : 'application')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}

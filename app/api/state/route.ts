@@ -34,6 +34,11 @@ import {
   PORTAL_STATE_LIMIT_BYTES,
   portalStorageTelemetry,
 } from '@/lib/pilot-readiness';
+import {
+  readPortalSaveConflictSummary,
+  schedulePortalSaveConflict,
+  type PortalConflictActorRole,
+} from '@/lib/portal-conflict-metrics';
 
 const privateJson = (data: unknown, init?: ResponseInit) =>
   Response.json(data, {
@@ -73,6 +78,16 @@ export async function GET(request: Request) {
       currentUser.role === 'admin'
         ? stateWithPortalLoginStats(state, await readPortalLoginStats())
         : stateForPortalUser(state, currentUser);
+    const saveConflicts =
+      currentUser.role === 'admin'
+        ? await readPortalSaveConflictSummary().catch((error) => {
+            console.error(
+              'Failed to read portal save conflict summary',
+              error instanceof Error ? error.name : 'unknown',
+            );
+            return null;
+          })
+        : null;
     return privateJson({
       state: responseState,
       currentUser,
@@ -84,6 +99,7 @@ export async function GET(request: Request) {
               state: rawState,
               expectedUserId: currentUser.id,
             }),
+            saveConflicts,
           }
         : {}),
     });
@@ -99,11 +115,14 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
+  let conflictActorRole: PortalConflictActorRole = 'unauthenticated';
   try {
     const currentUser = await requirePortalUser(
       request,
       await readPortalState(),
     );
+    conflictActorRole =
+      currentUser.role === 'admin' ? 'admin' : 'partner';
     assertSameOrigin(request);
     const bodyText = await request.text();
     if (
@@ -170,6 +189,7 @@ export async function PUT(request: Request) {
         ) {
           throw new PortalStateConflict(
             '다른 창에서 파트너 명단을 변경했습니다. 저장되지 않은 내용을 확인하고 새로고침 후 다시 수정해 주세요.',
+            'member_revision',
           );
         }
         const membersRevision =
@@ -186,6 +206,7 @@ export async function PUT(request: Request) {
           if ((await portalRevision(next)) === revision) return currentState;
           throw new PortalStateConflict(
             '다른 창에서 운영 데이터를 변경했거나 화면이 업데이트되었습니다. 현재 입력은 그대로 두고 최신 내용을 확인해 주세요. 신청서는 임시저장한 뒤 새로고침할 수 있습니다.',
+            'state_revision',
           );
         }
         return next;
@@ -210,8 +231,14 @@ export async function PUT(request: Request) {
   } catch (error) {
     const accessResponse = accessErrorResponse(error, request);
     if (accessResponse) return accessResponse;
-    if (error instanceof PortalStateConflict)
+    if (error instanceof PortalStateConflict) {
+      schedulePortalSaveConflict({
+        source: 'state_save',
+        kind: error.kind,
+        actorRole: conflictActorRole,
+      });
       return privateJson({ error: error.message }, { status: 409 });
+    }
     if (error instanceof ApplicationDetailsError)
       return privateJson({ error: error.message }, { status: 400 });
     if (error instanceof FlowError)

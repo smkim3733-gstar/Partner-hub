@@ -299,7 +299,10 @@ export async function recoverFile(request: Request, id: string) {
   };
   const payload = JSON.stringify(next);
   if (new TextEncoder().encode(payload).length > PORTAL_STATE_LIMIT_BYTES)
-    throw new PortalStateConflict('운영 데이터 저장 한도에 도달했습니다.');
+    throw new PortalStateConflict(
+      '운영 데이터 저장 한도에 도달했습니다.',
+      'capacity',
+    );
   const current = await companyFileDatabase()
     .prepare('SELECT payload FROM portal_state WHERE id = ?1')
     .bind(portalStateId)

@@ -11,6 +11,7 @@ import {
   portalStateTableSql,
 } from '@/db/schema';
 import { PORTAL_STATE_LIMIT_BYTES } from '@/lib/pilot-readiness';
+import type { PortalConflictKind } from '@/lib/portal-conflict-metrics';
 
 type PortalStateRow = {
   payload: string;
@@ -85,7 +86,15 @@ export async function writePortalState(state: unknown) {
   return updatedAt;
 }
 
-export class PortalStateConflict extends Error {}
+export class PortalStateConflict extends Error {
+  constructor(
+    message: string,
+    public readonly kind: PortalConflictKind = 'other',
+  ) {
+    super(message);
+    this.name = 'PortalStateConflict';
+  }
+}
 export type PortalDraftGuard = {
   ownerKey: string;
   draftId: string;
@@ -109,6 +118,7 @@ export async function mutatePortalState<T>(
     if (new TextEncoder().encode(payload).length > PORTAL_STATE_LIMIT_BYTES)
       throw new PortalStateConflict(
         '운영 데이터 저장 한도에 도달했습니다. 관리자 확인이 필요합니다.',
+        'capacity',
       );
     if (payload === row?.payload) return { state, updatedAt: null };
     const updatedAt = new Date().toISOString();
@@ -147,6 +157,7 @@ export async function mutatePortalState<T>(
   }
   throw new PortalStateConflict(
     '다른 창에서 먼저 저장했습니다. 최신 명단을 확인한 후 다시 시도해 주세요.',
+    'cas_exhausted',
   );
 }
 

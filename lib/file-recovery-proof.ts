@@ -82,5 +82,6 @@ export async function assertRecoveryProofUnchanged(
   if ((await portalRevision(before)) !== (await portalRevision(after)))
     throw new PortalStateConflict(
       '원본 회수의 연결 정보·확인 사유·확인 이력은 일반 자료 저장으로 변경할 수 없습니다. 최신 운영 화면을 확인해 주세요.',
+      'recovery_proof',
     );
 }

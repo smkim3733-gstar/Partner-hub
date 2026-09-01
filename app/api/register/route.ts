@@ -3,6 +3,7 @@ import { mutatePortalState, PortalStateConflict } from '@/lib/portal-state';
 import { membersRevisionOf } from '@/lib/partner-registration';
 import { assertSameOrigin } from '@/lib/consulting-flow-store';
 import { FlowError } from '@/lib/consulting-flow';
+import { schedulePortalSaveConflict } from '@/lib/portal-conflict-metrics';
 
 const MAX_REQUEST_BYTES = 12_000;
 
@@ -175,8 +176,14 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof FlowError)
       return Response.json({ error: error.message }, { status: error.status });
-    if (error instanceof PortalStateConflict)
+    if (error instanceof PortalStateConflict) {
+      schedulePortalSaveConflict({
+        source: 'public_registration',
+        kind: error.kind,
+        actorRole: 'unauthenticated',
+      });
       return Response.json({ error: error.message }, { status: 409 });
+    }
     console.error('Failed to submit partner registration', error);
     return Response.json(
       { error: '등록 신청을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.' },
