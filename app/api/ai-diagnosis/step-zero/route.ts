@@ -1,9 +1,11 @@
 import { env } from 'cloudflare:workers';
 
 import {
+  claimStepZeroRequest,
+  completeStepZeroRequest,
+  failStepZeroRequest,
   parseStepZeroResult,
   readLatestStepZeroRun,
-  saveStepZeroRun,
   type SavedStepZeroRun,
 } from '@/lib/ai-diagnosis';
 import {
@@ -23,6 +25,7 @@ type AiRuntimeEnvironment = {
 };
 
 type StepZeroRequest = {
+  requestId?: unknown;
   caseId?: unknown;
   company?: unknown;
   pilotContext?: unknown;
@@ -81,9 +84,25 @@ ${pilotContext}
   "complianceNotes": ["승인 보장 금지·전문가 확인 등 주의사항"],
   "nextAction": "김성민 대표가 다음에 수행할 한 가지 행동"
 }
+
 제공되지 않은 수치·성과·정책자금 승인 가능성을 만들지 말고 '확인 필요'라고 쓴다.
 모든 내용은 AI 생성 내부 초안이며 김성민 대표 검토 전이라는 전제로 작성한다.
 `;
+}
+
+async function requestFingerprint(
+  currentUserId: string,
+  caseId: string,
+  company: string,
+  pilotContext: string,
+) {
+  const bytes = new TextEncoder().encode(
+    JSON.stringify({ currentUserId, caseId, company, pilotContext }),
+  );
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('');
 }
 
 export async function GET(request: Request) {
@@ -117,6 +136,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json() as StepZeroRequest;
+    const requestId = asText(body.requestId, 100);
     const caseId = asText(body.caseId, 120);
     const company = asText(body.company, 100);
     const pilotContext = asText(body.pilotContext, 8_000);
@@ -125,6 +145,9 @@ export async function POST(request: Request) {
     }
     if (body.consentConfirmed !== true) {
       return Response.json({ error: '가상자료 확인과 외부 AI 시험 동의가 필요합니다.' }, { status: 400 });
+    }
+    if (!/^[a-zA-Z0-9_-]{16,100}$/.test(requestId)) {
+      return Response.json({ error: '안전한 생성 요청 식별값이 필요합니다.' }, { status: 400 });
     }
     if (!caseId || pilotContext.length < 20) {
       return Response.json({ error: '가상기업 설명을 20자 이상 입력해 주세요.' }, { status: 400 });
@@ -151,48 +174,85 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Anthropic API 키와 사용 모델 연결이 필요합니다.' }, { status: 503 });
     }
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 4_000,
-        system: CLAUDE_FLOW_PROJECT_INSTRUCTION,
-        messages: [{ role: 'user', content: stepZeroPrompt(company, pilotContext) }],
-      }),
-    });
-    const payload = await response.json() as AnthropicMessageResponse;
-    if (!response.ok) {
-      console.error('Anthropic Step 0 request failed', {
-        status: response.status,
-        requestId: payload.request_id,
-      });
-      return Response.json({ error: payload.error?.message || 'Claude Step 0 생성 요청이 실패했습니다.' }, { status: 502 });
-    }
-
-    const rawText = payload.content?.filter((block) => block.type === 'text').map((block) => block.text ?? '').join('\n').trim() ?? '';
-    const result = parseStepZeroResult(rawText);
-    const run: SavedStepZeroRun = {
-      id: crypto.randomUUID(),
+    const fingerprint = await requestFingerprint(
+      currentUser.id,
       caseId,
       company,
-      stage: 'Step 0',
-      status: '대표 검토 대기',
+      pilotContext,
+    );
+    const claim = await claimStepZeroRequest({
+      requestId,
+      requestFingerprint: fingerprint,
+      caseId,
+      company,
       instructionVersion: CLAUDE_FLOW_INSTRUCTION_VERSION,
       model,
-      result,
-      usage: {
-        inputTokens: payload.usage?.input_tokens ?? 0,
-        outputTokens: payload.usage?.output_tokens ?? 0,
-      },
+      createdByUserId: currentUser.id,
       createdAt: new Date().toISOString(),
-    };
-    await saveStepZeroRun(run, currentUser.id);
-    return Response.json({ run }, { status: 201 });
+    });
+    if (claim.state === 'completed') {
+      return Response.json({ run: claim.run, reused: true });
+    }
+    if (claim.state === 'conflict') {
+      return Response.json({ error: '같은 요청 식별값의 내용이 달라 생성할 수 없습니다.' }, { status: 409 });
+    }
+    if (claim.state === 'pending') {
+      return Response.json({ error: '이 진행의 Step 0 생성이 이미 처리 중입니다.' }, { status: 409 });
+    }
+    if (claim.state === 'failed') {
+      return Response.json({ error: '이 생성 요청은 완료되지 않았습니다. 입력을 다시 확인해 새 요청으로 실행해 주세요.' }, { status: 409 });
+    }
+
+    try {
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+          'x-api-key': apiKey,
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 4_000,
+          system: CLAUDE_FLOW_PROJECT_INSTRUCTION,
+          messages: [{ role: 'user', content: stepZeroPrompt(company, pilotContext) }],
+        }),
+      });
+      const payload = await response.json() as AnthropicMessageResponse;
+      if (!response.ok) {
+        console.error('Anthropic Step 0 request failed', {
+          status: response.status,
+          requestId: payload.request_id,
+        });
+        await failStepZeroRequest(requestId, currentUser.id, fingerprint);
+        return Response.json({ error: payload.error?.message || 'Claude Step 0 생성 요청이 실패했습니다.' }, { status: 502 });
+      }
+
+      const rawText = payload.content?.filter((block) => block.type === 'text').map((block) => block.text ?? '').join('\n').trim() ?? '';
+      const result = parseStepZeroResult(rawText);
+      const run: SavedStepZeroRun = {
+        id: requestId,
+        caseId,
+        company,
+        stage: 'Step 0',
+        status: '대표 검토 대기',
+        instructionVersion: CLAUDE_FLOW_INSTRUCTION_VERSION,
+        model,
+        result,
+        usage: {
+          inputTokens: payload.usage?.input_tokens ?? 0,
+          outputTokens: payload.usage?.output_tokens ?? 0,
+        },
+        createdAt: new Date().toISOString(),
+      };
+      if (!(await completeStepZeroRequest(run, currentUser.id, fingerprint))) {
+        throw new Error('Step 0 생성 결과의 실행 잠금을 확인하지 못했습니다.');
+      }
+      return Response.json({ run }, { status: 201 });
+    } catch (error) {
+      await failStepZeroRequest(requestId, currentUser.id, fingerprint);
+      throw error;
+    }
   } catch (error) {
     const accessResponse = accessErrorResponse(error);
     if (accessResponse) return accessResponse;

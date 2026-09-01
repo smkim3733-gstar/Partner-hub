@@ -92,6 +92,11 @@ CREATE INDEX IF NOT EXISTS ai_diagnosis_runs_case_idx
 ON ai_diagnosis_runs (case_id, created_at)
 `;
 
+export const aiDiagnosisRunsPendingCaseIndexSql = `
+CREATE UNIQUE INDEX IF NOT EXISTS ai_diagnosis_runs_pending_case_idx
+ON ai_diagnosis_runs (case_id) WHERE status = '생성중'
+`;
+
 export const portalStateId = 'keve-partner-hub';
 
 export const applicationDraftsTableSql = `

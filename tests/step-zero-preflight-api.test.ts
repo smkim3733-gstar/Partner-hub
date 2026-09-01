@@ -86,7 +86,11 @@ function state(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function request() {
+function request(
+  requestId = 'step-zero-request-0001',
+  pilotContext =
+    '업종: 가상 제조업\n요청사항: 가상 정책자금 가능성 확인\n모든 수치는 확인 필요',
+) {
   return new Request('http://localhost/api/ai-diagnosis/step-zero', {
     method: 'POST',
     headers: {
@@ -96,12 +100,12 @@ function request() {
       'oai-authenticated-user-email': 'seedy@sites.test',
     },
     body: JSON.stringify({
+      requestId,
       caseId,
       company,
       pilotMode: true,
       consentConfirmed: true,
-      pilotContext:
-        '업종: 가상 제조업\n요청사항: 가상 정책자금 가능성 확인\n모든 수치는 확인 필요',
+      pilotContext,
     }),
   });
 }
@@ -161,28 +165,29 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
   const oldModel = runtime.ANTHROPIC_MODEL;
   const oldFetch = globalThis.fetch;
   let externalCalls = 0;
+  const modelResponse = () => Response.json({
+    content: [
+      {
+        type: 'text',
+        text: JSON.stringify({
+          companyOverview: '가상 기업 현황은 추가 확인이 필요합니다.',
+          confirmedStrengths: [],
+          mainRisks: ['확인 필요'],
+          solutionCandidates: [],
+          verificationQuestions: ['가상 현황을 확인했습니까?'],
+          missingDocuments: [],
+          complianceNotes: ['대표 검토 전 내부 초안'],
+          nextAction: '가상 입력을 검토합니다.',
+        }),
+      },
+    ],
+    usage: { input_tokens: 10, output_tokens: 20 },
+  });
   runtime.ANTHROPIC_API_KEY = 'synthetic-step-zero-key';
   runtime.ANTHROPIC_MODEL = 'synthetic-step-zero-model';
   globalThis.fetch = async () => {
     externalCalls++;
-    return Response.json({
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            companyOverview: '가상 기업 현황은 추가 확인이 필요합니다.',
-            confirmedStrengths: [],
-            mainRisks: ['확인 필요'],
-            solutionCandidates: [],
-            verificationQuestions: ['가상 현황을 확인했습니까?'],
-            missingDocuments: [],
-            complianceNotes: ['대표 검토 전 내부 초안'],
-            nextAction: '가상 입력을 검토합니다.',
-          }),
-        },
-      ],
-      usage: { input_tokens: 10, output_tokens: 20 },
-    });
+    return modelResponse();
   };
 
   try {
@@ -228,6 +233,79 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
     const generated = await POST(request());
     assert.equal(generated.status, 201, await generated.clone().text());
     assert.equal(externalCalls, 1);
+
+    const reused = await POST(request());
+    assert.equal(reused.status, 200);
+    assert.equal((await reused.json() as { reused?: boolean }).reused, true);
+    assert.equal(externalCalls, 1, 'lost response retry must reuse the saved run');
+    assert.equal(
+      (await POST(request(
+        'step-zero-request-0001',
+        '업종: 다른 가상 제조업\n요청사항: 변경된 시험 내용을 검토합니다.',
+      ))).status,
+      409,
+    );
+    assert.equal(externalCalls, 1, 'changed content cannot reuse a request ID');
+
+    let releaseFetch!: () => void;
+    let notifyFetchStarted!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      notifyFetchStarted = resolve;
+    });
+    const fetchRelease = new Promise<void>((resolve) => {
+      releaseFetch = resolve;
+    });
+    globalThis.fetch = async () => {
+      externalCalls++;
+      notifyFetchStarted();
+      await fetchRelease;
+      return modelResponse();
+    };
+    const concurrentContext =
+      '업종: 동시 요청 가상기업\n요청사항: 같은 생성 요청의 중복 호출을 검증합니다.';
+    const first = POST(request('step-zero-concurrent-0001', concurrentContext));
+    await fetchStarted;
+    const duplicate = await POST(
+      request('step-zero-concurrent-0001', concurrentContext),
+    );
+    assert.equal(duplicate.status, 409);
+    const otherRequestWhilePending = await POST(
+      request('step-zero-concurrent-0002', concurrentContext),
+    );
+    assert.equal(otherRequestWhilePending.status, 409);
+    assert.equal(externalCalls, 2, 'concurrent duplicate must not call the model');
+    releaseFetch();
+    assert.equal((await first).status, 201);
+    const counts = await db
+      .prepare(`SELECT status, COUNT(*) count FROM ai_diagnosis_runs
+        WHERE case_id = ?1 GROUP BY status ORDER BY status`)
+      .bind(caseId)
+      .all<{ status: string; count: number }>();
+    assert.equal(counts.results.length, 1);
+    assert.equal(counts.results[0].status, '대표 검토 대기');
+    assert.equal(counts.results[0].count, 2);
+
+    globalThis.fetch = async () => {
+      externalCalls++;
+      return Response.json(
+        { error: { message: 'synthetic provider failure' } },
+        { status: 503 },
+      );
+    };
+    const failedId = 'step-zero-failed-request-0001';
+    assert.equal((await POST(request(failedId, concurrentContext))).status, 502);
+    assert.equal(externalCalls, 3);
+    assert.equal((await POST(request(failedId, concurrentContext))).status, 409);
+    assert.equal(externalCalls, 3, 'an uncertain failed request is not replayed');
+    globalThis.fetch = async () => {
+      externalCalls++;
+      return modelResponse();
+    };
+    assert.equal(
+      (await POST(request('step-zero-after-failure-0001', concurrentContext))).status,
+      201,
+    );
+    assert.equal(externalCalls, 4, 'a distinct deliberate retry can proceed');
   } finally {
     runtime.ANTHROPIC_API_KEY = oldKey;
     runtime.ANTHROPIC_MODEL = oldModel;

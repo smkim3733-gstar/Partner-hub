@@ -1,5 +1,6 @@
 import {
   aiDiagnosisRunsCaseIndexSql,
+  aiDiagnosisRunsPendingCaseIndexSql,
   aiDiagnosisRunsTableSql,
 } from '@/db/schema';
 import { companyFileDatabase } from '@/lib/company-files';
@@ -43,6 +44,7 @@ type AiDiagnosisRunRow = {
   result_json: string;
   input_tokens: number;
   output_tokens: number;
+  created_by_user_id: string;
   created_at: string;
 };
 
@@ -50,6 +52,7 @@ export async function ensureAiDiagnosisTables(db: D1Database) {
   await db.batch([
     db.prepare(aiDiagnosisRunsTableSql),
     db.prepare(aiDiagnosisRunsCaseIndexSql),
+    db.prepare(aiDiagnosisRunsPendingCaseIndexSql),
   ]);
 }
 
@@ -88,28 +91,144 @@ export function parseStepZeroResult(rawText: string): StepZeroResult {
   };
 }
 
-export async function saveStepZeroRun(run: SavedStepZeroRun, createdByUserId: string) {
+type StepZeroClaimInput = {
+  requestId: string;
+  requestFingerprint: string;
+  caseId: string;
+  company: string;
+  instructionVersion: string;
+  model: string;
+  createdByUserId: string;
+  createdAt: string;
+};
+
+export type StepZeroClaim =
+  | { state: 'claimed' }
+  | { state: 'pending' | 'conflict' | 'failed' }
+  | { state: 'completed'; run: SavedStepZeroRun };
+
+function runFromRow(row: AiDiagnosisRunRow): SavedStepZeroRun {
+  return {
+    id: row.id,
+    caseId: row.case_id,
+    company: row.company,
+    stage: 'Step 0',
+    status: '대표 검토 대기',
+    instructionVersion: row.instruction_version,
+    model: row.model,
+    result: parseStepZeroResult(row.result_json),
+    usage: { inputTokens: row.input_tokens, outputTokens: row.output_tokens },
+    createdAt: row.created_at,
+  };
+}
+
+async function diagnosisRun(id: string) {
   const db = companyFileDatabase();
   await ensureAiDiagnosisTables(db);
-  await db.prepare(`
+  return db.prepare(`
+    SELECT id, case_id, company, stage, status, instruction_version, model,
+      result_json, input_tokens, output_tokens, created_by_user_id, created_at
+    FROM ai_diagnosis_runs WHERE id = ?1
+  `).bind(id).first<AiDiagnosisRunRow>();
+}
+
+function storedFingerprint(row: AiDiagnosisRunRow) {
+  try {
+    const value = JSON.parse(row.result_json) as Record<string, unknown>;
+    return typeof value._requestFingerprint === 'string'
+      ? value._requestFingerprint
+      : '';
+  } catch {
+    return '';
+  }
+}
+
+export async function claimStepZeroRequest(
+  input: StepZeroClaimInput,
+): Promise<StepZeroClaim> {
+  const db = companyFileDatabase();
+  await ensureAiDiagnosisTables(db);
+  const result = await db.prepare(`
     INSERT INTO ai_diagnosis_runs (
       id, case_id, company, stage, status, instruction_version, model,
       result_json, input_tokens, output_tokens, created_by_user_id, created_at
-    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+    ) SELECT ?1, ?2, ?3, 'Step 0', '생성중', ?4, ?5, ?6, 0, 0, ?7, ?8
+    WHERE NOT EXISTS (
+      SELECT 1 FROM ai_diagnosis_runs
+      WHERE case_id = ?2 AND stage = 'Step 0' AND status = '생성중'
+    )
+    ON CONFLICT(id) DO NOTHING
   `).bind(
-    run.id,
-    run.caseId,
-    run.company,
-    run.stage,
+    input.requestId,
+    input.caseId,
+    input.company,
+    input.instructionVersion,
+    input.model,
+    JSON.stringify({ _requestFingerprint: input.requestFingerprint }),
+    input.createdByUserId,
+    input.createdAt,
+  ).run();
+  if (result.meta.changes === 1) return { state: 'claimed' };
+
+  const existing = await diagnosisRun(input.requestId);
+  if (!existing) return { state: 'pending' };
+  if (
+    existing.case_id !== input.caseId ||
+    existing.company !== input.company ||
+    existing.created_by_user_id !== input.createdByUserId ||
+    storedFingerprint(existing) !== input.requestFingerprint
+  )
+    return { state: 'conflict' };
+  return existing.status === '대표 검토 대기'
+    ? { state: 'completed', run: runFromRow(existing) }
+    : existing.status === '생성실패'
+      ? { state: 'failed' }
+    : { state: 'pending' };
+}
+
+export async function completeStepZeroRequest(
+  run: SavedStepZeroRun,
+  createdByUserId: string,
+  requestFingerprint: string,
+) {
+  const db = companyFileDatabase();
+  await ensureAiDiagnosisTables(db);
+  const result = await db.prepare(`
+    UPDATE ai_diagnosis_runs SET status = ?1, instruction_version = ?2,
+      model = ?3, result_json = ?4, input_tokens = ?5, output_tokens = ?6,
+      created_at = ?7
+    WHERE id = ?8 AND case_id = ?9 AND company = ?10
+      AND created_by_user_id = ?11 AND status = '생성중'
+      AND json_extract(result_json, '$._requestFingerprint') = ?12
+  `).bind(
     run.status,
     run.instructionVersion,
     run.model,
-    JSON.stringify(run.result),
+    JSON.stringify({ ...run.result, _requestFingerprint: requestFingerprint }),
     run.usage.inputTokens,
     run.usage.outputTokens,
-    createdByUserId,
     run.createdAt,
+    run.id,
+    run.caseId,
+    run.company,
+    createdByUserId,
+    requestFingerprint,
   ).run();
+  return result.meta.changes === 1;
+}
+
+export async function failStepZeroRequest(
+  requestId: string,
+  createdByUserId: string,
+  requestFingerprint: string,
+) {
+  const db = companyFileDatabase();
+  await ensureAiDiagnosisTables(db);
+  await db.prepare(`
+    UPDATE ai_diagnosis_runs SET status = '생성실패'
+    WHERE id = ?1 AND created_by_user_id = ?2 AND status = '생성중'
+      AND json_extract(result_json, '$._requestFingerprint') = ?3
+  `).bind(requestId, createdByUserId, requestFingerprint).run();
 }
 
 export async function readLatestStepZeroRun(caseId: string): Promise<SavedStepZeroRun | null> {
@@ -119,21 +238,10 @@ export async function readLatestStepZeroRun(caseId: string): Promise<SavedStepZe
     SELECT id, case_id, company, stage, status, instruction_version, model,
       result_json, input_tokens, output_tokens, created_at
     FROM ai_diagnosis_runs
-    WHERE case_id = ?1 AND stage = 'Step 0'
+    WHERE case_id = ?1 AND stage = 'Step 0' AND status = '대표 검토 대기'
     ORDER BY created_at DESC
     LIMIT 1
   `).bind(caseId).first<AiDiagnosisRunRow>();
   if (!row) return null;
-  return {
-    id: row.id,
-    caseId: row.case_id,
-    company: row.company,
-    stage: 'Step 0',
-    status: '대표 검토 대기',
-    instructionVersion: row.instruction_version,
-    model: row.model,
-    result: JSON.parse(row.result_json) as StepZeroResult,
-    usage: { inputTokens: row.input_tokens, outputTokens: row.output_tokens },
-    createdAt: row.created_at,
-  };
+  return runFromRow(row);
 }
