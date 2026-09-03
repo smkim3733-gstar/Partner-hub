@@ -10,6 +10,8 @@ import { PartnerSignout } from '@/components/partner-signout';
 import { PortalInitializationGate } from '@/components/portal-initialization-gate';
 import { PortalDialog } from '@/components/portal-dialog';
 import { DialogClose } from '@/components/ui/dialog';
+import { PortalNavigationButton } from '@/components/portal-navigation';
+import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { assignmentMemberId, assignmentDisplayName, newTaskAssignment } from '@/lib/assignment-display';
 import { prependApplicationCase, recordBelongsToCase } from '@/lib/application-case-links';
 import {
@@ -3811,12 +3813,15 @@ export default function Home() {
   }
 
   function navButton(item: { view: View; label: string; icon: IconType }) {
-    const Icon = item.icon;
     const active = item.view === view;
     return (
-      <button key={item.view} type="button" onClick={() => item.view === 'schedule' ? openSchedule(view === 'trainee' ? 'trainee' : 'admin') : navigate(item.view)} className={`flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-300/40 ${active ? 'bg-white text-[#15375b]' : 'text-blue-50 hover:bg-white/10'}`}>
-        <Icon className="size-[18px]" aria-hidden="true" /> {item.label}
-      </button>
+      <PortalNavigationButton
+        key={item.view}
+        active={active}
+        icon={item.icon}
+        label={item.label}
+        onSelect={() => item.view === 'schedule' ? openSchedule(view === 'trainee' ? 'trainee' : 'admin') : navigate(item.view)}
+      />
     );
   }
 
@@ -3830,21 +3835,31 @@ export default function Home() {
         <div className="m-4 min-h-24 rounded-xl border border-white/10 bg-white/5 p-4"><p className="text-xs text-blue-200">{isAdmin ? '대표 관리자' : currentMember ? partnerTypeOf(currentMember) : '파트너'}</p><p className="mt-1 text-sm font-semibold">{accountDisplayName}</p><p className="mt-2 flex items-center gap-1 text-xs text-blue-100/80"><ShieldCheck className="size-3.5" aria-hidden="true" /> {currentUser.authMethod === 'password' ? '이메일 로그인 확인' : 'ChatGPT 로그인 확인'}</p>{currentUser.authMethod === 'password' && <PartnerSignout disabled={dataStatus !== 'saved' || applicationPending || applicationDirty || fileRecoveryBusy} />}</div>
       </aside>
 
-      {mobileOpen ? (
-        <div className="fixed inset-0 z-40 lg:hidden">
-          <button type="button" onClick={() => setMobileOpen(false)} aria-label="메뉴 닫기" className="absolute inset-0 h-full w-full cursor-default bg-slate-950/40" />
-          <aside className="relative h-full w-[min(86vw,320px)] bg-[#112f50] p-4 text-white">
-            <div className="mb-5 flex items-center justify-between"><div className="flex items-center gap-3"><BrandMark /><span className="font-bold">파트너 허브</span></div><button type="button" onClick={() => setMobileOpen(false)} className="grid size-11 place-items-center rounded-xl hover:bg-white/10" aria-label="메뉴 닫기"><X /></button></div>
-            <nav aria-label="모바일 메뉴" className="space-y-2">{availableNavItems.map(navButton)}</nav>
-            <div className="mt-5 flex min-h-12 w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold"><span>{accountDisplayName}</span><ShieldCheck className="size-4" aria-hidden="true" /></div>
-            {currentUser.authMethod === 'password' && <PartnerSignout disabled={dataStatus !== 'saved' || applicationPending || applicationDirty || fileRecoveryBusy} />}
-          </aside>
-        </div>
-      ) : null}
+      <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
+        <SheetContent
+          id="mobile-navigation"
+          side="left"
+          showCloseButton={false}
+          initialFocus
+          finalFocus
+          aria-labelledby="mobile-navigation-title"
+          aria-describedby="mobile-navigation-description"
+          className="w-[min(86vw,320px)] max-w-none gap-0 bg-[#112f50] p-4 text-white lg:hidden"
+        >
+          <div className="mb-5 flex items-center justify-between">
+            <div className="flex items-center gap-3"><BrandMark /><SheetTitle id="mobile-navigation-title" className="font-bold text-white">파트너 허브</SheetTitle></div>
+            <SheetClose className="grid size-11 place-items-center rounded-xl hover:bg-white/10" aria-label="메뉴 닫기"><X aria-hidden="true" /></SheetClose>
+          </div>
+          <SheetDescription id="mobile-navigation-description" className="sr-only">현재 화면과 이동할 업무 메뉴를 선택합니다.</SheetDescription>
+          <nav aria-label="모바일 메뉴" className="space-y-2">{availableNavItems.map(navButton)}</nav>
+          <div className="mt-5 flex min-h-12 w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold"><span>{accountDisplayName}</span><ShieldCheck className="size-4" aria-hidden="true" /></div>
+          {currentUser.authMethod === 'password' && <PartnerSignout disabled={dataStatus !== 'saved' || applicationPending || applicationDirty || fileRecoveryBusy} />}
+        </SheetContent>
+      </Sheet>
 
       <div className="lg:pl-[244px]">
         <header className="sticky top-0 z-20 flex h-[76px] items-center justify-between border-b bg-white/95 px-4 backdrop-blur sm:px-6 lg:px-8">
-          <div className="flex items-center gap-2 lg:hidden"><button type="button" onClick={() => setMobileOpen(true)} className="grid size-11 place-items-center rounded-xl hover:bg-slate-100" aria-label="메뉴 열기"><Menu /></button><span className="hidden text-sm font-bold text-[#15375b] sm:inline">{activeLabel}</span></div>
+          <div className="flex items-center gap-2 lg:hidden"><button type="button" onClick={() => setMobileOpen(true)} aria-haspopup="dialog" aria-expanded={mobileOpen} aria-controls="mobile-navigation" className="grid size-11 place-items-center rounded-xl hover:bg-slate-100" aria-label="메뉴 열기"><Menu aria-hidden="true" /></button><span className="hidden text-sm font-bold text-[#15375b] sm:inline">{activeLabel}</span></div>
           <div className="hidden max-w-md flex-1 items-center gap-2 rounded-xl border bg-slate-50 px-3 text-slate-500 md:flex"><Search className="size-4" aria-hidden="true" /><input aria-label="기업명 또는 신청번호 검색" className="h-10 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400" placeholder="기업명 또는 신청번호 검색" /></div>
           <div className="ml-auto flex items-center gap-2">
             <Pill tone={dataStatusTone}>{dataStatusLabel}</Pill>

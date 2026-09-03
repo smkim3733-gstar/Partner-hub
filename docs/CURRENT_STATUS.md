@@ -1,6 +1,6 @@
 # 현재 구현과 다음 확인 순서
 
-2026-09-01 기준. 이 문서는 현재 코드의 기능과 운영 경계를 정리한다. 날짜별 검증 문서는 당시 기록이며, 과거의 배포 대기 문구나 테스트 수를 현재 상태로 해석하지 않는다. 실제 반영 결과는 Sites 배포 이력과 로컬 `outputs/release/` 기록을 기준으로 확인한다.
+2026-09-03 기준. 이 문서는 현재 코드의 기능과 운영 경계를 정리한다. 날짜별 검증 문서는 당시 기록이며, 과거의 배포 대기 문구나 테스트 수를 현재 상태로 해석하지 않는다. 실제 반영 결과는 Sites 배포 이력과 로컬 `outputs/release/` 기록을 기준으로 확인한다.
 
 ## 현재 사용할 수 있는 기능
 
@@ -28,13 +28,15 @@
 
 ## 검증과 배포 경계
 
-현재 소스는 자동 테스트 240개와 격리 workerd/D1/R2 검증 129개를 기준으로 확인한다. 최신 파일럿 준비 고도화의 lint·타입검사·빌드 결과와 운영 경계는 [파트너 파일럿 준비 고도화](PILOT_READINESS_ENHANCEMENT_2026_09_01.md), [저장 충돌 운영 지표](SAVE_CONFLICT_OBSERVABILITY_2026_09_01.md), [비밀번호 설정 링크 운영 지표](PASSWORD_LINK_OBSERVABILITY_2026_09_01.md), [협업신청 → 첫 상담 FLOW 운영 지표](APPLICATION_FIRST_CONSULTATION_METRICS_2026_09_01.md), [중복 입력·중복 요청 운영 지표](DUPLICATE_REQUEST_OBSERVABILITY_2026_09_01.md), [1차 공동분석 확인 간격 지표](JOINT_ANALYSIS_CONFIRMATION_METRICS_2026_09_01.md), [서류 수령 → 대표 검토 간격 지표](DOCUMENT_REVIEW_WAIT_METRICS_2026_09_01.md), [지원 요청 유형·처리시간 지표](SUPPORT_REQUEST_METRICS_2026_09_01.md), [진행 단계별 명시적 중단 지표](PIPELINE_DROPOFF_METRICS_2026_09_01.md)에 구분해 남긴다. 기존 DB/R2 연결과 추가형 DB 마이그레이션을 유지한다.
+현재 소스는 자동 테스트 241개와 격리 workerd/D1/R2 검증 129개를 기준으로 확인한다. 최신 파일럿 준비 고도화의 lint·타입검사·빌드 결과와 운영 경계는 [파트너 파일럿 준비 고도화](PILOT_READINESS_ENHANCEMENT_2026_09_01.md), [저장 충돌 운영 지표](SAVE_CONFLICT_OBSERVABILITY_2026_09_01.md), [비밀번호 설정 링크 운영 지표](PASSWORD_LINK_OBSERVABILITY_2026_09_01.md), [협업신청 → 첫 상담 FLOW 운영 지표](APPLICATION_FIRST_CONSULTATION_METRICS_2026_09_01.md), [중복 입력·중복 요청 운영 지표](DUPLICATE_REQUEST_OBSERVABILITY_2026_09_01.md), [1차 공동분석 확인 간격 지표](JOINT_ANALYSIS_CONFIRMATION_METRICS_2026_09_01.md), [서류 수령 → 대표 검토 간격 지표](DOCUMENT_REVIEW_WAIT_METRICS_2026_09_01.md), [지원 요청 유형·처리시간 지표](SUPPORT_REQUEST_METRICS_2026_09_01.md), [진행 단계별 명시적 중단 지표](PIPELINE_DROPOFF_METRICS_2026_09_01.md), [모바일 메뉴 접근성 보완](MOBILE_NAVIGATION_ACCESSIBILITY_2026_09_03.md)에 구분해 남긴다. 기존 DB/R2 연결과 추가형 DB 마이그레이션을 유지한다.
 
 운영 고객 파일·명단을 개발용으로 읽거나 복사하지 않는다. 가상 데이터로 테스트하며 실제 계정 등록·메일 발송·유료 AI를 검증 수단으로 사용하지 않는다. 서비스 전체 침투시험, 실제 파트너의 로그인 쿠키 왕복과 전체 레거시 이관은 완료로 표시하지 않는다.
 
 별도 승인에 따른 [로컬 가상 데이터 화면 점검](LOCAL_SCREEN_REVIEW_2026_09_01.md)으로 로그인·신청·첨부·회수·FLOW 초기 역할과 재시도를 확인했다. 파트너 홈의 고정 예시 목록·수치를 허용된 저장 데이터로 연결하고, FLOW의 비정상 응답을 한국어 재시도 안내로 보완했다. 키보드 전용 조작 및 전체 FLOW 단계의 브라우저 검증은 미완료로 구분한다. 기존 3항목 자동 점검은 재개하지 않는다. 후속 화면 수정의 반영 상태는 `outputs/release/ui-screen-deployment.json`을 기준으로 한다.
 
 [키보드·대화상자 후속 점검](KEYBOARD_DIALOG_REVIEW_2026_09_01.md)에서는 자료 등록창·업무 추가창의 초점 이동, Escape 닫기·초점 복원, 업로드 중 닫기 차단과 짧은 모바일 화면 잘림을 보완했다. 표준 Tab 이동·Enter 실행의 도구 한계는 별도로 기록했고 전체 키보드 검증 완료로 간주하지 않는다. 이 수정의 운영 반영 결과는 `outputs/release/keyboard-dialog-deployment.json`을 기준으로 한다.
+
+[모바일 메뉴 접근성 보완](MOBILE_NAVIGATION_ACCESSIBILITY_2026_09_03.md)에서는 직접 만든 모바일 오버레이를 공통 Sheet로 교체해 대화상자 이름·설명, 초점 유지, Escape 닫기와 초점 복원 경계를 통일했다. 현재 화면에는 `aria-current="page"`를 제공하고 메뉴 열기 버튼에는 열림 상태와 제어 대상을 연결했다. 실제 키보드 조작 전수검증 완료로 확대 해석하지 않으며 서버·DB/R2·권한·운영자료는 변경하지 않았다.
 
 ## 이어서 진행할 점검
 
