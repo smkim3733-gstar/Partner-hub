@@ -9,6 +9,30 @@ type Input = {
 };
 type Controls = Pick<RecoveryControls, 'beginRecovery' | 'finishRecovery'>;
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function confirmRecoveryResponse(response: Response) {
+  let value: unknown;
+  try {
+    value = await response.json();
+  } catch {
+    throw new Error(
+      '회수 저장 응답을 읽지 못했습니다. 같은 원본과 확인 내용으로 다시 시도해 주세요.',
+    );
+  }
+  const result = isObject(value) ? value : null;
+  if (!response.ok || result?.ok !== true) {
+    const serverError = result?.error;
+    throw new Error(
+      typeof serverError === 'string' && serverError.trim()
+        ? serverError
+        : '회수 저장을 확인하지 못했습니다. 같은 원본과 확인 내용으로 다시 시도해 주세요.',
+    );
+  }
+}
+
 /** One confirmation owns the editor until the user reloads fresh server state. */
 export class FileRecoverySubmission {
   private request: { fileId: string; url: string; body: string } | null = null;
@@ -74,12 +98,7 @@ export class FileRecoverySubmission {
         headers: { 'content-type': 'application/json' },
         body: this.request.body,
       });
-      const result = (await response.json()) as {
-        ok?: boolean;
-        error?: string;
-      };
-      if (!response.ok || result?.ok !== true)
-        throw new Error(result?.error || '회수 저장을 확인하지 못했습니다.');
+      await confirmRecoveryResponse(response);
       this.saved = true;
     } catch (error) {
       // Once dispatched, even an error can hide a committed recovery. Preserve

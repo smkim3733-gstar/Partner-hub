@@ -18,6 +18,7 @@
 | [가상 진단 검토대기 등록 확인 안전성](DIAGNOSIS_REVIEW_QUEUE_CONFIRMATION_SAFETY_2026_09_03.md) | 가상 A 판정 확인, 최신 근거 재검증과 파생 업무의 운영 알림·지표 제외 |
 | [Step 0 가상시험 입력 안전성](STEP_ZERO_PILOT_INPUT_SAFETY_2026_09_03.md) | 빈 가상 입력, 변경 후 재동의, 초과·식별정보의 외부 호출 전 차단 |
 | [AI 진단 준비·Step 0 응답 검증 안전성](AI_DIAGNOSIS_RESPONSE_VALIDATION_SAFETY_2026_09_03.md) | 생성 준비 논리와 현재 진행·기업·요청별 결과 구조 검증 |
+| [원본 회수 응답 검증 안전성](FILE_RECOVERY_RESPONSE_VALIDATION_SAFETY_2026_09_03.md) | 회수 성공 구조 검증, 안전한 오류와 동일 요청 재시도 안내 |
 | [서류요청 제출기한 알림 안전성](DOCUMENT_REQUEST_DEADLINE_ALERT_SAFETY_2026_09_03.md) | 한국시간 기준 기한 상태와 후속 업무 알림·우선순위 동기화 |
 | [누락 요청서류 제출기한 변경 확인 안전성](DOCUMENT_REQUEST_DUE_DATE_CONFIRMATION_SAFETY_2026_09_03.md) | 자료·연결 업무·타임라인 변경 전 영향 확인과 최신 상태 재검증 |
 | [서류요청 등록 입력 안전성](DOCUMENT_REQUEST_ENTRY_SAFETY_2026_09_03.md) | 추천 서류 명시 추가, 실제 저장 계약 정리, 서류명·중복 검증 |

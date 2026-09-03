@@ -162,6 +162,31 @@ void test('server denial and unreadable responses stay locked until same-request
   }
 });
 
+void test('recovery response preserves safe server errors and replaces unreadable payload details with retry guidance', async () => {
+  const denied = new FileRecoverySubmission();
+  await assert.rejects(
+    denied.submit(input(), controls(), async () =>
+      Response.json({ error: '최신 원본 상태를 다시 확인해 주세요.' }, { status: 409 }),
+    ),
+    /최신 원본 상태를 다시 확인해 주세요/,
+  );
+
+  const unreadable = new FileRecoverySubmission();
+  await assert.rejects(
+    unreadable.submit(
+      input(),
+      controls(),
+      async () => new Response('<html>gateway detail</html>'),
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.match(error.message, /회수 저장 응답을 읽지 못했습니다/);
+      assert.doesNotMatch(error.message, /gateway detail|SyntaxError/);
+      return true;
+    },
+  );
+});
+
 void test('retry cannot adopt a changed login identity or another original and never flushes pending edits again', async () => {
   const control = controls(),
     submission = new FileRecoverySubmission();
