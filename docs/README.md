@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md) | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목 |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md) | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인 |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md) | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항 |
+| [진행현황 CSV 내보내기](PIPELINE_CSV_EXPORT_2026_09_03.md) | 대표용 필터 결과 CSV, 가상 예시·민감 필드 제외와 수식 주입 차단 |
 | [권한 내 기업·신청번호 검색](GLOBAL_CASE_SEARCH_2026_09_03.md) | 현재 계정 진행만 대상으로 하는 검색, 반복 신청 모호성 처리와 검증 경계 |
 | [모바일 메뉴 접근성 보완](MOBILE_NAVIGATION_ACCESSIBILITY_2026_09_03.md) | 공통 Sheet 기반 모바일 메뉴, 초점·Escape·현재 화면 전달 경계 |
 | [진행 단계별 명시적 중단 지표](PIPELINE_DROPOFF_METRICS_2026_09_01.md) | 신규 추적 신청의 명시적 중단·재개, FLOW/수동 단계 분리 집계와 보존 경계 |

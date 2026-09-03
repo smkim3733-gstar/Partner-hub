@@ -42,6 +42,7 @@ import {
   Clock3,
   ExternalLink,
   FileCheck2,
+  FileDown,
   FilePlus2,
   FileText,
   FolderOpen,
@@ -102,6 +103,7 @@ import {
 } from '@/lib/support-request-metrics';
 import type { PipelineDropoffSummary } from '@/lib/pipeline-dropoff-metrics';
 import { resolvePortalCaseSearch } from '@/lib/portal-case-search';
+import { buildPortalCaseCsv, portalCaseCsvFileName } from '@/lib/portal-case-csv';
 
 type View =
   | 'admin'
@@ -1963,6 +1965,36 @@ function PipelineBoard({
   const consultationCount = accountCases.filter((item) => item.stage === '상담예약' || item.stage === '상담진행').length;
   const contractCount = accountCases.filter((item) => item.stage === '계약').length;
 
+  function exportVisibleCases() {
+    const exportCases = operationalPilotRecords('case', visibleCases);
+    if (!exportCases.length) {
+      notify('현재 조건에 내보낼 운영 진행이 없습니다.');
+      return;
+    }
+
+    const csv = buildPortalCaseCsv(exportCases.map((item) => ({
+      id: item.id,
+      company: item.company,
+      service: item.service,
+      assignee: assignmentDisplayName(item, item.trainee, members),
+      partnerType: casePartnerType(item, members),
+      stage: item.stage,
+      nextAction: item.nextAction,
+      updatedAt: item.updatedAt,
+      consultationCount: item.consultationCount,
+      idleDays: item.idleDays,
+      urgent: item.urgent,
+      discontinued: item.pipelineLifecycleStatus === 'discontinued',
+    })));
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = portalCaseCsvFileName();
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
+    notify(`현재 조건의 운영 진행 ${exportCases.length}건을 CSV로 내보냈습니다.`);
+  }
+
   function moveCase(item: CollaborationCase, stage: PipelineStage) {
     if (item.flowManaged) { notify('이 진행은 상담 FLOW의 완료 조건에 따라 자동 변경됩니다.'); return; }
     setCases((current) => current.map((record) => record.id === item.id ? { ...record, stage, nextAction: stageNextActions[stage], updatedAt: '방금 전', idleDays: 0, urgent: false } : record));
@@ -1996,7 +2028,7 @@ function PipelineBoard({
         eyebrow={isAdmin ? '전체 협업 통제판' : '담당기업 진행판'}
         title="전체 협업 진행현황"
         description={isAdmin ? '파트너 유형별 협업기업을 단계별로 확인하고 장기 미진행 건의 다음 행동을 바로 결정합니다.' : '본인이 담당하는 기업만 표시되며 드래그 없이 단계 선택으로 진행상태를 변경할 수 있습니다.'}
-        action={<Pill tone={staleCount ? 'red' : 'green'}>7일 이상 정체 {staleCount}건</Pill>}
+        action={<div className="flex flex-wrap gap-2"><Pill tone={staleCount ? 'red' : 'green'}>7일 이상 정체 {staleCount}건</Pill>{isAdmin ? <SecondaryButton onClick={exportVisibleCases}><FileDown className="size-4" aria-hidden="true" /> 운영 CSV 내보내기</SecondaryButton> : null}</div>}
       />
 
       <section aria-label="협업 파이프라인 요약" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
