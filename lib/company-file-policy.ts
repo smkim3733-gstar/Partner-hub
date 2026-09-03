@@ -75,7 +75,16 @@ export function documentCategoryFromFileName(
 export type ApplicationAttachment = {
   file: File;
   category: CompanyFileCategory;
+  categoryConfirmed: boolean;
 };
+export function applicationAttachmentCategoryProblem(
+  items: ApplicationAttachment[],
+) {
+  const unconfirmed = items.find((item) => !item.categoryConfirmed);
+  return unconfirmed
+    ? `${unconfirmed.file.name}: 자료종류를 확인해 주세요.`
+    : '';
+}
 export function applicationAttachmentTitle(item: ApplicationAttachment) {
   return item.category === '상담녹취'
     ? `신청 전 전화상담 녹취자료 · ${item.file.name}`
@@ -102,7 +111,7 @@ export function appendApplicationFiles(
       : documentCategoryFromFileName(file.name);
     const issue = companyFileProblem(file, category);
     if (issue) throw new Error(`${file.name}: ${issue}`);
-    next.push({ file, category });
+    next.push({ file, category, categoryConfirmed: recording });
   }
   if (next.length > MAX_APPLICATION_FILES)
     throw new Error(

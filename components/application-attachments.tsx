@@ -9,6 +9,7 @@ import {
   companyFileAccept,
   recordingFileAccept,
   companyCategoryLabel,
+  companyFileCategories,
   isAudioFile,
   MAX_APPLICATION_FILES,
   type ApplicationAttachment,
@@ -138,6 +139,43 @@ export function ApplicationAttachments({
                       ? ' · 전화상담 내용 문서 / 대표 검토 전'
                       : ''}
                 </p>
+                <label className="mt-3 grid gap-1.5 font-medium">
+                  <span>자료종류</span>
+                  <select
+                    value={item.category}
+                    onChange={(event) => {
+                      onChange(value.map((other) => other === item
+                        ? { ...other, category: event.target.value as ApplicationAttachment['category'], categoryConfirmed: false }
+                        : other));
+                      setError('');
+                      setNotice('자료종류를 바꿨습니다. 현재 선택을 확인해 주세요.');
+                    }}
+                    className="min-h-11 rounded-md border bg-background px-3"
+                    aria-label={`${item.file.name} 자료종류`}
+                  >
+                    {companyFileCategories.map((category) => (
+                      <option key={category} value={category}>{companyCategoryLabel(category)}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="mt-3 flex min-h-11 items-center gap-2 font-medium">
+                  <input
+                    type="checkbox"
+                    checked={item.categoryConfirmed}
+                    onChange={(event) => {
+                      onChange(value.map((other) => other === item
+                        ? { ...other, categoryConfirmed: event.target.checked }
+                        : other));
+                      setError('');
+                      setNotice(event.target.checked ? '자료종류를 확인했습니다.' : '자료종류 확인을 해제했습니다.');
+                    }}
+                    className="size-4 accent-primary"
+                  />
+                  현재 파일의 자료종류 확인
+                </label>
+                {!item.categoryConfirmed && (
+                  <p className="mt-1 font-semibold text-amber-700">파일명 기준 제안입니다. 제출 전에 직접 확인해 주세요.</p>
+                )}
               </div>
               <Button
                 type="button"

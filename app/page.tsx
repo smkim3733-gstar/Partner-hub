@@ -118,7 +118,7 @@ import { AdminFileInventory } from '@/components/admin-file-inventory';
 import { FileRecoveryNote } from '@/components/file-recovery-note';
 import type { RecoveryControls } from '@/lib/file-recovery';
 import { partnerTypes, type PartnerType, type PartnerAccount as TraineeMember, type PartnerRegistrationResult } from '@/lib/partner-registration';
-import { companyCategoryLabel, companyFileProblem, applicationAttachmentTitle, MAX_APPLICATION_FILES, type ApplicationAttachment } from '@/lib/company-file-policy';
+import { applicationAttachmentCategoryProblem, companyCategoryLabel, companyFileProblem, applicationAttachmentTitle, MAX_APPLICATION_FILES, type ApplicationAttachment } from '@/lib/company-file-policy';
 import {
   countPilotSeedRecords,
   emptyPortalStateBaseline,
@@ -2992,6 +2992,8 @@ function ApplicationForm({
       return;
     }
     if (selectedFiles.length && !canUpload) { setSubmitError('현재 계정에는 자료 업로드 권한이 없습니다.'); return; }
+    const categoryProblem = applicationAttachmentCategoryProblem(selectedFiles);
+    if (categoryProblem) { setSubmitError(categoryProblem); return; }
     if (selectedFiles.some(item => item.category === '상담녹취') && !recordingConsent) { setSubmitError('녹취자료의 저장·내부 검토·담당 파트너 공유 권한을 확인해 주세요.'); return; }
     const invalidFile = selectedFiles.map(item => companyFileProblem(item.file, item.category)).find(Boolean);
     if (invalidFile || selectedFiles.length > MAX_APPLICATION_FILES) { setSubmitError(invalidFile || `첨부는 ${MAX_APPLICATION_FILES}개까지 가능합니다.`); return; }

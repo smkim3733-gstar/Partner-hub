@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ApplicationAttachments } from '../components/application-attachments';
 import {
   appendApplicationFiles,
+  applicationAttachmentCategoryProblem,
   applicationAttachmentTitle,
   companyFileProblem,
   documentCategoryFromFileName,
@@ -19,7 +20,7 @@ void test('intake UI exposes separate labeled recording and company inputs with 
   const file = makeFile('<script>.txt');
   const html = renderToStaticMarkup(
     createElement(ApplicationAttachments, {
-      value: [{ file, category: '상담녹취' }],
+      value: [{ file, category: '상담녹취', categoryConfirmed: false }],
       onChange: () => {},
       disabled: false,
     }),
@@ -31,6 +32,8 @@ void test('intake UI exposes separate labeled recording and company inputs with 
   assert.match(html, /&lt;script&gt;\.txt/);
   assert.ok(!html.includes('<script>.txt'));
   assert.match(html, /외부 전송을 하지 않습니다/);
+  assert.match(html, /현재 파일의 자료종류 확인/);
+  assert.match(html, /파일명 기준 제안/);
 });
 
 void test('initial application combines business sources with explicit call documents and audio', () => {
@@ -47,6 +50,17 @@ void test('initial application combines business sources with explicit call docu
   assert.deepEqual(
     all.map((item) => item.category),
     ['사업자등록증', '크레탑', '상담녹취', '상담녹취'],
+  );
+  assert.deepEqual(
+    all.map((item) => item.categoryConfirmed),
+    [false, false, true, true],
+  );
+  assert.match(applicationAttachmentCategoryProblem(all), /사업자등록증\.pdf/);
+  assert.equal(
+    applicationAttachmentCategoryProblem(
+      all.map((item) => ({ ...item, categoryConfirmed: true })),
+    ),
+    '',
   );
   assert.match(
     applicationAttachmentTitle(all[2]),
@@ -72,7 +86,7 @@ void test('initial application combines business sources with explicit call docu
 
 void test('unsupported, empty, oversized and excess attachments retain the current selection', () => {
   const existing: ApplicationAttachment[] = [
-    { file: makeFile('크레탑.pdf'), category: '크레탑' },
+    { file: makeFile('크레탑.pdf'), category: '크레탑', categoryConfirmed: true },
   ];
   assert.throws(
     () =>
