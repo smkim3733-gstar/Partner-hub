@@ -47,6 +47,11 @@ import {
   putPortalSnapshot,
 } from '@/lib/portal-save-queue';
 import { PortalFlowProjectionRefresh } from '@/lib/portal-flow-projection-refresh';
+import type { PortalUser } from '@/lib/portal-auth';
+import {
+  PortalStateResponseError,
+  readPortalStateResponse,
+} from '@/lib/portal-state-response';
 import { TransientMessageGuard } from '@/lib/transient-message-guard';
 import { ApplicationSubmission } from '@/lib/application-submission';
 import { uploadCompanyFile, type StoredCompanyFile } from '@/lib/company-file-upload';
@@ -414,17 +419,6 @@ type PortalState = {
   members: TraineeMember[];
   membersRevision?: number;
   diagnosisAssessments?: DiagnosisAssessment[];
-};
-
-type PortalUser = {
-  id: string;
-  email: string;
-  displayName: string;
-  role: 'admin' | 'trainee';
-  memberId: string | null;
-  memberName: string | null;
-  permissions: TraineeMember['permissions'] | null;
-  authMethod?: 'password' | 'chatgpt';
 };
 
 function isPortalState(value: unknown): value is PortalState {
@@ -3849,19 +3843,10 @@ export default function Home() {
     async function loadState() {
       try {
         const response = await fetch('/api/state', { cache: 'no-store' });
-        const payload = await response.json() as { state?: unknown; currentUser?: PortalUser; stateRevision?: string; storage?: PortalStorageTelemetry; saveConflicts?: PortalSaveConflictSummary | null; passwordLinks?: PasswordLinkSummary | null; applicationFunnel?: ApplicationConsultationSummary | null; duplicateRequests?: DuplicateRequestSummary | null; jointAnalysisConfirmation?: JointAnalysisConfirmationSummary | null; documentReviewWait?: DocumentReviewWaitSummary | null; supportRequests?: SupportRequestSummary | null; pipelineDropoff?: PipelineDropoffSummary | null; error?: string; authenticatedEmail?: string };
-        if (!response.ok) {
-          if (active) {
-            setAccessStatus(response.status);
-          }
-          throw new Error(payload.error || '로그인 정보를 확인하지 못했습니다.');
-        }
-        if (!payload.currentUser) throw new Error('로그인 사용자 정보가 없습니다.');
-        if (typeof payload.stateRevision !== 'string') throw new Error('운영 데이터 버전을 확인하지 못했습니다.');
+        const payload = await readPortalStateResponse(response, isPortalState);
         if (!active) return;
 
-        if (payload.state !== null && payload.state !== undefined) {
-          if (!isPortalState(payload.state)) throw new Error('Invalid portal state');
+        if (payload.state !== null) {
           saveQueue.initialize(payload.state);
           setConsultationNumber(payload.state.consultationNumber);
           setTimeline(payload.state.timeline);
@@ -3897,6 +3882,8 @@ export default function Home() {
         setDataStatus(payload.state === null ? 'loading' : 'saved');
       } catch (error) {
         if (active) {
+          if (error instanceof PortalStateResponseError)
+            setAccessStatus(error.status);
           setDataStatus('error');
           setAccessError(error instanceof Error ? error.message : '사이트 접근 권한을 확인하지 못했습니다.');
         }
