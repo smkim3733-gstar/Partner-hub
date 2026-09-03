@@ -8,7 +8,13 @@ import {
   prepareConsultation,
   type ConsultationPayload,
 } from '@/lib/legacy-consultation';
-import { prepareDocumentRequest } from '@/lib/legacy-document-request';
+import {
+  documentRequestItemNameMaxLength,
+  documentRequestSuggestions,
+  emptyDocumentRequestItems,
+  prepareDocumentRequest,
+  prepareDocumentRequestItem,
+} from '@/lib/legacy-document-request';
 import { diagnosisDocumentsForCase, hasOpenDiagnosisReviewTask } from '@/lib/diagnosis-preflight';
 import { companyDocumentStatusError } from '@/lib/company-document-review';
 import { googleCalendarDraftUrl, scheduleDateGroups } from '@/lib/schedule-display';
@@ -239,7 +245,7 @@ type CompanyDocument = {
 };
 
 type DocumentRequestPayload = {
-  items: Array<{ name: string; required: boolean }>;
+  items: Array<{ name: string }>;
   dueDate: string;
   skippedOutstanding: number;
 };
@@ -3428,20 +3434,25 @@ function ConsultationForm({
 }
 
 function DocumentRequest({ caseItem, requestNumber, outstandingNames, onSave, onCancel }: { caseItem: CollaborationCase; requestNumber: number; outstandingNames: string[]; onSave: (payload: DocumentRequestPayload) => void; onCancel: () => void }) {
-  const [items, setItems] = useState([
-    { name: '사업자등록증', required: true },
-    { name: '크레탑 기업정보', required: true },
-    { name: '최근 3개년 재무제표', required: true },
-    { name: '부가가치세 과세표준증명', required: false },
-  ]);
+  const [items, setItems] = useState(emptyDocumentRequestItems);
   const [newItem, setNewItem] = useState('');
+  const newItemRef = useRef<HTMLInputElement>(null);
   const dueDateRef = useRef<HTMLInputElement>(null);
   const [formError, setFormError] = useState('');
 
-  function addItem() {
-    if (!newItem.trim()) return;
-    setItems((current) => [...current, { name: newItem.trim(), required: true }]);
+  function addItem(name = newItem) {
+    const result = prepareDocumentRequestItem(
+      name,
+      [...items.map((item) => item.name), ...outstandingNames],
+    );
+    if (!result.ok) {
+      setFormError(result.error);
+      newItemRef.current?.focus();
+      return;
+    }
+    setItems((current) => [...current, result.item]);
     setNewItem('');
+    setFormError('');
   }
 
   function saveRequest() {
@@ -3450,6 +3461,7 @@ function DocumentRequest({ caseItem, requestNumber, outstandingNames, onSave, on
     if (!result.ok) {
       setFormError(result.error);
       if (result.field === 'dueDate') dueDateRef.current?.focus();
+      else newItemRef.current?.focus();
       return;
     }
     setFormError('');
@@ -3475,18 +3487,42 @@ function DocumentRequest({ caseItem, requestNumber, outstandingNames, onSave, on
 
           <p className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-600">이 화면은 요청 서류·제출기한만 저장합니다. 요청대상은 기업대표, 전달 담당자는 현재 진행의 담당 파트너로 기록됩니다. 별도 안내문이나 다른 공개범위가 필요하면 상담 FLOW에서 등록하세요.</p>
 
+          <section aria-labelledby="document-suggestions-title">
+            <p id="document-suggestions-title" className="text-sm font-bold text-slate-800">추천 서류 빠른 추가</p>
+            <p className="mt-1 text-xs text-slate-500">추천은 요청 목록에 자동 포함되지 않습니다. 필요한 서류만 직접 추가하세요.</p>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              {documentRequestSuggestions.map((suggestion) => {
+                const key = suggestion.toLocaleLowerCase('ko-KR');
+                const unavailable = [...items.map((item) => item.name), ...outstandingNames]
+                  .some((name) => name.trim().toLocaleLowerCase('ko-KR') === key);
+                return (
+                  <div key={suggestion} className="rounded-xl border border-slate-200 bg-white p-3">
+                    <p className="text-sm font-semibold text-slate-800">{suggestion}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button type="button" disabled={unavailable} onClick={() => addItem(suggestion)} className="min-h-10 rounded-lg border border-sky-200 bg-sky-50 px-3 text-xs font-bold text-[#075f93] disabled:cursor-not-allowed disabled:opacity-40">요청에 추가</button>
+                      {unavailable ? <span className="self-center text-xs font-semibold text-slate-500">추가됨 또는 요청 중</span> : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </section>
+
           <div>
             <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
               <div><p className="text-sm font-bold text-slate-800">요청서류 목록</p><p className="mt-1 text-xs text-slate-500">서류별로 제출·검토·재요청 상태를 관리합니다.</p></div>
-              <div className="flex gap-2"><input value={newItem} onChange={(event) => setNewItem(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addItem(); } }} className={`${inputClass} sm:w-64`} placeholder="추가 서류명" /><SecondaryButton onClick={addItem}><Plus className="size-4" /> 추가</SecondaryButton></div>
+              <div className="flex gap-2">
+                <input ref={newItemRef} value={newItem} onChange={(event) => { setNewItem(event.target.value); setFormError(''); }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); addItem(); } }} maxLength={documentRequestItemNameMaxLength} className={`${inputClass} sm:w-64`} placeholder="추가 서류명" aria-label="추가 서류명" aria-describedby={formError ? 'document-request-error' : undefined} />
+                <SecondaryButton onClick={() => addItem()}><Plus className="size-4" /> 추가</SecondaryButton>
+              </div>
             </div>
             <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200">
-              {items.map((item, index) => (
+              {items.length ? items.map((item, index) => (
                 <div key={`${item.name}-${index}`} className="flex min-h-[64px] items-center justify-between gap-4 border-b border-slate-100 px-4 last:border-b-0">
                   <div className="flex items-center gap-3"><ClipboardCheck className="size-4 text-[#0877b8]" /><span className="text-sm font-semibold text-slate-800">{item.name}</span></div>
-                  <div className="flex items-center gap-2"><Pill tone={item.required ? 'amber' : 'slate'}>{item.required ? '필수' : '선택'}</Pill><button type="button" aria-label={`${item.name} 삭제`} onClick={() => setItems((current) => current.filter((_, itemIndex) => itemIndex !== index))} className="grid size-11 place-items-center rounded-xl text-slate-400 hover:bg-red-50 hover:text-red-600"><X className="size-4" /></button></div>
+                  <button type="button" aria-label={`${item.name} 삭제`} onClick={() => { setItems((current) => current.filter((_, itemIndex) => itemIndex !== index)); setFormError(''); }} className="grid size-11 place-items-center rounded-xl text-slate-400 hover:bg-red-50 hover:text-red-600"><X className="size-4" /></button>
                 </div>
-              ))}
+              )) : <p className="px-4 py-6 text-center text-sm text-slate-500">아직 요청할 서류가 없습니다.</p>}
             </div>
           </div>
 
