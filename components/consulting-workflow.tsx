@@ -52,6 +52,11 @@ import {
   type FlowPhase,
   type ReportStage,
 } from '@/lib/consulting-flow';
+import {
+  ConsultingFlowResponseError,
+  readConsultingFlowMutationResponse,
+  readConsultingFlowStateResponse,
+} from '@/lib/consulting-flow-response';
 
 type Section =
   | 'reports'
@@ -282,20 +287,6 @@ function Hint({ children }: { children: ReactNode }) {
   );
 }
 type Submit = TranscriptSubmit;
-type FlowPayload = {
-  flow: ConsultingFlow;
-  error?: string;
-  role: 'admin' | 'partner';
-  canUpload: boolean;
-  readiness: { aiConnected: boolean; model: string };
-};
-async function readFlowState(response: Response): Promise<FlowPayload> {
-  return response.json().catch(() => {
-    throw new Error(
-      '진행 정보를 불러오지 못했습니다. 연결을 확인한 뒤 다시 불러오기 또는 새로고침으로 최신 진행 상태를 확인해 주세요.',
-    );
-  }) as Promise<FlowPayload>;
-}
 function ActionForm({
   busy,
   label,
@@ -349,9 +340,7 @@ export function ConsultingWorkflow({
   async function refresh(initial = false) {
     try {
       const response = await fetch(endpoint, { cache: 'no-store' });
-      const data = await readFlowState(response);
-      if (!response.ok)
-        throw new Error(data.error || '진행 정보를 불러오지 못했습니다.');
+      const data = await readConsultingFlowStateResponse(response);
       setFlow(data.flow);
       setRole(data.role);
       setReadiness(data.readiness);
@@ -370,10 +359,9 @@ export function ConsultingWorkflow({
     const controller = new AbortController();
     void fetch(endpoint, { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
-        const data = await readFlowState(response);
-        if (!response.ok)
-          throw new Error(data.error || '진행을 불러오지 못했습니다.');
-        return data;
+        return readConsultingFlowStateResponse(response, {
+          failedMessage: '진행을 불러오지 못했습니다.',
+        });
       })
       .then((data) => {
         if (controller.signal.aborted) return;
@@ -398,9 +386,11 @@ export function ConsultingWorkflow({
   }, [endpoint]);
   async function runQueued() {
     const response = await fetch(`${endpoint}/run`, { method: 'POST' });
-    const data = (await response.json()) as FlowPayload;
-    if (!response.ok)
-      throw new Error(data.error || 'AI 생성 상태를 확인해 주세요.');
+    const data = await readConsultingFlowMutationResponse(response, {
+      unreadableMessage:
+        'AI 생성 응답을 확인하지 못했습니다. 새로고침으로 최신 생성 상태를 확인해 주세요.',
+      failedMessage: 'AI 생성 상태를 확인해 주세요.',
+    });
     setFlow(data.flow);
     const latest = data.flow.jobs.at(-1);
     setNotice(
@@ -442,14 +432,22 @@ export function ConsultingWorkflow({
           file || audio ? undefined : { 'content-type': 'application/json' },
         body: file || audio ? form : payload,
       });
-      const data = (await response.json().catch(() => {
-        throw new Error(
-          '저장 완료 응답을 확인하지 못했습니다. 입력 내용을 유지한 채 같은 저장 버튼으로 다시 시도하거나 새로고침으로 최신 진행 상태를 확인해 주세요.',
-        );
-      })) as FlowPayload;
-      if (!response.ok) {
-        if (response.status === 409) await refresh();
-        throw new Error(data.error || '저장하지 못했습니다.');
+      let data;
+      try {
+        data = await readConsultingFlowMutationResponse(response, {
+          unreadableMessage:
+            '저장 완료 응답을 확인하지 못했습니다. 입력 내용을 유지한 채 같은 저장 버튼으로 다시 시도하거나 새로고침으로 최신 진행 상태를 확인해 주세요.',
+          failedMessage: '저장하지 못했습니다.',
+          invalidMessage:
+            '저장된 진행 응답 형식을 확인하지 못했습니다. 새로고침으로 최신 진행 상태를 확인해 주세요.',
+        });
+      } catch (error) {
+        if (
+          error instanceof ConsultingFlowResponseError &&
+          error.status === 409
+        )
+          await refresh();
+        throw error;
       }
       setFlow(data.flow);
       pending.current = null;
