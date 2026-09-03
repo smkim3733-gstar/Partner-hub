@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md) | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목 |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md) | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인 |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md) | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항 |
+| [새 업무 입력 안전성](PORTAL_TASK_ENTRY_SAFETY_2026_09_03.md) | 가상 기본값 제거, 필수 입력·길이 검증과 성공 후 초기화 |
 | [운영 업무 사이트 알림](PORTAL_TASK_NOTIFICATIONS_2026_09_03.md) | 운영 업무만 세는 알림 숫자와 데스크톱·모바일 메뉴 표시 |
 | [모바일 기업·신청번호 검색](MOBILE_CASE_SEARCH_2026_09_03.md) | 공용 검색 폼, 모바일 메뉴 검색과 고유 입력·자동완성 ID |
 | [진행현황 CSV 내보내기](PIPELINE_CSV_EXPORT_2026_09_03.md) | 대표용 필터 결과 CSV, 가상 예시·민감 필드 제외와 수식 주입 차단 |

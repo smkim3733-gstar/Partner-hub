@@ -111,6 +111,12 @@ import {
   portalTaskNeedsAttention,
   portalTaskNotificationCount,
 } from '@/lib/portal-task-notifications';
+import {
+  PORTAL_TASK_COMPANY_MAX_LENGTH,
+  PORTAL_TASK_DUE_MAX_LENGTH,
+  PORTAL_TASK_TITLE_MAX_LENGTH,
+  preparePortalTaskDraft,
+} from '@/lib/portal-task-draft';
 
 type View =
   | 'admin'
@@ -2111,11 +2117,11 @@ function WorkManagement({
   const [query, setQuery] = useState('');
   const [addOpen, setAddOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
-  const [newCompany, setNewCompany] = useState('세림테크(가상)');
+  const [newCompany, setNewCompany] = useState('');
   const [newKind, setNewKind] = useState<WorkTask['kind']>('내부업무');
   const [newSupportCategory, setNewSupportCategory] = useState<SupportCategory>('account_access');
   const [newMemberId, setNewMemberId] = useState(isAdmin ? '' : currentMemberId ?? '');
-  const [newDue, setNewDue] = useState('09.05');
+  const [newDue, setNewDue] = useState('');
   const [newDueState, setNewDueState] = useState<WorkTask['dueState']>('upcoming');
 
   // Do not re-filter server-authorized tasks by a mutable display name.
@@ -2152,8 +2158,14 @@ function WorkManagement({
   }
 
   function addTask() {
-    if (!newTitle.trim()) {
-      notify('업무명을 입력해 주세요.');
+    const prepared = preparePortalTaskDraft({
+      title: newTitle,
+      company: newCompany,
+      due: newDue,
+      kind: newKind,
+    });
+    if (!prepared.ok) {
+      notify(prepared.error);
       return;
     }
     let assignment: ReturnType<typeof newTaskAssignment>;
@@ -2162,12 +2174,12 @@ function WorkManagement({
     setTasks((current) => [
       {
         id: `task-${crypto.randomUUID()}`,
-        company: newKind === '지원요청' ? SUPPORT_REQUEST_COMPANY : newCompany.trim() || '내부업무',
-        title: newTitle.trim(),
+        company: prepared.value.company,
+        title: prepared.value.title,
         kind: newKind,
         ...(newKind === '지원요청' ? { supportCategory: newSupportCategory } : {}),
         ...assignment,
-        due: newDue.trim() || '미정',
+        due: prepared.value.due,
         dueState: newDueState,
         status: '대기',
         priority: newDueState === 'today' || newDueState === 'overdue' ? '긴급' : '보통',
@@ -2176,6 +2188,12 @@ function WorkManagement({
       ...current,
     ]);
     setNewTitle('');
+    setNewCompany('');
+    setNewKind('내부업무');
+    setNewSupportCategory('account_access');
+    setNewMemberId(isAdmin ? '' : currentMemberId ?? '');
+    setNewDue('');
+    setNewDueState('upcoming');
     setAddOpen(false);
     notify('새 업무를 등록했습니다. 담당자 업무·알림에 즉시 표시됩니다.');
   }
@@ -2245,12 +2263,12 @@ function WorkManagement({
         <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
           <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">독립 업무 등록</p><h2 id="task-modal-title" className="mt-1 text-xl font-bold">새 업무 추가</h2><p className="mt-1 text-sm text-slate-500">상담 단계와 무관하게 필요한 업무를 즉시 만들 수 있습니다.</p></div><DialogClose className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="업무 추가 닫기"><X className="size-5" aria-hidden="true" /></DialogClose></div>
           <div className="grid max-h-[65vh] gap-5 overflow-y-auto p-5 md:grid-cols-2">
-            <div className="md:col-span-2"><Field label="업무명" required><input value={newTitle} onChange={(event) => setNewTitle(event.target.value)} className={inputClass} placeholder="예: 추가서류 제출 여부 확인" /></Field></div>
-            {newKind === '지원요청' ? <Field label="지원 범위"><input value={SUPPORT_REQUEST_COMPANY} className={inputClass} disabled /></Field> : <Field label="기업명" required><input value={newCompany} onChange={(event) => setNewCompany(event.target.value)} className={inputClass} /></Field>}
+            <div className="md:col-span-2"><Field label="업무명" required><input value={newTitle} onChange={(event) => setNewTitle(event.target.value)} className={inputClass} maxLength={PORTAL_TASK_TITLE_MAX_LENGTH} required placeholder="예: 추가서류 제출 여부 확인" /></Field></div>
+            {newKind === '지원요청' ? <Field label="지원 범위"><input value={SUPPORT_REQUEST_COMPANY} className={inputClass} disabled /></Field> : <Field label="기업명" required><input value={newCompany} onChange={(event) => setNewCompany(event.target.value)} className={inputClass} maxLength={PORTAL_TASK_COMPANY_MAX_LENGTH} required placeholder="예: 세림테크" /></Field>}
             <Field label="업무유형" required><select value={newKind} onChange={(event) => setNewKind(event.target.value as WorkTask['kind'])} className={inputClass}><option>서류요청</option><option>상담</option><option>견적서</option><option>계약서</option><option>사후관리</option><option>내부업무</option><option>지원요청</option></select></Field>
             {newKind === '지원요청' ? <Field label="지원 요청 유형" required><select value={newSupportCategory} onChange={(event) => setNewSupportCategory(event.target.value as SupportCategory)} className={inputClass}>{Object.entries(SUPPORT_CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field> : null}
             <Field label="담당 계정" required hint="이메일로 동명이인을 구별합니다."><select value={newMemberId} onChange={(event) => setNewMemberId(event.target.value)} className={inputClass} disabled={!isAdmin}>{isAdmin ? <option value="">김성민 대표 · 대표 전용</option> : null}{members.filter((member) => member.status === '활성').map((member) => <option key={member.id} value={member.id}>{member.name.replace('(가상)', '').trim()} · {member.email}</option>)}</select></Field>
-            <Field label="마감일" required><input value={newDue} onChange={(event) => setNewDue(event.target.value)} className={inputClass} placeholder="예: 09.05 또는 오늘 16:00" /></Field>
+            <Field label="마감일" required><input value={newDue} onChange={(event) => setNewDue(event.target.value)} className={inputClass} maxLength={PORTAL_TASK_DUE_MAX_LENGTH} required placeholder="예: 9월 5일 또는 오늘 16:00" /></Field>
             <div className="md:col-span-2"><Field label="마감 구분" required><div className="grid gap-2 sm:grid-cols-3">{[['upcoming', '예정'], ['today', '오늘 마감'], ['overdue', '기한 지연']].map(([value, label]) => <button key={value} type="button" aria-pressed={newDueState === value} onClick={() => setNewDueState(value as WorkTask['dueState'])} className={`min-h-11 rounded-xl border px-4 text-sm font-semibold ${newDueState === value ? 'border-[#0877b8] bg-sky-50 text-[#075f93]' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>{label}</button>)}</div></Field></div>
           </div>
           <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setAddOpen(false)}>취소</SecondaryButton><PrimaryButton onClick={addTask}><Check className="size-4" aria-hidden="true" /> 업무 등록</PrimaryButton></div>

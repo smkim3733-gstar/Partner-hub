@@ -9,6 +9,7 @@
 - 현재 계정이 조회할 수 있는 진행 안에서 기업명·전체 신청번호·표시 번호로 검색하고 해당 진행 화면으로 이동한다. 같은 기업의 반복 신청이나 여러 부분검색 결과는 신청번호 입력을 요구한다.
 - 대표는 전체 진행현황의 현재 필터 결과를 Excel 호환 CSV로 내려받을 수 있다. 가상 예시와 계정 이메일·내부 ID·신청 상세·원본 내용은 제외한다.
 - 상단과 데스크톱·모바일 메뉴는 현재 계정의 오늘 마감·기한 지연 운영 업무만 사이트 알림 숫자로 표시한다. 가상 예시와 완료 업무는 제외하며, 알림이 있으면 같은 기준의 `확인 필요` 목록을 바로 연다.
+- 새 업무 등록은 빈 입력에서 시작하고 업무명·기업명·마감일을 필수 검증한다. 지원 요청은 기업명 대신 고정 지원 범위를 사용하며, 성공 뒤 이전 입력을 남기지 않는다.
 - 기업별 반복 협업신청, 신청 항목 저장, 서버 저장 확인 후 완료 안내, 같은 신청 재시도.
 - 계정별 신청 텍스트 임시저장·복구. 첨부와 제출 동의는 자동 복구하지 않는다.
 - 원본 업로드 응답 유실 시 재사용, 부분 실패 보존, 대표 전용 보관 목록·존재 검사.
@@ -31,7 +32,7 @@
 
 ## 검증과 배포 경계
 
-현재 소스는 자동 테스트 255개와 격리 workerd/D1/R2 검증 129개를 기준으로 확인한다. 최신 파일럿 준비 고도화의 lint·타입검사·빌드 결과와 운영 경계는 [파트너 파일럿 준비 고도화](PILOT_READINESS_ENHANCEMENT_2026_09_01.md), [저장 충돌 운영 지표](SAVE_CONFLICT_OBSERVABILITY_2026_09_01.md), [비밀번호 설정 링크 운영 지표](PASSWORD_LINK_OBSERVABILITY_2026_09_01.md), [협업신청 → 첫 상담 FLOW 운영 지표](APPLICATION_FIRST_CONSULTATION_METRICS_2026_09_01.md), [중복 입력·중복 요청 운영 지표](DUPLICATE_REQUEST_OBSERVABILITY_2026_09_01.md), [1차 공동분석 확인 간격 지표](JOINT_ANALYSIS_CONFIRMATION_METRICS_2026_09_01.md), [서류 수령 → 대표 검토 간격 지표](DOCUMENT_REVIEW_WAIT_METRICS_2026_09_01.md), [지원 요청 유형·처리시간 지표](SUPPORT_REQUEST_METRICS_2026_09_01.md), [진행 단계별 명시적 중단 지표](PIPELINE_DROPOFF_METRICS_2026_09_01.md), [모바일 메뉴 접근성 보완](MOBILE_NAVIGATION_ACCESSIBILITY_2026_09_03.md), [권한 내 기업·신청번호 검색](GLOBAL_CASE_SEARCH_2026_09_03.md), [진행현황 CSV 내보내기](PIPELINE_CSV_EXPORT_2026_09_03.md), [모바일 기업·신청번호 검색](MOBILE_CASE_SEARCH_2026_09_03.md), [운영 업무 사이트 알림](PORTAL_TASK_NOTIFICATIONS_2026_09_03.md)에 구분해 남긴다. 기존 DB/R2 연결과 추가형 DB 마이그레이션을 유지한다.
+현재 소스는 자동 테스트 259개와 격리 workerd/D1/R2 검증 129개를 기준으로 확인한다. 최신 파일럿 준비 고도화의 lint·타입검사·빌드 결과와 운영 경계는 [파트너 파일럿 준비 고도화](PILOT_READINESS_ENHANCEMENT_2026_09_01.md), [저장 충돌 운영 지표](SAVE_CONFLICT_OBSERVABILITY_2026_09_01.md), [비밀번호 설정 링크 운영 지표](PASSWORD_LINK_OBSERVABILITY_2026_09_01.md), [협업신청 → 첫 상담 FLOW 운영 지표](APPLICATION_FIRST_CONSULTATION_METRICS_2026_09_01.md), [중복 입력·중복 요청 운영 지표](DUPLICATE_REQUEST_OBSERVABILITY_2026_09_01.md), [1차 공동분석 확인 간격 지표](JOINT_ANALYSIS_CONFIRMATION_METRICS_2026_09_01.md), [서류 수령 → 대표 검토 간격 지표](DOCUMENT_REVIEW_WAIT_METRICS_2026_09_01.md), [지원 요청 유형·처리시간 지표](SUPPORT_REQUEST_METRICS_2026_09_01.md), [진행 단계별 명시적 중단 지표](PIPELINE_DROPOFF_METRICS_2026_09_01.md), [모바일 메뉴 접근성 보완](MOBILE_NAVIGATION_ACCESSIBILITY_2026_09_03.md), [권한 내 기업·신청번호 검색](GLOBAL_CASE_SEARCH_2026_09_03.md), [진행현황 CSV 내보내기](PIPELINE_CSV_EXPORT_2026_09_03.md), [모바일 기업·신청번호 검색](MOBILE_CASE_SEARCH_2026_09_03.md), [운영 업무 사이트 알림](PORTAL_TASK_NOTIFICATIONS_2026_09_03.md), [새 업무 입력 안전성](PORTAL_TASK_ENTRY_SAFETY_2026_09_03.md)에 구분해 남긴다. 기존 DB/R2 연결과 추가형 DB 마이그레이션을 유지한다.
 
 운영 고객 파일·명단을 개발용으로 읽거나 복사하지 않는다. 가상 데이터로 테스트하며 실제 계정 등록·메일 발송·유료 AI를 검증 수단으로 사용하지 않는다. 서비스 전체 침투시험, 실제 파트너의 로그인 쿠키 왕복과 전체 레거시 이관은 완료로 표시하지 않는다.
 
@@ -48,6 +49,8 @@
 [모바일 기업·신청번호 검색](MOBILE_CASE_SEARCH_2026_09_03.md)에서는 데스크톱에만 보이던 권한 내 검색을 모바일 메뉴에도 추가했다. 두 화면은 공용 검색 폼과 같은 권한 후보를 사용하되 입력·자동완성 ID는 분리한다. Enter 제출과 접근 가능한 이름을 유지하고 서버·DB/R2·권한 경계는 변경하지 않았다. 자동 테스트 251개, 격리 workerd/D1/R2 검사 129개, 타입검사·lint·프로덕션 빌드와 localhost `/` HTTP 200 응답을 확인했다. GitHub 푸시와 공개 Sites 배포는 사용자 승인 전까지 수행하지 않는다.
 
 [운영 업무 사이트 알림](PORTAL_TASK_NOTIFICATIONS_2026_09_03.md)에서는 가상 예시 업무가 상단 알림 숫자에 섞이는 문제를 제거하고, 같은 숫자를 데스크톱·모바일 메뉴에 표시한다. 현재 계정에 서버가 반환한 업무 중 오늘 마감·기한 지연이며 미완료인 운영 업무만 집계한다. 알림이 있으면 상단 버튼과 숫자가 붙은 메뉴에서 같은 판정의 `확인 필요` 목록을 바로 열고, 알림이 없으면 전체 업무를 연다. 외부 발송·읽음 상태·새 저장은 추가하지 않았다. 자동 테스트 255개, 격리 workerd/D1/R2 검사 129개, 타입검사·lint·프로덕션 빌드와 localhost `/` HTTP 200 응답을 확인했다. GitHub 푸시와 공개 Sites 배포는 사용자 승인 전까지 수행하지 않는다.
+
+[새 업무 입력 안전성](PORTAL_TASK_ENTRY_SAFETY_2026_09_03.md)에서는 새 업무 창의 가상 회사명·특정 날짜 기본값을 제거하고, 일반 업무의 업무명·기업명·마감일을 등록 직전에 다시 검증한다. 지원 요청의 고정 범위는 유지하고 세 입력에 길이 제한을 적용했으며, 성공 뒤에는 이전 입력을 초기화한다. 자동 테스트 259개, 격리 workerd/D1/R2 검사 129개, 타입검사·lint·프로덕션 빌드와 localhost `/` HTTP 200 응답을 확인했다. 기존 업무·서버 API·DB/R2·권한·보관 경계는 변경하지 않았다. GitHub 푸시와 공개 Sites 배포는 사용자 승인 전까지 수행하지 않는다.
 
 ## 이어서 진행할 점검
 
