@@ -29,15 +29,13 @@ import {
 } from '../lib/partner-registration';
 import { PartnerAuthPanel } from '../components/partner-auth-panel';
 import { PartnerPasswordLink } from '../components/partner-password-link';
+import { readPasswordAuthResponse } from '../lib/password-auth-response';
 import {
   readPasswordLinkSummary,
   recordPasswordLinkMetric,
 } from '../lib/password-link-metrics';
 import { portalPasswordSchemaSql } from '../db/schema';
-import {
-  failNextDatabaseStatement,
-  flushWaitUntil,
-} from './runtime-mock.mjs';
+import { failNextDatabaseStatement, flushWaitUntil } from './runtime-mock.mjs';
 
 const origin = 'https://portal.example.invalid';
 const database = (env as unknown as { DB: D1Database }).DB;
@@ -196,6 +194,36 @@ void test('admin reset UI requires explicit identity confirmation and does not a
   assert.match(html, /30분 유효 일회용 링크/);
   assert.match(html, /<button[^>]*disabled/);
   assert.doesNotMatch(html, /checked=""/);
+});
+void test('real password auth routes pass each client response guard', async () => {
+  const registered = await signup(request(signupBody()));
+  assert.deepEqual(await readPasswordAuthResponse(registered, 'register'), {
+    message:
+      '가입 신청이 접수되었습니다. 대표님이 연락처와 신청정보를 확인해 승인하면 이메일과 사이트 비밀번호로 로그인할 수 있습니다.',
+  });
+  await approve();
+  const loggedInResponse = await login(request({ email, password }));
+  assert.deepEqual(
+    await readPasswordAuthResponse(loggedInResponse.clone(), 'login'),
+    { ok: true },
+  );
+  const cookie = loggedInResponse.headers.get('set-cookie')!.split(';')[0];
+  assert.deepEqual(
+    await readPasswordAuthResponse(
+      await logout(request({}, { cookie })),
+      'logout',
+    ),
+    { ok: true },
+  );
+
+  const token = await link();
+  const setupResponse = await setup(
+    request({ token, password: 'another long synthetic secret 123!' }),
+  );
+  assert.deepEqual(await readPasswordAuthResponse(setupResponse, 'setup'), {
+    message:
+      '사이트 비밀번호가 설정되었습니다. 대표 승인 완료 계정은 이메일과 새 비밀번호로 로그인할 수 있습니다.',
+  });
 });
 void test('password policy, unique salted scrypt hashes and exact password comparison', () => {
   assert.ok(passwordProblem('12345678'));
@@ -486,13 +514,17 @@ void test('password-link operations record anonymous seven-day totals without ch
   assert.equal((await setup(request({ token: first, password }))).status, 400);
 
   await database
-    .prepare('UPDATE portal_password_links SET expires_at = 0 WHERE token_hash = ?1')
+    .prepare(
+      'UPDATE portal_password_links SET expires_at = 0 WHERE token_hash = ?1',
+    )
     .bind(tokenHash(second))
     .run();
   const expiredResponse = await setup(request({ token: second, password }));
   assert.equal(expiredResponse.status, 400);
   const expiredError = (await expiredResponse.json()) as { error: string };
-  const unknownError = (await setup(request({ token: 'f'.repeat(64), password }))) as Response;
+  const unknownError = (await setup(
+    request({ token: 'f'.repeat(64), password }),
+  )) as Response;
   assert.equal(unknownError.status, 400);
   assert.equal(
     ((await unknownError.json()) as { error: string }).error,
@@ -529,7 +561,10 @@ void test('password-link operations record anonymous seven-day totals without ch
   );
 });
 void test('password-link summary uses Korean date boundaries and stays outside credential schema', async () => {
-  assert.equal(portalPasswordSchemaSql.join('\n').includes('portal_password_link_stats'), false);
+  assert.equal(
+    portalPasswordSchemaSql.join('\n').includes('portal_password_link_stats'),
+    false,
+  );
   await recordPasswordLinkMetric({
     issued: 1,
     occurredAt: '2026-08-31T14:59:59.000Z',

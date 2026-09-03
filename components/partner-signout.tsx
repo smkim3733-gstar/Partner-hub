@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import { readPasswordAuthResponse } from '@/lib/password-auth-response';
 export function PartnerSignout({ disabled = false }: { disabled?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -13,8 +14,7 @@ export function PartnerSignout({ disabled = false }: { disabled?: boolean }) {
         headers: { 'content-type': 'application/json' },
         body: '{}',
       });
-      if (!response.ok)
-        throw new Error('로그아웃을 완료하지 못했습니다. 다시 시도해 주세요.');
+      await readPasswordAuthResponse(response, 'logout');
       window.location.assign('/account');
     } catch (error) {
       setError(

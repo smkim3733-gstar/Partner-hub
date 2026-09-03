@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { passwordProblem } from '@/lib/password-policy';
 import { isValidLoginEmail } from '@/lib/member-email';
+import { readPasswordAuthResponse } from '@/lib/password-auth-response';
 
 export function PartnerAuthPanel({
   initialMode = 'login',
@@ -52,10 +53,7 @@ export function PartnerAuthPanel({
         headers: { 'content-type': 'application/json' },
         body: '{}',
       });
-      if (!response.ok)
-        throw new Error(
-          '기존 로그인을 정리하지 못했습니다. 다시 시도해 주세요.',
-        );
+      await readPasswordAuthResponse(response, 'logout');
       window.location.assign('/signin-with-chatgpt?return_to=/');
     } catch (error) {
       setError(
@@ -94,34 +92,28 @@ export function PartnerAuthPanel({
     lock.current = true;
     setBusy(true);
     try {
-      const response = await fetch(
-        `/api/auth/${mode === 'signup' ? 'register' : mode}`,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            ...fields,
-            email,
-            password,
-            token: mode === 'setup' ? tokenRef.current : undefined,
-            consent: fields.consent === 'on',
-          }),
-        },
-      );
-      const result = (await response.json()) as {
-        error?: string;
-        message?: string;
-      };
-      if (!response.ok)
-        throw new Error(result.error || '요청을 처리하지 못했습니다.');
+      const action = mode === 'signup' ? 'register' : mode;
+      const response = await fetch(`/api/auth/${action}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ...fields,
+          email,
+          password,
+          token: mode === 'setup' ? tokenRef.current : undefined,
+          consent: fields.consent === 'on',
+        }),
+      });
+      const result = await readPasswordAuthResponse(response, action);
       form.reset();
       if (mode === 'login') window.location.assign('/');
       else
         setSuccess(
-          result.message ||
-            (mode === 'signup'
+          'message' in result
+            ? result.message
+            : mode === 'signup'
               ? '가입 신청이 접수되었습니다. 대표 승인 후 이메일과 비밀번호로 로그인해 주세요.'
-              : '비밀번호가 설정되었습니다. 이메일과 새 비밀번호로 로그인해 주세요.'),
+              : '비밀번호가 설정되었습니다. 이메일과 새 비밀번호로 로그인해 주세요.',
         );
     } catch (cause) {
       setError(
