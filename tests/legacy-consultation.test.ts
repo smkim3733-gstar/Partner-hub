@@ -4,20 +4,39 @@ import {
   consultationTitleMaxLength,
   emptyConsultationSelections,
   prepareConsultation,
-  type ConsultationPayload,
+  type ConsultationInput,
 } from '../lib/legacy-consultation';
 import { googleCalendarDraftUrl } from '../lib/schedule-display';
 
-const input: ConsultationPayload = { title: '  가상 상담  ', startsAt: '2026-12-31T23:30', method: '화상', status: '일정 확정', addToSchedule: true, shareMode: 'private', followUps: ['서류요청'] };
+const input: ConsultationInput = { title: '  가상 상담  ', startsAt: '2026-12-31T23:30', method: '화상', status: '일정 확정', addToSchedule: true, shareMode: 'private', followUps: ['서류요청'] };
 
-void test('new consultation starts without invented method, status, schedule or follow-up', () => {
+void test('new consultation starts without invented title, method, status, schedule, sharing or follow-up', () => {
   assert.deepEqual(emptyConsultationSelections(), {
+    title: '',
     followUps: [],
     addToSchedule: false,
     method: '',
     status: '',
-    shareMode: 'all_with_assignee',
+    shareMode: '',
   });
+});
+
+void test('a hub schedule requires explicit sharing while no schedule normalizes to private', () => {
+  assert.deepEqual(prepareConsultation({ ...input, shareMode: '' }), {
+    ok: false,
+    field: 'shareMode',
+    error: '일정 공개범위를 선택해 주세요.',
+  });
+  const withoutSchedule = prepareConsultation({ ...input, addToSchedule: false, shareMode: '' });
+  assert.ok(withoutSchedule.ok);
+  assert.equal(withoutSchedule.schedule, null);
+  assert.equal(withoutSchedule.payload.addToSchedule, false);
+  assert.equal(withoutSchedule.payload.shareMode, 'private');
+  const pending = prepareConsultation({ ...input, status: '일정 요청', shareMode: '' });
+  assert.ok(pending.ok);
+  assert.equal(pending.schedule, null);
+  assert.equal(pending.payload.addToSchedule, false);
+  assert.equal(pending.payload.shareMode, 'private');
 });
 
 void test('legacy consultation requires a title and a real Korean calendar minute before any records are prepared', () => {

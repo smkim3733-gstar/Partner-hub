@@ -3330,17 +3330,18 @@ function ConsultationForm({
   const [addToSchedule, setAddToSchedule] = useState(
     initialSelections.addToSchedule,
   );
-  const [title, setTitle] = useState(`${caseItem.service} 진행방향 및 보완사항 협의`);
+  const [title, setTitle] = useState(initialSelections.title);
   const [startsAt, setStartsAt] = useState('');
   const [method, setMethod] = useState(initialSelections.method);
   const [status, setStatus] = useState(initialSelections.status);
-  const [shareMode, setShareMode] = useState<'all_with_assignee' | 'all_busy' | 'private'>(initialSelections.shareMode);
+  const [shareMode, setShareMode] = useState(initialSelections.shareMode);
 
   const [formError, setFormError] = useState('');
   const titleRef = useRef<HTMLInputElement>(null);
   const dateRef = useRef<HTMLInputElement>(null);
   const methodRef = useRef<HTMLSelectElement>(null);
   const statusRef = useRef<HTMLSelectElement>(null);
+  const shareModeRef = useRef<HTMLSelectElement>(null);
 
   function save() {
     const result = prepareConsultation({ followUps, addToSchedule, title, startsAt, method, status, shareMode });
@@ -3350,6 +3351,7 @@ function ConsultationForm({
       else if (result.field === 'startsAt') dateRef.current?.focus();
       else if (result.field === 'method') methodRef.current?.focus();
       else if (result.field === 'status') statusRef.current?.focus();
+      else if (result.field === 'shareMode') shareModeRef.current?.focus();
       return;
     }
     setFormError('');
@@ -3378,7 +3380,7 @@ function ConsultationForm({
             <Field label="관련 서비스"><input className={inputClass} value={caseItem.service} readOnly /></Field>
             <Field label="상담 일시 (한국시간)" required><input ref={dateRef} aria-required="true" aria-describedby={formError ? "consultation-error" : undefined} className={inputClass} type="datetime-local" value={startsAt} onChange={(event) => { setStartsAt(event.target.value); setFormError(''); }} required /></Field>
             <Field label="상담방식" required><select ref={methodRef} className={inputClass} value={method} onChange={(event) => { setMethod(event.target.value); setFormError(''); }} required aria-describedby={formError ? "consultation-error" : undefined}><option value="">상담방식 선택</option>{consultationMethods.map((option) => <option key={option}>{option}</option>)}</select></Field>
-            <Field label="상담상태" required><select ref={statusRef} className={inputClass} value={status} onChange={(event) => { const nextStatus = event.target.value; setStatus(nextStatus); if (nextStatus !== '일정 확정') setAddToSchedule(false); if (nextStatus !== '상담 완료') setFollowUps([]); setFormError(''); }} required aria-describedby={formError ? "consultation-error" : undefined}><option value="">상담상태 선택</option>{consultationStatuses.map((option) => <option key={option}>{option}</option>)}</select></Field>
+            <Field label="상담상태" required><select ref={statusRef} className={inputClass} value={status} onChange={(event) => { const nextStatus = event.target.value; setStatus(nextStatus); if (nextStatus !== '일정 확정') { setAddToSchedule(false); setShareMode(''); } if (nextStatus !== '상담 완료') setFollowUps([]); setFormError(''); }} required aria-describedby={formError ? "consultation-error" : undefined}><option value="">상담상태 선택</option>{consultationStatuses.map((option) => <option key={option}>{option}</option>)}</select></Field>
           </div>
 
           <section aria-labelledby="calendar-sync-title" className={`rounded-2xl border p-5 ${addToSchedule ? 'border-sky-200 bg-sky-50/70' : 'border-slate-200 bg-slate-50'}`}>
@@ -3395,7 +3397,7 @@ function ConsultationForm({
                 role="switch"
                 aria-checked={addToSchedule}
                 disabled={status !== '일정 확정'}
-                onClick={() => { setAddToSchedule((value) => !value); setFormError(''); }}
+                onClick={() => { setAddToSchedule((value) => { if (value) setShareMode(''); return !value; }); setFormError(''); }}
                 className={`relative h-11 w-[68px] shrink-0 rounded-full p-1 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200 ${addToSchedule ? 'bg-[#0877b8]' : 'bg-slate-300'}`}
                 aria-label="파트너 허브 일정에 추가"
               >
@@ -3413,7 +3415,8 @@ function ConsultationForm({
               <div className="min-w-0 flex-1">
                 <h2 id="trainee-share-title" className="text-sm font-bold text-emerald-950">파트너 일정 공개범위</h2>
                 <p className="mt-1 text-xs leading-5 text-emerald-900/80">전체 파트너에게는 예약시간을, 담당 파트너에게는 기업명과 상담목적까지 공유할 수 있습니다.</p>
-                <select disabled={!addToSchedule || status !== '일정 확정'} value={shareMode} onChange={(event) => { setShareMode(event.target.value as 'all_with_assignee' | 'all_busy' | 'private'); setFormError(''); }} className={`${inputClass} mt-4 border-emerald-200`} aria-label="파트너 일정 공개범위">
+                <select ref={shareModeRef} disabled={!addToSchedule || status !== '일정 확정'} value={shareMode} onChange={(event) => { setShareMode(event.target.value); setFormError(''); }} className={`${inputClass} mt-4 border-emerald-200`} aria-label="파트너 일정 공개범위" aria-required={addToSchedule && status === '일정 확정'} aria-describedby={formError ? "consultation-error" : undefined}>
+                  <option value="">공개범위 선택</option>
                   <option value="all_with_assignee">전체 파트너 시간 공유 · 담당 파트너 상세공개</option>
                   <option value="all_busy">전체 파트너에게 예약시간만 공개</option>
                   <option value="private">대표·내부 담당자만 공개</option>

@@ -19,6 +19,7 @@ const consultationShareModes = [
   'all_busy',
   'private',
 ] as const;
+export type ConsultationShareMode = (typeof consultationShareModes)[number];
 
 export type ConsultationPayload = {
   followUps: string[];
@@ -27,16 +28,21 @@ export type ConsultationPayload = {
   startsAt: string;
   method: string;
   status: string;
-  shareMode: 'all_with_assignee' | 'all_busy' | 'private';
+  shareMode: ConsultationShareMode;
+};
+
+export type ConsultationInput = Omit<ConsultationPayload, 'shareMode'> & {
+  shareMode: string;
 };
 
 export function emptyConsultationSelections() {
   return {
+    title: '',
     followUps: [] as string[],
     addToSchedule: false,
     method: '',
     status: '',
-    shareMode: 'all_with_assignee' as const,
+    shareMode: '',
   };
 }
 
@@ -57,7 +63,7 @@ function consultationTime(startsAt: string) {
   };
 }
 
-export function prepareConsultation(input: ConsultationPayload) {
+export function prepareConsultation(input: ConsultationInput) {
   const title = input.title.trim();
   if (!title) return { ok: false as const, field: 'title' as const, error: '상담 제목·목적을 입력해 주세요.' };
   if (title.length > consultationTitleMaxLength)
@@ -70,11 +76,15 @@ export function prepareConsultation(input: ConsultationPayload) {
   const status = consultationStatuses.find((value) => value === input.status);
   if (!status)
     return { ok: false as const, field: 'status' as const, error: '상담상태를 선택해 주세요.' };
-  const shareMode = consultationShareModes.find(
+  const selectedShareMode = consultationShareModes.find(
     (value) => value === input.shareMode,
   );
-  if (!shareMode)
+  const addToSchedule = input.addToSchedule && status === '일정 확정';
+  if (addToSchedule && !selectedShareMode)
     return { ok: false as const, field: 'shareMode' as const, error: '일정 공개범위를 선택해 주세요.' };
+  const shareMode: ConsultationShareMode = addToSchedule && selectedShareMode
+    ? selectedShareMode
+    : 'private';
   const followUps = status === '상담 완료' ? [...new Set(input.followUps)] : [];
   if (
     followUps.some(
@@ -84,8 +94,8 @@ export function prepareConsultation(input: ConsultationPayload) {
     )
   )
     return { ok: false as const, field: 'followUps' as const, error: '상담 후속조치를 목록에서 선택해 주세요.' };
-  const payload = { ...input, title, method, status, shareMode, followUps };
-  const schedule = input.addToSchedule && status === '일정 확정' ? time : null;
+  const payload: ConsultationPayload = { ...input, title, method, status, shareMode, followUps, addToSchedule };
+  const schedule = addToSchedule ? time : null;
   const sharing = { all_with_assignee: '담당 파트너 상세 · 다른 파트너 시간 공개', all_busy: '파트너 시간만 공개', private: '내부만 공개' }[shareMode];
   const detail = `${title} / ${time.isoDate} ${time.time} (한국시간) / ${method} / ${status} / 후속조치: ${followUps.length ? followUps.join(' · ') : '없음'}${schedule ? ` / 허브 일정 등록 · ${sharing}` : ''}`;
   return { ok: true as const, payload, schedule, detail };

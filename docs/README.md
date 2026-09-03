@@ -10,6 +10,7 @@
 | [Step 0 가상시험 입력 안전성](STEP_ZERO_PILOT_INPUT_SAFETY_2026_09_03.md) | 빈 가상 입력, 변경 후 재동의, 초과·식별정보의 외부 호출 전 차단 |
 | [서류요청 제출기한 알림 안전성](DOCUMENT_REQUEST_DEADLINE_ALERT_SAFETY_2026_09_03.md) | 한국시간 기준 기한 상태와 후속 업무 알림·우선순위 동기화 |
 | [서류요청 등록 입력 안전성](DOCUMENT_REQUEST_ENTRY_SAFETY_2026_09_03.md) | 추천 서류 명시 추가, 실제 저장 계약 정리, 서류명·중복 검증 |
+| [상담 제목·일정 공개범위 입력 안전성](CONSULTATION_TITLE_SHARING_SAFETY_2026_09_03.md) | 빈 상담 제목, 일정 추가 시 공개범위 명시 선택과 내부 전용 정규화 |
 | [상담 등록 입력 안전성](CONSULTATION_ENTRY_SAFETY_2026_09_03.md) | 상담방식·상태·일정·후속조치 명시 선택과 저장 경계 검증 |
 | [협업신청 핵심 입력 안전성](APPLICATION_ENTRY_SAFETY_2026_09_03.md) | 요청서비스 명시 선택, 신청 핵심 필드 공통 검증과 동의 재확인 |
 | [기업자료 등록 입력 안전성](PORTAL_DOCUMENT_ENTRY_SAFETY_2026_09_03.md) | 가상·이전 기본값 제거, 메타정보 검증, 변경 후 동의 재확인과 폼 초기화 |
