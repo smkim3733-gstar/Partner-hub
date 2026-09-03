@@ -35,7 +35,7 @@ import { DialogClose } from '@/components/ui/dialog';
 import { PortalNavigationButton } from '@/components/portal-navigation';
 import { PortalCaseSearchForm } from '@/components/portal-case-search-form';
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
-import { assignmentMemberId, assignmentDisplayName, newTaskAssignment } from '@/lib/assignment-display';
+import { applyCaseAssignmentDraft, assignmentMemberId, assignmentDisplayName, createCaseAssignmentDraft, newTaskAssignment, type CaseAssignmentDraft } from '@/lib/assignment-display';
 import { prependApplicationCase, recordBelongsToCase } from '@/lib/application-case-links';
 import {
   PortalSaveError,
@@ -2016,6 +2016,7 @@ function PipelineBoard({
   const [traineeFilter, setTraineeFilter] = useState('all');
   const [serviceFilter, setServiceFilter] = useState('전체 서비스');
   const [staleOnly, setStaleOnly] = useState(false);
+  const [assignmentDraft, setAssignmentDraft] = useState<CaseAssignmentDraft | null>(null);
 
   // Partner state has already been filtered by the server using account IDs.
   const accountCases = cases;
@@ -2031,6 +2032,8 @@ function PipelineBoard({
   const staleCount = accountCases.filter((item) => item.idleDays >= 7).length;
   const consultationCount = accountCases.filter((item) => item.stage === '상담예약' || item.stage === '상담진행').length;
   const contractCount = accountCases.filter((item) => item.stage === '계약').length;
+  const assignmentCase = cases.find((item) => item.id === assignmentDraft?.caseId) ?? null;
+  const assignmentTarget = members.find((member) => member.id === assignmentDraft?.nextMemberId) ?? null;
 
   function exportVisibleCases() {
     const exportCases = operationalPilotRecords('case', visibleCases);
@@ -2068,12 +2071,26 @@ function PipelineBoard({
     notify(`${item.company} 진행단계를 ${stage}(으)로 변경했습니다.`);
   }
 
-  function assignPartner(item: CollaborationCase, memberId: string) {
+  function requestPartnerAssignment(item: CollaborationCase, memberId: string) {
     if (!isAdmin || item.flowManaged) return;
-    const member = members.find(m => m.id === memberId && m.status === '활성');
-    if (!member) return;
-    setCases(current => current.map(c => c.id === item.id ? { ...c, trainee: member.name.replace('(가상)','').trim(), partnerMemberId: member.id } : c));
-    notify('담당 계정을 지정했습니다. 상단 DB 저장 완료 후 상담 FLOW를 열어 주세요.');
+    try {
+      setAssignmentDraft(createCaseAssignmentDraft(item, memberId, members));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '담당 계정을 다시 선택해 주세요.');
+    }
+  }
+
+  function confirmPartnerAssignment() {
+    if (!assignmentCase || !assignmentDraft) return;
+    try {
+      const updated = applyCaseAssignmentDraft(assignmentCase, assignmentDraft, members);
+      setCases((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setAssignmentDraft(null);
+      notify(`${updated.company} 담당 계정을 변경했습니다. 상단 DB 저장 완료 후 상담 FLOW를 열어 주세요.`);
+    } catch (error) {
+      setAssignmentDraft(null);
+      notify(error instanceof Error ? error.message : '담당 계정을 다시 선택해 주세요.');
+    }
   }
 
   function togglePipelineLifecycle(item: CollaborationCase) {
@@ -2132,7 +2149,7 @@ function PipelineBoard({
                 <div className="mt-3 rounded-lg bg-slate-50 p-3"><p className="text-[11px] font-semibold text-slate-500">다음 행동</p><p className="mt-1 text-sm font-bold leading-5 text-slate-800">{item.nextAction}</p></div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-semibold text-slate-600">담당 {assignmentDisplayName(item, item.trainee, members)}</span><div className="flex flex-wrap gap-2"><Pill tone="navy">{casePartnerType(item, members)}</Pill>{item.consultationCount ? <Pill tone="violet">상담 {item.consultationCount}회</Pill> : null}</div></div>
                 <label className="mt-4 block"><span className="mb-2 block text-xs font-semibold text-slate-600">{item.pipelineLifecycleStatus === 'discontinued' ? '대표가 진행을 다시 열 때까지 단계 변경 중단' : item.flowManaged ? `상담 FLOW 자동 반영 · ${item.flowPhase}` : '진행단계 변경'}</span><select disabled={item.flowManaged || item.pipelineLifecycleStatus === 'discontinued'} value={item.stage} onChange={(event) => moveCase(item, event.target.value as PipelineStage)} className={inputClass}>{pipelineStages.map((option) => <option key={option}>{option}</option>)}</select></label>
-                {isAdmin && !item.flowManaged && <label className="mt-3 grid gap-2 text-xs font-semibold text-slate-600">상담 FLOW 담당 계정<select className={inputClass} value={item.partnerMemberId ?? ''} onChange={event => assignPartner(item,event.target.value)}><option value="">이름 일치 계정 자동 연결 / 직접 지정</option>{members.filter(m => m.status === '활성').map(m => <option key={m.id} value={m.id}>{m.name} · {m.email}</option>)}</select></label>}
+                {isAdmin && !item.flowManaged && <label className="mt-3 grid gap-2 text-xs font-semibold text-slate-600">상담 FLOW 담당 계정<select className={inputClass} value={item.partnerMemberId ?? ''} onChange={event => requestPartnerAssignment(item,event.target.value)}><option value="">이름 일치 계정 자동 연결 / 직접 지정</option>{members.filter(m => m.status === '활성').map(m => <option key={m.id} value={m.id}>{m.name} · {m.email}</option>)}</select></label>}
                 <SecondaryButton className="mt-3 w-full" onClick={() => onOpenCase(item)}>컨설팅 진행 현황 <ChevronRight className="size-4" aria-hidden="true" /></SecondaryButton>
                 {isAdmin && item.pipelineLifecycleVersion === 1 ? <button type="button" onClick={() => togglePipelineLifecycle(item)} className={`mt-2 min-h-11 w-full rounded-xl border px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-4 ${item.pipelineLifecycleStatus === 'discontinued' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 focus-visible:ring-emerald-100' : 'border-red-200 bg-red-50 text-red-800 focus-visible:ring-red-100'}`}>{item.pipelineLifecycleStatus === 'discontinued' ? '진행 다시 열기' : '현재 단계에서 진행 중단'}</button> : null}
               </article>) : <div className="grid min-h-28 place-items-center rounded-xl border border-dashed border-slate-200 bg-white/60 p-4 text-center text-xs text-slate-400">현재 조건의 진행이 없습니다.</div>}
@@ -2140,6 +2157,19 @@ function PipelineBoard({
           </section>;
         })}
       </section>
+
+      {assignmentCase && assignmentTarget && assignmentDraft ? (
+        <dialog open className="fixed inset-0 z-50 m-0 grid h-screen max-h-none w-screen max-w-none place-items-center border-0 bg-slate-950/40 p-4 backdrop-blur-sm" aria-labelledby="case-assignment-title">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">담당 접근 변경 확인</p><h2 id="case-assignment-title" className="mt-1 text-xl font-bold">{assignmentCase.company} 담당을 변경할까요?</h2></div><button type="button" onClick={() => setAssignmentDraft(null)} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="담당 변경 취소"><X className="size-5" aria-hidden="true" /></button></div>
+            <div className="space-y-4 p-5">
+              <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2"><div><p className="text-xs text-slate-500">현재 담당</p><p className="mt-1 text-sm font-bold text-slate-800">{assignmentDisplayName(assignmentCase, assignmentCase.trainee, members)}</p></div><div><p className="text-xs text-slate-500">변경 후 담당</p><p className="mt-1 text-sm font-bold text-slate-800">{assignmentTarget.name.replace('(가상)', '').trim()}</p><p className="mt-1 break-all text-xs text-slate-500">{assignmentTarget.email}</p></div></div>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900"><p className="font-bold">진행·타임라인 접근 계정이 바뀝니다.</p><p className="mt-1 text-xs leading-5">기존 원본파일·업무·자료의 담당 계정은 자동 이전하지 않습니다. 필요한 자료는 기존 보안 절차로 별도 확인해 주세요.</p></div>
+            </div>
+            <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setAssignmentDraft(null)}>취소</SecondaryButton><PrimaryButton onClick={confirmPartnerAssignment}><Check className="size-4" aria-hidden="true" /> 담당 변경 저장</PrimaryButton></div>
+          </div>
+        </dialog>
+      ) : null}
 
       <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">진행단계 운영원칙</p><p className="mt-1 text-xs leading-5 text-slate-600">상담은 횟수 제한 없이 해당 진행 안에 누적하고, 서류요청·견적·계약은 어느 단계에서도 별도로 생성합니다. 단계변경은 드래그가 아닌 선택메뉴로도 가능해 키보드와 모바일에서 동일하게 사용할 수 있습니다.</p></div></div></div>
     </>

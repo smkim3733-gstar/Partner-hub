@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  applyCaseAssignmentDraft,
   assignmentMemberId,
   assignmentDisplayName,
+  createCaseAssignmentDraft,
   newTaskAssignment,
 } from '../lib/assignment-display';
 import { GET, PUT } from './state-request';
@@ -123,6 +125,62 @@ void test('task selection rejects unknown, duplicate, pending and suspended acco
     assert.throws(() =>
       newTaskAssignment('task-one', [{ ...members[0], status }], true),
     );
+});
+
+void test('case assignment stays unchanged until the reviewed draft is applied', () => {
+  const record = {
+    id: 'assignment-case',
+    company: '가상 담당변경기업',
+    trainee: members[0].name,
+    partnerMemberId: members[0].id,
+    stage: '접수',
+  };
+  const original = structuredClone(record);
+  const draft = createCaseAssignmentDraft(record, members[1].id, members);
+  assert.deepEqual(record, original);
+  assert.deepEqual(draft, {
+    caseId: record.id,
+    expectedMemberId: members[0].id,
+    nextMemberId: members[1].id,
+  });
+  const changed = applyCaseAssignmentDraft(record, draft, members);
+  assert.equal(changed.partnerMemberId, members[1].id);
+  assert.equal(changed.trainee, members[1].name);
+  assert.equal(changed.stage, record.stage);
+  assert.deepEqual(record, original);
+});
+
+void test('case assignment rejects stale, flow-managed and unavailable account changes', () => {
+  const record = {
+    id: 'guarded-assignment',
+    trainee: members[0].name,
+    partnerMemberId: members[0].id,
+  };
+  const draft = createCaseAssignmentDraft(record, members[1].id, members);
+  assert.throws(
+    () => createCaseAssignmentDraft(record, members[0].id, members),
+    /이미 이 계정/,
+  );
+  assert.throws(
+    () => createCaseAssignmentDraft({ ...record, flowManaged: true }, members[1].id, members),
+    /FLOW가 관리/,
+  );
+  assert.throws(
+    () => createCaseAssignmentDraft(record, 'missing', members),
+    /승인된 담당 계정/,
+  );
+  assert.throws(
+    () => createCaseAssignmentDraft(record, members[1].id, [{ ...members[1], status: '정지' }]),
+    /승인된 담당 계정/,
+  );
+  assert.throws(
+    () => applyCaseAssignmentDraft({ ...record, partnerMemberId: members[1].id }, draft, members),
+    /담당 정보가 변경/,
+  );
+  assert.throws(
+    () => applyCaseAssignmentDraft(record, { ...draft, caseId: 'other-case' }, members),
+    /진행을 다시 확인/,
+  );
 });
 
 void test('real state handlers preserve account-assigned tasks and cases across display-name changes, including linked-only follow-ups', async () => {
