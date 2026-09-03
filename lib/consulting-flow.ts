@@ -153,6 +153,12 @@ export class FlowError extends Error {
     super(message);
   }
 }
+export function explicitFlowBooleanChoice(value: unknown) {
+  return value === 'yes' ? true : value === 'no' ? false : undefined;
+}
+export function flowBooleanChoiceDefault(value?: boolean) {
+  return value === true ? 'yes' : value === false ? 'no' : '';
+}
 export const reportLabels: Record<ReportStage, string> = {
   1: '1차 정밀진단보고서',
   2: '2차 대표 상담보고서',

@@ -15,6 +15,7 @@
 | [상담 등록 입력 안전성](CONSULTATION_ENTRY_SAFETY_2026_09_03.md) | 상담방식·상태·일정·후속조치 명시 선택과 저장 경계 검증 |
 | [협업신청 핵심 입력 안전성](APPLICATION_ENTRY_SAFETY_2026_09_03.md) | 요청서비스 명시 선택, 신청 핵심 필드 공통 검증과 동의 재확인 |
 | [협업신청 신청자 유형 안전성](APPLICATION_APPLICANT_TYPE_SAFETY_2026_09_03.md) | 대표 대리접수의 빈 유형 시작, 공유 계정 유형 고정과 제출 전 재검증 |
+| [상담 FLOW 선택 입력 안전성](FLOW_EXPLICIT_ENTRY_SAFETY_2026_09_03.md) | 검토·추가서류·전달·필수 여부의 빈 시작과 사후관리 담당자 직접 입력 |
 | [협업신청 첨부 자료종류 확인 안전성](APPLICATION_ATTACHMENT_CATEGORY_CONFIRMATION_2026_09_03.md) | 파일명 분류 제안, 첨부별 종류 선택·명시 확인과 제출 차단 |
 | [기업자료 종류 명시 선택 안전성](PORTAL_DOCUMENT_CATEGORY_SAFETY_2026_09_03.md) | 단일 기업자료 등록의 빈 종류 시작, 파일명 자동확정 제거와 공용 검증 |
 | [기업자료 등록 입력 안전성](PORTAL_DOCUMENT_ENTRY_SAFETY_2026_09_03.md) | 가상·이전 기본값 제거, 메타정보 검증, 변경 후 동의 재확인과 폼 초기화 |

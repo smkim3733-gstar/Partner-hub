@@ -6,8 +6,10 @@ import {
   deepReport,
   depositComplete,
   documentsDone,
+  explicitFlowBooleanChoice,
   firstMeeting,
   FlowError,
+  flowBooleanChoiceDefault,
   latestReport,
   newConsultingFlow,
   phaseOf,
@@ -45,6 +47,15 @@ const body =
   '확인된 기업 자료에 기초한 내부 검토용 보고서입니다. 제출되지 않은 수치와 사실은 확인 필요로 표시하고 대표가 추가 상담에서 검토합니다. '.repeat(
     4,
   );
+test('consequential yes-no workflow choices preserve an unselected state', () => {
+  assert.equal(explicitFlowBooleanChoice('yes'), true);
+  assert.equal(explicitFlowBooleanChoice('no'), false);
+  assert.equal(explicitFlowBooleanChoice(''), undefined);
+  assert.equal(explicitFlowBooleanChoice('unknown'), undefined);
+  assert.equal(flowBooleanChoiceDefault(), '');
+  assert.equal(flowBooleanChoiceDefault(true), 'yes');
+  assert.equal(flowBooleanChoiceDefault(false), 'no');
+});
 let sequence = 0;
 function apply(
   flow: ConsultingFlow,

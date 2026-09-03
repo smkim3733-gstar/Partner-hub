@@ -37,7 +37,9 @@ import {
   deepReport,
   depositReceived,
   documentsDone,
+  explicitFlowBooleanChoice,
   firstMeeting,
+  flowBooleanChoiceDefault,
   flowPhases,
   latestRecording,
   latestReport,
@@ -130,6 +132,29 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       {label}
       {children}
     </label>
+  );
+}
+export function ExplicitChoice({
+  name,
+  placeholder,
+  defaultValue = '',
+  children,
+}: {
+  name: string;
+  placeholder: string;
+  defaultValue?: string;
+  children?: ReactNode;
+}) {
+  return (
+    <select
+      name={name}
+      className={control}
+      defaultValue={defaultValue}
+      required
+    >
+      <option value="">{placeholder}</option>
+      {children}
+    </select>
   );
 }
 function Confirm({
@@ -1084,7 +1109,7 @@ export function ConsultingWorkflow({
                   solutions: value(d, 'solutions')
                     .split(/[,\n]/)
                     .filter(Boolean),
-                  documentsNeeded: value(d, 'documentsNeeded') === 'yes',
+                  documentsNeeded: explicitFlowBooleanChoice(value(d, 'documentsNeeded')),
                   note: value(d, 'note'),
                   reviewConfirmed: d.has('reviewConfirmed'),
                 })
@@ -1099,10 +1124,10 @@ export function ConsultingWorkflow({
                 />
               </Field>
               <Field label="추가 필수 서류">
-                <select
+                <ExplicitChoice
                   name="documentsNeeded"
-                  className={control}
-                  defaultValue="yes"
+                  placeholder="추가 서류 필요 여부 선택"
+                  defaultValue={flowBooleanChoiceDefault(flow.decision?.documentsNeeded)}
                 >
                   <option value="yes">
                     필요함 — 요청·수령·검토 후 문서 준비
@@ -1110,7 +1135,7 @@ export function ConsultingWorkflow({
                   <option value="no">
                     추가 없음 — 사유를 결정 메모에 기록
                   </option>
-                </select>
+                </ExplicitChoice>
               </Field>
               <Field label="판단 근거 / 추가 서류가 없다면 그 이유">
                 <Textarea name="note" required maxLength={2000} />
@@ -1242,16 +1267,16 @@ export function ConsultingWorkflow({
                             submit({
                               type: 'review_document',
                               requestId: r.id,
-                              approved: value(d, 'approved') === 'yes',
+                              approved: explicitFlowBooleanChoice(value(d, 'approved')),
                               note: value(d, 'note'),
                             })
                           }
                         >
                           <Field label="검토 결과">
-                            <select name="approved" className={control}>
+                            <ExplicitChoice name="approved" placeholder="검토 결과 선택">
                               <option value="yes">검토 완료</option>
                               <option value="no">보완 필요 (사유 필수)</option>
-                            </select>
+                            </ExplicitChoice>
                           </Field>
                           <Field label="검토 의견 / 보완 사유">
                             <Textarea name="note" maxLength={1000} />
@@ -1276,7 +1301,7 @@ export function ConsultingWorkflow({
                     recipient: value(d, 'recipient'),
                     channel: value(d, 'channel'),
                     dueDate: value(d, 'dueDate'),
-                    required: value(d, 'required') === 'yes',
+                    required: explicitFlowBooleanChoice(value(d, 'required')),
                   })
                 }
               >
@@ -1300,20 +1325,20 @@ export function ConsultingWorkflow({
                     />
                   </Field>
                   <Field label="전달 경로">
-                    <select name="channel" className={control}>
+                    <ExplicitChoice name="channel" placeholder="전달 경로 선택">
                       <option>카카오톡</option>
                       <option>이메일</option>
                       <option>기타</option>
-                    </select>
+                    </ExplicitChoice>
                   </Field>
                   <Field label="희망 제출기한">
                     <Input name="dueDate" type="date" className="min-h-11" />
                   </Field>
                   <Field label="5차·6차 준비 전 필수 여부">
-                    <select name="required" className={control}>
+                    <ExplicitChoice name="required" placeholder="필수 여부 선택">
                       <option value="yes">필수 — 대표 검토 완료 필요</option>
                       <option value="no">선택</option>
-                    </select>
+                    </ExplicitChoice>
                   </Field>
                 </div>
               </ActionForm>
@@ -1535,7 +1560,7 @@ export function ConsultingWorkflow({
               }
             >
               <Field label="수행 결과 / 후속 관리 내용">
-                <Textarea name="summary" required maxLength={3000} rows={5} />
+                <Textarea name="summary" required maxLength={3000} rows={5} defaultValue={flow.aftercare?.summary} />
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="다음 점검일">
@@ -1543,6 +1568,7 @@ export function ConsultingWorkflow({
                     name="nextDate"
                     type="date"
                     required
+                    defaultValue={flow.aftercare?.nextDate}
                     className="min-h-11"
                   />
                 </Field>
@@ -1551,7 +1577,7 @@ export function ConsultingWorkflow({
                     name="owner"
                     required
                     maxLength={100}
-                    defaultValue="김성민 대표"
+                    defaultValue={flow.aftercare?.owner}
                     className="min-h-11"
                   />
                 </Field>
