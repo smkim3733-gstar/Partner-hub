@@ -14,6 +14,10 @@ import { flowEnvironment, readFlow } from '../lib/consulting-flow-store';
 import { writePortalState } from '../lib/portal-state';
 import type { ConsultingFlow, FlowCommand } from '../lib/consulting-flow';
 import type { IntakeSourcePreview } from '../lib/intake-source-policy';
+import {
+  readIntakeSourceListResponse,
+  readIntakeSourcePreviewResponse,
+} from '../lib/intake-source-response';
 
 const owner = 'seedy@sites.test';
 const partner = 'review-partner@example.invalid';
@@ -71,12 +75,21 @@ async function add(
   return ((await response.json()) as { file: { id: string } }).file.id;
 }
 async function preview(id: string) {
+  const listResponse = await intake(
+    request(`${endpoint}/intake-files`),
+    context,
+  );
+  assert.equal(listResponse.status, 200, await listResponse.clone().text());
+  const expected = (
+    await readIntakeSourceListResponse(listResponse)
+  ).files.find((file) => file.id === id);
+  assert.ok(expected);
   const response = await intake(
     request(`${endpoint}/intake-files?fileId=${id}`),
     context,
   );
   assert.equal(response.status, 200, await response.clone().text());
-  return (await response.json()) as IntakeSourcePreview;
+  return readIntakeSourcePreviewResponse(response, expected);
 }
 function importCommand(p: IntakeSourcePreview, text: string): FlowCommand {
   return {
@@ -207,7 +220,9 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
       listResponse.headers.get('cache-control') || '',
       /private, no-store/,
     );
-    const listed = await listResponse.text();
+    const listed = JSON.stringify(
+      await readIntakeSourceListResponse(listResponse),
+    );
     assert.ok(listed.includes(docId) && listed.includes(audioId));
     assert.ok(!listed.includes(otherCompany) && !listed.includes(otherOwner));
     assert.ok(

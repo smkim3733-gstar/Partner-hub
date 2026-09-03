@@ -22,6 +22,10 @@ import type {
   IntakeSourcePreview,
 } from '@/lib/intake-source-policy';
 import {
+  readIntakeSourceListResponse,
+  readIntakeSourcePreviewResponse,
+} from '@/lib/intake-source-response';
+import {
   MAX_TRANSCRIPT_CHARS,
   transcriptProblem,
 } from '@/lib/transcript-policy';
@@ -65,13 +69,7 @@ export function IntakeSourceReview({
     const controller = new AbortController();
     void fetch(endpoint, { cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
-        const data = (await response.json()) as {
-          files: IntakeSourceOption[];
-          hasMore: boolean;
-          error?: string;
-        };
-        if (!response.ok)
-          throw new Error(data.error || '신청자료 목록을 불러오지 못했습니다.');
+        const data = await readIntakeSourceListResponse(response);
         if (!controller.signal.aborted) {
           setFiles(data.files);
           setHasMore(data.hasMore);
@@ -114,11 +112,7 @@ export function IntakeSourceReview({
         `${endpoint}?fileId=${encodeURIComponent(file.id)}`,
         { cache: 'no-store', signal: controller.signal },
       );
-      const data = (await response.json()) as IntakeSourcePreview & {
-        error?: string;
-      };
-      if (!response.ok)
-        throw new Error(data.error || '자료를 읽지 못했습니다.');
+      const data = await readIntakeSourcePreviewResponse(response, file);
       if (controller.signal.aborted) return;
       setPreview(data);
       setText(data.text || '');
