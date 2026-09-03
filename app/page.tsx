@@ -105,7 +105,12 @@ import {
 import type { PipelineDropoffSummary } from '@/lib/pipeline-dropoff-metrics';
 import { resolvePortalCaseSearch } from '@/lib/portal-case-search';
 import { buildPortalCaseCsv, portalCaseCsvFileName } from '@/lib/portal-case-csv';
-import { portalTaskNavigationLabel, portalTaskNotificationCount } from '@/lib/portal-task-notifications';
+import {
+  portalTaskNavigationFilter,
+  portalTaskNavigationLabel,
+  portalTaskNeedsAttention,
+  portalTaskNotificationCount,
+} from '@/lib/portal-task-notifications';
 
 type View =
   | 'admin'
@@ -183,6 +188,8 @@ type WorkTask = {
   supportResolvedByRole?: 'admin' | 'requester';
   supportCycle?: number;
 };
+
+type WorkTaskFilter = 'all' | 'attention' | 'urgent' | 'today' | 'progress' | 'complete';
 
 type CompanyDocument = {
   recovery?: unknown;
@@ -2088,6 +2095,7 @@ function WorkManagement({
   isAdmin,
   currentName,
   currentMemberId,
+  initialFilter,
   notify,
 }: {
   tasks: WorkTask[];
@@ -2096,9 +2104,10 @@ function WorkManagement({
   isAdmin: boolean;
   currentName: string;
   currentMemberId: string | null;
+  initialFilter: WorkTaskFilter;
   notify: (message: string) => void;
 }) {
-  const [filter, setFilter] = useState<'all' | 'urgent' | 'today' | 'progress' | 'complete'>('all');
+  const [filter, setFilter] = useState<WorkTaskFilter>(initialFilter);
   const [query, setQuery] = useState('');
   const [addOpen, setAddOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
@@ -2114,6 +2123,7 @@ function WorkManagement({
   const visibleTasks = accountTasks.filter((task) => {
     const keywordMatch = `${task.company} ${task.title} ${task.kind} ${assignmentDisplayName(task, task.assignee, members)}`.toLowerCase().includes(query.toLowerCase());
     const filterMatch = filter === 'all'
+      || (filter === 'attention' && portalTaskNeedsAttention(task))
       || (filter === 'urgent' && task.priority === '긴급' && task.status !== '완료')
       || (filter === 'today' && task.dueState === 'today' && task.status !== '완료')
       || (filter === 'progress' && task.status === '진행')
@@ -2205,11 +2215,12 @@ function WorkManagement({
           <div className="mt-4 flex flex-wrap gap-2" aria-label="업무 상태 필터">
             {[
               ['all', '전체'],
+              ['attention', `확인 필요 ${portalTaskNotificationCount(accountTasks)}건`],
               ['urgent', '긴급'],
               ['today', '오늘 마감'],
               ['progress', '진행 중'],
               ['complete', '완료'],
-            ].map(([value, label]) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value as typeof filter)} className={`min-h-11 rounded-xl border px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${filter === value ? 'border-[#0877b8] bg-sky-50 text-[#075f93]' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>{label}</button>)}
+            ].map(([value, label]) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value as WorkTaskFilter)} className={`min-h-11 rounded-xl border px-4 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${filter === value ? 'border-[#0877b8] bg-sky-50 text-[#075f93]' : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'}`}>{label}</button>)}
           </div>
         </CardHeader>
         <CardContent className="pt-1">
@@ -3410,6 +3421,7 @@ function DocumentRequest({ caseItem, requestNumber, outstandingNames, onSave, on
 
 export default function Home() {
   const [view, setView] = useState<View>('admin');
+  const [taskFilterRequest, setTaskFilterRequest] = useState<{ id: number; filter: WorkTaskFilter }>({ id: 0, filter: 'all' });
   const [mobileOpen, setMobileOpen] = useState(false);
   const [globalSearch, setGlobalSearch] = useState('');
   const [consultationNumber, setConsultationNumber] = useState(4);
@@ -3686,19 +3698,25 @@ export default function Home() {
     if (reload) window.location.reload();
   }
   function navigate(next: View) {
-    if (fileRecoveryLock.current) { notify('원본 회수 결과를 확인하고 최신 운영 화면을 불러온 뒤 이동해 주세요.'); return; }
-    if (applicationPending && next !== 'application') { notify('신청 저장을 확인 중입니다. 같은 신청 저장을 완료한 뒤 이동해 주세요.'); return; }
+    if (fileRecoveryLock.current) { notify('원본 회수 결과를 확인하고 최신 운영 화면을 불러온 뒤 이동해 주세요.'); return false; }
+    if (applicationPending && next !== 'application') { notify('신청 저장을 확인 중입니다. 같은 신청 저장을 완료한 뒤 이동해 주세요.'); return false; }
     if (applicationDirty && next !== 'application') {
-      if (!window.confirm('제출 전 입력은 저장되지 않습니다. 신청 화면을 나갈까요?')) return;
+      if (!window.confirm('제출 전 입력은 저장되지 않습니다. 신청 화면을 나갈까요?')) return false;
       setApplicationDirty(false);
     }
     if (!allowedViews.has(next)) {
       notify('현재 로그인 계정에는 이 메뉴 권한이 없습니다.');
-      return;
+      return false;
     }
     setView(selectedCase.flowManaged && (next === 'consultation' || next === 'documents') ? 'workflow' : next);
     setMobileOpen(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    return true;
+  }
+
+  function openTasks(filter: WorkTaskFilter = 'all') {
+    if (!navigate('tasks')) return;
+    setTaskFilterRequest((current) => ({ id: current.id + 1, filter }));
   }
 
   function openSchedule(audience: 'admin' | 'trainee') {
@@ -3878,7 +3896,11 @@ export default function Home() {
         active={active}
         icon={item.icon}
         label={label}
-        onSelect={() => item.view === 'schedule' ? openSchedule(view === 'trainee' ? 'trainee' : 'admin') : navigate(item.view)}
+        onSelect={() => item.view === 'tasks'
+          ? openTasks(portalTaskNavigationFilter(notificationCount))
+          : item.view === 'schedule'
+            ? openSchedule(view === 'trainee' ? 'trainee' : 'admin')
+            : navigate(item.view)}
       />
     );
   }
@@ -3923,7 +3945,7 @@ export default function Home() {
           <div className="ml-auto flex items-center gap-2">
             <Pill tone={dataStatusTone}>{dataStatusLabel}</Pill>
             <div className="flex min-h-11 max-w-[210px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left text-sm font-semibold text-slate-700" title={currentUser.email}><span className="grid size-7 shrink-0 place-items-center rounded-full bg-[#eaf1f7] text-xs font-bold text-[#15375b]">{accountDisplayName.slice(0, 1)}</span><span className="hidden min-w-0 truncate sm:block">{accountDisplayName}</span><ShieldCheck className="size-4 shrink-0 text-emerald-600" aria-hidden="true" /></div>
-            <button type="button" onClick={() => navigate('tasks')} className="relative hidden size-11 place-items-center rounded-xl text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 sm:grid" aria-label={`확인할 업무 알림 ${notificationCount}건`}><Bell aria-hidden="true" />{notificationCount ? <span className="absolute right-0.5 top-0.5 grid min-h-5 min-w-5 place-items-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">{notificationCount}</span> : null}</button>
+            <button type="button" onClick={() => openTasks(portalTaskNavigationFilter(notificationCount))} className="relative hidden size-11 place-items-center rounded-xl text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 sm:grid" aria-label={notificationCount > 0 ? `확인 필요 업무 ${notificationCount}건 보기` : '업무 목록 보기'}><Bell aria-hidden="true" />{notificationCount ? <span className="absolute right-0.5 top-0.5 grid min-h-5 min-w-5 place-items-center rounded-full bg-red-600 px-1 text-[10px] font-bold text-white">{notificationCount}</span> : null}</button>
             {isAdmin || currentMember?.permissions.collaborationApply ? <PrimaryButton onClick={() => navigate('application')}><Plus className="size-4" aria-hidden="true" /> <span className="hidden md:inline">새 협업신청</span><span className="md:hidden">신청</span></PrimaryButton> : null}
           </div>
         </header>
@@ -3934,10 +3956,10 @@ export default function Home() {
           {view === 'pipeline' ? <PipelineBoard cases={cases} setCases={setCases} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} onOpenCase={openCase} /> : null}
           {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee} · {item.id.slice(-8)}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <><ApplicationDetailsSummary details={selectedCase.applicationDetails} /><ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /></> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate(cases.length ? 'consultation' : 'application')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}
-          {view === 'tasks' ? <WorkManagement tasks={tasks} setTasks={setTasks} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} notify={notify} /> : null}
+          {view === 'tasks' ? <WorkManagement key={taskFilterRequest.id} tasks={tasks} setTasks={setTasks} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} initialFilter={taskFilterRequest.filter} notify={notify} /> : null}
           {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} currentUserId={currentUser.id} recoveryControls={{ recoveryBusy: fileRecoveryBusy, recoveryDisabled: dataStatus !== 'saved' || fileRecoveryBusy || applicationPending || applicationDirty, beginRecovery: beginFileRecovery, finishRecovery: finishFileRecovery }} notify={notify} /> : null}
           {view === 'ai-diagnosis' ? <DiagnosisPreflight assessments={diagnosisAssessments} setAssessments={setDiagnosisAssessments} cases={cases} members={members} documents={companyDocuments} onOpenFiles={() => navigate('files')} onRequestDocuments={(caseId) => { setSelectedCaseId(caseId); navigate('documents'); }} onQueueDraft={queueDiagnosisDraft} notify={notify} /> : null}
-          {view === 'trainee' ? <TraineeDashboard onOpenCase={openCase} onOpenTasks={() => navigate('tasks')} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} cases={previewCases} tasks={previewTasks} documents={previewDocuments} /> : null}
+          {view === 'trainee' ? <TraineeDashboard onOpenCase={openCase} onOpenTasks={() => openTasks()} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} cases={previewCases} tasks={previewTasks} documents={previewDocuments} /> : null}
           {view === 'access' && isAdmin ? <AccessManagement notify={notify} members={members} setMembers={setMembers} registrationDisabled={dataStatus !== 'saved'} passwordLinks={passwordLinks} onRegistered={result => { setMembers(result.members); setMembersRevision(result.membersRevision); notify(`${result.member.name} 파트너 등록을 확인했습니다.`); }} /> : null}
           {view === 'application' ? <ApplicationForm onSubmissionBusy={setApplicationPending} currentUserId={currentUser.id} onDraftSaved={hasFiles => setApplicationDirty(hasFiles)} awaitingSave={applicationAwaitingSave} onDirty={() => setApplicationDirty(true)} applicant={collaborationApplicant} members={members} canUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} onCancel={() => navigate('trainee')} onDone={async (files, companyName, selectedServices, applicantType, applicantName, recordingConsent, selectedMemberId, details, draftId, draftRevision) => {
             setApplicationPending(true);
