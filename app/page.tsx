@@ -19,6 +19,7 @@ import {
 } from '@/lib/legacy-document-request';
 import { diagnosisDocumentsForCase, hasOpenDiagnosisReviewTask } from '@/lib/diagnosis-preflight';
 import { applyCompanyDocumentStatusDraft, COMPANY_DOCUMENT_STATUSES, COMPANY_DOCUMENT_STATUS_IMPACTS, createCompanyDocumentStatusDraft, type CompanyDocumentStatusDraft } from '@/lib/company-document-review';
+import { applyWorkTaskStatusDraft, createSupportAcknowledgementDraft, createWorkTaskCompletionDraft, workTaskStatusImpact, type WorkTaskStatusDraft } from '@/lib/work-task-status';
 import {
   emptyStepZeroPilotContext,
   prepareStepZeroPilotInput,
@@ -2253,6 +2254,7 @@ function WorkManagement({
   const [newMemberId, setNewMemberId] = useState(isAdmin ? '' : currentMemberId ?? '');
   const [newDue, setNewDue] = useState('');
   const [newDueState, setNewDueState] = useState<WorkTask['dueState'] | ''>('');
+  const [statusDraft, setStatusDraft] = useState<WorkTaskStatusDraft | null>(null);
 
   // Do not re-filter server-authorized tasks by a mutable display name.
   const accountTasks = tasks;
@@ -2273,18 +2275,35 @@ function WorkManagement({
     today: accountTasks.filter((task) => task.status !== '완료' && task.dueState === 'today').length,
     complete: accountTasks.filter((task) => task.status === '완료').length,
   };
+  const statusTask = tasks.find((task) => task.id === statusDraft?.taskId) ?? null;
 
-  function toggleComplete(task: WorkTask) {
-    const nextStatus: WorkTask['status'] = task.status === '완료'
-      ? task.kind === '지원요청' && !isAdmin ? '대기' : '진행'
-      : '완료';
-    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: nextStatus } : item));
-    notify(nextStatus === '완료' ? `${task.title} 업무를 완료 처리했습니다.` : task.kind === '지원요청' && !isAdmin ? `${task.title} 지원 요청을 다시 열었습니다.` : `${task.title} 업무를 다시 진행 상태로 변경했습니다.`);
+  function requestCompletionChange(task: WorkTask) {
+    try {
+      setStatusDraft(createWorkTaskCompletionDraft(task, isAdmin));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '업무 상태를 다시 확인해 주세요.');
+    }
   }
 
-  function acknowledgeSupport(task: WorkTask) {
-    setTasks((current) => current.map((item) => item.id === task.id ? { ...item, status: '진행' } : item));
-    notify(`${task.title} 지원 요청의 처리를 시작했습니다.`);
+  function requestSupportAcknowledgement(task: WorkTask) {
+    try {
+      setStatusDraft(createSupportAcknowledgementDraft(task, isAdmin));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '지원 요청 상태를 다시 확인해 주세요.');
+    }
+  }
+
+  function confirmTaskStatusChange() {
+    if (!statusTask || !statusDraft) return;
+    try {
+      const updated = applyWorkTaskStatusDraft(statusTask, statusDraft, isAdmin);
+      setTasks((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setStatusDraft(null);
+      notify(updated.status === '완료' ? `${updated.title} 업무를 완료 처리했습니다.` : updated.kind === '지원요청' && updated.status === '대기' ? `${updated.title} 지원 요청을 다시 열었습니다.` : statusDraft.intent === 'support_acknowledge' ? `${updated.title} 지원 요청의 처리를 시작했습니다.` : `${updated.title} 업무를 다시 진행 상태로 변경했습니다.`);
+    } catch (error) {
+      setStatusDraft(null);
+      notify(error instanceof Error ? error.message : '업무 상태를 다시 확인해 주세요.');
+    }
   }
 
   function resetTaskDraft() {
@@ -2394,7 +2413,7 @@ function WorkManagement({
               const dueTone = task.dueState === 'overdue' ? 'red' : task.dueState === 'today' ? 'amber' : 'blue';
               return (
                 <article key={task.id} className={`rounded-2xl border p-5 ${completed ? 'border-slate-200 bg-slate-50/70' : task.dueState === 'overdue' ? 'border-red-200 bg-red-50/40' : 'border-slate-200 bg-white'}`}>
-                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><Pill tone={task.priority === '긴급' ? 'red' : 'slate'}>{task.priority}</Pill><Pill tone="blue">{task.kind}</Pill>{task.kind === '지원요청' && task.supportCategory ? <Pill tone="slate">{SUPPORT_CATEGORY_LABELS[task.supportCategory]}</Pill> : null}</div><p className="mt-3 text-xs font-semibold text-slate-500">{task.company}</p><h2 className={`mt-1 text-base font-bold leading-6 ${completed ? 'text-slate-500 line-through' : 'text-slate-950'}`}>{task.title}</h2></div><div className="flex shrink-0 gap-2">{isAdmin && task.kind === '지원요청' && task.status === '대기' ? <button type="button" onClick={() => acknowledgeSupport(task)} className="min-h-11 rounded-xl border border-violet-200 bg-violet-50 px-3 text-xs font-bold text-violet-800 hover:bg-violet-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-violet-100">처리 시작</button> : null}<button type="button" aria-pressed={completed} aria-label={`${task.title} ${completed ? task.kind === '지원요청' && !isAdmin ? '다시 열기' : '다시 진행' : task.kind === '지원요청' && !isAdmin ? '요청 종료' : '완료 처리'}`} onClick={() => toggleComplete(task)} className={`grid size-11 shrink-0 place-items-center rounded-xl border transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${completed ? 'border-emerald-200 bg-emerald-100 text-emerald-800' : 'border-slate-200 bg-white text-slate-400 hover:border-emerald-300 hover:text-emerald-700'}`}><Check className="size-5" aria-hidden="true" /></button></div></div>
+                  <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><Pill tone={task.priority === '긴급' ? 'red' : 'slate'}>{task.priority}</Pill><Pill tone="blue">{task.kind}</Pill>{task.kind === '지원요청' && task.supportCategory ? <Pill tone="slate">{SUPPORT_CATEGORY_LABELS[task.supportCategory]}</Pill> : null}</div><p className="mt-3 text-xs font-semibold text-slate-500">{task.company}</p><h2 className={`mt-1 text-base font-bold leading-6 ${completed ? 'text-slate-500 line-through' : 'text-slate-950'}`}>{task.title}</h2></div><div className="flex shrink-0 gap-2">{isAdmin && task.kind === '지원요청' && task.status === '대기' ? <button type="button" onClick={() => requestSupportAcknowledgement(task)} className="min-h-11 rounded-xl border border-violet-200 bg-violet-50 px-3 text-xs font-bold text-violet-800 hover:bg-violet-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-violet-100">처리 시작</button> : null}<button type="button" aria-pressed={completed} aria-label={`${task.title} ${completed ? task.kind === '지원요청' && !isAdmin ? '다시 열기' : '다시 진행' : task.kind === '지원요청' && !isAdmin ? '요청 종료' : '완료 처리'}`} onClick={() => requestCompletionChange(task)} className={`grid size-11 shrink-0 place-items-center rounded-xl border transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-100 ${completed ? 'border-emerald-200 bg-emerald-100 text-emerald-800' : 'border-slate-200 bg-white text-slate-400 hover:border-emerald-300 hover:text-emerald-700'}`}><Check className="size-5" aria-hidden="true" /></button></div></div>
                   <div className="mt-4 grid grid-cols-2 gap-3 rounded-xl bg-white/80 p-3 text-xs sm:grid-cols-3"><div><p className="text-slate-500">담당자</p><p className="mt-1 font-bold text-slate-800">{assignmentDisplayName(task, task.assignee, members)}</p></div><div><p className="text-slate-500">마감</p><div className="mt-1"><Pill tone={dueTone}>{task.due}</Pill></div></div><div className="col-span-2 sm:col-span-1"><p className="text-slate-500">관련 업무</p><p className="mt-1 font-bold text-slate-800">{task.related}</p></div></div>
                 </article>
               );
@@ -2404,6 +2423,17 @@ function WorkManagement({
       </Card>
 
       <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5"><div className="flex items-start gap-3"><Bell className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">사이트 알림 기준</p><p className="mt-1 text-xs leading-5 text-slate-600">오늘 마감·기한 지연 운영 업무는 상단과 메뉴의 알림 숫자에 포함됩니다. 가상 예시 업무와 완료 업무는 제외하며, 상담 저장 시 선택한 후속조치는 이 목록에 추가됩니다.</p></div></div></div>
+
+      {statusTask && statusDraft ? <PortalDialog titleId="task-status-change-title" onClose={() => setStatusDraft(null)}>
+        <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">업무 상태 변경 확인</p><h2 id="task-status-change-title" className="mt-1 text-xl font-bold">{statusTask.title}</h2><p className="mt-1 text-sm text-slate-500">{statusTask.company} · {statusTask.kind}</p></div><DialogClose className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="업무 상태 변경 취소"><X className="size-5" aria-hidden="true" /></DialogClose></div>
+          <div className="space-y-4 p-5">
+            <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2"><div><p className="text-xs text-slate-500">현재 상태</p><p className="mt-1 text-sm font-bold text-slate-800">{statusDraft.expectedStatus}</p></div><div><p className="text-xs text-slate-500">변경 후 상태</p><p className="mt-1 text-sm font-bold text-[#0877b8]">{statusDraft.nextStatus}</p></div><div><p className="text-xs text-slate-500">담당</p><p className="mt-1 text-sm font-bold text-slate-800">{assignmentDisplayName(statusTask, statusTask.assignee, members)}</p></div><div><p className="text-xs text-slate-500">마감</p><p className="mt-1 text-sm font-bold text-slate-800">{statusTask.due}</p></div></div>
+            <div className={`rounded-2xl border p-4 text-sm leading-6 ${statusDraft.nextStatus === '완료' ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : statusDraft.expectedKind === '지원요청' ? 'border-violet-200 bg-violet-50 text-violet-900' : 'border-blue-100 bg-blue-50 text-slate-700'}`}><p className="font-bold">{workTaskStatusImpact(statusDraft)}</p><p className="mt-1 text-xs leading-5">기존 업무 내용·담당·마감일을 바꾸거나 외부 알림을 발송하지 않습니다.</p></div>
+          </div>
+          <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setStatusDraft(null)}>취소</SecondaryButton><PrimaryButton onClick={confirmTaskStatusChange}><Check className="size-4" aria-hidden="true" /> 상태 변경 저장</PrimaryButton></div>
+        </div>
+      </PortalDialog> : null}
 
       {addOpen ? <PortalDialog titleId="task-modal-title" onClose={closeTaskDialog}>
         <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
