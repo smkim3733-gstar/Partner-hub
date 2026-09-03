@@ -46,6 +46,7 @@ import {
   PortalSaveQueue,
   putPortalSnapshot,
 } from '@/lib/portal-save-queue';
+import { PortalFlowProjectionRefresh } from '@/lib/portal-flow-projection-refresh';
 import { ApplicationSubmission } from '@/lib/application-submission';
 import { uploadCompanyFile, type StoredCompanyFile } from '@/lib/company-file-upload';
 import { prependStoredCompanyDocument, storedCompanyDocument } from '@/lib/company-document-link';
@@ -3811,11 +3812,17 @@ export default function Home() {
     (status, error) => { setDataStatus(status); setSaveError(error ?? ''); },
     revision => setMembersRevision(current => Math.max(current, revision)),
   ));
+  const [flowProjectionRefresh] = useState(
+    () => new PortalFlowProjectionRefresh<PortalState>(isPortalState),
+  );
 
   useEffect(() => {
     saveQueue.activate();
-    return () => saveQueue.dispose();
-  }, [saveQueue]);
+    return () => {
+      flowProjectionRefresh.cancel();
+      saveQueue.dispose();
+    };
+  }, [flowProjectionRefresh, saveQueue]);
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
@@ -4081,12 +4088,12 @@ export default function Home() {
 
   async function refreshFlowProjection() {
     try {
-      const response = await fetch('/api/state', { cache:'no-store' });
-      const payload = await response.json() as { state?: PortalState };
-      if (response.ok && payload.state) {
-        setCases(current => current.map(item => { const remote = payload.state?.cases.find(c => c.id === item.id); return remote?.flowManaged ? { ...item, ...remote } : item; }));
-        setSchedule(current => [...current.filter(item => !item.id.startsWith('flow-meeting:')), ...payload.state!.schedule.filter(item => item.id.startsWith('flow-meeting:'))]);
-      }
+      const refreshed = await flowProjectionRefresh.refresh(() =>
+        fetch('/api/state', { cache: 'no-store' }),
+      );
+      if (!refreshed.current) return;
+      setCases(current => current.map(item => { const remote = refreshed.state.cases.find(c => c.id === item.id); return remote?.flowManaged ? { ...item, ...remote } : item; }));
+      setSchedule(current => [...current.filter(item => !item.id.startsWith('flow-meeting:')), ...refreshed.state.schedule.filter(item => item.id.startsWith('flow-meeting:'))]);
     } catch { notify('업무는 저장되었습니다. 전체 진행판은 새로고침으로 확인해 주세요.'); }
   }
 
