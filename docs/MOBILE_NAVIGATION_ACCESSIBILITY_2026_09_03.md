@@ -18,4 +18,4 @@
 - 자동 테스트 241개, 타입검사, lint, 프로덕션 빌드 통과.
 - 격리 workerd/D1/R2 검사 129개 통과. 실제 쓰기·메일·유료 AI·외부 요청은 0건이다.
 - localhost `/` 응답은 HTTP 200이다. 사용자가 브라우저 조작 검증을 요청하지 않아 실제 Tab 순환·Escape 입력을 완료 판정하지 않았으며, 공통 Sheet의 접근성 계약과 코드 회귀검증을 확인했다.
-- 서버 API, DB/R2 스키마, 공개범위, 보관·삭제 정책은 변경하지 않았다. 운영 반영 결과는 `outputs/release/mobile-navigation-accessibility-deployment.json`을 기준으로 한다.
+- 서버 API, DB/R2 스키마, 공개범위, 보관·삭제 정책은 변경하지 않았다. 사용자 승인 후 기존 public 접근과 D1 `DB`, R2 `AI_SOURCE_FILES` 연결을 유지한 Sites 버전 72에 반영했고 `/`, `/account`, `/account/setup`의 HTTP 200 응답을 확인했다. 운영 반영 결과는 `outputs/release/mobile-navigation-accessibility-deployment.json`을 기준으로 한다.
