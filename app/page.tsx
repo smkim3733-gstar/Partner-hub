@@ -17,6 +17,12 @@ import {
 } from '@/lib/legacy-document-request';
 import { diagnosisDocumentsForCase, hasOpenDiagnosisReviewTask } from '@/lib/diagnosis-preflight';
 import { companyDocumentStatusError } from '@/lib/company-document-review';
+import {
+  emptyStepZeroPilotContext,
+  prepareStepZeroPilotInput,
+  stepZeroPilotContextMaxLength,
+  stepZeroPilotContextMinLength,
+} from '@/lib/step-zero-pilot-input';
 import { googleCalendarDraftUrl, scheduleDateGroups } from '@/lib/schedule-display';
 import { PartnerAuthPanel } from '@/components/partner-auth-panel';
 import { PartnerPasswordLink } from '@/components/partner-password-link';
@@ -904,8 +910,10 @@ function DiagnosisPreflight({
   const [selectedId, setSelectedId] = useState(assessments[0]?.id ?? '');
   const [integrationReadiness, setIntegrationReadiness] = useState<AiIntegrationReadiness | null>(null);
   const [integrationStatus, setIntegrationStatus] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [pilotContext, setPilotContext] = useState('업종: 산업용 센서 제조\n업력: 4년\n요청사항: 정책자금과 기업부설연구소 가능성 검토\n매출·신용·부채·인력 현황: 확인 필요');
+  const [pilotContext, setPilotContext] = useState(emptyStepZeroPilotContext);
   const [pilotConsent, setPilotConsent] = useState(false);
+  const pilotContextRef = useRef<HTMLTextAreaElement>(null);
+  const pilotConsentRef = useRef<HTMLInputElement>(null);
   const pilotRequestId = useRef<string | null>(null);
   const [generationStatus, setGenerationStatus] = useState<'idle' | 'loading' | 'success'>('idle');
   const [generationError, setGenerationError] = useState('');
@@ -983,9 +991,8 @@ function DiagnosisPreflight({
   const selectedCaseExists = cases.some((item) => item.id === selected.caseId);
 
   function selectAssessment(assessment: DiagnosisAssessment) {
-    const service = cases.find((item) => item.id === assessment.caseId)?.service ?? '기업컨설팅';
     setSelectedId(assessment.id);
-    setPilotContext(`업종: 테스트용 제조·서비스 기업\n업력: 확인 필요\n요청사항: ${service} 가능성 검토\n매출·신용·부채·인력 현황: 확인 필요\n주의: 모든 정보는 기능 검증을 위한 가상정보`);
+    setPilotContext(emptyStepZeroPilotContext());
     setPilotConsent(false);
     pilotRequestId.current = null;
     setGenerationError('');
@@ -1005,6 +1012,12 @@ function DiagnosisPreflight({
   }
 
   async function generatePilotStepZero() {
+    const preparedInput = prepareStepZeroPilotInput(pilotContext, pilotConsent);
+    if (!preparedInput.ok) {
+      setGenerationError(preparedInput.error);
+      (preparedInput.field === 'consent' ? pilotConsentRef : pilotContextRef).current?.focus();
+      return;
+    }
     if (!integrationReadiness?.generationEnabled) {
       setGenerationError('Anthropic API 키와 Claude 모델 연결이 필요합니다.');
       return;
@@ -1029,7 +1042,7 @@ function DiagnosisPreflight({
           requestId,
           caseId: selected.caseId,
           company: selected.company,
-          pilotContext,
+          pilotContext: preparedInput.pilotContext,
           pilotMode: true,
           consentConfirmed: true,
         }),
@@ -1038,6 +1051,7 @@ function DiagnosisPreflight({
       if (!response.ok || !payload.run) throw new Error(payload.error || 'Step 0 생성에 실패했습니다.');
       setStepZeroRun(payload.run);
       pilotRequestId.current = null;
+      setPilotConsent(false);
       setGenerationStatus('success');
       notify(`${selected.company} Step 0 가상 초안을 생성해 대표 검토대기에 저장했습니다.`);
     } catch (error) {
@@ -1192,13 +1206,13 @@ function DiagnosisPreflight({
             </CardHeader>
             <CardContent className="space-y-5 py-5">
               <Field label="가상기업 입력" required hint="실제 전화번호·이메일·사업자번호·주민번호는 입력할 수 없습니다.">
-                <textarea value={pilotContext} onChange={(event) => { pilotRequestId.current = null; setPilotContext(event.target.value); setGenerationError(''); }} className={`${inputClass} min-h-36 py-3`} maxLength={8000} />
+                <textarea ref={pilotContextRef} value={pilotContext} onChange={(event) => { pilotRequestId.current = null; setPilotContext(event.target.value); setPilotConsent(false); setGenerationError(''); }} className={`${inputClass} min-h-36 py-3`} minLength={stepZeroPilotContextMinLength} maxLength={stepZeroPilotContextMaxLength} required aria-required="true" aria-describedby={generationError ? 'step-zero-generation-error' : undefined} placeholder="가상 업종·업력·요청사항과 확인이 필요한 현황을 직접 입력하세요." />
               </Field>
               <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm font-semibold text-slate-700">
-                <input type="checkbox" checked={pilotConsent} onChange={(event) => { pilotRequestId.current = null; setPilotConsent(event.target.checked); setGenerationError(''); }} className="mt-1 size-4 accent-[#0877b8]" />
+                <input ref={pilotConsentRef} type="checkbox" checked={pilotConsent} onChange={(event) => { pilotRequestId.current = null; setPilotConsent(event.target.checked); setGenerationError(''); }} className="mt-1 size-4 accent-[#0877b8]" aria-describedby={generationError ? 'step-zero-generation-error' : undefined} />
                 <span>위 내용은 테스트용 가상정보이며 실제 고객 식별정보가 없음을 확인하고, 이 가상 입력을 Anthropic Claude API 시험에 사용하는 데 동의합니다.</span>
               </label>
-              {generationError ? <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{generationError}</p> : null}
+              {generationError ? <p id="step-zero-generation-error" role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{generationError}</p> : null}
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
                 <PrimaryButton onClick={generatePilotStepZero} disabled={generationStatus === 'loading' || selected.level !== 'A' || !selected.company.includes('(가상)')}>
                   {generationStatus === 'loading' ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <BrainCircuit className="size-4" aria-hidden="true" />}

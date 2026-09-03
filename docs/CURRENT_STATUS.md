@@ -23,6 +23,7 @@
 - 상담 FLOW, 반복 상담·서류 요청, 보고서 등록, 대표/파트너 확인, 견적·계약·서명·입금의 개별 확인.
 - 상담 FLOW 저장 직전 권한·명단 재확인, 계정·명령 내용·첨부 해시가 일치하는 동일 요청 재시도. 외부 AI 요청 직전에도 호출 계정과 작업 승인 상태를 확인한다.
 - 승인된 외부 처리·비용 확인을 거친 AI 1차/4차 초안 요청 경로. 보고서 최종 승인과 고객 전달은 대표 판단이다.
+- 가상기업 Step 0 시험은 빈 설명에서 시작하고 20~8,000자·식별정보 부재·현재 입력 동의를 외부 호출 전에 검증한다. 입력 변경과 생성 성공 뒤에는 동의를 다시 받아야 한다.
 - 새 저장소의 대표 선택형 기준선 초기화, 가상 예시를 제외한 대표 운영 지표, 관리자 전용 저장 용량·잠정 경보 표시.
 - 저장 경로 3곳의 개인정보 없는 일별 충돌 집계와 대표 전용 최근 7일 지표. 기존 409·입력 보존·수동 재시도 방식은 유지한다.
 - 저장 충돌 뒤 24시간 동안 열린 화면 메모리에서만 전달하는 익명 단일사용 회수 영수증. DB에는 토큰 해시와 서버 경로·역할·충돌 종류·시각만 보관하고, 대표에게 경로별 관측 회수율과 최소 5건 이상인 거친 시간 구간만 표시한다.
@@ -36,7 +37,7 @@
 
 ## 검증과 배포 경계
 
-현재 소스는 자동 테스트 277개와 격리 workerd/D1/R2 검증 129개를 기준으로 확인한다. 최신 파일럿 준비 고도화의 lint·타입검사·빌드 결과와 운영 경계는 [파트너 파일럿 준비 고도화](PILOT_READINESS_ENHANCEMENT_2026_09_01.md), [저장 충돌 운영 지표](SAVE_CONFLICT_OBSERVABILITY_2026_09_01.md), [비밀번호 설정 링크 운영 지표](PASSWORD_LINK_OBSERVABILITY_2026_09_01.md), [협업신청 → 첫 상담 FLOW 운영 지표](APPLICATION_FIRST_CONSULTATION_METRICS_2026_09_01.md), [중복 입력·중복 요청 운영 지표](DUPLICATE_REQUEST_OBSERVABILITY_2026_09_01.md), [1차 공동분석 확인 간격 지표](JOINT_ANALYSIS_CONFIRMATION_METRICS_2026_09_01.md), [서류 수령 → 대표 검토 간격 지표](DOCUMENT_REVIEW_WAIT_METRICS_2026_09_01.md), [지원 요청 유형·처리시간 지표](SUPPORT_REQUEST_METRICS_2026_09_01.md), [진행 단계별 명시적 중단 지표](PIPELINE_DROPOFF_METRICS_2026_09_01.md), [모바일 메뉴 접근성 보완](MOBILE_NAVIGATION_ACCESSIBILITY_2026_09_03.md), [권한 내 기업·신청번호 검색](GLOBAL_CASE_SEARCH_2026_09_03.md), [진행현황 CSV 내보내기](PIPELINE_CSV_EXPORT_2026_09_03.md), [모바일 기업·신청번호 검색](MOBILE_CASE_SEARCH_2026_09_03.md), [운영 업무 사이트 알림](PORTAL_TASK_NOTIFICATIONS_2026_09_03.md), [새 업무 입력 안전성](PORTAL_TASK_ENTRY_SAFETY_2026_09_03.md), [기업자료 등록 입력 안전성](PORTAL_DOCUMENT_ENTRY_SAFETY_2026_09_03.md), [협업신청 핵심 입력 안전성](APPLICATION_ENTRY_SAFETY_2026_09_03.md), [상담 등록 입력 안전성](CONSULTATION_ENTRY_SAFETY_2026_09_03.md), [서류요청 등록 입력 안전성](DOCUMENT_REQUEST_ENTRY_SAFETY_2026_09_03.md)에 구분해 남긴다. 기존 DB/R2 연결과 추가형 DB 마이그레이션을 유지한다.
+현재 소스는 자동 테스트 281개와 격리 workerd/D1/R2 검증 129개를 기준으로 확인한다. 최신 파일럿 준비 고도화의 lint·타입검사·빌드 결과와 운영 경계는 [파트너 파일럿 준비 고도화](PILOT_READINESS_ENHANCEMENT_2026_09_01.md), [저장 충돌 운영 지표](SAVE_CONFLICT_OBSERVABILITY_2026_09_01.md), [비밀번호 설정 링크 운영 지표](PASSWORD_LINK_OBSERVABILITY_2026_09_01.md), [협업신청 → 첫 상담 FLOW 운영 지표](APPLICATION_FIRST_CONSULTATION_METRICS_2026_09_01.md), [중복 입력·중복 요청 운영 지표](DUPLICATE_REQUEST_OBSERVABILITY_2026_09_01.md), [1차 공동분석 확인 간격 지표](JOINT_ANALYSIS_CONFIRMATION_METRICS_2026_09_01.md), [서류 수령 → 대표 검토 간격 지표](DOCUMENT_REVIEW_WAIT_METRICS_2026_09_01.md), [지원 요청 유형·처리시간 지표](SUPPORT_REQUEST_METRICS_2026_09_01.md), [진행 단계별 명시적 중단 지표](PIPELINE_DROPOFF_METRICS_2026_09_01.md), [모바일 메뉴 접근성 보완](MOBILE_NAVIGATION_ACCESSIBILITY_2026_09_03.md), [권한 내 기업·신청번호 검색](GLOBAL_CASE_SEARCH_2026_09_03.md), [진행현황 CSV 내보내기](PIPELINE_CSV_EXPORT_2026_09_03.md), [모바일 기업·신청번호 검색](MOBILE_CASE_SEARCH_2026_09_03.md), [운영 업무 사이트 알림](PORTAL_TASK_NOTIFICATIONS_2026_09_03.md), [새 업무 입력 안전성](PORTAL_TASK_ENTRY_SAFETY_2026_09_03.md), [기업자료 등록 입력 안전성](PORTAL_DOCUMENT_ENTRY_SAFETY_2026_09_03.md), [협업신청 핵심 입력 안전성](APPLICATION_ENTRY_SAFETY_2026_09_03.md), [상담 등록 입력 안전성](CONSULTATION_ENTRY_SAFETY_2026_09_03.md), [서류요청 등록 입력 안전성](DOCUMENT_REQUEST_ENTRY_SAFETY_2026_09_03.md), [Step 0 가상시험 입력 안전성](STEP_ZERO_PILOT_INPUT_SAFETY_2026_09_03.md)에 구분해 남긴다. 기존 DB/R2 연결과 추가형 DB 마이그레이션을 유지한다.
 
 운영 고객 파일·명단을 개발용으로 읽거나 복사하지 않는다. 가상 데이터로 테스트하며 실제 계정 등록·메일 발송·유료 AI를 검증 수단으로 사용하지 않는다. 서비스 전체 침투시험, 실제 파트너의 로그인 쿠키 왕복과 전체 레거시 이관은 완료로 표시하지 않는다.
 
@@ -63,6 +64,8 @@
 [상담 등록 입력 안전성](CONSULTATION_ENTRY_SAFETY_2026_09_03.md)에서는 새 상담의 `화상`·`일정 확정`·`서류요청` 기본 선택과 자동 일정 추가를 제거했다. 상담방식·상태·후속조치·공개범위를 공용 허용값으로 검증하고 제목 150자 제한을 화면과 저장 경계에 함께 적용했다. 상태가 바뀌면 호환되지 않는 일정·후속조치를 제거하며 알 수 없는 후속조치가 일반 내부업무로 바뀌어 저장되지 않도록 차단한다. 자동 테스트 273개, 격리 workerd/D1/R2 검사 129개, 타입검사·lint·프로덕션 빌드와 localhost `/` HTTP 200 응답을 확인했다. 실제 쓰기·메일·유료 AI·외부 요청은 0건이며 기존 상담·일정 공유 선택지·DB/R2 스키마·인증·권한·보관 정책은 변경하지 않았다. GitHub 푸시와 공개 Sites 배포는 사용자 승인 전까지 수행하지 않는다.
 
 [서류요청 등록 입력 안전성](DOCUMENT_REQUEST_ENTRY_SAFETY_2026_09_03.md)에서는 새 요청에 사업자등록증 등 4개 서류가 자동 포함되던 동작을 제거했다. 추천은 유지하지만 `요청에 추가`를 눌러야 목록에 들어가며 직접 입력과 저장 경계에 서류명 150자 제한·공백 정리·중복 차단을 적용했다. 실제 자료 카드와 업무에 보존되지 않던 필수·선택 표시는 제거하고 서류명·제출기한이라는 현재 저장 계약에 화면을 맞췄다. 자동 테스트 277개, 격리 workerd/D1/R2 검사 129개, 타입검사·lint·프로덕션 빌드와 localhost `/` HTTP 200 응답을 확인했다. 실제 쓰기·메일·유료 AI·외부 요청은 0건이며 기존 요청·자료·업무·DB/R2 스키마·인증·권한·보관 정책은 변경하지 않았다. GitHub 푸시와 공개 Sites 배포는 사용자 승인 전까지 수행하지 않는다.
+
+[Step 0 가상시험 입력 안전성](STEP_ZERO_PILOT_INPUT_SAFETY_2026_09_03.md)에서는 특정 제조업 예시가 자동 입력되던 동작을 제거하고 가상기업 설명을 빈 상태에서 직접 입력하도록 했다. 20자 이상 8,000자 이하·식별정보 부재·현재 동의를 화면과 서버가 공통 검증하며 초과 입력을 잘라 보내지 않고 전체 거절한다. 입력 변경과 생성 성공 뒤에는 동의를 해제해 다음 유료 실행 전에 다시 확인한다. 자동 테스트 281개, 격리 workerd/D1/R2 검사 129개, 타입검사·lint·프로덕션 빌드와 localhost `/` HTTP 200 응답을 확인했다. 검증 중 실제 유료 AI·외부 요청·운영 쓰기·메일은 0건이며 기존 Step 0 권한·사전점검·중복방지·결과 저장·DB/R2 스키마·보관 정책은 변경하지 않았다. GitHub 푸시와 공개 Sites 배포는 사용자 승인 전까지 수행하지 않는다.
 
 ## 이어서 진행할 점검
 

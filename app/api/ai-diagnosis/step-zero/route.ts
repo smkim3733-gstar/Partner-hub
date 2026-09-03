@@ -16,6 +16,7 @@ import { PortalAccessError, requirePortalUser } from '@/lib/portal-auth';
 import { readPortalState } from '@/lib/portal-state';
 import { CompanyFileError } from '@/lib/company-files';
 import { stepZeroPreflight } from '@/lib/step-zero-preflight';
+import { prepareStepZeroPilotInput } from '@/lib/step-zero-pilot-input';
 
 export const dynamic = 'force-dynamic';
 
@@ -49,13 +50,6 @@ function accessErrorResponse(error: unknown) {
 
 function asText(value: unknown, maxLength: number) {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
-}
-
-function hasPotentialRealIdentifier(value: string) {
-  return /\b\d{6}-?\d{7}\b/.test(value)
-    || /\b\d{3}-?\d{2}-?\d{5}\b/.test(value)
-    || /\b01[016789]-?\d{3,4}-?\d{4}\b/.test(value)
-    || /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i.test(value);
 }
 
 function stepZeroPrompt(company: string, pilotContext: string) {
@@ -139,22 +133,20 @@ export async function POST(request: Request) {
     const requestId = asText(body.requestId, 100);
     const caseId = asText(body.caseId, 120);
     const company = asText(body.company, 100);
-    const pilotContext = asText(body.pilotContext, 8_000);
     if (body.pilotMode !== true || !company.includes('(가상)')) {
       return Response.json({ error: '현재 단계에서는 가상기업 시험만 실행할 수 있습니다.' }, { status: 403 });
-    }
-    if (body.consentConfirmed !== true) {
-      return Response.json({ error: '가상자료 확인과 외부 AI 시험 동의가 필요합니다.' }, { status: 400 });
     }
     if (!/^[a-zA-Z0-9_-]{16,100}$/.test(requestId)) {
       return Response.json({ error: '안전한 생성 요청 식별값이 필요합니다.' }, { status: 400 });
     }
-    if (!caseId || pilotContext.length < 20) {
-      return Response.json({ error: '가상기업 설명을 20자 이상 입력해 주세요.' }, { status: 400 });
-    }
-    if (hasPotentialRealIdentifier(pilotContext)) {
-      return Response.json({ error: '전화번호·이메일·사업자번호·주민번호 형태의 정보는 가상 시험에 입력할 수 없습니다.' }, { status: 400 });
-    }
+    if (!caseId) return Response.json({ error: '진행 식별값이 필요합니다.' }, { status: 400 });
+    const preparedInput = prepareStepZeroPilotInput(
+      body.pilotContext,
+      body.consentConfirmed,
+    );
+    if (!preparedInput.ok)
+      return Response.json({ error: preparedInput.error }, { status: 400 });
+    const { pilotContext } = preparedInput;
 
     // Consent or evidence can change while this screen is open. Read it again and
     // verify D1 metadata plus the R2 object before any external request.

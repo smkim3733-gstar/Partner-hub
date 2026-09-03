@@ -90,6 +90,7 @@ function request(
   requestId = 'step-zero-request-0001',
   pilotContext =
     '업종: 가상 제조업\n요청사항: 가상 정책자금 가능성 확인\n모든 수치는 확인 필요',
+  consentConfirmed = true,
 ) {
   return new Request('http://localhost/api/ai-diagnosis/step-zero', {
     method: 'POST',
@@ -104,7 +105,7 @@ function request(
       caseId,
       company,
       pilotMode: true,
-      consentConfirmed: true,
+      consentConfirmed,
       pilotContext,
     }),
   });
@@ -191,6 +192,12 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
   };
 
   try {
+    assert.equal((await POST(request('step-zero-short-input', '짧은 설명'))).status, 400);
+    assert.equal((await POST(request('step-zero-long-input', '가'.repeat(8_001)))).status, 400);
+    assert.equal((await POST(request('step-zero-identifier-input', '가상기업 설명에 test@example.com 식별정보 포함'))).status, 400);
+    assert.equal((await POST(request('step-zero-no-consent', undefined, false))).status, 400);
+    assert.equal(externalCalls, 0, 'invalid or unconfirmed input must fail before fetch');
+
     assert.equal((await POST(request())).status, 403);
     assert.equal(externalCalls, 0, 'metadata-less cards must fail before fetch');
 
