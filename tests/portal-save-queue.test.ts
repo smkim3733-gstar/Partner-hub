@@ -249,13 +249,48 @@ void test('HTTP success without an explicit save acknowledgement is not accepted
         JSON.parse(init!.body as string).expectedUserId,
         'bound-user',
       );
-      return Response.json({ ok: true, membersRevision: 7 });
+      return Response.json({
+        ok: true,
+        membersRevision: 7,
+        stateRevision: 'revision-7',
+      });
     };
     assert.equal(
       (await putPortalSnapshot<Snapshot>({ value: 'example' }, 'bound-user'))
         .membersRevision,
       7,
     );
+  } finally {
+    globalThis.fetch = original;
+  }
+});
+
+void test('save client rejects unreadable and malformed acknowledgement fields', async () => {
+  const original = globalThis.fetch;
+  try {
+    globalThis.fetch = async () =>
+      new Response('<html>unavailable</html>', { status: 502 });
+    await assert.rejects(
+      putPortalSnapshot<Snapshot>({ value: 'example' }, 'bound-user'),
+      /현재 화면을 유지/,
+    );
+    for (const payload of [
+      { ok: true, membersRevision: 1 },
+      { ok: true, membersRevision: -1, stateRevision: 'revision-1' },
+      { ok: true, membersRevision: 1, stateRevision: '' },
+      {
+        ok: true,
+        membersRevision: 1,
+        stateRevision: 'revision-1',
+        storage: { storedBytes: 'unknown' },
+      },
+    ]) {
+      globalThis.fetch = async () => Response.json(payload);
+      await assert.rejects(
+        putPortalSnapshot<Snapshot>({ value: 'example' }, 'bound-user'),
+        /응답 형식이 올바르지 않습니다/,
+      );
+    }
   } finally {
     globalThis.fetch = original;
   }
@@ -277,7 +312,11 @@ void test('save client accepts only valid conflict receipts and carries one on r
         );
       }
       assert.equal(headers.get('x-portal-conflict-receipt'), receipt);
-      return Response.json({ ok: true, membersRevision: 2 });
+      return Response.json({
+        ok: true,
+        membersRevision: 2,
+        stateRevision: 'revision-2',
+      });
     };
     const error = await putPortalSnapshot<Snapshot>(
       { value: 'example' },

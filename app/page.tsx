@@ -3792,7 +3792,6 @@ export default function Home() {
           saveStateRevisionRef.current,
           saveRecoveryReceiptRef.current || undefined,
         );
-        if (typeof result.stateRevision !== 'string') throw new Error('저장 버전을 확인하지 못했습니다. 화면을 유지하고 다시 시도해 주세요.');
         saveRecoveryReceiptRef.current = '';
         saveStateRevisionRef.current = result.stateRevision;
         if (result.storage) setStorage(result.storage);

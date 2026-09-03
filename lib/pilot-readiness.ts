@@ -75,6 +75,31 @@ export type PortalStorageTelemetry = {
   thresholdProvisional: true;
 };
 
+export function isPortalStorageTelemetry(
+  value: unknown,
+): value is PortalStorageTelemetry {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const storage = value as Record<string, unknown>;
+  return (
+    [
+      'storedBytes',
+      'nextRequestBytes',
+      'effectiveBytes',
+      'limitBytes',
+      'remainingBytes',
+      'usagePercent',
+      'warningPercent',
+    ].every(
+      (key) =>
+        typeof storage[key] === 'number' &&
+        Number.isFinite(storage[key]) &&
+        Number(storage[key]) >= 0,
+    ) &&
+    typeof storage.warning === 'boolean' &&
+    storage.thresholdProvisional === true
+  );
+}
+
 function utf8Bytes(value: string) {
   return new TextEncoder().encode(value).byteLength;
 }

@@ -1,4 +1,7 @@
-import type { PortalStorageTelemetry } from '@/lib/pilot-readiness';
+import {
+  isPortalStorageTelemetry,
+  type PortalStorageTelemetry,
+} from '@/lib/pilot-readiness';
 import {
   portalConflictReceiptFrom,
   portalConflictReceiptHeaders,
@@ -16,6 +19,19 @@ export class PortalSaveError extends Error {
     super(message);
     this.name = 'PortalSaveError';
   }
+}
+
+export type PortalSaveAcknowledgement = {
+  ok: true;
+  membersRevision: number;
+  stateRevision: string;
+  storage?: PortalStorageTelemetry;
+};
+
+function asObject(value: unknown) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 /** One writer per open page. Failed snapshots stay in memory for explicit retry. */
@@ -160,19 +176,39 @@ export async function putPortalSnapshot<T extends State>(
     },
     body: JSON.stringify({ state, expectedUserId }),
   });
-  const payload = (await response.json()) as {
-    ok?: boolean;
-    error?: string;
-    membersRevision?: number;
-    stateRevision?: string;
-    storage?: PortalStorageTelemetry;
-    recoveryReceipt?: string;
-  };
-  if (!response.ok || payload.ok !== true)
+  let rawPayload: unknown;
+  try {
+    rawPayload = await response.json();
+  } catch {
     throw new PortalSaveError(
-      payload.error ||
-        '저장 완료 응답을 확인하지 못했습니다. 같은 내용을 다시 저장해 주세요.',
-      portalConflictReceiptFrom(payload.recoveryReceipt),
+      '저장 응답을 읽지 못했습니다. 현재 화면을 유지하고 같은 내용을 다시 저장해 주세요.',
     );
-  return payload;
+  }
+  const payload = asObject(rawPayload);
+  if (!response.ok || payload?.ok !== true)
+    throw new PortalSaveError(
+      (typeof payload?.error === 'string' && payload.error.trim()
+        ? payload.error
+        : '저장 완료 응답을 확인하지 못했습니다. 같은 내용을 다시 저장해 주세요.'),
+      portalConflictReceiptFrom(payload?.recoveryReceipt),
+    );
+  if (
+    !Number.isSafeInteger(payload.membersRevision) ||
+    Number(payload.membersRevision) < 0 ||
+    typeof payload.stateRevision !== 'string' ||
+    !payload.stateRevision.trim() ||
+    (Object.hasOwn(payload, 'storage') &&
+      !isPortalStorageTelemetry(payload.storage))
+  )
+    throw new PortalSaveError(
+      '저장 완료 응답 형식이 올바르지 않습니다. 현재 화면을 유지하고 같은 내용을 다시 저장해 주세요.',
+    );
+  return {
+    ok: true,
+    membersRevision: payload.membersRevision as number,
+    stateRevision: payload.stateRevision,
+    ...(Object.hasOwn(payload, 'storage')
+      ? { storage: payload.storage as PortalStorageTelemetry }
+      : {}),
+  } satisfies PortalSaveAcknowledgement;
 }

@@ -6,7 +6,10 @@ import type { PasswordLinkSummary } from '@/lib/password-link-metrics';
 import type { PipelineDropoffSummary } from '@/lib/pipeline-dropoff-metrics';
 import type { PortalUser } from '@/lib/portal-auth';
 import type { PortalSaveConflictSummary } from '@/lib/portal-conflict-metrics';
-import type { PortalStorageTelemetry } from '@/lib/pilot-readiness';
+import {
+  isPortalStorageTelemetry,
+  type PortalStorageTelemetry,
+} from '@/lib/pilot-readiness';
 import type { SupportRequestSummary } from '@/lib/support-request-metrics';
 
 type JsonObject = Record<string, unknown>;
@@ -140,24 +143,6 @@ function isPortalUser(value: unknown): value is PortalUser {
           'quoteContract',
         ].every((key) => typeof permissions[key] === 'boolean'),
     )
-  );
-}
-
-function isStorage(value: unknown): value is PortalStorageTelemetry {
-  const storage = asObject(value);
-  return Boolean(
-    storage &&
-      [
-        'storedBytes',
-        'nextRequestBytes',
-        'effectiveBytes',
-        'limitBytes',
-        'remainingBytes',
-        'usagePercent',
-        'warningPercent',
-      ].every((key) => number(storage[key])) &&
-      typeof storage.warning === 'boolean' &&
-      storage.thresholdProvisional === true,
   );
 }
 
@@ -430,7 +415,7 @@ export async function readPortalStateResponse<TState>(
     state: payload.state as TState | null,
     currentUser: payload.currentUser,
     stateRevision: payload.stateRevision as string,
-    storage: optional(payload.storage, isStorage),
+    storage: optional(payload.storage, isPortalStorageTelemetry),
     saveConflicts: optional(payload.saveConflicts, isSaveConflicts),
     passwordLinks: optional(payload.passwordLinks, isPasswordLinks),
     applicationFunnel: optional(payload.applicationFunnel, isApplicationFunnel),
