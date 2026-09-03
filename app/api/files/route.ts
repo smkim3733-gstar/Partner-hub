@@ -1,6 +1,5 @@
 import {
   companyFileBucket,
-  companyFileCategories,
   companyFileDatabase,
   CompanyFileError,
   ensureCompanyFileTables,
@@ -14,6 +13,11 @@ import {
   companyFileProblem,
   MAX_COMPANY_FILE_BYTES,
 } from '@/lib/company-file-policy';
+import {
+  COMPANY_FILE_COMPANY_MAX_LENGTH,
+  COMPANY_FILE_TITLE_MAX_LENGTH,
+  prepareCompanyFileMetadata,
+} from '@/lib/company-file-metadata';
 import { boundedBody } from '@/lib/consulting-flow-http';
 import { FlowError } from '@/lib/consulting-flow';
 import { uploadCaseLink } from '@/lib/company-file-case';
@@ -29,11 +33,6 @@ export const dynamic = 'force-dynamic';
 function field(form: FormData, key: string, maxLength: number) {
   const value = form.get(key);
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
-}
-
-function categoryField(form: FormData) {
-  const value = field(form, 'category', 40);
-  return companyFileCategories.find((category) => category === value) ?? null;
 }
 
 function errorResponse(error: unknown) {
@@ -138,15 +137,13 @@ export async function POST(request: Request) {
     }
 
     const originalName = safeFileName(fileValue.name);
-    const company = field(form, 'company', 100);
-    const title = field(form, 'title', 150);
-    const category = categoryField(form);
-    if (!company || !title || !category) {
-      throw new CompanyFileError(
-        '기업명·자료명·자료종류를 모두 확인해 주세요.',
-        400,
-      );
-    }
+    const metadata = prepareCompanyFileMetadata({
+      company: field(form, 'company', COMPANY_FILE_COMPANY_MAX_LENGTH + 1),
+      title: field(form, 'title', COMPANY_FILE_TITLE_MAX_LENGTH + 1),
+      category: field(form, 'category', 41),
+    });
+    if (!metadata.ok) throw new CompanyFileError(metadata.error, 400);
+    const { company, title, category } = metadata.value;
     const fileProblem = companyFileProblem(
       { name: originalName, size: fileValue.size },
       category,

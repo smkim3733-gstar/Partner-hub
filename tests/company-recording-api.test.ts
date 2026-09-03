@@ -168,6 +168,12 @@ void test('initial call files store privately beside business files without meet
     const tooBig = request('/api/files', payload('large.m4a'));
     tooBig.headers.set('content-length', String(27 * 1024 * 1024));
     assert.equal((await upload(tooBig)).status, 413);
+    const longCompany = payload('company.docx');
+    longCompany.set('company', '가'.repeat(101));
+    assert.equal((await upload(request('/api/files', longCompany))).status, 400);
+    const longTitle = payload('title.docx');
+    longTitle.set('title', '가'.repeat(151));
+    assert.equal((await upload(request('/api/files', longTitle))).status, 400);
 
     const ids: string[] = [];
     const documents: Record<string, unknown>[] = [];

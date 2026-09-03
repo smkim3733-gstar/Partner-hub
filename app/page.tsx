@@ -22,6 +22,11 @@ import {
 } from '@/lib/portal-save-queue';
 import { ApplicationSubmission } from '@/lib/application-submission';
 import { uploadCompanyFile, type StoredCompanyFile } from '@/lib/company-file-upload';
+import {
+  COMPANY_FILE_COMPANY_MAX_LENGTH,
+  COMPANY_FILE_TITLE_MAX_LENGTH,
+  prepareCompanyFileMetadata,
+} from '@/lib/company-file-metadata';
 import { draftCaseId, type ApplicationDraft, type DraftEnvelope } from '@/lib/application-draft';
 import { ApplicationDetailFields, ApplicationDetailsSummary } from '@/components/application-details';
 import { applicationServices, applicationCompanyMaxLength, emptyApplicationDetails, parseApplicationDetails, ApplicationDetailsError, type ApplicationDetails, type ApplicationField } from '@/lib/application-details';
@@ -2305,8 +2310,8 @@ function DocumentCenter({
   const [statusFilter, setStatusFilter] = useState<'전체' | CompanyDocument['status']>('전체');
   const [companyFilter, setCompanyFilter] = useState('전체 기업');
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [uploadCompany, setUploadCompany] = useState('세림테크(가상)');
-  const [uploadTitle, setUploadTitle] = useState('사업자등록증');
+  const [uploadCompany, setUploadCompany] = useState('');
+  const [uploadTitle, setUploadTitle] = useState('');
   const [uploadCategory, setUploadCategory] = useState<CompanyDocument['category']>('사업자등록증');
   const [uploadMemberId, setUploadMemberId] = useState(isAdmin ? '' : currentMemberId ?? '');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -2336,7 +2341,37 @@ function DocumentCenter({
     notify(`${document.title} 상태를 ${status}(으)로 변경했습니다.`);
   }
 
+  function resetUploadDraft() {
+    setUploadCompany('');
+    setUploadTitle('');
+    setUploadCategory('사업자등록증');
+    setUploadMemberId(isAdmin ? '' : currentMemberId ?? '');
+    setUploadFile(null);
+    setUploadConsent(false);
+    setUploadError('');
+  }
+
+  function openUploadDialog() {
+    resetUploadDraft();
+    setUploadOpen(true);
+  }
+
+  function closeUploadDialog() {
+    if (uploading) return;
+    resetUploadDraft();
+    setUploadOpen(false);
+  }
+
   async function addDocument() {
+    const metadata = prepareCompanyFileMetadata({
+      company: uploadCompany,
+      title: uploadTitle,
+      category: uploadCategory,
+    });
+    if (!metadata.ok) {
+      setUploadError(metadata.error);
+      return;
+    }
     if (!uploadFile) {
       setUploadError('등록할 실제 파일을 선택해 주세요.');
       return;
@@ -2351,19 +2386,19 @@ function DocumentCenter({
       const stored = await uploadCompanyFile({
         expectedUserId: currentUserId,
         file: uploadFile,
-        company: uploadCompany,
-        title: uploadTitle.trim() || uploadCategory,
-        category: uploadCategory,
+        company: metadata.value.company,
+        title: metadata.value.title,
+        category: metadata.value.category,
         assignedTrainee: isAdmin ? members.find(member => member.id === uploadMemberId)?.name ?? '김성민 대표' : currentName,
         partnerMemberId: isAdmin ? uploadMemberId : currentMemberId ?? undefined,
-        recordingConsent: uploadCategory === '상담녹취' && uploadConsent,
+        recordingConsent: metadata.value.category === '상담녹취' && uploadConsent,
       });
       setDocuments((current) => [
         {
         id: `file-${stored.id}`,
-        company: uploadCompany,
-        title: uploadTitle.trim() || uploadCategory,
-        category: uploadCategory,
+        company: metadata.value.company,
+        title: stored.title,
+        category: stored.category,
         fileName: stored.fileName,
         storageFileId: stored.id,
         fileSize: stored.sizeBytes,
@@ -2373,12 +2408,11 @@ function DocumentCenter({
         submittedBy: isAdmin ? '김성민 대표' : currentName,
         updatedAt: '방금 전',
         version: 'V1',
-        sensitive: ['사업자등록증', '크레탑', '재무제표', '상담녹취', '계약자료'].includes(uploadCategory),
+        sensitive: ['사업자등록증', '크레탑', '재무제표', '상담녹취', '계약자료'].includes(stored.category),
       },
       ...current,
       ]);
-      setUploadFile(null);
-      setUploadConsent(false);
+      resetUploadDraft();
       setUploadOpen(false);
       notify('기업 원본파일을 보안 저장소에 등록했습니다.');
     } catch (error) {
@@ -2394,7 +2428,7 @@ function DocumentCenter({
         eyebrow={isAdmin ? '기업자료 통합관리' : '담당기업 자료관리'}
         title="기업별 자료함"
         description={isAdmin ? '사업자등록증·크레탑·재무제표와 상담 중 요청한 서류를 기업별로 모아 제출·보완·검토 상태를 관리합니다.' : '본인이 담당하는 기업의 자료만 확인하고 제출상태와 보완 여부를 변경할 수 있습니다.'}
-        action={<PrimaryButton disabled={recoveryControls.recoveryBusy} onClick={() => setUploadOpen(true)}><Upload className="size-4" aria-hidden="true" /> 자료 등록</PrimaryButton>}
+        action={<PrimaryButton disabled={recoveryControls.recoveryBusy} onClick={openUploadDialog}><Upload className="size-4" aria-hidden="true" /> 자료 등록</PrimaryButton>}
       />
 
       {isAdmin && <AdminFileInventory {...recoveryControls} recoveryDisabled={recoveryControls.recoveryDisabled || uploading || uploadOpen} />}
@@ -2439,19 +2473,19 @@ function DocumentCenter({
 
       <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">자료보안 운영원칙</p><p className="mt-1 text-xs leading-5 text-slate-600">주민번호·계좌번호는 마스킹하고 목적에 필요한 최소 자료만 등록합니다. 원본은 공개주소가 없는 전용 저장소에 보관하며, 서버가 관리자 또는 담당 파트너 권한을 확인한 뒤에만 내려받을 수 있습니다.</p></div></div></div>
 
-      {uploadOpen ? <PortalDialog titleId="upload-modal-title" onClose={() => setUploadOpen(false)} closeDisabled={uploading}>
+      {uploadOpen ? <PortalDialog titleId="upload-modal-title" onClose={closeUploadDialog} closeDisabled={uploading}>
         <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
           <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">보안 원본파일 등록</p><h2 id="upload-modal-title" className="mt-1 text-xl font-bold">기업자료 등록</h2><p className="mt-1 text-sm text-slate-500">파일은 공개주소가 없는 기업자료 전용 저장소에 등록됩니다.</p></div><DialogClose disabled={uploading} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-50" aria-label="자료등록 닫기"><X className="size-5" aria-hidden="true" /></DialogClose></div>
           <div className="grid max-h-[65vh] gap-5 overflow-y-auto p-5 md:grid-cols-2">
-            <Field label="기업명" required><input value={uploadCompany} onChange={(event) => setUploadCompany(event.target.value)} className={inputClass} /></Field>
-            <Field label="담당 계정" required hint="이메일을 확인해 동명이인을 구별하세요."><select value={uploadMemberId} onChange={(event) => setUploadMemberId(event.target.value)} className={inputClass} disabled={!isAdmin}>{isAdmin && <option value="">대표 전용 보관 · 파트너 공유 없음</option>}{members.filter((member) => member.status === '활성').map((member) => <option key={member.id} value={member.id}>{member.name.replace('(가상)', '').trim()} · {member.email}</option>)}</select></Field>
-            <Field label="자료종류" required><select value={uploadCategory} onChange={(event) => { setUploadCategory(event.target.value as CompanyDocument['category']); setUploadConsent(false); }} className={inputClass}><option>사업자등록증</option><option>크레탑</option><option>재무제표</option><option value="상담녹취">녹취자료</option><option>인증·특허</option><option>계약자료</option><option>요청서류</option><option>기타자료</option></select></Field>
-            <Field label="자료명" required><input value={uploadTitle} onChange={(event) => setUploadTitle(event.target.value)} className={inputClass} /></Field>
+            <Field label="기업명" required><input value={uploadCompany} onChange={(event) => { setUploadCompany(event.target.value); setUploadConsent(false); setUploadError(''); }} maxLength={COMPANY_FILE_COMPANY_MAX_LENGTH} required className={inputClass} /></Field>
+            <Field label="담당 계정" required hint="이메일을 확인해 동명이인을 구별하세요."><select value={uploadMemberId} onChange={(event) => { setUploadMemberId(event.target.value); setUploadConsent(false); setUploadError(''); }} className={inputClass} disabled={!isAdmin}>{isAdmin && <option value="">대표 전용 보관 · 파트너 공유 없음</option>}{members.filter((member) => member.status === '활성').map((member) => <option key={member.id} value={member.id}>{member.name.replace('(가상)', '').trim()} · {member.email}</option>)}</select></Field>
+            <Field label="자료종류" required><select value={uploadCategory} onChange={(event) => { setUploadCategory(event.target.value as CompanyDocument['category']); setUploadConsent(false); setUploadError(''); }} className={inputClass}><option>사업자등록증</option><option>크레탑</option><option>재무제표</option><option value="상담녹취">녹취자료</option><option>인증·특허</option><option>계약자료</option><option>요청서류</option><option>기타자료</option></select></Field>
+            <Field label="자료명" required><input value={uploadTitle} onChange={(event) => { setUploadTitle(event.target.value); setUploadConsent(false); setUploadError(''); }} maxLength={COMPANY_FILE_TITLE_MAX_LENGTH} required className={inputClass} /></Field>
             <div className="md:col-span-2"><label className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 px-4 text-center hover:border-sky-300 hover:bg-sky-50"><Upload className="size-7 text-[#0877b8]" aria-hidden="true" /><span className="mt-3 text-sm font-semibold text-slate-800">{uploadFile?.name || 'PDF·이미지·엑셀·워드·녹취 파일 선택'}</span><span className="mt-1 text-xs text-slate-500">파일당 25MB 이하 · MP3, M4A, WAV 녹취 포함</span><input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.docx,.txt,.mp3,.m4a,.wav" className="sr-only" onChange={(event) => { const file = event.target.files?.[0] ?? null; setUploadFile(file); if (file && documentCategoryFromFileName(file.name) === '상담녹취') setUploadCategory('상담녹취'); setUploadConsent(false); setUploadError(''); }} /></label></div>
             <label className="md:col-span-2 flex cursor-pointer items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm font-semibold text-slate-700"><input type="checkbox" checked={uploadConsent} onChange={(event) => { setUploadConsent(event.target.checked); setUploadError(''); }} className="mt-1 size-4 accent-[#0877b8]" /><span>기업으로부터 자료 제출 권한을 확인했고 불필요한 개인정보를 마스킹했습니다. 녹취자료는 저장·내부 검토·담당 파트너 공유 권한도 확인했습니다.</span></label>
             {uploadError ? <p role="alert" className="md:col-span-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{uploadError}</p> : null}
           </div>
-          <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setUploadOpen(false)} disabled={uploading}>취소</SecondaryButton><PrimaryButton onClick={addDocument} disabled={uploading}>{uploading ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <Upload className="size-4" aria-hidden="true" />} {uploading ? '보안 저장 중' : '자료 등록'}</PrimaryButton></div>
+          <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={closeUploadDialog} disabled={uploading}>취소</SecondaryButton><PrimaryButton onClick={addDocument} disabled={uploading}>{uploading ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : <Upload className="size-4" aria-hidden="true" />} {uploading ? '보안 저장 중' : '자료 등록'}</PrimaryButton></div>
         </div>
       </PortalDialog> : null}
       </fieldset>
