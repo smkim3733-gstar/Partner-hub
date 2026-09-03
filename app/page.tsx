@@ -4196,6 +4196,7 @@ export default function Home() {
         cases,
         members,
         canFileUpload,
+        crypto.randomUUID(),
       ));
       return true;
     } catch (error) {
@@ -4212,13 +4213,14 @@ export default function Home() {
         documentDueDateDraft,
         companyDocuments,
         tasks,
+        timeline,
         cases,
         members,
         canFileUpload,
       );
       setCompanyDocuments(updated.documents);
       setTasks(updated.tasks);
-      setTimeline((current) => [...current, updated.timeline]);
+      setTimeline(updated.timeline);
       setDocumentDueDateDraft(null);
       notify(`${documentDueDateCase.company} 요청서류 ${updated.documentCount}건의 제출기한을 ${formatKoreanDate(updated.dueDate)}로 저장했습니다.`);
     } catch (error) {

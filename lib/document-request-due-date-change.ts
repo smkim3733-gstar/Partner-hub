@@ -45,7 +45,18 @@ type TaskRecord = {
   related: string;
 };
 
+type TimelineRecord = {
+  id?: string;
+  caseId?: string;
+  date: string;
+  title: string;
+  detail: string;
+  type: string;
+  tone: string;
+};
+
 export type DocumentRequestDueDateDraft = {
+  requestId: string;
   caseId: string;
   company: string;
   dueDate: string;
@@ -57,6 +68,8 @@ export type DocumentRequestDueDateDraft = {
   expectedDocuments: string;
   expectedTasks: string;
 };
+
+const requestIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function formatDueDate(value: string) {
   const [year, month, day] = value.split('-').map(Number);
@@ -165,10 +178,13 @@ export function createDocumentRequestDueDateDraft(
   cases: CaseRecord[],
   members: MemberRecord[],
   canEdit: boolean,
+  requestId: string,
   now = new Date(),
 ): DocumentRequestDueDateDraft {
   if (!canEdit)
     throw new Error('요청서류 제출기한을 변경할 권한이 없습니다.');
+  if (!requestIdPattern.test(requestId))
+    throw new Error('제출기한 저장 식별자를 다시 만들어 주세요.');
   const dueState = documentRequestDueState(dueDate, now);
   if (!dueState)
     throw new Error('올바른 제출기한을 선택해 주세요.');
@@ -177,6 +193,7 @@ export function createDocumentRequestDueDateDraft(
   if (new Set(requestedIds).size !== requestedIds.length || !sameStrings(requestedIds, scopedDocuments.map((item) => item.id)))
     throw new Error('기한을 보정할 요청서류 목록이 변경되었습니다. 최신 화면에서 다시 확인해 주세요.');
   return {
+    requestId,
     caseId: selected.id,
     company: selected.company,
     dueDate,
@@ -193,11 +210,13 @@ export function createDocumentRequestDueDateDraft(
 export function applyDocumentRequestDueDateDraft<
   TDocument extends DocumentRecord,
   TTask extends TaskRecord,
+  TTimeline extends TimelineRecord,
 >(
   selected: CaseRecord,
   draft: DocumentRequestDueDateDraft,
   documents: TDocument[],
   tasks: TTask[],
+  timeline: TTimeline[],
   cases: CaseRecord[],
   members: MemberRecord[],
   canEdit: boolean,
@@ -205,6 +224,8 @@ export function applyDocumentRequestDueDateDraft<
 ) {
   if (!canEdit)
     throw new Error('현재 계정의 요청서류 변경 권한을 다시 확인해 주세요.');
+  if (!requestIdPattern.test(draft.requestId))
+    throw new Error('제출기한 저장 식별자를 다시 만들어 주세요.');
   if (
     selected.id !== draft.caseId ||
     selected.company !== draft.company ||
@@ -224,6 +245,18 @@ export function applyDocumentRequestDueDateDraft<
   const documentIds = new Set(draft.documentIds);
   const taskIds = new Set(scopedTasks.map((item) => item.id));
   const dueLabel = formatDueDate(draft.dueDate);
+  const timelineId = `document-due-${draft.requestId}`;
+  if (timeline.some((item) => item.id === timelineId))
+    throw new Error('이미 같은 제출기한이 저장되었습니다. 진행 기록을 확인해 주세요.');
+  const createdTimeline = {
+    id: timelineId,
+    caseId: selected.id,
+    date: '방금 전',
+    title: '서류 제출기한 설정',
+    detail: `요청서류 ${scopedDocuments.length}건 / 제출기한 ${dueLabel}`,
+    type: '기한',
+    tone: 'amber',
+  };
   return {
     documents: documents.map((document) => documentIds.has(document.id)
       ? { ...document, dueDate: draft.dueDate, updatedAt: '방금 전' }
@@ -236,14 +269,8 @@ export function applyDocumentRequestDueDateDraft<
           priority: dueState === 'upcoming' ? '보통' : '긴급',
         }
       : task),
-    timeline: {
-      caseId: selected.id,
-      date: '방금 전',
-      title: '서류 제출기한 설정',
-      detail: `요청서류 ${scopedDocuments.length}건 / 제출기한 ${dueLabel}`,
-      type: '기한',
-      tone: 'amber',
-    },
+    timeline: [...timeline, createdTimeline],
+    createdTimeline,
     documentCount: scopedDocuments.length,
     taskCount: scopedTasks.length,
     dueDate: draft.dueDate,

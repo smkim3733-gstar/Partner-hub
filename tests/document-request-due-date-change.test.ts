@@ -5,6 +5,7 @@ import {
   createDocumentRequestDueDateDraft,
 } from '../lib/document-request-due-date-change';
 
+const requestId = '12345678-1234-4234-8234-123456789abc';
 const member = { id: 'partner-1', name: '가상 담당자', status: '활성' };
 const selected = {
   id: 'case-operational-1',
@@ -87,6 +88,9 @@ const tasks = [
     related: '서류요청 #2',
   },
 ];
+const timeline = [
+  { id: 'existing-event', caseId: cases[1].id, date: '어제', title: '기존 기록', detail: '다른 진행', type: '기한', tone: 'amber' },
+];
 const koreanToday = new Date('2026-09-02T15:00:00.000Z');
 
 void test('missing request due date remains isolated until explicit apply', () => {
@@ -101,6 +105,7 @@ void test('missing request due date remains isolated until explicit apply', () =
     cases,
     [member],
     true,
+    requestId,
     koreanToday,
   );
   assert.deepEqual(documents, originalDocuments);
@@ -115,6 +120,7 @@ void test('missing request due date remains isolated until explicit apply', () =
     draft,
     documents,
     tasks,
+    timeline,
     cases,
     [member],
     true,
@@ -127,65 +133,84 @@ void test('missing request due date remains isolated until explicit apply', () =
   assert.equal(applied.tasks.find((item) => item.id === 'task-request-1')?.dueState, 'today');
   assert.equal(applied.tasks.find((item) => item.id === 'task-request-1')?.priority, '긴급');
   assert.equal(applied.tasks.find((item) => item.id === 'other-task')?.due, '기한 확인');
-  assert.equal(applied.timeline.caseId, selected.id);
-  assert.match(applied.timeline.detail, /요청서류 2건/);
+  assert.equal(applied.createdTimeline.id, `document-due-${requestId}`);
+  assert.equal(applied.createdTimeline.caseId, selected.id);
+  assert.match(applied.createdTimeline.detail, /요청서류 2건/);
+  assert.equal(applied.timeline[0], timeline[0]);
+  assert.equal(applied.timeline.at(-1)?.id, `document-due-${requestId}`);
+  assert.deepEqual(
+    applyDocumentRequestDueDateDraft(selected, draft, documents, tasks, timeline, cases, [member], true, koreanToday),
+    applied,
+  );
   assert.deepEqual(documents, originalDocuments);
   assert.deepEqual(tasks, originalTasks);
 });
 
 void test('due date draft requires permission, valid date and the complete current case scope', () => {
   assert.throws(
-    () => createDocumentRequestDueDateDraft(selected, ['request-1', 'request-2'], '2026-09-03', documents, tasks, cases, [member], false, koreanToday),
+    () => createDocumentRequestDueDateDraft(selected, ['request-1', 'request-2'], '2026-09-03', documents, tasks, cases, [member], false, requestId, koreanToday),
     /권한이 없습니다/,
   );
   assert.throws(
-    () => createDocumentRequestDueDateDraft(selected, ['request-1', 'request-2'], '2026-02-29', documents, tasks, cases, [member], true, koreanToday),
+    () => createDocumentRequestDueDateDraft(selected, ['request-1', 'request-2'], '2026-02-29', documents, tasks, cases, [member], true, requestId, koreanToday),
     /올바른 제출기한/,
   );
   assert.throws(
-    () => createDocumentRequestDueDateDraft(selected, ['request-1'], '2026-09-03', documents, tasks, cases, [member], true, koreanToday),
+    () => createDocumentRequestDueDateDraft(selected, ['request-1'], '2026-09-03', documents, tasks, cases, [member], true, requestId, koreanToday),
     /요청서류 목록이 변경/,
   );
   assert.throws(
-    () => createDocumentRequestDueDateDraft(selected, ['request-1', 'request-1'], '2026-09-03', documents, tasks, cases, [member], true, koreanToday),
+    () => createDocumentRequestDueDateDraft(selected, ['request-1', 'request-1'], '2026-09-03', documents, tasks, cases, [member], true, requestId, koreanToday),
     /요청서류 목록이 변경/,
   );
   assert.throws(
-    () => createDocumentRequestDueDateDraft(selected, ['request-1', 'request-2'], '2026-09-03', [...documents, { ...documents[0], caseId: cases[1].id }], tasks, cases, [member], true, koreanToday),
+    () => createDocumentRequestDueDateDraft(selected, ['request-1', 'request-2'], '2026-09-03', [...documents, { ...documents[0], caseId: cases[1].id }], tasks, cases, [member], true, requestId, koreanToday),
     /식별자가 다른 기록과 충돌/,
+  );
+  assert.throws(
+    () => createDocumentRequestDueDateDraft(selected, ['request-1', 'request-2'], '2026-09-03', documents, tasks, cases, [member], true, 'invalid', koreanToday),
+    /저장 식별자/,
   );
 });
 
 void test('due date apply rejects stale case, document, task and permission state', () => {
-  const draft = createDocumentRequestDueDateDraft(selected, ['request-1', 'request-2'], '2026-09-03', documents, tasks, cases, [member], true, koreanToday);
+  const draft = createDocumentRequestDueDateDraft(selected, ['request-1', 'request-2'], '2026-09-03', documents, tasks, cases, [member], true, requestId, koreanToday);
   assert.throws(
-    () => applyDocumentRequestDueDateDraft(selected, draft, documents, tasks, cases, [member], false, koreanToday),
+    () => applyDocumentRequestDueDateDraft(selected, draft, documents, tasks, timeline, cases, [member], false, koreanToday),
     /권한을 다시 확인/,
   );
   assert.throws(
-    () => applyDocumentRequestDueDateDraft({ ...selected, company: '변경 기업' }, draft, documents, tasks, cases, [member], true, koreanToday),
+    () => applyDocumentRequestDueDateDraft({ ...selected, company: '변경 기업' }, draft, documents, tasks, timeline, cases, [member], true, koreanToday),
     /진행을 다시 확인/,
   );
   assert.throws(
-    () => applyDocumentRequestDueDateDraft(selected, draft, documents.map((item) => item.id === 'request-1' ? { ...item, title: '변경 자료' } : item), tasks, cases, [member], true, koreanToday),
+    () => applyDocumentRequestDueDateDraft(selected, draft, documents.map((item) => item.id === 'request-1' ? { ...item, title: '변경 자료' } : item), tasks, timeline, cases, [member], true, koreanToday),
     /요청서류 또는 연결 업무가 변경/,
   );
   assert.throws(
-    () => applyDocumentRequestDueDateDraft(selected, draft, documents, tasks.map((item) => item.id === 'task-request-1' ? { ...item, status: '완료' } : item), cases, [member], true, koreanToday),
+    () => applyDocumentRequestDueDateDraft(selected, draft, documents, tasks.map((item) => item.id === 'task-request-1' ? { ...item, status: '완료' } : item), timeline, cases, [member], true, koreanToday),
     /요청서류 또는 연결 업무가 변경/,
   );
   assert.throws(
-    () => applyDocumentRequestDueDateDraft(selected, draft, documents, tasks, cases.map((item) => item.id === selected.id ? { ...item, partnerMemberId: 'partner-2' } : item), [member], true, koreanToday),
+    () => applyDocumentRequestDueDateDraft(selected, draft, documents, tasks, timeline, cases.map((item) => item.id === selected.id ? { ...item, partnerMemberId: 'partner-2' } : item), [member], true, koreanToday),
     /진행 정보가 변경/,
+  );
+  assert.throws(
+    () => applyDocumentRequestDueDateDraft(selected, { ...draft, requestId: 'invalid' }, documents, tasks, timeline, cases, [member], true, koreanToday),
+    /저장 식별자/,
+  );
+  assert.throws(
+    () => applyDocumentRequestDueDateDraft(selected, draft, documents, tasks, [...timeline, { ...timeline[0], id: `document-due-${requestId}` }], cases, [member], true, koreanToday),
+    /이미 같은 제출기한/,
   );
 });
 
 void test('due date impact must be reconfirmed when Korean calendar day changes', () => {
   const beforeMidnight = new Date('2026-09-02T14:59:59.000Z');
-  const draft = createDocumentRequestDueDateDraft(selected, ['request-1', 'request-2'], '2026-09-03', documents, tasks, cases, [member], true, beforeMidnight);
+  const draft = createDocumentRequestDueDateDraft(selected, ['request-1', 'request-2'], '2026-09-03', documents, tasks, cases, [member], true, requestId, beforeMidnight);
   assert.equal(draft.dueState, 'upcoming');
   assert.throws(
-    () => applyDocumentRequestDueDateDraft(selected, draft, documents, tasks, cases, [member], true, koreanToday),
+    () => applyDocumentRequestDueDateDraft(selected, draft, documents, tasks, timeline, cases, [member], true, koreanToday),
     /오늘 날짜 기준이 변경/,
   );
 });
