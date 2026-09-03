@@ -141,7 +141,8 @@ import {
   type SupportCategory,
   type SupportRequestSummary,
 } from '@/lib/support-request-metrics';
-import type { PipelineDropoffSummary } from '@/lib/pipeline-dropoff-metrics';
+import { PIPELINE_STAGES, type PipelineDropoffSummary, type PipelineStage } from '@/lib/pipeline-dropoff-metrics';
+import { applyPipelineLifecycleChangeDraft, applyPipelineStageChangeDraft, createPipelineLifecycleChangeDraft, createPipelineStageChangeDraft, PIPELINE_STAGE_NEXT_ACTIONS, type PipelineLifecycleChangeDraft, type PipelineStageChangeDraft } from '@/lib/pipeline-change';
 import { resolvePortalCaseSearch } from '@/lib/portal-case-search';
 import { buildPortalCaseCsv, portalCaseCsvFileName } from '@/lib/portal-case-csv';
 import {
@@ -272,8 +273,6 @@ function formatKoreanDate(dateValue: string) {
   if (!year || !month || !day) return dateValue;
   return `${year}. ${month}. ${day}.`;
 }
-
-type PipelineStage = '접수' | '기업진단' | '상담예약' | '상담진행' | '계약' | '컨설팅수행' | '사후관리';
 
 type CollaborationCase = {
   id: string;
@@ -516,17 +515,9 @@ const sampleDocuments: CompanyDocument[] = [
   { id: 'file-6', company: '더원로지스(가상)', title: '법인전환 검토자료', category: '계약자료', status: '요청중', assignedTrainee: '이준호', submittedBy: '기업대표 요청', updatedAt: '09.02 제출기한', version: '-', sensitive: true },
 ];
 
-const pipelineStages: PipelineStage[] = ['접수', '기업진단', '상담예약', '상담진행', '계약', '컨설팅수행', '사후관리'];
+const pipelineStages: PipelineStage[] = [...PIPELINE_STAGES];
 
-const stageNextActions: Record<PipelineStage, string> = {
-  접수: '담당자 배정 및 기본자료 확인',
-  기업진단: '기업진단보고서 준비',
-  상담예약: '김성민 대표 상담일 확정',
-  상담진행: '다음 상담·서류·견적 판단',
-  계약: '경영자문용역계약 조건 확정',
-  컨설팅수행: '확정 솔루션 수행 및 결과 확인',
-  사후관리: '정기점검 및 추가 제안',
-};
+const stageNextActions = PIPELINE_STAGE_NEXT_ACTIONS;
 
 const sampleCases: CollaborationCase[] = [
   { id: 'case-1', company: '세림테크(가상)', service: '정책자금 · 특허', trainee: '박지현', stage: '상담진행', consultationCount: 3, nextAction: '견적서 V1 대표 승인', updatedAt: '오늘', idleDays: 2, urgent: true },
@@ -2017,6 +2008,8 @@ function PipelineBoard({
   const [serviceFilter, setServiceFilter] = useState('전체 서비스');
   const [staleOnly, setStaleOnly] = useState(false);
   const [assignmentDraft, setAssignmentDraft] = useState<CaseAssignmentDraft | null>(null);
+  const [stageChangeDraft, setStageChangeDraft] = useState<PipelineStageChangeDraft | null>(null);
+  const [lifecycleChangeDraft, setLifecycleChangeDraft] = useState<PipelineLifecycleChangeDraft | null>(null);
 
   // Partner state has already been filtered by the server using account IDs.
   const accountCases = cases;
@@ -2034,6 +2027,8 @@ function PipelineBoard({
   const contractCount = accountCases.filter((item) => item.stage === '계약').length;
   const assignmentCase = cases.find((item) => item.id === assignmentDraft?.caseId) ?? null;
   const assignmentTarget = members.find((member) => member.id === assignmentDraft?.nextMemberId) ?? null;
+  const stageChangeCase = cases.find((item) => item.id === stageChangeDraft?.caseId) ?? null;
+  const lifecycleChangeCase = cases.find((item) => item.id === lifecycleChangeDraft?.caseId) ?? null;
 
   function exportVisibleCases() {
     const exportCases = operationalPilotRecords('case', visibleCases);
@@ -2065,10 +2060,25 @@ function PipelineBoard({
     notify(`현재 조건의 운영 진행 ${exportCases.length}건을 CSV로 내보냈습니다.`);
   }
 
-  function moveCase(item: CollaborationCase, stage: PipelineStage) {
-    if (item.flowManaged) { notify('이 진행은 상담 FLOW의 완료 조건에 따라 자동 변경됩니다.'); return; }
-    setCases((current) => current.map((record) => record.id === item.id ? { ...record, stage, nextAction: stageNextActions[stage], updatedAt: '방금 전', idleDays: 0, urgent: false } : record));
-    notify(`${item.company} 진행단계를 ${stage}(으)로 변경했습니다.`);
+  function requestStageChange(item: CollaborationCase, stage: PipelineStage) {
+    try {
+      setStageChangeDraft(createPipelineStageChangeDraft(item, stage));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '변경할 진행단계를 다시 선택해 주세요.');
+    }
+  }
+
+  function confirmStageChange() {
+    if (!stageChangeCase || !stageChangeDraft) return;
+    try {
+      const updated = applyPipelineStageChangeDraft(stageChangeCase, stageChangeDraft);
+      setCases((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setStageChangeDraft(null);
+      notify(`${updated.company} 진행단계를 ${updated.stage}(으)로 변경했습니다.`);
+    } catch (error) {
+      setStageChangeDraft(null);
+      notify(error instanceof Error ? error.message : '진행단계를 다시 선택해 주세요.');
+    }
   }
 
   function requestPartnerAssignment(item: CollaborationCase, memberId: string) {
@@ -2093,17 +2103,28 @@ function PipelineBoard({
     }
   }
 
-  function togglePipelineLifecycle(item: CollaborationCase) {
+  function requestPipelineLifecycleChange(item: CollaborationCase) {
     if (!isAdmin || item.pipelineLifecycleVersion !== 1) return;
-    const nextStatus = item.pipelineLifecycleStatus === 'discontinued'
-      ? 'active'
-      : 'discontinued';
-    setCases((current) => current.map((record) => record.id === item.id
-      ? { ...record, pipelineLifecycleStatus: nextStatus }
-      : record));
-    notify(nextStatus === 'discontinued'
-      ? `${item.company} 진행을 현재 단계에서 중단 처리했습니다.`
-      : `${item.company} 진행을 다시 열었습니다.`);
+    try {
+      setLifecycleChangeDraft(createPipelineLifecycleChangeDraft(item));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '진행 상태를 다시 확인해 주세요.');
+    }
+  }
+
+  function confirmPipelineLifecycleChange() {
+    if (!lifecycleChangeCase || !lifecycleChangeDraft) return;
+    try {
+      const updated = applyPipelineLifecycleChangeDraft(lifecycleChangeCase, lifecycleChangeDraft);
+      setCases((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setLifecycleChangeDraft(null);
+      notify(updated.pipelineLifecycleStatus === 'discontinued'
+        ? `${updated.company} 진행을 현재 단계에서 중단 처리했습니다.`
+        : `${updated.company} 진행을 다시 열었습니다.`);
+    } catch (error) {
+      setLifecycleChangeDraft(null);
+      notify(error instanceof Error ? error.message : '진행 상태를 다시 확인해 주세요.');
+    }
   }
 
   return (
@@ -2148,10 +2169,10 @@ function PipelineBoard({
                 <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="font-bold text-slate-950">{item.company}</p><p className="mt-1 text-xs leading-5 text-slate-500">{item.service}</p><p className="mt-1 text-[11px] text-slate-400" title={item.id}>진행번호 {item.id.slice(-8)}</p></div><div className="flex flex-wrap justify-end gap-2">{item.pipelineLifecycleStatus === 'discontinued' ? <Pill tone="red">진행 중단</Pill> : null}{item.idleDays >= 7 ? <Pill tone="red">{item.idleDays}일 정체</Pill> : <Pill tone={item.urgent ? 'amber' : 'slate'}>{item.updatedAt}</Pill>}</div></div>
                 <div className="mt-3 rounded-lg bg-slate-50 p-3"><p className="text-[11px] font-semibold text-slate-500">다음 행동</p><p className="mt-1 text-sm font-bold leading-5 text-slate-800">{item.nextAction}</p></div>
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs"><span className="font-semibold text-slate-600">담당 {assignmentDisplayName(item, item.trainee, members)}</span><div className="flex flex-wrap gap-2"><Pill tone="navy">{casePartnerType(item, members)}</Pill>{item.consultationCount ? <Pill tone="violet">상담 {item.consultationCount}회</Pill> : null}</div></div>
-                <label className="mt-4 block"><span className="mb-2 block text-xs font-semibold text-slate-600">{item.pipelineLifecycleStatus === 'discontinued' ? '대표가 진행을 다시 열 때까지 단계 변경 중단' : item.flowManaged ? `상담 FLOW 자동 반영 · ${item.flowPhase}` : '진행단계 변경'}</span><select disabled={item.flowManaged || item.pipelineLifecycleStatus === 'discontinued'} value={item.stage} onChange={(event) => moveCase(item, event.target.value as PipelineStage)} className={inputClass}>{pipelineStages.map((option) => <option key={option}>{option}</option>)}</select></label>
+                <label className="mt-4 block"><span className="mb-2 block text-xs font-semibold text-slate-600">{item.pipelineLifecycleStatus === 'discontinued' ? '대표가 진행을 다시 열 때까지 단계 변경 중단' : item.flowManaged ? `상담 FLOW 자동 반영 · ${item.flowPhase}` : '진행단계 변경'}</span><select disabled={item.flowManaged || item.pipelineLifecycleStatus === 'discontinued'} value={item.stage} onChange={(event) => requestStageChange(item, event.target.value as PipelineStage)} className={inputClass}>{pipelineStages.map((option) => <option key={option}>{option}</option>)}</select></label>
                 {isAdmin && !item.flowManaged && <label className="mt-3 grid gap-2 text-xs font-semibold text-slate-600">상담 FLOW 담당 계정<select className={inputClass} value={item.partnerMemberId ?? ''} onChange={event => requestPartnerAssignment(item,event.target.value)}><option value="">이름 일치 계정 자동 연결 / 직접 지정</option>{members.filter(m => m.status === '활성').map(m => <option key={m.id} value={m.id}>{m.name} · {m.email}</option>)}</select></label>}
                 <SecondaryButton className="mt-3 w-full" onClick={() => onOpenCase(item)}>컨설팅 진행 현황 <ChevronRight className="size-4" aria-hidden="true" /></SecondaryButton>
-                {isAdmin && item.pipelineLifecycleVersion === 1 ? <button type="button" onClick={() => togglePipelineLifecycle(item)} className={`mt-2 min-h-11 w-full rounded-xl border px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-4 ${item.pipelineLifecycleStatus === 'discontinued' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 focus-visible:ring-emerald-100' : 'border-red-200 bg-red-50 text-red-800 focus-visible:ring-red-100'}`}>{item.pipelineLifecycleStatus === 'discontinued' ? '진행 다시 열기' : '현재 단계에서 진행 중단'}</button> : null}
+                {isAdmin && item.pipelineLifecycleVersion === 1 ? <button type="button" onClick={() => requestPipelineLifecycleChange(item)} className={`mt-2 min-h-11 w-full rounded-xl border px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-4 ${item.pipelineLifecycleStatus === 'discontinued' ? 'border-emerald-200 bg-emerald-50 text-emerald-800 focus-visible:ring-emerald-100' : 'border-red-200 bg-red-50 text-red-800 focus-visible:ring-red-100'}`}>{item.pipelineLifecycleStatus === 'discontinued' ? '진행 다시 열기' : '현재 단계에서 진행 중단'}</button> : null}
               </article>) : <div className="grid min-h-28 place-items-center rounded-xl border border-dashed border-slate-200 bg-white/60 p-4 text-center text-xs text-slate-400">현재 조건의 진행이 없습니다.</div>}
             </div>
           </section>;
@@ -2167,6 +2188,32 @@ function PipelineBoard({
               <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900"><p className="font-bold">진행·타임라인 접근 계정이 바뀝니다.</p><p className="mt-1 text-xs leading-5">기존 원본파일·업무·자료의 담당 계정은 자동 이전하지 않습니다. 필요한 자료는 기존 보안 절차로 별도 확인해 주세요.</p></div>
             </div>
             <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setAssignmentDraft(null)}>취소</SecondaryButton><PrimaryButton onClick={confirmPartnerAssignment}><Check className="size-4" aria-hidden="true" /> 담당 변경 저장</PrimaryButton></div>
+          </div>
+        </dialog>
+      ) : null}
+
+      {stageChangeCase && stageChangeDraft ? (
+        <dialog open className="fixed inset-0 z-50 m-0 grid h-screen max-h-none w-screen max-w-none place-items-center border-0 bg-slate-950/40 p-4 backdrop-blur-sm" aria-labelledby="pipeline-stage-change-title">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">수동 진행단계 변경 확인</p><h2 id="pipeline-stage-change-title" className="mt-1 text-xl font-bold">{stageChangeCase.company} 단계를 변경할까요?</h2></div><button type="button" onClick={() => setStageChangeDraft(null)} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="진행단계 변경 취소"><X className="size-5" aria-hidden="true" /></button></div>
+            <div className="space-y-4 p-5">
+              <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2"><div><p className="text-xs text-slate-500">현재 단계</p><p className="mt-1 text-sm font-bold text-slate-800">{stageChangeDraft.expectedStage}</p></div><div><p className="text-xs text-slate-500">변경 후 단계</p><p className="mt-1 text-sm font-bold text-[#0877b8]">{stageChangeDraft.nextStage}</p></div></div>
+              <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-slate-700"><p className="font-bold text-[#15375b]">다음 행동: {stageNextActions[stageChangeDraft.nextStage]}</p><p className="mt-1 text-xs leading-5">현재 정체일·긴급 표시는 초기화됩니다. 서버의 최고 도달단계 기록은 유지됩니다.</p></div>
+            </div>
+            <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setStageChangeDraft(null)}>취소</SecondaryButton><PrimaryButton onClick={confirmStageChange}><Check className="size-4" aria-hidden="true" /> 단계 변경 저장</PrimaryButton></div>
+          </div>
+        </dialog>
+      ) : null}
+
+      {lifecycleChangeCase && lifecycleChangeDraft ? (
+        <dialog open className="fixed inset-0 z-50 m-0 grid h-screen max-h-none w-screen max-w-none place-items-center border-0 bg-slate-950/40 p-4 backdrop-blur-sm" aria-labelledby="pipeline-lifecycle-change-title">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">진행 상태 변경 확인</p><h2 id="pipeline-lifecycle-change-title" className="mt-1 text-xl font-bold">{lifecycleChangeCase.company} 진행을 {lifecycleChangeDraft.nextStatus === 'discontinued' ? '중단할까요?' : '다시 열까요?'}</h2></div><button type="button" onClick={() => setLifecycleChangeDraft(null)} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="진행 상태 변경 취소"><X className="size-5" aria-hidden="true" /></button></div>
+            <div className="space-y-4 p-5">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4"><p className="text-xs text-slate-500">현재 진행단계</p><p className="mt-1 text-sm font-bold text-slate-800">{lifecycleChangeDraft.expectedStage}</p></div>
+              <div className={`rounded-2xl border p-4 text-sm leading-6 ${lifecycleChangeDraft.nextStatus === 'discontinued' ? 'border-red-200 bg-red-50 text-red-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`}><p className="font-bold">{lifecycleChangeDraft.nextStatus === 'discontinued' ? '저장하면 이 진행의 상담 FLOW 쓰기가 차단됩니다.' : '저장하면 이 진행의 상담 FLOW 입력을 다시 할 수 있습니다.'}</p><p className="mt-1 text-xs leading-5">기존 진행·자료·업무를 삭제하거나 자동 완료·발송하지 않습니다.</p></div>
+            </div>
+            <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setLifecycleChangeDraft(null)}>취소</SecondaryButton><PrimaryButton onClick={confirmPipelineLifecycleChange}><Check className="size-4" aria-hidden="true" /> {lifecycleChangeDraft.nextStatus === 'discontinued' ? '진행 중단 저장' : '진행 재개 저장'}</PrimaryButton></div>
           </div>
         </dialog>
       ) : null}
