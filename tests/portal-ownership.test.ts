@@ -192,6 +192,35 @@ void test('new partner records bind to the authenticated ID without changing an 
   );
 });
 
+void test('duplicate new partner records collapse to the last submitted ID', () => {
+  const current = fixture();
+  const incoming = {
+    ...structuredClone(current),
+    tasks: [
+      ...structuredClone(current.tasks),
+      { id: 'new-task', assignee: user.memberName, title: '첫 번째 업무' },
+      { id: 'new-task', assignee: user.memberName, title: '마지막 업무' },
+    ],
+  };
+  const saved = mergeStateForPortalUser(current, incoming, user) as {
+    tasks: Array<{
+      id: string;
+      title?: string;
+      partnerMemberId?: string;
+    }>;
+  };
+
+  assert.equal(saved.tasks.filter((item) => item.id === 'new-task').length, 1);
+  assert.equal(
+    saved.tasks.find((item) => item.id === 'new-task')?.title,
+    '마지막 업무',
+  );
+  assert.equal(
+    saved.tasks.find((item) => item.id === 'new-task')?.partnerMemberId,
+    user.memberId,
+  );
+});
+
 void test('partner cannot create an operational record with a reserved seed ID', () => {
   const current = fixture();
   const incoming = {

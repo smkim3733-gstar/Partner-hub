@@ -48,6 +48,7 @@ import {
 } from '@/lib/portal-save-queue';
 import { ApplicationSubmission } from '@/lib/application-submission';
 import { uploadCompanyFile, type StoredCompanyFile } from '@/lib/company-file-upload';
+import { prependStoredCompanyDocument, storedCompanyDocument } from '@/lib/company-document-link';
 import {
   COMPANY_FILE_COMPANY_MAX_LENGTH,
   COMPANY_FILE_TITLE_MAX_LENGTH,
@@ -2578,25 +2579,17 @@ function DocumentCenter({
         partnerMemberId: isAdmin ? uploadMemberId : currentMemberId ?? undefined,
         recordingConsent: metadata.value.category === '상담녹취' && uploadConsent,
       });
-      setDocuments((current) => [
-        {
-        id: `file-${stored.id}`,
-        company: metadata.value.company,
-        title: stored.title,
-        category: stored.category,
-        fileName: stored.fileName,
-        storageFileId: stored.id,
-        fileSize: stored.sizeBytes,
-        status: '제출완료',
-        assignedTrainee: stored.assignedTrainee,
-        partnerMemberId: stored.partnerMemberId,
-        submittedBy: isAdmin ? '김성민 대표' : currentName,
-        updatedAt: '방금 전',
-        version: 'V1',
-        sensitive: ['사업자등록증', '크레탑', '재무제표', '상담녹취', '계약자료'].includes(stored.category),
-      },
-      ...current,
-      ]);
+      const linked = storedCompanyDocument(
+        stored,
+        metadata.value.company,
+        isAdmin ? '김성민 대표' : currentName,
+      );
+      const checked = prependStoredCompanyDocument(documents, linked);
+      if (!checked.ok) throw new Error(checked.error);
+      setDocuments((current) => {
+        const latest = prependStoredCompanyDocument(current, linked);
+        return latest.ok ? latest.documents : current;
+      });
       resetUploadDraft();
       setUploadOpen(false);
       notify('기업 원본파일을 보안 저장소에 등록했습니다.');

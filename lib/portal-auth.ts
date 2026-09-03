@@ -376,8 +376,7 @@ function mergeOwnedRecords(
       ? { ...replacement, [ownerKey]: owner, partnerMemberId: user.memberId }
       : record;
   });
-  for (const record of incomingOwned) {
-    const id = field(record, 'id');
+  for (const [id, record] of incomingById) {
     if (!existingIds.has(id)) {
       if (isPilotSeedId(seedKind, id))
         throw new PortalAccessError(
