@@ -18,7 +18,7 @@ import {
   type DocumentRequestDueState,
 } from '@/lib/legacy-document-request';
 import { diagnosisDocumentsForCase, hasOpenDiagnosisReviewTask } from '@/lib/diagnosis-preflight';
-import { companyDocumentStatusError } from '@/lib/company-document-review';
+import { applyCompanyDocumentStatusDraft, COMPANY_DOCUMENT_STATUSES, COMPANY_DOCUMENT_STATUS_IMPACTS, createCompanyDocumentStatusDraft, type CompanyDocumentStatusDraft } from '@/lib/company-document-review';
 import {
   emptyStepZeroPilotContext,
   prepareStepZeroPilotInput,
@@ -2457,6 +2457,7 @@ function DocumentCenter({
   const [uploadConsent, setUploadConsent] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
+  const [statusDraft, setStatusDraft] = useState<CompanyDocumentStatusDraft | null>(null);
 
   const accountDocuments = isAdmin ? documents : documents.filter((document) => document.partnerMemberId != null ? document.partnerMemberId === currentMemberId : document.assignedTrainee === currentName);
   const companies = ['전체 기업', ...Array.from(new Set(accountDocuments.map((document) => document.company)))];
@@ -2472,12 +2473,27 @@ function DocumentCenter({
     revision: accountDocuments.filter((document) => document.status === '보완필요').length,
     reviewed: accountDocuments.filter((document) => document.status === '검토완료').length,
   };
+  const statusDocument = documents.find((document) => document.id === statusDraft?.documentId) ?? null;
 
-  function changeStatus(document: CompanyDocument, status: CompanyDocument['status']) {
-    const error = companyDocumentStatusError(document, status);
-    if (error) { notify(error); return; }
-    setDocuments((current) => current.map((item) => item.id === document.id ? { ...item, status, updatedAt: '방금 전' } : item));
-    notify(`${document.title} 상태를 ${status}(으)로 변경했습니다.`);
+  function requestStatusChange(document: CompanyDocument, status: CompanyDocument['status']) {
+    try {
+      setStatusDraft(createCompanyDocumentStatusDraft(document, status));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '자료 상태를 다시 선택해 주세요.');
+    }
+  }
+
+  function confirmStatusChange() {
+    if (!statusDocument || !statusDraft) return;
+    try {
+      const updated = applyCompanyDocumentStatusDraft(statusDocument, statusDraft);
+      setDocuments((current) => current.map((item) => item.id === updated.id ? updated : item));
+      setStatusDraft(null);
+      notify(`${updated.title} 상태를 ${updated.status}(으)로 변경했습니다.`);
+    } catch (error) {
+      setStatusDraft(null);
+      notify(error instanceof Error ? error.message : '자료 상태를 다시 선택해 주세요.');
+    }
   }
 
   function resetUploadDraft() {
@@ -2591,7 +2607,7 @@ function DocumentCenter({
             <div className="grid gap-2 sm:grid-cols-3 xl:min-w-[720px]">
               <label className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-slate-500"><Search className="size-4" aria-hidden="true" /><span className="sr-only">기업자료 검색</span><input value={query} onChange={(event) => setQuery(event.target.value)} className="min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none" placeholder="기업·자료명 검색" /></label>
               <label><span className="sr-only">기업 필터</span><select value={companyFilter} onChange={(event) => setCompanyFilter(event.target.value)} className={inputClass}>{companies.map((company) => <option key={company}>{company}</option>)}</select></label>
-              <label><span className="sr-only">자료상태 필터</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as '전체' | CompanyDocument['status'])} className={inputClass}><option>전체</option><option>요청중</option><option>제출완료</option><option>보완필요</option><option>검토완료</option></select></label>
+              <label><span className="sr-only">자료상태 필터</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as '전체' | CompanyDocument['status'])} className={inputClass}><option>전체</option>{COMPANY_DOCUMENT_STATUSES.map((status) => <option key={status}>{status}</option>)}</select></label>
             </div>
           </div>
         </CardHeader>
@@ -2603,12 +2619,23 @@ function DocumentCenter({
                 <div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><Pill tone="navy">{companyCategoryLabel(document.category)}</Pill><Pill tone={statusTone}>{document.status}</Pill>{document.sensitive ? <Pill tone="slate"><LockKeyhole className="mr-1 size-3" aria-hidden="true" />민감자료</Pill> : null}{document.storageFileId ? <Pill tone="green">보안저장 완료</Pill> : null}</div><p className="mt-3 text-xs font-semibold text-slate-500">{document.company}</p>{document.caseId && <p className="mt-1 text-[11px] text-slate-400" title={document.caseId}>연결 진행 {document.caseId.slice(-8)}</p>}<h2 className="mt-1 text-base font-bold text-slate-950">{document.title}</h2>{document.fileName ? <p className="mt-2 [overflow-wrap:anywhere] text-xs leading-5 text-slate-500">{document.fileName}{document.fileSize ? ` · ${readableFileSize(document.fileSize)}` : ''}</p> : <p className="mt-2 text-xs leading-5 text-amber-700">아직 제출된 파일이 없습니다.</p>}{document.storageFileId ? <a href={`/api/files/${document.storageFileId}`} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-xl border border-sky-100 bg-sky-50 px-3 text-xs font-bold text-[#075f93] hover:bg-sky-100"><LockKeyhole className="size-3.5" aria-hidden="true" /> 권한 확인 후 원본 내려받기</a> : null}</div><span className="grid size-11 shrink-0 place-items-center rounded-xl bg-slate-50 text-[#0877b8]"><FileText className="size-5" aria-hidden="true" /></span></div>
                 <div className="mt-4 grid grid-cols-3 gap-3 rounded-xl bg-slate-50 p-3 text-xs"><div><p className="text-slate-500">담당</p><p className="mt-1 font-bold text-slate-800">{document.assignedTrainee}</p></div><div><p className="text-slate-500">버전</p><p className="mt-1 font-bold text-slate-800">{document.version}</p></div><div><p className="text-slate-500">변경</p><p className="mt-1 font-bold text-slate-800">{document.updatedAt}</p></div></div>
                 <FileRecoveryNote recovery={document.recovery} />
-                <label className="mt-4 block"><span className="mb-2 block text-xs font-semibold text-slate-600">상태 변경</span><select value={document.status} onChange={(event) => changeStatus(document, event.target.value as CompanyDocument['status'])} className={inputClass}><option>요청중</option><option disabled={!document.storageFileId}>제출완료</option><option>보완필요</option><option disabled={!document.storageFileId}>검토완료</option></select>{!document.storageFileId ? <span className="mt-2 block text-xs text-amber-700">실제 파일 등록 후 제출·검토 완료로 변경할 수 있습니다.</span> : null}</label>
+                <label className="mt-4 block"><span className="mb-2 block text-xs font-semibold text-slate-600">상태 변경</span><select value={document.status} onChange={(event) => requestStatusChange(document, event.target.value as CompanyDocument['status'])} className={inputClass}>{COMPANY_DOCUMENT_STATUSES.map((status) => <option key={status} disabled={(status === '제출완료' || status === '검토완료') && !document.storageFileId}>{status}</option>)}</select>{!document.storageFileId ? <span className="mt-2 block text-xs text-amber-700">실제 파일 등록 후 제출·검토 완료로 변경할 수 있습니다.</span> : null}</label>
               </article>;
             })}
           </div> : <div className="rounded-2xl border border-dashed border-slate-200 p-10 text-center"><FolderOpen className="mx-auto size-9 text-slate-300" aria-hidden="true" /><p className="mt-3 text-sm font-bold text-slate-700">조건에 맞는 자료가 없습니다.</p><button type="button" onClick={() => { setQuery(''); setStatusFilter('전체'); setCompanyFilter('전체 기업'); }} className="mt-3 min-h-11 rounded-xl px-4 text-sm font-semibold text-[#0877b8] hover:bg-sky-50">필터 초기화</button></div>}
         </CardContent>
       </Card>
+
+      {statusDocument && statusDraft ? <PortalDialog titleId="document-status-change-title" onClose={() => setStatusDraft(null)}>
+        <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">자료 상태 변경 확인</p><h2 id="document-status-change-title" className="mt-1 text-xl font-bold">{statusDocument.title}</h2><p className="mt-1 text-sm text-slate-500">{statusDocument.company} · {companyCategoryLabel(statusDocument.category)}</p></div><DialogClose className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="자료 상태 변경 취소"><X className="size-5" aria-hidden="true" /></DialogClose></div>
+          <div className="space-y-4 p-5">
+            <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2"><div><p className="text-xs text-slate-500">현재 상태</p><p className="mt-1 text-sm font-bold text-slate-800">{statusDraft.expectedStatus}</p></div><div><p className="text-xs text-slate-500">변경 후 상태</p><p className="mt-1 text-sm font-bold text-[#0877b8]">{statusDraft.nextStatus}</p></div></div>
+            <div className={`rounded-2xl border p-4 text-sm leading-6 ${statusDraft.nextStatus === '검토완료' ? 'border-emerald-200 bg-emerald-50 text-emerald-900' : statusDraft.nextStatus === '보완필요' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-blue-100 bg-blue-50 text-slate-700'}`}><p className="font-bold">{COMPANY_DOCUMENT_STATUS_IMPACTS[statusDraft.nextStatus]}</p>{statusDraft.nextStatus === '검토완료' ? <p className="mt-1 text-xs leading-5">원본 내용을 실제로 확인한 경우에만 저장해 주세요.</p> : null}</div>
+          </div>
+          <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setStatusDraft(null)}>취소</SecondaryButton><PrimaryButton onClick={confirmStatusChange}><Check className="size-4" aria-hidden="true" /> 상태 변경 저장</PrimaryButton></div>
+        </div>
+      </PortalDialog> : null}
 
       <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">자료보안 운영원칙</p><p className="mt-1 text-xs leading-5 text-slate-600">주민번호·계좌번호는 마스킹하고 목적에 필요한 최소 자료만 등록합니다. 원본은 공개주소가 없는 전용 저장소에 보관하며, 서버가 관리자 또는 담당 파트너 권한을 확인한 뒤에만 내려받을 수 있습니다.</p></div></div></div>
 
