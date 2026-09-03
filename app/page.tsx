@@ -11,6 +11,7 @@ import { PortalInitializationGate } from '@/components/portal-initialization-gat
 import { PortalDialog } from '@/components/portal-dialog';
 import { DialogClose } from '@/components/ui/dialog';
 import { PortalNavigationButton } from '@/components/portal-navigation';
+import { PortalCaseSearchForm } from '@/components/portal-case-search-form';
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { assignmentMemberId, assignmentDisplayName, newTaskAssignment } from '@/lib/assignment-display';
 import { prependApplicationCase, recordBelongsToCase } from '@/lib/application-case-links';
@@ -3903,7 +3904,8 @@ export default function Home() {
             <div className="flex items-center gap-3"><BrandMark /><SheetTitle id="mobile-navigation-title" className="font-bold text-white">파트너 허브</SheetTitle></div>
             <SheetClose className="grid size-11 place-items-center rounded-xl hover:bg-white/10" aria-label="메뉴 닫기"><X aria-hidden="true" /></SheetClose>
           </div>
-          <SheetDescription id="mobile-navigation-description" className="sr-only">현재 화면과 이동할 업무 메뉴를 선택합니다.</SheetDescription>
+          <SheetDescription id="mobile-navigation-description" className="sr-only">기업 진행을 검색하거나 이동할 업무 메뉴를 선택합니다.</SheetDescription>
+          <PortalCaseSearchForm className="mb-4 block" inputId="mobile-case-search" items={cases} value={globalSearch} onChange={setGlobalSearch} onSubmit={submitGlobalSearch} />
           <nav aria-label="모바일 메뉴" className="space-y-2">{availableNavItems.map(navButton)}</nav>
           <div className="mt-5 flex min-h-12 w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 px-4 text-sm font-semibold"><span>{accountDisplayName}</span><ShieldCheck className="size-4" aria-hidden="true" /></div>
           {currentUser.authMethod === 'password' && <PartnerSignout disabled={dataStatus !== 'saved' || applicationPending || applicationDirty || fileRecoveryBusy} />}
@@ -3913,15 +3915,7 @@ export default function Home() {
       <div className="lg:pl-[244px]">
         <header className="sticky top-0 z-20 flex h-[76px] items-center justify-between border-b bg-white/95 px-4 backdrop-blur sm:px-6 lg:px-8">
           <div className="flex items-center gap-2 lg:hidden"><button type="button" onClick={() => setMobileOpen(true)} aria-haspopup="dialog" aria-expanded={mobileOpen} aria-controls="mobile-navigation" className="grid size-11 place-items-center rounded-xl hover:bg-slate-100" aria-label="메뉴 열기"><Menu aria-hidden="true" /></button><span className="hidden text-sm font-bold text-[#15375b] sm:inline">{activeLabel}</span></div>
-          <search className="hidden max-w-md flex-1 md:block">
-            <form onSubmit={submitGlobalSearch} className="flex items-center gap-2 rounded-xl border bg-slate-50 px-2 text-slate-500 focus-within:border-sky-400 focus-within:ring-4 focus-within:ring-sky-100">
-              <button type="submit" className="grid size-10 shrink-0 place-items-center rounded-lg hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400" aria-label="기업 진행 검색"><Search className="size-4" aria-hidden="true" /></button>
-              <input value={globalSearch} onChange={(event) => setGlobalSearch(event.target.value)} list="portal-case-search-options" aria-label="기업명 또는 신청번호 검색" className="h-10 min-w-0 flex-1 bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400" placeholder="기업명 또는 신청번호 검색" autoComplete="off" />
-              <datalist id="portal-case-search-options">
-                {cases.map((item) => <option key={item.id} value={item.id}>{item.company} · {item.service}</option>)}
-              </datalist>
-            </form>
-          </search>
+          <PortalCaseSearchForm className="hidden max-w-md flex-1 md:block" inputId="desktop-case-search" items={cases} value={globalSearch} onChange={setGlobalSearch} onSubmit={submitGlobalSearch} />
           <div className="ml-auto flex items-center gap-2">
             <Pill tone={dataStatusTone}>{dataStatusLabel}</Pill>
             <div className="flex min-h-11 max-w-[210px] items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-left text-sm font-semibold text-slate-700" title={currentUser.email}><span className="grid size-7 shrink-0 place-items-center rounded-full bg-[#eaf1f7] text-xs font-bold text-[#15375b]">{accountDisplayName.slice(0, 1)}</span><span className="hidden min-w-0 truncate sm:block">{accountDisplayName}</span><ShieldCheck className="size-4 shrink-0 text-emerald-600" aria-hidden="true" /></div>
