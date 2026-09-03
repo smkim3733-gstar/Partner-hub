@@ -105,6 +105,7 @@ import {
 import type { PipelineDropoffSummary } from '@/lib/pipeline-dropoff-metrics';
 import { resolvePortalCaseSearch } from '@/lib/portal-case-search';
 import { buildPortalCaseCsv, portalCaseCsvFileName } from '@/lib/portal-case-csv';
+import { portalTaskNavigationLabel, portalTaskNotificationCount } from '@/lib/portal-task-notifications';
 
 type View =
   | 'admin'
@@ -2227,7 +2228,7 @@ function WorkManagement({
         </CardContent>
       </Card>
 
-      <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5"><div className="flex items-start gap-3"><Bell className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">가상 알림 작동방식</p><p className="mt-1 text-xs leading-5 text-slate-600">오늘 마감·기한 지연 업무는 상단 알림 숫자에 포함됩니다. 상담 저장 시 선택한 후속조치도 자동으로 이 목록에 추가됩니다.</p></div></div></div>
+      <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5"><div className="flex items-start gap-3"><Bell className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">사이트 알림 기준</p><p className="mt-1 text-xs leading-5 text-slate-600">오늘 마감·기한 지연 운영 업무는 상단과 메뉴의 알림 숫자에 포함됩니다. 가상 예시 업무와 완료 업무는 제외하며, 상담 저장 시 선택한 후속조치는 이 목록에 추가됩니다.</p></div></div></div>
 
       {addOpen ? <PortalDialog titleId="task-modal-title" onClose={() => setAddOpen(false)}>
         <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
@@ -3661,7 +3662,7 @@ export default function Home() {
   }
 
   const accountTasks = tasks; // Server-authorized tasks, including assignments made before a name change.
-  const notificationCount = accountTasks.filter((task) => task.status !== '완료' && (task.dueState === 'today' || task.dueState === 'overdue')).length;
+  const notificationCount = portalTaskNotificationCount(accountTasks);
   const dataStatusLabel = {
     loading: '데이터 불러오는 중',
     saving: '자동저장 중',
@@ -3868,12 +3869,15 @@ export default function Home() {
 
   function navButton(item: { view: View; label: string; icon: IconType }) {
     const active = item.view === view;
+    const label = item.view === 'tasks'
+      ? portalTaskNavigationLabel(notificationCount)
+      : item.label;
     return (
       <PortalNavigationButton
         key={item.view}
         active={active}
         icon={item.icon}
-        label={item.label}
+        label={label}
         onSelect={() => item.view === 'schedule' ? openSchedule(view === 'trainee' ? 'trainee' : 'admin') : navigate(item.view)}
       />
     );
