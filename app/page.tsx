@@ -17,6 +17,7 @@ import {
   type DocumentRequestDueState,
 } from '@/lib/legacy-document-request';
 import { applyDocumentRequestDueDateDraft, createDocumentRequestDueDateDraft, type DocumentRequestDueDateDraft } from '@/lib/document-request-due-date-change';
+import { commitDocumentRequest, documentRequestCaseFingerprint, type DocumentRequestCommitInput } from '@/lib/document-request-commit';
 import { diagnosisDocumentsForCase } from '@/lib/diagnosis-preflight';
 import { applyDiagnosisReviewQueueDraft, createDiagnosisReviewQueueDraft, type DiagnosisReviewQueueDraft } from '@/lib/diagnosis-review-queue';
 import { applyCompanyDocumentStatusDraft, COMPANY_DOCUMENT_STATUSES, COMPANY_DOCUMENT_STATUS_IMPACTS, createCompanyDocumentStatusDraft, type CompanyDocumentStatusDraft } from '@/lib/company-document-review';
@@ -264,6 +265,8 @@ type CompanyDocument = {
 };
 
 type DocumentRequestPayload = {
+  requestId: string;
+  expectedCase: string;
   items: Array<{ name: string }>;
   dueDate: string;
   dueState: DocumentRequestDueState;
@@ -3626,11 +3629,13 @@ function ConsultationForm({
   );
 }
 
-function DocumentRequest({ caseItem, requestNumber, outstandingNames, onSave, onCancel }: { caseItem: CollaborationCase; requestNumber: number; outstandingNames: string[]; onSave: (payload: DocumentRequestPayload) => void; onCancel: () => void }) {
+function DocumentRequest({ caseItem, requestNumber, outstandingNames, onSave, onCancel }: { caseItem: CollaborationCase; requestNumber: number; outstandingNames: string[]; onSave: (payload: DocumentRequestPayload) => boolean; onCancel: () => void }) {
   const [items, setItems] = useState(emptyDocumentRequestItems);
   const [newItem, setNewItem] = useState('');
   const newItemRef = useRef<HTMLInputElement>(null);
   const dueDateRef = useRef<HTMLInputElement>(null);
+  const requestIdRef = useRef('');
+  const expectedCaseRef = useRef(documentRequestCaseFingerprint(caseItem));
   const [formError, setFormError] = useState('');
 
   function addItem(name = newItem) {
@@ -3658,7 +3663,12 @@ function DocumentRequest({ caseItem, requestNumber, outstandingNames, onSave, on
       return;
     }
     setFormError('');
-    onSave(result);
+    if (!requestIdRef.current) requestIdRef.current = crypto.randomUUID();
+    onSave({
+      ...result,
+      requestId: requestIdRef.current,
+      expectedCase: expectedCaseRef.current,
+    });
   }
 
   return (
@@ -4192,6 +4202,31 @@ export default function Home() {
     }
   }
 
+  function saveDocumentRequest(input: DocumentRequestCommitInput) {
+    try {
+      const saved = commitDocumentRequest(
+        selectedCase,
+        input,
+        timeline,
+        companyDocuments,
+        tasks,
+        cases,
+        members,
+        canFileUpload,
+      );
+      setTimeline(saved.timeline);
+      setCompanyDocuments(saved.documents);
+      setTasks(saved.tasks);
+      setCases(saved.cases);
+      notify(`${selectedCase.company} 서류요청 ${saved.documentCount}건을 자료함과 업무목록에 등록했습니다.`);
+      navigate('case');
+      return true;
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '서류요청 내용을 다시 확인해 주세요.');
+      return false;
+    }
+  }
+
   function requestDocumentDueDateChange(documentIds: string[], dueDate: string) {
     try {
       setDocumentDueDateDraft(createDocumentRequestDueDateDraft(
@@ -4364,7 +4399,7 @@ export default function Home() {
           }} /> : null}
           {view === 'case' ? cases.length ? <CaseDetail key={selectedCase.id} caseItem={selectedCase} timeline={selectedCaseTimeline} documents={companyDocuments} allCases={cases} members={members} onWorkflow={() => navigate('workflow')} onConsult={() => navigate(selectedCase.flowManaged ? 'workflow' : 'consultation')} onDocuments={() => navigate(selectedCase.flowManaged ? 'workflow' : 'documents')} onSetDocumentDueDates={requestDocumentDueDateChange} onQuoteContract={() => navigate('workflow')} canFileUpload={canFileUpload} canQuoteContract={isAdmin || Boolean(currentMember?.permissions.quoteContract)} /> : <Card><CardContent className="py-8"><p className="font-bold text-slate-900">등록된 진행이 없습니다.</p><p className="mt-2 text-sm text-slate-600">새 협업신청을 접수한 뒤 진행 기록을 확인할 수 있습니다.</p><PrimaryButton className="mt-5" onClick={() => navigate('application')}>새 협업신청</PrimaryButton></CardContent></Card> : null}
           {view === 'consultation' ? cases.length ? <ConsultationForm key={selectedCase.id} number={Math.max(1, consultationNumber)} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={saveConsultation} /> : <Card><CardContent className="py-8">상담을 등록할 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card> : null}
-          {view === 'documents' ? cases.length ? <DocumentRequest key={selectedCase.id} caseItem={selectedCase} requestNumber={selectedCaseTimeline.filter((item) => item.type === '서류').length + 1} outstandingNames={companyDocuments.filter(document => recordBelongsToCase(document, document.assignedTrainee, selectedCase, cases, members) && document.category === '요청서류' && (document.status === '요청중' || document.status === '보완필요')).map(document => document.title)} onCancel={() => navigate('case')} onSave={({ items, dueDate, dueState, skippedOutstanding }) => { const requestNumber = selectedCaseTimeline.filter((item) => item.type === '서류').length + 1; const dueLabel = formatKoreanDate(dueDate); setTimeline((current) => [...current, { caseId: selectedCase.id, date: '방금 전', title: `서류요청 #${requestNumber} 등록`, detail: `요청서류 ${items.length}건 / 제출기한 ${dueLabel} / 전달 담당자: ${selectedCase.trainee} 파트너`, type: '서류', tone: 'amber' }]); setCompanyDocuments((current) => [...items.map((item, index): CompanyDocument => ({ id: `file-request-${Date.now()}-${index}`, company: selectedCase.company, title: item.name, category: '요청서류', status: '요청중', assignedTrainee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, submittedBy: '기업대표 요청', updatedAt: '방금 전', dueDate, version: '-', sensitive: true })), ...current]); setTasks((current) => [{ id: `task-request-${Date.now()}`, company: selectedCase.company, title: `요청서류 ${items.length}건 제출 확인`, kind: '서류요청', assignee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, due: dueLabel, dueState, status: '대기', priority: dueState === 'upcoming' ? '보통' : '긴급', related: `서류요청 #${requestNumber}` }, ...current]); setCases((current) => current.map((item) => item.id === selectedCase.id ? { ...item, nextAction: `요청서류 ${items.length}건 제출 확인`, updatedAt: '방금 전', idleDays: 0 } : item)); notify(`${selectedCase.company} 서류요청 ${items.length}건을 자료함과 업무목록에 등록했습니다.${skippedOutstanding ? ` 이미 요청 중인 ${skippedOutstanding}건은 제외했습니다.` : ''}`); navigate('case'); }} /> : <Card><CardContent className="py-8">서류를 요청할 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card> : null}
+          {view === 'documents' ? cases.length ? <DocumentRequest key={selectedCase.id} caseItem={selectedCase} requestNumber={selectedCaseTimeline.filter((item) => item.type === '서류').length + 1} outstandingNames={companyDocuments.filter(document => recordBelongsToCase(document, document.assignedTrainee, selectedCase, cases, members) && document.category === '요청서류' && (document.status === '요청중' || document.status === '보완필요')).map(document => document.title)} onCancel={() => navigate('case')} onSave={saveDocumentRequest} /> : <Card><CardContent className="py-8">서류를 요청할 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card> : null}
         </main>
       </div>
 
