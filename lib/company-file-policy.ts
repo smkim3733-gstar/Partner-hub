@@ -34,6 +34,17 @@ const recordingExtensions = new Set([
 ]);
 const audioExtensions = new Set(['mp3', 'm4a', 'wav']);
 const extension = (name: string) => name.split('.').at(-1)?.toLowerCase() || '';
+export function safeFileName(value: string) {
+  return Array.from(value, (character) => {
+    const code = character.charCodeAt(0);
+    return character === '\\' || character === '/' || code < 32 || code === 127
+      ? '_'
+      : character;
+  })
+    .join('')
+    .trim()
+    .slice(0, 180);
+}
 export const isAudioFile = (name: string) =>
   audioExtensions.has(extension(name));
 export const companyCategoryLabel = (category: string) =>

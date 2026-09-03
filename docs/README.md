@@ -13,6 +13,7 @@
 | [진행단계·중단 상태 변경 확인 안전성](PIPELINE_CHANGE_CONFIRMATION_SAFETY_2026_09_03.md) | 수동 단계·진행 중단·재개의 영향 확인과 stale 상태 차단 |
 | [기업자료 상태 변경 확인 안전성](DOCUMENT_STATUS_CONFIRMATION_SAFETY_2026_09_03.md) | 현재·변경 후 상태 영향 확인, 취소 보존과 저장 직전 원본 연결 재검증 |
 | [기업자료 업로드 응답 멱등 반영 안전성](COMPANY_DOCUMENT_UPLOAD_IDEMPOTENCY_2026_09_03.md) | 서버 확정 원본 ID 기준 단일 카드 반영, 검토 상태 보존과 중복 저장 ID 병합 |
+| [기업자료 업로드 응답 검증 안전성](COMPANY_FILE_UPLOAD_RESPONSE_VALIDATION_SAFETY_2026_09_03.md) | 파일·담당·진행 메타데이터 요청 일치 검증과 미확인 필드 제거 |
 | [업무·지원요청 상태 변경 확인 안전성](WORK_TASK_STATUS_CONFIRMATION_SAFETY_2026_09_03.md) | 완료·재개·처리 시작 확인과 담당·마감·지원 주기 재검증 |
 | [가상 진단 검토대기 등록 확인 안전성](DIAGNOSIS_REVIEW_QUEUE_CONFIRMATION_SAFETY_2026_09_03.md) | 가상 A 판정 확인, 최신 근거 재검증과 파생 업무의 운영 알림·지표 제외 |
 | [Step 0 가상시험 입력 안전성](STEP_ZERO_PILOT_INPUT_SAFETY_2026_09_03.md) | 빈 가상 입력, 변경 후 재동의, 초과·식별정보의 외부 호출 전 차단 |

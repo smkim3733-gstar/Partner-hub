@@ -17,6 +17,7 @@ import {
 
 export {
   companyFileCategories,
+  safeFileName,
   type CompanyFileCategory,
 } from './company-file-policy';
 
@@ -184,16 +185,4 @@ export async function isCompanyFileIntakeVisible(id: string) {
       .bind(id)
       .first(),
   );
-}
-
-export function safeFileName(value: string) {
-  return Array.from(value, (character) => {
-    const code = character.charCodeAt(0);
-    return character === '\\' || character === '/' || code < 32 || code === 127
-      ? '_'
-      : character;
-  })
-    .join('')
-    .trim()
-    .slice(0, 180);
 }

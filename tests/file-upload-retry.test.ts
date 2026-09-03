@@ -415,6 +415,52 @@ void test('multi-file application retry reuses both acknowledged and uncertain u
   }
 });
 
+void test('upload client rejects unreadable or mismatched file acknowledgements', async () => {
+  const originalFetch = globalThis.fetch;
+  const requestInput = input('client-response-case');
+  const validFile = {
+    id: 'client-file-1',
+    fileName: requestInput.file.name,
+    sizeBytes: requestInput.file.size,
+    contentType: requestInput.file.type,
+    createdAt: '2026-09-03T00:00:00.000Z',
+    assignedTrainee: requestInput.assignedTrainee,
+    partnerMemberId: requestInput.partnerMemberId,
+    caseId: requestInput.caseId,
+    category: requestInput.category,
+    title: requestInput.title,
+  };
+  try {
+    globalThis.fetch = async () =>
+      new Response('<html>unavailable</html>', { status: 502 });
+    await assert.rejects(
+      uploadCompanyFile(requestInput),
+      /응답을 읽지 못했습니다.*자동 삭제하지 않습니다/,
+    );
+    for (const file of [
+      { ...validFile, id: 'short' },
+      { ...validFile, fileName: 'another.txt' },
+      { ...validFile, sizeBytes: validFile.sizeBytes + 1 },
+      { ...validFile, caseId: 'another-case' },
+      { ...validFile, category: 'unknown' },
+      { ...validFile, partnerMemberId: 'another-member' },
+    ]) {
+      globalThis.fetch = async () => Response.json({ file });
+      await assert.rejects(
+        uploadCompanyFile(requestInput),
+        /완료 응답 형식이 올바르지 않습니다.*자동 삭제하지 않습니다/,
+      );
+    }
+    globalThis.fetch = async () =>
+      Response.json({ file: { ...validFile, storageKey: 'must-not-escape' } });
+    const stored = await uploadCompanyFile(requestInput);
+    assert.equal(stored.id, validFile.id);
+    assert.equal(Object.hasOwn(stored, 'storageKey'), false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 void test('invalid request keys, changed login identity and cross-origin retries cannot write', async () => {
   await seed();
   assert.equal((await upload(request('invalid!'))).status, 400);
