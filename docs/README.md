@@ -8,6 +8,7 @@
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md) | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인 |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md) | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항 |
 | [파트너 유형 명시 선택 안전성](PARTNER_TYPE_SELECTION_SAFETY_2026_09_03.md) | 직접등록·승인대기 유형 자동선택 제거와 허용 유형 검증 |
+| [대표 직접등록 응답 검증 안전성](PARTNER_REGISTRATION_RESPONSE_VALIDATION_SAFETY_2026_09_04.md) | 등록 입력·최소 권한·명단 일관성 검증과 손상 응답 재시도 보호 |
 | [파트너 계정 설정 저장 안전성](PARTNER_ACCOUNT_SETTINGS_DRAFT_SAFETY_2026_09_03.md) | 이메일·유형·상태·권한의 저장 전 초안 격리와 취소 폐기 |
 | [진행 담당 계정 변경 확인 안전성](CASE_ASSIGNMENT_CONFIRMATION_SAFETY_2026_09_03.md) | 현재·변경 후 담당 대조, 취소 보존과 저장 직전 재검증 |
 | [진행단계·중단 상태 변경 확인 안전성](PIPELINE_CHANGE_CONFIRMATION_SAFETY_2026_09_03.md) | 수동 단계·진행 중단·재개의 영향 확인과 stale 상태 차단 |

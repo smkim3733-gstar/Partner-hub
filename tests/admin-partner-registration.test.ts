@@ -26,6 +26,7 @@ import {
   type PartnerAccount,
   type PartnerRegistrationResult,
 } from '../lib/partner-registration';
+import { readPartnerRegistrationResponse } from '../lib/partner-registration-response';
 import { env } from 'cloudflare:workers';
 import { readDuplicateRequestSummary } from '../lib/duplicate-request-metrics';
 import { flushWaitUntil } from './runtime-mock.mjs';
@@ -132,7 +133,11 @@ beforeEach(async () => {
         id: 'suspended-id',
         name: '가상 정지파트너',
         email: 'suspended@example.invalid',
+        cohort: '',
+        role: '일반 파트너',
+        memberType: '기타',
         status: '정지',
+        companies: 0,
         permissions: { ...defaultPartnerPermissions },
       },
     ],
@@ -316,9 +321,9 @@ void test('case-insensitive duplicate, suspended account and owner address are r
 
 void test('retry uses the same account; request id cannot be reused for different data', async () => {
   await readDuplicateRequestSummary();
-  await (env as unknown as { DB: D1Database }).DB
-    .prepare('DELETE FROM portal_duplicate_request_stats')
-    .run();
+  await (env as unknown as { DB: D1Database }).DB.prepare(
+    'DELETE FROM portal_duplicate_request_stats',
+  ).run();
   const data = body();
   const first = await created(data);
   const replay = await create(request(data));
@@ -338,17 +343,48 @@ void test('retry uses the same account; request id cannot be reused for differen
   assert.equal(summary.totalRequestKeyConflicts, 1);
 });
 
+void test('real direct-registration response passes the client response guard', async () => {
+  const submitted = body();
+  const checked = validatePartnerRegistration(submitted);
+  assert.deepEqual(checked.errors, {});
+  const result = await readPartnerRegistrationResponse(
+    await create(request(submitted)),
+    {
+      registration: checked.value,
+      requestId: submitted.requestId,
+    },
+  );
+
+  assert.equal(result.member.email, checked.value.email);
+  assert.equal(result.members.at(-1)?.id, result.member.id);
+  assert.equal(result.replayed, false);
+});
+
 void test('partner type requires an explicit allowed selection', () => {
   assert.equal(partnerTypeSelectionProblem(''), '파트너 유형을 선택해 주세요.');
-  assert.equal(partnerTypeSelectionProblem('관리자'), '파트너 유형을 선택해 주세요.');
-  for (const memberType of ['한기평 컨설턴트', '타사 컨설턴트', '보험설계사', '기타'])
+  assert.equal(
+    partnerTypeSelectionProblem('관리자'),
+    '파트너 유형을 선택해 주세요.',
+  );
+  for (const memberType of [
+    '한기평 컨설턴트',
+    '타사 컨설턴트',
+    '보험설계사',
+    '기타',
+  ])
     assert.equal(partnerTypeSelectionProblem(memberType), '');
 });
 
 void test('pending-account review never inherits a partner type automatically', () => {
-  assert.equal(partnerTypeSelectionForReview('승인대기', '한기평 컨설턴트'), '');
+  assert.equal(
+    partnerTypeSelectionForReview('승인대기', '한기평 컨설턴트'),
+    '',
+  );
   assert.equal(partnerTypeSelectionForReview('초대대기', '보험설계사'), '');
-  assert.equal(partnerTypeSelectionForReview('활성', '타사 컨설턴트'), '타사 컨설턴트');
+  assert.equal(
+    partnerTypeSelectionForReview('활성', '타사 컨설턴트'),
+    '타사 컨설턴트',
+  );
   assert.equal(partnerTypeSelectionForReview('정지', '기타'), '기타');
 });
 
@@ -365,18 +401,12 @@ void test('account settings remain isolated until the explicit apply step', () =
     permissions: { ...defaultPartnerPermissions },
   };
   const original = structuredClone(member);
-  const initial = createPartnerAccountSettingsDraft(
-    member,
-    '타사 컨설턴트',
-  );
+  const initial = createPartnerAccountSettingsDraft(member, '타사 컨설턴트');
   assert.equal(
     partnerAccountSettingsChanged(member, initial, '타사 컨설턴트'),
     false,
   );
-  const toggled = togglePartnerAccountPermission(
-    initial,
-    'fileUpload',
-  );
+  const toggled = togglePartnerAccountPermission(initial, 'fileUpload');
   const draft = {
     ...toggled,
     email: ' UPDATED@EXAMPLE.INVALID ',
@@ -384,7 +414,10 @@ void test('account settings remain isolated until the explicit apply step', () =
     status: '정지' as const,
   };
   assert.deepEqual(member, original);
-  assert.equal(partnerAccountSettingsChanged(member, draft, '타사 컨설턴트'), true);
+  assert.equal(
+    partnerAccountSettingsChanged(member, draft, '타사 컨설턴트'),
+    true,
+  );
   const saved = applyPartnerAccountSettingsDraft(member, draft);
   assert.equal(saved.email, 'updated@example.invalid');
   assert.equal(saved.memberType, '보험설계사');
@@ -406,10 +439,7 @@ void test('pending approval applies the reviewed type and permission draft toget
     companies: 0,
     permissions: { ...defaultPartnerPermissions },
   };
-  const initial = createPartnerAccountSettingsDraft(
-    pending,
-    '한기평 컨설턴트',
-  );
+  const initial = createPartnerAccountSettingsDraft(pending, '한기평 컨설턴트');
   assert.equal(initial.memberType, '');
   const reviewed = togglePartnerAccountPermission(
     { ...initial, memberType: '기타' },
@@ -438,24 +468,27 @@ void test('account settings cannot be applied to another or invalid account', ()
   };
   const draft = createPartnerAccountSettingsDraft(member, '기타');
   assert.throws(
-    () => applyPartnerAccountSettingsDraft(member, { ...draft, memberId: 'other' }),
+    () =>
+      applyPartnerAccountSettingsDraft(member, { ...draft, memberId: 'other' }),
     /다시 확인/,
   );
   assert.throws(
-    () => applyPartnerAccountSettingsDraft(member, { ...draft, email: 'invalid' }),
+    () =>
+      applyPartnerAccountSettingsDraft(member, { ...draft, email: 'invalid' }),
     /올바른 로그인 이메일/,
   );
   assert.throws(
-    () => applyPartnerAccountSettingsDraft(member, { ...draft, memberType: '' }),
+    () =>
+      applyPartnerAccountSettingsDraft(member, { ...draft, memberType: '' }),
     /파트너 유형/,
   );
 });
 
 void test('simultaneous independent creates preserve both; concurrent identical requests create only once', async () => {
   await readDuplicateRequestSummary();
-  await (env as unknown as { DB: D1Database }).DB
-    .prepare('DELETE FROM portal_duplicate_request_stats')
-    .run();
+  await (env as unknown as { DB: D1Database }).DB.prepare(
+    'DELETE FROM portal_duplicate_request_stats',
+  ).run();
   const results = await Promise.all([
     create(request(body({ email: 'first@example.invalid' }))),
     create(request(body({ email: 'second@example.invalid' }))),

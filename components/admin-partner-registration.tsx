@@ -26,9 +26,10 @@ import {
   type RegistrationErrors,
 } from '@/lib/partner-registration';
 import {
-  portalConflictReceiptFrom,
-  portalConflictReceiptHeaders,
-} from '@/lib/portal-conflict-receipt';
+  PartnerRegistrationResponseError,
+  readPartnerRegistrationResponse,
+} from '@/lib/partner-registration-response';
+import { portalConflictReceiptHeaders } from '@/lib/portal-conflict-receipt';
 
 const emptyForm: PartnerRegistration = {
   name: '',
@@ -122,30 +123,10 @@ export function AdminPartnerRegistration({
         }),
         signal: AbortSignal.timeout(25_000),
       });
-      const result = (await response.json()) as PartnerRegistrationResult & {
-        error?: string;
-        errors?: RegistrationErrors;
-        recoveryReceipt?: string;
-      };
-      if (!response.ok) {
-        const recoveryReceipt = portalConflictReceiptFrom(
-          result.recoveryReceipt,
-        );
-        if (recoveryReceipt) recoveryReceiptRef.current = recoveryReceipt;
-        setErrors(result.errors ?? {});
-        throw new Error(
-          result.error ||
-            '등록 결과를 확인하지 못했습니다. 명단을 먼저 확인해 주세요.',
-        );
-      }
-      if (
-        !result.member?.id ||
-        !Array.isArray(result.members) ||
-        !Number.isSafeInteger(result.membersRevision)
-      )
-        throw new Error(
-          '등록 결과를 확인하지 못했습니다. 명단을 먼저 확인해 주세요.',
-        );
+      const result = await readPartnerRegistrationResponse(response, {
+        registration: checked.value,
+        requestId: requestRef.current.id,
+      });
       onRegistered(result);
       recoveryReceiptRef.current = '';
       setSuccess(
@@ -155,6 +136,11 @@ export function AdminPartnerRegistration({
       setConfirmed(false);
       requestRef.current = null;
     } catch (cause) {
+      if (cause instanceof PartnerRegistrationResponseError) {
+        setErrors(cause.errors);
+        if (cause.recoveryReceipt)
+          recoveryReceiptRef.current = cause.recoveryReceipt;
+      }
       setError(
         cause instanceof Error &&
           !['TimeoutError', 'AbortError', 'TypeError'].includes(cause.name)
@@ -189,7 +175,8 @@ export function AdminPartnerRegistration({
             </span>
             <span className="mt-2 block leading-6">
               초대 이메일은 발송하지 않았습니다. 계정·권한 설정에서 본인 확인 후
-              비밀번호 설정 링크를 발급해 전달해 주세요. ChatGPT 없이 이용할 수 있습니다.
+              비밀번호 설정 링크를 발급해 전달해 주세요. ChatGPT 없이 이용할 수
+              있습니다.
             </span>
           </output>
         )}
@@ -253,8 +240,8 @@ export function AdminPartnerRegistration({
                       id="partner-register-email-help"
                       className="text-xs leading-5 text-slate-600"
                     >
-                      파트너 본인이 사이트 로그인 아이디로 사용할 이메일을 입력해
-                      주세요.
+                      파트너 본인이 사이트 로그인 아이디로 사용할 이메일을
+                      입력해 주세요.
                     </p>
                   )}
                   {errors[key] && (
