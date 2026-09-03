@@ -27,7 +27,14 @@ import {
   COMPANY_FILE_TITLE_MAX_LENGTH,
   prepareCompanyFileMetadata,
 } from '@/lib/company-file-metadata';
-import { draftCaseId, type ApplicationDraft, type DraftEnvelope } from '@/lib/application-draft';
+import {
+  applicationApplicantNameMaxLength,
+  draftCaseId,
+  emptyApplicationServices,
+  prepareApplicationCoreFields,
+  type ApplicationDraft,
+  type DraftEnvelope,
+} from '@/lib/application-draft';
 import { ApplicationDetailFields, ApplicationDetailsSummary } from '@/components/application-details';
 import { applicationServices, applicationCompanyMaxLength, emptyApplicationDetails, parseApplicationDetails, ApplicationDetailsError, type ApplicationDetails, type ApplicationField } from '@/lib/application-details';
 /* oxlint-disable next/no-html-link-for-pages -- Sites authentication routes require native top-level navigation. */
@@ -2810,7 +2817,9 @@ function ApplicationForm({
   canUpload: boolean;
 }) {
   const [step, setStep] = useState(1);
-  const [selectedServices, setSelectedServices] = useState<string[]>(['정책자금']);
+  const [selectedServices, setSelectedServices] = useState(
+    emptyApplicationServices,
+  );
   const [selectedFiles, setSelectedFiles] = useState<ApplicationAttachment[]>([]);
   const [recordingConsent, setRecordingConsent] = useState(false);
   const submitLock = useRef(false);
@@ -2878,7 +2887,7 @@ function ApplicationForm({
       const data = await response.json() as DraftEnvelope & { error?: string };
       if (!response.ok) throw new Error(data.error || '임시저장을 비우지 못했습니다.');
       draftRef.current = { revision: data.revision, draftId: crypto.randomUUID() };
-      setCompanyName(''); setDetails(emptyApplicationDetails()); setApplicantName(applicant.name); setApplicantType(applicant.memberType); setApplicantMemberId(''); setSelectedServices(['정책자금']); setSelectedFiles([]); setMissingAttachments(false); setStep(1); setUploadConsent(false); setRecordingConsent(false); setDraftSubmitted(null); setSubmitError('');
+      setCompanyName(''); setDetails(emptyApplicationDetails()); setApplicantName(applicant.name); setApplicantType(applicant.memberType); setApplicantMemberId(''); setSelectedServices(emptyApplicationServices()); setSelectedFiles([]); setMissingAttachments(false); setStep(1); setUploadConsent(false); setRecordingConsent(false); setDraftSubmitted(null); setSubmitError('');
       setDraftMessage('새 신청을 작성할 수 있습니다. 접수된 진행은 그대로 보존했습니다.'); onDraftSaved(false);
     } catch (error) { setSubmitError((error as Error).message); }
     finally { draftLock.current = false; setDraftBusy(false); }
@@ -2902,9 +2911,11 @@ function ApplicationForm({
 
   function validateStep(throughStep: number) {
     try {
-      if (!applicantName.trim()) throw new ApplicationDetailsError('신청자 이름을 입력해 주세요.', 1);
-      if (throughStep >= 2 && (!companyName.trim() || companyName.trim().length > applicationCompanyMaxLength)) throw new ApplicationDetailsError('기업명은 1~100자로 입력해 주세요.', 2);
-      if (throughStep >= 3 && !selectedServices.length) throw new ApplicationDetailsError('요청서비스를 한 개 이상 선택해 주세요.', 3);
+      const core = prepareApplicationCoreFields(
+        { applicantName, companyName, selectedServices },
+        throughStep,
+      );
+      if (!core.ok) throw new ApplicationDetailsError(core.error, core.step);
       parseApplicationDetails(details, throughStep);
       setSubmitError('');
       return true;
@@ -2918,7 +2929,13 @@ function ApplicationForm({
   async function submitApplication() {
     if (submitLock.current || draftBusy || !draftReady || draftSubmitted) return;
     if (missingAttachments) { setSubmitError('이전 첨부파일을 다시 선택하거나 첨부 없이 진행 여부를 확인해 주세요.'); return; }
-    if (!awaitingSave && !validateStep(3)) return;
+    if (!validateStep(3)) return;
+    const core = prepareApplicationCoreFields({
+      applicantName,
+      companyName,
+      selectedServices,
+    });
+    if (!core.ok) return;
     if (!uploadConsent) {
       setSubmitError('자료 제출 권한과 개인정보 마스킹 여부를 확인해 주세요.');
       return;
@@ -2935,7 +2952,7 @@ function ApplicationForm({
     try {
       const draftId = awaitingSave ? draftRef.current.draftId : await saveDraft();
       handedOff = true;
-      await onDone(selectedFiles, companyName, selectedServices, applicantType, applicantName.trim() || applicant.name, recordingConsent, applicantMemberId, parseApplicationDetails(details), draftId, draftRef.current.revision);
+      await onDone(selectedFiles, core.value.companyName, core.value.selectedServices, applicantType, core.value.applicantName, recordingConsent, applicantMemberId, parseApplicationDetails(details), draftId, draftRef.current.revision);
       // A lost cleanup response is safe: the next restore recognizes the submitted case ID.
       await fetch('/api/application-draft', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...draftRef.current, expectedUserId: currentUserId }) }).catch(() => {});
     } catch (error) {
@@ -2983,8 +3000,8 @@ function ApplicationForm({
           <fieldset disabled={submitting || awaitingSave || draftBusy || !draftReady || Boolean(draftSubmitted)} className="min-w-0">
           {step === 1 ? (
             <div className="grid gap-5 md:grid-cols-2">
-              <Field label="신청자 유형" required hint={applicant.editable ? '대표님은 대리 접수할 신청자 유형을 선택할 수 있습니다.' : '등록된 파트너 유형이 자동 적용됩니다.'}><select className={inputClass} value={applicantType} onChange={(event) => setApplicantType(event.target.value as PartnerType)} disabled={!applicant.editable}>{partnerTypes.map((type) => <option key={type}>{type}</option>)}</select></Field>
-              <Field label="신청자 이름" required><input className={inputClass} value={applicantName} onChange={(event) => { setApplicantName(event.target.value); setApplicantMemberId(''); setUploadConsent(false); setRecordingConsent(false); }} readOnly={!applicant.editable} /></Field>
+              <Field label="신청자 유형" required hint={applicant.editable ? '대표님은 대리 접수할 신청자 유형을 선택할 수 있습니다.' : '등록된 파트너 유형이 자동 적용됩니다.'}><select className={inputClass} value={applicantType} onChange={(event) => { setApplicantType(event.target.value as PartnerType); setUploadConsent(false); setRecordingConsent(false); setSubmitError(''); }} disabled={!applicant.editable}>{partnerTypes.map((type) => <option key={type}>{type}</option>)}</select></Field>
+              <Field label="신청자 이름" required><input className={inputClass} value={applicantName} onChange={(event) => { setApplicantName(event.target.value); setApplicantMemberId(''); setUploadConsent(false); setRecordingConsent(false); setSubmitError(''); }} maxLength={applicationApplicantNameMaxLength} required readOnly={!applicant.editable} /></Field>
               {applicant.editable && <Field label="자료 공유 계정" hint="선택한 계정에 신청 진행과 첨부자료를 연결합니다. 이름을 직접 바꾸면 대표 전용으로 돌아갑니다."><select className={inputClass} value={applicantMemberId} onChange={(event) => { const member = members.find(item => item.id === event.target.value); setApplicantMemberId(event.target.value); setApplicantName(member?.name.replace('(가상)', '').trim() ?? applicant.name); if (member) setApplicantType(partnerTypeOf(member)); setUploadConsent(false); setRecordingConsent(false); }}><option value="">대표 전용 접수 · 파트너 공유 없음</option>{members.filter(member => member.status === '활성').map(member => <option key={member.id} value={member.id}>{member.name} · {member.email}</option>)}</select></Field>}
               <Field label="로그인 이메일"><input className={inputClass} value={members.find(member => member.id === applicantMemberId)?.email ?? applicant.email} readOnly /></Field>
               <Field label="소속·구분"><input className={inputClass} value={applicant.editable ? '관리자 대리접수' : applicant.detail} readOnly /></Field>
@@ -2994,7 +3011,7 @@ function ApplicationForm({
 
           {step === 2 ? (
             <div className="grid gap-5 md:grid-cols-2">
-              <Field label="기업명" required><input className={inputClass} value={companyName} onChange={(event) => { setCompanyName(event.target.value); setUploadConsent(false); setRecordingConsent(false); }} /></Field>
+              <Field label="기업명" required><input className={inputClass} value={companyName} onChange={(event) => { setCompanyName(event.target.value); setUploadConsent(false); setRecordingConsent(false); setSubmitError(''); }} maxLength={applicationCompanyMaxLength} required /></Field>
               <ApplicationDetailFields step={2} value={details} onChange={changeDetail} inputClass={inputClass} />
             </div>
           ) : null}
@@ -3002,7 +3019,7 @@ function ApplicationForm({
           {step === 3 ? (
             <div>
               <p className="text-sm font-semibold text-slate-800">요청서비스 <span className="text-red-600">*</span></p>
-              <p className="mt-1 text-xs text-slate-500">복수 선택할 수 있습니다. 요청한 서비스는 신청 내용에 함께 저장됩니다.</p>
+              <p className="mt-1 text-xs text-slate-500">기본 선택은 없습니다. 필요한 서비스를 직접 선택하며, 복수 선택할 수 있습니다.</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {services.map((service) => {
                   const selected = selectedServices.includes(service);
@@ -4023,7 +4040,7 @@ export default function Home() {
                 saveQueue.update(initial);
                 await saveQueue.flush();
                 const partnerMemberId = isAdmin ? selectedMemberId : currentUser.memberId ?? '';
-                const company = companyName.trim() || '신규기업';
+                const company = companyName;
                 const caseId = draftCaseId(draftId);
                 if (cases.some(item => item.id === caseId)) throw new Error('이미 접수된 신청입니다. 진행 기록을 확인해 주세요.');
                 const storedFiles: Array<{ category: CompanyDocument['category']; stored: StoredCompanyFile }> = [];
@@ -4035,7 +4052,7 @@ export default function Home() {
                   const stored = await uploadCompanyFile({ file, company, title, category, assignedTrainee: applicantName, partnerMemberId, caseId, recordingConsent, expectedUserId: currentUser.id });
                   if (!storedFiles.some(item => item.stored.id === stored.id)) storedFiles.push({ category, stored });
                 }
-                const service = selectedServices.join(' · ') || '기업컨설팅';
+                const service = selectedServices.join(' · ');
                 const nextCases = prependApplicationCase(cases, { id: caseId, company, service, trainee: applicantName, partnerMemberId, applicantType, applicationDetails: details, applicationDraftRevision: draftRevision, stage: '접수', consultationCount: 0, nextAction: stageNextActions.접수, updatedAt: '방금 전', idleDays: 0, urgent: details.urgency === '긴급' });
                 const nextTimeline = [...timeline, { caseId, date: '방금 전', title: '협업신청 접수', detail: `${service} 요청 / 주관 파트너 ${applicantName}`, type: '접수', tone: 'navy' }];
                 const nextDocuments = [...storedFiles.map(({ category, stored }): CompanyDocument => ({
