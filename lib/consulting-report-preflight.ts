@@ -22,8 +22,9 @@ export async function inspectFirstReport(
   const files = flow.files.filter((file) => file.purpose === 'source');
   const runtime = flowReadiness();
   const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  const sourceTextChars = flow.ai.sourceText.trim().length;
   const composition =
-    (flow.ai.sourceText.trim().length >= 20 || files.length > 0) &&
+    (sourceTextChars >= 20 || files.length > 0) &&
     files.length <= MAX_AI_SOURCE_FILES &&
     totalBytes <= MAX_AI_SOURCE_BYTES;
   let sourceError = '';
@@ -45,7 +46,7 @@ export async function inspectFirstReport(
       ...reportPreflightCheckDefinitions.composition,
       passed: composition,
       detail: composition
-        ? `근거 요약 ${flow.ai.sourceText.length.toLocaleString()}자 · 파일 ${files.length}개 선택`
+        ? `근거 요약 ${sourceTextChars.toLocaleString()}자 · 파일 ${files.length}개 선택`
         : '20자 이상의 요약 또는 근거파일이 필요합니다. 파일은 최대 8개·합계 8MB입니다.',
     },
     {
@@ -86,7 +87,7 @@ export async function inspectFirstReport(
     revision: flow.revision,
     checkedAt: new Date().toISOString(),
     canGenerate: checks.every((check) => check.passed),
-    sourceTextChars: flow.ai.sourceText.length,
+    sourceTextChars,
     fileCount: files.length,
     totalBytes,
     excludedCount: flow.files.filter(

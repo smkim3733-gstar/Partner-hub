@@ -118,6 +118,14 @@ void test('preflight blocks missing, unsupported, excessive, corrupt, empty and 
     )?.passed,
     false,
   );
+  flow.ai.sourceText = ' '.repeat(40);
+  const whitespace = await inspectFirstReport(flow);
+  assert.equal(whitespace.sourceTextChars, 0);
+  assert.equal(
+    whitespace.checks.find((check) => check.id === 'composition')?.passed,
+    false,
+  );
+  flow.ai.sourceText = '';
   flow.files = [file];
   assert.ok(
     (await inspectFirstReport(flow)).checks
