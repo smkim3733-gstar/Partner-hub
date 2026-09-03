@@ -321,6 +321,19 @@ test('consultations and requests repeat; overlaps are rejected without mutation'
     });
   assert.equal(s.requests.length, 5);
 });
+test('meeting booking rejects missing kind or attendance instead of inferring it', () => {
+  const s = analyzed();
+  const command = {
+    type: 'book_meeting',
+    kind: 'first',
+    attendance: 'both',
+    startsAt: '2026-09-01T10:00:00Z',
+    endsAt: '2026-09-01T11:00:00Z',
+    location: '가상 상담실',
+  };
+  fails(s, { ...command, kind: '' });
+  fails(s, { ...command, attendance: '' });
+});
 test('meeting cancellation respects attendance and identical cancellation requests remain idempotent', () => {
   const s = apply(consulted(), {
     type: 'book_meeting',
@@ -468,12 +481,11 @@ test('document receipt and review times preserve retries and reset only for a ne
   });
   const requestId = s.requests[0].id;
   const upload = file('requested_document');
-  s = applyFlowCommand(
-    s,
-    { type: 'receive_document', requestId },
-    partner,
-    { commandId: 'receipt-time-first', now: '2026-08-30T12:00:00.000Z', upload },
-  );
+  s = applyFlowCommand(s, { type: 'receive_document', requestId }, partner, {
+    commandId: 'receipt-time-first',
+    now: '2026-08-30T12:00:00.000Z',
+    upload,
+  });
   assert.equal(s.requests[0].receivedAt, '2026-08-30T12:00:00.000Z');
 
   s = applyFlowCommand(

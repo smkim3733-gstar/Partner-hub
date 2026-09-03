@@ -157,6 +157,54 @@ export function ExplicitChoice({
     </select>
   );
 }
+export function MeetingBookingChoices({
+  firstMeetingRequired,
+  contractEnabled,
+}: {
+  firstMeetingRequired: boolean;
+  contractEnabled: boolean;
+}) {
+  if (firstMeetingRequired)
+    return (
+      <>
+        <Field label="상담 종류">
+          <span
+            className={`${control} flex items-center bg-muted/50 text-muted-foreground`}
+          >
+            초회상담 (공동분석 후)
+          </span>
+          <input type="hidden" name="kind" value="first" />
+        </Field>
+        <Field label="참석 방식 (초회는 동반 고정)">
+          <span
+            className={`${control} flex items-center bg-muted/50 text-muted-foreground`}
+          >
+            파트너 + 김성민 대표
+          </span>
+          <input type="hidden" name="attendance" value="both" />
+        </Field>
+      </>
+    );
+  return (
+    <>
+      <Field label="상담 종류">
+        <ExplicitChoice name="kind" placeholder="상담 종류 선택">
+          <option value="followup">추가상담</option>
+          <option value="contract" disabled={!contractEnabled}>
+            계약상담 (5차·6차 준비 후)
+          </option>
+        </ExplicitChoice>
+      </Field>
+      <Field label="참석 방식">
+        <ExplicitChoice name="attendance" placeholder="참석 방식 선택">
+          <option value="both">파트너 + 김성민 대표</option>
+          <option value="partner">파트너 단독</option>
+          <option value="admin">김성민 대표 단독</option>
+        </ExplicitChoice>
+      </Field>
+    </>
+  );
+}
 function Confirm({
   name,
   children,
@@ -395,7 +443,9 @@ export function ConsultingWorkflow({
         body: file || audio ? form : payload,
       });
       const data = (await response.json().catch(() => {
-        throw new Error('저장 완료 응답을 확인하지 못했습니다. 입력 내용을 유지한 채 같은 저장 버튼으로 다시 시도하거나 새로고침으로 최신 진행 상태를 확인해 주세요.');
+        throw new Error(
+          '저장 완료 응답을 확인하지 못했습니다. 입력 내용을 유지한 채 같은 저장 버튼으로 다시 시도하거나 새로고침으로 최신 진행 상태를 확인해 주세요.',
+        );
       })) as FlowPayload;
       if (!response.ok) {
         if (response.status === 409) await refresh();
@@ -491,6 +541,13 @@ export function ConsultingWorkflow({
   const contractMeetings = flow.meetings.filter(
     (m) => m.kind === 'contract' && m.status !== 'cancelled',
   );
+  const meetingBookingBlocked = !first
+    ? analysisDone(flow)
+      ? ''
+      : '공동분석을 완료하면 초회상담을 예약할 수 있습니다.'
+    : first.status === 'completed'
+      ? ''
+      : '초회상담을 실제 완료한 뒤 추가·계약상담을 예약할 수 있습니다.';
   const showReports = (stage: ReportStage) => {
     const report = latestReport(flow, stage);
     const allowed =
@@ -892,96 +949,62 @@ export function ConsultingWorkflow({
             ))}
           </Panel>
           <Panel title="상담 예약 등록">
-            <ActionForm
-              busy={busy}
-              label="상담 예약 저장"
-              onSubmit={(d) =>
-                submit({
-                  type: 'book_meeting',
-                  kind: value(d, 'kind'),
-                  attendance:
-                    value(d, 'kind') === 'first'
-                      ? 'both'
-                      : value(d, 'attendance'),
-                  startsAt: `${value(d, 'startsAt')}:00+09:00`,
-                  endsAt: `${value(d, 'endsAt')}:00+09:00`,
-                  location: value(d, 'location'),
-                  note: value(d, 'note'),
-                })
-              }
-            >
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="상담 종류">
-                  <select
-                    name="kind"
-                    className={control}
-                    defaultValue={
-                      !first
-                        ? 'first'
-                        : signingPreparationDone(flow) && !flow.contract
-                          ? 'contract'
-                          : 'followup'
+            {meetingBookingBlocked ? (
+              <Hint>{meetingBookingBlocked}</Hint>
+            ) : (
+              <ActionForm
+                busy={busy}
+                label="상담 예약 저장"
+                onSubmit={(d) =>
+                  submit({
+                    type: 'book_meeting',
+                    kind: value(d, 'kind'),
+                    attendance: value(d, 'attendance'),
+                    startsAt: `${value(d, 'startsAt')}:00+09:00`,
+                    endsAt: `${value(d, 'endsAt')}:00+09:00`,
+                    location: value(d, 'location'),
+                    note: value(d, 'note'),
+                  })
+                }
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <MeetingBookingChoices
+                    firstMeetingRequired={!first}
+                    contractEnabled={
+                      signingPreparationDone(flow) && !flow.contract
                     }
-                  >
-                    <option
-                      value="first"
-                      disabled={Boolean(first) || !analysisDone(flow)}
-                    >
-                      초회상담 (공동분석 후)
-                    </option>
-                    <option
-                      value="followup"
-                      disabled={first?.status !== 'completed'}
-                    >
-                      추가상담
-                    </option>
-                    <option
-                      value="contract"
-                      disabled={
-                        !signingPreparationDone(flow) || Boolean(flow.contract)
-                      }
-                    >
-                      계약상담 (5차·6차 준비 후)
-                    </option>
-                  </select>
-                </Field>
-                <Field label="참석 방식 (초회는 동반 고정)">
-                  <select name="attendance" className={control}>
-                    <option value="both">파트너 + 김성민 대표</option>
-                    <option value="partner">파트너 단독</option>
-                    <option value="admin">김성민 대표 단독</option>
-                  </select>
-                </Field>
-                <Field label="시작일시 · 한국 시간">
+                  />
+                  <Field label="시작일시 · 한국 시간">
+                    <Input
+                      className="min-h-11"
+                      name="startsAt"
+                      type="datetime-local"
+                      required
+                    />
+                  </Field>
+                  <Field label="종료일시 · 한국 시간">
+                    <Input
+                      className="min-h-11"
+                      name="endsAt"
+                      type="datetime-local"
+                      required
+                    />
+                  </Field>
+                </div>
+                <Field label="장소 / 상담 방식">
                   <Input
                     className="min-h-11"
-                    name="startsAt"
-                    type="datetime-local"
+                    name="location"
                     required
+                    maxLength={200}
+                    placeholder="기업 방문, 화상회의 등"
                   />
                 </Field>
-                <Field label="종료일시 · 한국 시간">
-                  <Input
-                    className="min-h-11"
-                    name="endsAt"
-                    type="datetime-local"
-                    required
-                  />
+                <Field label="상담 메모">
+                  <Textarea name="note" maxLength={1000} />
                 </Field>
-              </div>
-              <Field label="장소 / 상담 방식">
-                <Input
-                  className="min-h-11"
-                  name="location"
-                  required
-                  maxLength={200}
-                  placeholder="기업 방문, 화상회의 등"
-                />
-              </Field>
-              <Field label="상담 메모">
-                <Textarea name="note" maxLength={1000} />
-              </Field>
-            </ActionForm>
+              </ActionForm>
+            )}
           </Panel>
         </>
       )}
@@ -1109,7 +1132,9 @@ export function ConsultingWorkflow({
                   solutions: value(d, 'solutions')
                     .split(/[,\n]/)
                     .filter(Boolean),
-                  documentsNeeded: explicitFlowBooleanChoice(value(d, 'documentsNeeded')),
+                  documentsNeeded: explicitFlowBooleanChoice(
+                    value(d, 'documentsNeeded'),
+                  ),
                   note: value(d, 'note'),
                   reviewConfirmed: d.has('reviewConfirmed'),
                 })
@@ -1127,7 +1152,9 @@ export function ConsultingWorkflow({
                 <ExplicitChoice
                   name="documentsNeeded"
                   placeholder="추가 서류 필요 여부 선택"
-                  defaultValue={flowBooleanChoiceDefault(flow.decision?.documentsNeeded)}
+                  defaultValue={flowBooleanChoiceDefault(
+                    flow.decision?.documentsNeeded,
+                  )}
                 >
                   <option value="yes">
                     필요함 — 요청·수령·검토 후 문서 준비
@@ -1267,13 +1294,18 @@ export function ConsultingWorkflow({
                             submit({
                               type: 'review_document',
                               requestId: r.id,
-                              approved: explicitFlowBooleanChoice(value(d, 'approved')),
+                              approved: explicitFlowBooleanChoice(
+                                value(d, 'approved'),
+                              ),
                               note: value(d, 'note'),
                             })
                           }
                         >
                           <Field label="검토 결과">
-                            <ExplicitChoice name="approved" placeholder="검토 결과 선택">
+                            <ExplicitChoice
+                              name="approved"
+                              placeholder="검토 결과 선택"
+                            >
                               <option value="yes">검토 완료</option>
                               <option value="no">보완 필요 (사유 필수)</option>
                             </ExplicitChoice>
@@ -1335,7 +1367,10 @@ export function ConsultingWorkflow({
                     <Input name="dueDate" type="date" className="min-h-11" />
                   </Field>
                   <Field label="5차·6차 준비 전 필수 여부">
-                    <ExplicitChoice name="required" placeholder="필수 여부 선택">
+                    <ExplicitChoice
+                      name="required"
+                      placeholder="필수 여부 선택"
+                    >
                       <option value="yes">필수 — 대표 검토 완료 필요</option>
                       <option value="no">선택</option>
                     </ExplicitChoice>
@@ -1560,7 +1595,13 @@ export function ConsultingWorkflow({
               }
             >
               <Field label="수행 결과 / 후속 관리 내용">
-                <Textarea name="summary" required maxLength={3000} rows={5} defaultValue={flow.aftercare?.summary} />
+                <Textarea
+                  name="summary"
+                  required
+                  maxLength={3000}
+                  rows={5}
+                  defaultValue={flow.aftercare?.summary}
+                />
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="다음 점검일">
