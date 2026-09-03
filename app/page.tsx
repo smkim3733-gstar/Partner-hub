@@ -72,8 +72,8 @@ import {
   emptyApplicationServices,
   prepareApplicationCoreFields,
   type ApplicationDraft,
-  type DraftEnvelope,
 } from '@/lib/application-draft';
+import { readApplicationDraftResponse } from '@/lib/application-draft-response';
 import { ApplicationDetailFields, ApplicationDetailsSummary } from '@/components/application-details';
 import { applicationServices, applicationCompanyMaxLength, emptyApplicationDetails, parseApplicationDetails, ApplicationDetailsError, type ApplicationDetails, type ApplicationField } from '@/lib/application-details';
 /* oxlint-disable next/no-html-link-for-pages -- Sites authentication routes require native top-level navigation. */
@@ -3026,8 +3026,7 @@ function ApplicationForm({
     async function restore() {
       try {
         const response = await fetch('/api/application-draft', { cache: 'no-store' });
-        const data = await response.json() as DraftEnvelope & { error?: string };
-        if (!response.ok) throw new Error(data.error || '임시저장을 불러오지 못했습니다.');
+        const data = await readApplicationDraftResponse(response, 'read');
         if (!active) return;
         draftRef.current = { revision: data.revision, draftId: data.draftId ?? crypto.randomUUID() };
         setDraftSubmitted(data.submittedCaseId);
@@ -3052,8 +3051,8 @@ function ApplicationForm({
     try {
       const draft: ApplicationDraft = { companyName, applicantName, applicantType, partnerMemberId: applicantMemberId, selectedServices, details, step, hasLocalAttachments: selectedFiles.length > 0 || missingAttachments };
       const response = await fetch('/api/application-draft', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...draftRef.current, expectedUserId: currentUserId, draft }) });
-      const data = await response.json() as DraftEnvelope & { error?: string };
-      if (!response.ok || !data.draftId) throw new Error(data.error || '임시저장을 확인하지 못했습니다.');
+      const data = await readApplicationDraftResponse(response, 'save');
+      if (!data.draftId) throw new Error('임시저장을 확인하지 못했습니다.');
       draftRef.current = { revision: data.revision, draftId: data.draftId };
       setDraftMessage('입력 문구를 서버에 임시저장했습니다. 첨부파일은 새로고침 후 다시 선택해야 합니다. 제출 중 실패했다면 같은 파일·자료정보로 재시도하면 기존 업로드를 재사용합니다.');
       onDraftSaved(selectedFiles.length > 0);
@@ -3066,12 +3065,11 @@ function ApplicationForm({
     draftLock.current = true; setDraftBusy(true);
     try {
       const response = await fetch('/api/application-draft', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...draftRef.current, expectedUserId: currentUserId }) });
-      const data = await response.json() as DraftEnvelope & { error?: string };
-      if (!response.ok) throw new Error(data.error || '임시저장을 비우지 못했습니다.');
+      const data = await readApplicationDraftResponse(response, 'discard');
       draftRef.current = { revision: data.revision, draftId: crypto.randomUUID() };
       setCompanyName(''); setDetails(emptyApplicationDetails()); setApplicantName(applicant.name); setApplicantType(applicationApplicantTypeForForm(applicant.editable, applicant.memberType)); setApplicantMemberId(''); setSelectedServices(emptyApplicationServices()); setSelectedFiles([]); setMissingAttachments(false); setStep(1); setUploadConsent(false); setRecordingConsent(false); setDraftSubmitted(null); setSubmitError('');
       setDraftMessage('새 신청을 작성할 수 있습니다. 접수된 진행은 그대로 보존했습니다.'); onDraftSaved(false);
-    } catch (error) { setSubmitError((error as Error).message); }
+    } catch (error) { setSubmitError(error instanceof Error ? error.message : '임시저장을 비우지 못했습니다.'); }
     finally { draftLock.current = false; setDraftBusy(false); }
   }
 

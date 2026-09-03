@@ -39,6 +39,7 @@
 | [운영 업무 사이트 알림](PORTAL_TASK_NOTIFICATIONS_2026_09_03.md) | 운영 업무만 세는 알림 숫자와 데스크톱·모바일 메뉴 표시 |
 | [연속 사이트 알림 표시 순서 안전성](TRANSIENT_NOTIFICATION_ORDERING_SAFETY_2026_09_03.md) | 이전 숨김 타이머가 최신 알림을 조기 삭제하지 않도록 차단 |
 | [포털 최초 상태 응답 검증 안전성](PORTAL_STATE_RESPONSE_VALIDATION_SAFETY_2026_09_03.md) | 핵심 상태·사용자·저장 버전 검증과 손상된 부가 지표 격리 |
+| [협업신청 임시저장 응답 검증 안전성](APPLICATION_DRAFT_RESPONSE_VALIDATION_SAFETY_2026_09_03.md) | 조회·저장·비우기 응답 구조와 초안·접수 식별 관계 검증 |
 | [모바일 기업·신청번호 검색](MOBILE_CASE_SEARCH_2026_09_03.md) | 공용 검색 폼, 모바일 메뉴 검색과 고유 입력·자동완성 ID |
 | [진행현황 CSV 내보내기](PIPELINE_CSV_EXPORT_2026_09_03.md) | 대표용 필터 결과 CSV, 가상 예시·민감 필드 제외와 수식 주입 차단 |
 | [권한 내 기업·신청번호 검색](GLOBAL_CASE_SEARCH_2026_09_03.md) | 현재 계정 진행만 대상으로 하는 검색, 반복 신청 모호성 처리와 검증 경계 |
