@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md) | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목 |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md) | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인 |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md) | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항 |
+| [상담 등록 입력 안전성](CONSULTATION_ENTRY_SAFETY_2026_09_03.md) | 상담방식·상태·일정·후속조치 명시 선택과 저장 경계 검증 |
 | [협업신청 핵심 입력 안전성](APPLICATION_ENTRY_SAFETY_2026_09_03.md) | 요청서비스 명시 선택, 신청 핵심 필드 공통 검증과 동의 재확인 |
 | [기업자료 등록 입력 안전성](PORTAL_DOCUMENT_ENTRY_SAFETY_2026_09_03.md) | 가상·이전 기본값 제거, 메타정보 검증, 변경 후 동의 재확인과 폼 초기화 |
 | [새 업무 입력 안전성](PORTAL_TASK_ENTRY_SAFETY_2026_09_03.md) | 가상 기본값 제거, 필수 입력·길이 검증과 성공 후 초기화 |

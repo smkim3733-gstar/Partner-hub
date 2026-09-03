@@ -1,5 +1,13 @@
 'use client';
-import { prepareConsultation, type ConsultationPayload } from '@/lib/legacy-consultation';
+import {
+  consultationFollowUpOptions,
+  consultationMethods,
+  consultationStatuses,
+  consultationTitleMaxLength,
+  emptyConsultationSelections,
+  prepareConsultation,
+  type ConsultationPayload,
+} from '@/lib/legacy-consultation';
 import { prepareDocumentRequest } from '@/lib/legacy-document-request';
 import { diagnosisDocumentsForCase, hasOpenDiagnosisReviewTask } from '@/lib/diagnosis-preflight';
 import { companyDocumentStatusError } from '@/lib/company-document-review';
@@ -3294,24 +3302,31 @@ function ConsultationForm({
   onSave: (payload: ConsultationPayload) => void;
   onCancel: () => void;
 }) {
-  const options = ['다음 상담 등록', '서류요청', '견적서 작성', '계약서 작성', '내부업무 등록'];
-  const [followUps, setFollowUps] = useState<string[]>(['서류요청']);
-  const [addToSchedule, setAddToSchedule] = useState(true);
+  const initialSelections = emptyConsultationSelections();
+  const [followUps, setFollowUps] = useState(initialSelections.followUps);
+  const [addToSchedule, setAddToSchedule] = useState(
+    initialSelections.addToSchedule,
+  );
   const [title, setTitle] = useState(`${caseItem.service} 진행방향 및 보완사항 협의`);
   const [startsAt, setStartsAt] = useState('');
-  const [method, setMethod] = useState('화상');
-  const [status, setStatus] = useState('일정 확정');
-  const [shareMode, setShareMode] = useState<'all_with_assignee' | 'all_busy' | 'private'>('all_with_assignee');
+  const [method, setMethod] = useState(initialSelections.method);
+  const [status, setStatus] = useState(initialSelections.status);
+  const [shareMode, setShareMode] = useState<'all_with_assignee' | 'all_busy' | 'private'>(initialSelections.shareMode);
 
   const [formError, setFormError] = useState('');
   const titleRef = useRef<HTMLInputElement>(null);
   const dateRef = useRef<HTMLInputElement>(null);
+  const methodRef = useRef<HTMLSelectElement>(null);
+  const statusRef = useRef<HTMLSelectElement>(null);
 
   function save() {
     const result = prepareConsultation({ followUps, addToSchedule, title, startsAt, method, status, shareMode });
     if (!result.ok) {
       setFormError(result.error);
-      (result.field === 'title' ? titleRef : dateRef).current?.focus();
+      if (result.field === 'title') titleRef.current?.focus();
+      else if (result.field === 'startsAt') dateRef.current?.focus();
+      else if (result.field === 'method') methodRef.current?.focus();
+      else if (result.field === 'status') statusRef.current?.focus();
       return;
     }
     setFormError('');
@@ -3319,6 +3334,7 @@ function ConsultationForm({
   }
 
   function toggle(item: string) {
+    setFormError('');
     setFollowUps((current) => current.includes(item) ? current.filter((value) => value !== item) : [...current, item]);
   }
 
@@ -3335,11 +3351,11 @@ function ConsultationForm({
         <CardHeader className="border-b border-slate-100"><CardTitle className="text-lg font-bold">상담 기본정보</CardTitle><CardDescription>기본정보는 해당 진행을 볼 수 있는 담당자에게 공유됩니다. 일정 공개범위는 일정 화면에만 적용됩니다.</CardDescription></CardHeader>
         <CardContent className="space-y-7 py-2">
           <div className="grid gap-5 md:grid-cols-2">
-            <Field label="상담 제목·목적" required><input ref={titleRef} aria-required="true" aria-describedby={formError ? "consultation-error" : undefined} className={inputClass} value={title} onChange={(event) => setTitle(event.target.value)} placeholder="예: 정책자금 신청방향 및 보완사항 협의" /></Field>
+            <Field label="상담 제목·목적" required><input ref={titleRef} aria-required="true" aria-describedby={formError ? "consultation-error" : undefined} className={inputClass} value={title} onChange={(event) => { setTitle(event.target.value); setFormError(''); }} maxLength={consultationTitleMaxLength} required placeholder="예: 정책자금 신청방향 및 보완사항 협의" /></Field>
             <Field label="관련 서비스"><input className={inputClass} value={caseItem.service} readOnly /></Field>
-            <Field label="상담 일시 (한국시간)" required><input ref={dateRef} aria-required="true" aria-describedby={formError ? "consultation-error" : undefined} className={inputClass} type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></Field>
-            <Field label="상담방식"><select className={inputClass} value={method} onChange={(event) => setMethod(event.target.value)}><option>전화</option><option>방문</option><option>화상</option><option>기타</option></select></Field>
-            <Field label="상담상태"><select className={inputClass} value={status} onChange={(event) => setStatus(event.target.value)}><option>상담 완료</option><option>일정 요청</option><option>일정 확정</option><option>고객 회신 대기</option><option>취소</option></select></Field>
+            <Field label="상담 일시 (한국시간)" required><input ref={dateRef} aria-required="true" aria-describedby={formError ? "consultation-error" : undefined} className={inputClass} type="datetime-local" value={startsAt} onChange={(event) => { setStartsAt(event.target.value); setFormError(''); }} required /></Field>
+            <Field label="상담방식" required><select ref={methodRef} className={inputClass} value={method} onChange={(event) => { setMethod(event.target.value); setFormError(''); }} required aria-describedby={formError ? "consultation-error" : undefined}><option value="">상담방식 선택</option>{consultationMethods.map((option) => <option key={option}>{option}</option>)}</select></Field>
+            <Field label="상담상태" required><select ref={statusRef} className={inputClass} value={status} onChange={(event) => { const nextStatus = event.target.value; setStatus(nextStatus); if (nextStatus !== '일정 확정') setAddToSchedule(false); if (nextStatus !== '상담 완료') setFollowUps([]); setFormError(''); }} required aria-describedby={formError ? "consultation-error" : undefined}><option value="">상담상태 선택</option>{consultationStatuses.map((option) => <option key={option}>{option}</option>)}</select></Field>
           </div>
 
           <section aria-labelledby="calendar-sync-title" className={`rounded-2xl border p-5 ${addToSchedule ? 'border-sky-200 bg-sky-50/70' : 'border-slate-200 bg-slate-50'}`}>
@@ -3356,7 +3372,7 @@ function ConsultationForm({
                 role="switch"
                 aria-checked={addToSchedule}
                 disabled={status !== '일정 확정'}
-                onClick={() => setAddToSchedule((value) => !value)}
+                onClick={() => { setAddToSchedule((value) => !value); setFormError(''); }}
                 className={`relative h-11 w-[68px] shrink-0 rounded-full p-1 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-sky-200 ${addToSchedule ? 'bg-[#0877b8]' : 'bg-slate-300'}`}
                 aria-label="파트너 허브 일정에 추가"
               >
@@ -3374,7 +3390,7 @@ function ConsultationForm({
               <div className="min-w-0 flex-1">
                 <h2 id="trainee-share-title" className="text-sm font-bold text-emerald-950">파트너 일정 공개범위</h2>
                 <p className="mt-1 text-xs leading-5 text-emerald-900/80">전체 파트너에게는 예약시간을, 담당 파트너에게는 기업명과 상담목적까지 공유할 수 있습니다.</p>
-                <select disabled={!addToSchedule || status !== '일정 확정'} value={shareMode} onChange={(event) => setShareMode(event.target.value as 'all_with_assignee' | 'all_busy' | 'private')} className={`${inputClass} mt-4 border-emerald-200`} aria-label="파트너 일정 공개범위">
+                <select disabled={!addToSchedule || status !== '일정 확정'} value={shareMode} onChange={(event) => { setShareMode(event.target.value as 'all_with_assignee' | 'all_busy' | 'private'); setFormError(''); }} className={`${inputClass} mt-4 border-emerald-200`} aria-label="파트너 일정 공개범위">
                   <option value="all_with_assignee">전체 파트너 시간 공유 · 담당 파트너 상세공개</option>
                   <option value="all_busy">전체 파트너에게 예약시간만 공개</option>
                   <option value="private">대표·내부 담당자만 공개</option>
@@ -3389,7 +3405,7 @@ function ConsultationForm({
             <p className="text-sm font-bold text-slate-800">상담완료 후 후속조치</p>
             <p className="mt-1 text-xs text-slate-500">상담 완료 상태에서만 선택한 후속 업무가 생성됩니다. 업무 기한은 생성 후 별도로 확인하세요.</p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {options.map((option) => {
+              {consultationFollowUpOptions.map((option) => {
                 const selected = followUps.includes(option);
                 return (
                   <button key={option} type="button" aria-pressed={selected} disabled={status !== '상담 완료'} onClick={() => toggle(option)} className={`flex min-h-12 items-center justify-between rounded-xl border px-4 text-left text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${selected ? 'border-[#0877b8] bg-sky-50 text-[#075f93]' : 'border-slate-200 hover:bg-slate-50'}`}>

@@ -1,17 +1,46 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { prepareConsultation, type ConsultationPayload } from '../lib/legacy-consultation';
+import {
+  consultationTitleMaxLength,
+  emptyConsultationSelections,
+  prepareConsultation,
+  type ConsultationPayload,
+} from '../lib/legacy-consultation';
 import { googleCalendarDraftUrl } from '../lib/schedule-display';
 
 const input: ConsultationPayload = { title: '  가상 상담  ', startsAt: '2026-12-31T23:30', method: '화상', status: '일정 확정', addToSchedule: true, shareMode: 'private', followUps: ['서류요청'] };
 
+void test('new consultation starts without invented method, status, schedule or follow-up', () => {
+  assert.deepEqual(emptyConsultationSelections(), {
+    followUps: [],
+    addToSchedule: false,
+    method: '',
+    status: '',
+    shareMode: 'all_with_assignee',
+  });
+});
+
 void test('legacy consultation requires a title and a real Korean calendar minute before any records are prepared', () => {
   assert.equal(prepareConsultation({ ...input, title: ' ' }).ok, false);
+  assert.equal(prepareConsultation({ ...input, title: '가'.repeat(consultationTitleMaxLength + 1) }).ok, false);
   for (const startsAt of ['', '2026-02-29T10:00', '2026-04-31T10:00', '2026-12-31T24:00', '2026-12-31T11:60', '2026-12-31T10:00Z', '0000-01-01T10:00', '9999-12-31T23:30']) {
     const result = prepareConsultation({ ...input, startsAt });
     assert.equal(result.ok, false, startsAt);
   }
   assert.equal(prepareConsultation({ ...input, startsAt: '2028-02-29T10:00' }).ok, true);
+});
+
+void test('legacy consultation requires an explicit allowed method and status', () => {
+  assert.deepEqual(prepareConsultation({ ...input, method: '' }), {
+    ok: false,
+    field: 'method',
+    error: '상담방식을 선택해 주세요.',
+  });
+  assert.deepEqual(prepareConsultation({ ...input, status: '' }), {
+    ok: false,
+    field: 'status',
+    error: '상담상태를 선택해 주세요.',
+  });
 });
 
 void test('confirmed consultation preserves Korean midnight and year rollover for the stored schedule and calendar draft', () => {
@@ -49,6 +78,17 @@ void test('only completed consultations retain unique selected follow-ups withou
   assert.deepEqual(result.payload.followUps, ['서류요청', '견적서 작성']);
   assert.ok(result.detail.includes('서류요청 · 견적서 작성'));
   assert.deepEqual(original, before);
+});
+
+void test('completed consultation rejects an unknown follow-up instead of creating fallback work', () => {
+  assert.deepEqual(
+    prepareConsultation({ ...input, status: '상담 완료', followUps: ['임의 후속업무'] }),
+    {
+      ok: false,
+      field: 'followUps',
+      error: '상담 후속조치를 목록에서 선택해 주세요.',
+    },
+  );
 });
 
 void test('opting out of a hub schedule still preserves basic consultation details without a sharing claim', () => {
