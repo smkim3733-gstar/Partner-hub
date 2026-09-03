@@ -52,6 +52,10 @@ import {
 } from '@/lib/company-file-metadata';
 import {
   applicationApplicantNameMaxLength,
+  applicationApplicantAccountProblem,
+  applicationApplicantTypeForForm,
+  applicationApplicantTypeForRestoredDraft,
+  applicationApplicantTypeIsEditable,
   draftCaseId,
   emptyApplicationServices,
   prepareApplicationCoreFields,
@@ -2892,7 +2896,7 @@ function ApplicationForm({
   const submitLock = useRef(false);
   const [companyName, setCompanyName] = useState('');
   const [details, setDetails] = useState(emptyApplicationDetails);
-  const [applicantType, setApplicantType] = useState<PartnerType>(applicant.memberType);
+  const [applicantType, setApplicantType] = useState<PartnerType | ''>(() => applicationApplicantTypeForForm(applicant.editable, applicant.memberType));
   const [applicantName, setApplicantName] = useState(applicant.name);
   const [applicantMemberId, setApplicantMemberId] = useState('');
   const [uploadConsent, setUploadConsent] = useState(false);
@@ -2918,8 +2922,9 @@ function ApplicationForm({
         draftRef.current = { revision: data.revision, draftId: data.draftId ?? crypto.randomUUID() };
         setDraftSubmitted(data.submittedCaseId);
         if (data.draft && !data.submittedCaseId) {
-          setCompanyName(data.draft.companyName); setApplicantType(data.draft.applicantType as PartnerType);
-          setApplicantName(data.draft.applicantName); setApplicantMemberId(data.draft.partnerMemberId);
+          const restoredApplicantType = applicationApplicantTypeForRestoredDraft(applicant.editable, applicant.memberType, data.draft.partnerMemberId, data.draft.applicantType);
+          setCompanyName(data.draft.companyName); setApplicantType(restoredApplicantType);
+          setApplicantName(data.draft.applicantName); setApplicantMemberId(applicant.editable && !restoredApplicantType ? '' : data.draft.partnerMemberId);
           setSelectedServices(data.draft.selectedServices); setDetails(data.draft.details); setStep(data.draft.step);
           setMissingAttachments(data.draft.hasLocalAttachments);
           setDraftMessage('서버 임시저장을 복구했습니다. 제출 동의는 다시 확인해 주세요.');
@@ -2929,7 +2934,7 @@ function ApplicationForm({
     }
     void restore();
     return () => { active = false; };
-  }, [currentUserId]);
+  }, [applicant.editable, applicant.memberType, currentUserId]);
 
   async function saveDraft() {
     if (!draftReady || draftLock.current) throw new Error('임시저장 확인이 끝난 후 다시 시도해 주세요.');
@@ -2954,7 +2959,7 @@ function ApplicationForm({
       const data = await response.json() as DraftEnvelope & { error?: string };
       if (!response.ok) throw new Error(data.error || '임시저장을 비우지 못했습니다.');
       draftRef.current = { revision: data.revision, draftId: crypto.randomUUID() };
-      setCompanyName(''); setDetails(emptyApplicationDetails()); setApplicantName(applicant.name); setApplicantType(applicant.memberType); setApplicantMemberId(''); setSelectedServices(emptyApplicationServices()); setSelectedFiles([]); setMissingAttachments(false); setStep(1); setUploadConsent(false); setRecordingConsent(false); setDraftSubmitted(null); setSubmitError('');
+      setCompanyName(''); setDetails(emptyApplicationDetails()); setApplicantName(applicant.name); setApplicantType(applicationApplicantTypeForForm(applicant.editable, applicant.memberType)); setApplicantMemberId(''); setSelectedServices(emptyApplicationServices()); setSelectedFiles([]); setMissingAttachments(false); setStep(1); setUploadConsent(false); setRecordingConsent(false); setDraftSubmitted(null); setSubmitError('');
       setDraftMessage('새 신청을 작성할 수 있습니다. 접수된 진행은 그대로 보존했습니다.'); onDraftSaved(false);
     } catch (error) { setSubmitError((error as Error).message); }
     finally { draftLock.current = false; setDraftBusy(false); }
@@ -2979,10 +2984,17 @@ function ApplicationForm({
   function validateStep(throughStep: number) {
     try {
       const core = prepareApplicationCoreFields(
-        { applicantName, companyName, selectedServices },
+        { applicantType, applicantName, companyName, selectedServices },
         throughStep,
       );
       if (!core.ok) throw new ApplicationDetailsError(core.error, core.step);
+      const linkedMember = members.find(member => member.id === applicantMemberId);
+      const accountProblem = applicationApplicantAccountProblem(
+        applicantMemberId,
+        core.value.applicantType,
+        linkedMember ? { id: linkedMember.id, status: linkedMember.status, applicantType: partnerTypeOf(linkedMember) } : undefined,
+      );
+      if (accountProblem) throw new ApplicationDetailsError(accountProblem, 1);
       parseApplicationDetails(details, throughStep);
       setSubmitError('');
       return true;
@@ -2998,6 +3010,7 @@ function ApplicationForm({
     if (missingAttachments) { setSubmitError('이전 첨부파일을 다시 선택하거나 첨부 없이 진행 여부를 확인해 주세요.'); return; }
     if (!validateStep(3)) return;
     const core = prepareApplicationCoreFields({
+      applicantType,
       applicantName,
       companyName,
       selectedServices,
@@ -3021,7 +3034,7 @@ function ApplicationForm({
     try {
       const draftId = awaitingSave ? draftRef.current.draftId : await saveDraft();
       handedOff = true;
-      await onDone(selectedFiles, core.value.companyName, core.value.selectedServices, applicantType, core.value.applicantName, recordingConsent, applicantMemberId, parseApplicationDetails(details), draftId, draftRef.current.revision);
+      await onDone(selectedFiles, core.value.companyName, core.value.selectedServices, core.value.applicantType, core.value.applicantName, recordingConsent, applicantMemberId, parseApplicationDetails(details), draftId, draftRef.current.revision);
       // A lost cleanup response is safe: the next restore recognizes the submitted case ID.
       await fetch('/api/application-draft', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ...draftRef.current, expectedUserId: currentUserId }) }).catch(() => {});
     } catch (error) {
@@ -3069,9 +3082,9 @@ function ApplicationForm({
           <fieldset disabled={submitting || awaitingSave || draftBusy || !draftReady || Boolean(draftSubmitted)} className="min-w-0">
           {step === 1 ? (
             <div className="grid gap-5 md:grid-cols-2">
-              <Field label="신청자 유형" required hint={applicant.editable ? '대표님은 대리 접수할 신청자 유형을 선택할 수 있습니다.' : '등록된 파트너 유형이 자동 적용됩니다.'}><select className={inputClass} value={applicantType} onChange={(event) => { setApplicantType(event.target.value as PartnerType); setUploadConsent(false); setRecordingConsent(false); setSubmitError(''); }} disabled={!applicant.editable}>{partnerTypes.map((type) => <option key={type}>{type}</option>)}</select></Field>
-              <Field label="신청자 이름" required><input className={inputClass} value={applicantName} onChange={(event) => { setApplicantName(event.target.value); setApplicantMemberId(''); setUploadConsent(false); setRecordingConsent(false); setSubmitError(''); }} maxLength={applicationApplicantNameMaxLength} required readOnly={!applicant.editable} /></Field>
-              {applicant.editable && <Field label="자료 공유 계정" hint="선택한 계정에 신청 진행과 첨부자료를 연결합니다. 이름을 직접 바꾸면 대표 전용으로 돌아갑니다."><select className={inputClass} value={applicantMemberId} onChange={(event) => { const member = members.find(item => item.id === event.target.value); setApplicantMemberId(event.target.value); setApplicantName(member?.name.replace('(가상)', '').trim() ?? applicant.name); if (member) setApplicantType(partnerTypeOf(member)); setUploadConsent(false); setRecordingConsent(false); }}><option value="">대표 전용 접수 · 파트너 공유 없음</option>{members.filter(member => member.status === '활성').map(member => <option key={member.id} value={member.id}>{member.name} · {member.email}</option>)}</select></Field>}
+              <Field label="신청자 유형" required hint={applicantMemberId ? '선택한 공유 계정의 등록 유형이 적용됩니다.' : applicant.editable ? '대표 대리접수는 신청자 유형을 직접 선택해야 합니다.' : '등록된 파트너 유형이 자동 적용됩니다.'}><select className={inputClass} value={applicantType} onChange={(event) => { setApplicantType(event.target.value as PartnerType | ''); setUploadConsent(false); setRecordingConsent(false); setSubmitError(''); }} disabled={!applicationApplicantTypeIsEditable(applicant.editable, applicantMemberId)} required><option value="">신청자 유형 선택</option>{partnerTypes.map((type) => <option key={type}>{type}</option>)}</select></Field>
+              <Field label="신청자 이름" required><input className={inputClass} value={applicantName} onChange={(event) => { setApplicantName(event.target.value); setApplicantMemberId(''); setApplicantType(applicationApplicantTypeForForm(applicant.editable, applicant.memberType)); setUploadConsent(false); setRecordingConsent(false); setSubmitError(''); }} maxLength={applicationApplicantNameMaxLength} required readOnly={!applicant.editable} /></Field>
+              {applicant.editable && <Field label="자료 공유 계정" hint="선택한 계정에 신청 진행과 첨부자료를 연결하고 등록 유형을 적용합니다. 이름을 직접 바꾸면 대표 전용으로 돌아갑니다."><select className={inputClass} value={applicantMemberId} onChange={(event) => { const member = members.find(item => item.id === event.target.value); setApplicantMemberId(event.target.value); setApplicantName(member?.name.replace('(가상)', '').trim() ?? applicant.name); setApplicantType(member ? partnerTypeOf(member) : applicationApplicantTypeForForm(applicant.editable, applicant.memberType)); setUploadConsent(false); setRecordingConsent(false); setSubmitError(''); }}><option value="">대표 전용 접수 · 파트너 공유 없음</option>{members.filter(member => member.status === '활성').map(member => <option key={member.id} value={member.id}>{member.name} · {member.email}</option>)}</select></Field>}
               <Field label="로그인 이메일"><input className={inputClass} value={members.find(member => member.id === applicantMemberId)?.email ?? applicant.email} readOnly /></Field>
               <Field label="소속·구분"><input className={inputClass} value={applicant.editable ? '관리자 대리접수' : applicant.detail} readOnly /></Field>
               <ApplicationDetailFields step={1} value={details} onChange={changeDetail} inputClass={inputClass} />

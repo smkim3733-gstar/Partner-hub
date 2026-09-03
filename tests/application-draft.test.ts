@@ -93,11 +93,13 @@ async function setup(id: string) {
 
 void test('partial draft fields survive server reload, while invalid shape and size are rejected', () => {
   assert.deepEqual(parseApplicationDraft(draft()), draft());
+  assert.equal(parseApplicationDraft({ ...draft(), applicantType: '' }).applicantType, '');
   for (const value of [
     null,
     [],
     { ...draft(), selectedServices: ['unknown'] },
     { ...draft(), companyName: 'x'.repeat(101) },
+    { ...draft(), applicantType: '관리자' },
     { ...draft(), details: { ...draft().details, message: 'x'.repeat(2001) } },
     { ...draft(), step: 7 },
   ])

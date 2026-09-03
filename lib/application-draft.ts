@@ -5,6 +5,10 @@ import {
   applicationServices,
   type ApplicationDetails,
 } from './application-details';
+import {
+  partnerTypeSelectionProblem,
+  type PartnerType,
+} from './partner-registration';
 
 export type ApplicationDraft = {
   companyName: string;
@@ -28,12 +32,14 @@ export const applicationApplicantNameMaxLength = 80;
 export const emptyApplicationServices = (): string[] => [];
 
 export type ApplicationCoreFieldsInput = {
+  applicantType: string;
   applicantName: string;
   companyName: string;
   selectedServices: readonly string[];
 };
 
 export type PreparedApplicationCoreFields = {
+  applicantType: PartnerType;
   applicantName: string;
   companyName: string;
   selectedServices: string[];
@@ -47,6 +53,10 @@ export function prepareApplicationCoreFields(
   input: ApplicationCoreFieldsInput,
   throughStep = 3,
 ): ApplicationCoreFieldsResult {
+  const applicantTypeProblem = partnerTypeSelectionProblem(input.applicantType);
+  if (applicantTypeProblem)
+    return { ok: false, step: 1, error: applicantTypeProblem };
+
   const applicantName = input.applicantName.trim();
   if (
     !applicantName ||
@@ -85,8 +95,56 @@ export function prepareApplicationCoreFields(
 
   return {
     ok: true,
-    value: { applicantName, companyName, selectedServices },
+    value: {
+      applicantType: input.applicantType as PartnerType,
+      applicantName,
+      companyName,
+      selectedServices,
+    },
   };
+}
+
+export function applicationApplicantTypeForForm(
+  editable: boolean,
+  registeredType: PartnerType,
+): PartnerType | '' {
+  return editable ? '' : registeredType;
+}
+
+export function applicationApplicantTypeForRestoredDraft(
+  editable: boolean,
+  registeredType: PartnerType,
+  partnerMemberId: string,
+  draftType: string,
+): PartnerType | '' {
+  if (!editable) return registeredType;
+  return partnerMemberId.trim() && !partnerTypeSelectionProblem(draftType)
+    ? (draftType as PartnerType)
+    : '';
+}
+
+export function applicationApplicantTypeIsEditable(
+  representativeCanEdit: boolean,
+  partnerMemberId: string,
+) {
+  return representativeCanEdit && !partnerMemberId.trim();
+}
+
+export function applicationApplicantAccountProblem(
+  partnerMemberId: string,
+  applicantType: string,
+  linkedMember?: {
+    id: string;
+    status: string;
+    applicantType: PartnerType;
+  },
+) {
+  if (!partnerMemberId.trim()) return '';
+  if (!linkedMember || linkedMember.id !== partnerMemberId || linkedMember.status !== '활성')
+    return '자료 공유 계정을 다시 선택해 주세요.';
+  return linkedMember.applicantType === applicantType
+    ? ''
+    : '신청자 유형이 공유 계정의 등록 유형과 일치하지 않습니다. 계정을 다시 선택해 주세요.';
 }
 
 export function parseApplicationDraft(value: unknown): ApplicationDraft {
@@ -105,9 +163,8 @@ export function parseApplicationDraft(value: unknown): ApplicationDraft {
   for (const [key, max] of Object.entries(limits))
     if (typeof v[key] !== 'string' || v[key].length > max) return fail();
   if (
-    !['한기평 컨설턴트', '타사 컨설턴트', '보험설계사', '기타'].includes(
-      v.applicantType as string,
-    )
+    v.applicantType !== '' &&
+    partnerTypeSelectionProblem(v.applicantType)
   )
     return fail();
   if (
