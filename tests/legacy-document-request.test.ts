@@ -2,10 +2,33 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   documentRequestItemNameMaxLength,
+  documentRequestDueState,
   emptyDocumentRequestItems,
   prepareDocumentRequest,
   prepareDocumentRequestItem,
 } from '../lib/legacy-document-request';
+
+void test('document request due state follows the Korean calendar boundary', () => {
+  const beforeKoreanMidnight = new Date('2026-09-02T14:59:59.000Z');
+  const afterKoreanMidnight = new Date('2026-09-02T15:00:00.000Z');
+  assert.equal(documentRequestDueState('2026-09-03', beforeKoreanMidnight), 'upcoming');
+  assert.equal(documentRequestDueState('2026-09-03', afterKoreanMidnight), 'today');
+  assert.equal(documentRequestDueState('2026-09-02', afterKoreanMidnight), 'overdue');
+  assert.equal(documentRequestDueState('2026-09-04', afterKoreanMidnight), 'upcoming');
+  assert.equal(documentRequestDueState('2026-02-29', afterKoreanMidnight), null);
+  assert.equal(documentRequestDueState('2026-09-03', new Date('invalid')), null);
+});
+
+void test('prepared request carries the due state used by its follow-up task', () => {
+  const result = prepareDocumentRequest(
+    [{ name: '가상 확인서' }],
+    '2026-09-03',
+    [],
+    new Date('2026-09-02T15:00:00.000Z'),
+  );
+  assert.ok(result.ok);
+  assert.equal(result.dueState, 'today');
+});
 
 void test('new document request starts without invented documents or requirement flags', () => {
   assert.deepEqual(emptyDocumentRequestItems(), []);
