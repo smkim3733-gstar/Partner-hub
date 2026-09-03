@@ -18,6 +18,10 @@ import {
   type InventoryPage,
   type InventoryPresence,
 } from '@/lib/file-inventory';
+import {
+  readFileInventoryPageResponse,
+  readFileInventoryPresenceResponse,
+} from '@/lib/file-inventory-response';
 
 function dateLabel(value: string) {
   const date = new Date(value);
@@ -67,11 +71,7 @@ export function AdminFileInventory(controls: RecoveryControls) {
       const response = await fetch(`/api/admin/file-inventory?${params}`, {
         cache: 'no-store',
       });
-      const result = (await response.json()) as InventoryPage & {
-        error?: string;
-      };
-      if (!response.ok)
-        throw new Error(result.error || '보관 목록을 불러오지 못했습니다.');
+      const result = await readFileInventoryPageResponse(response, nextFilter);
       if (attempt === sequence.current) setPage(result);
     } catch (issue) {
       if (attempt === sequence.current)
@@ -90,11 +90,7 @@ export function AdminFileInventory(controls: RecoveryControls) {
         `/api/admin/file-inventory/${encodeURIComponent(id)}/presence`,
         { cache: 'no-store' },
       );
-      const result = (await response.json()) as InventoryPresence & {
-        error?: string;
-      };
-      if (!response.ok)
-        throw new Error(result.error || '원본 존재를 확인하지 못했습니다.');
+      const result = await readFileInventoryPresenceResponse(response, id);
       if (attempt === sequence.current)
         setChecks((current) => ({ ...current, [id]: result }));
     } catch (issue) {

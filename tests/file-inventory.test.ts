@@ -10,6 +10,10 @@ import {
 import { readPortalState, writePortalState } from '../lib/portal-state';
 import { flowDatabase } from '../lib/consulting-flow-store';
 import type { InventoryPage, InventoryPresence } from '../lib/file-inventory';
+import {
+  readFileInventoryPageResponse,
+  readFileInventoryPresenceResponse,
+} from '../lib/file-inventory-response';
 
 const owner = 'seedy@sites.test';
 const member = {
@@ -98,7 +102,12 @@ async function page(query = ''): Promise<InventoryPage> {
   const response = await list(request(query));
   assert.equal(response.status, 200, await response.clone().text());
   assert.match(response.headers.get('cache-control')!, /private, no-store/);
-  return response.json() as Promise<InventoryPage>;
+  const filter =
+    new URL(request(query).url).searchParams.get('status') ?? 'unlinked';
+  return readFileInventoryPageResponse(
+    response,
+    filter as Parameters<typeof readFileInventoryPageResponse>[1],
+  );
 }
 
 void test('inventory list and presence are administrator-only, including malformed or guessed requests', async () => {
@@ -240,7 +249,7 @@ void test('presence uses metadata-only R2 head; size mismatch and missing origin
         params: Promise.resolve({ id }),
       });
       assert.equal(response.status, 200);
-      const value = (await response.json()) as InventoryPresence;
+      const value = await readFileInventoryPresenceResponse(response, id);
       assert.equal(value.exists, exists);
       assert.equal(value.sizeMatches, matches);
       assert.doesNotMatch(
