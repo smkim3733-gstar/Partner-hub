@@ -31,6 +31,7 @@ type DiagnosisTaskRecord = {
 };
 
 type DiagnosisTimelineRecord = {
+  id?: string;
   caseId?: string;
   title?: string;
 };
@@ -111,12 +112,14 @@ export function createDiagnosisReviewQueueDraft(
 
 export function applyDiagnosisReviewQueueDraft<
   T extends DiagnosisAssessmentRecord,
+  TTask extends DiagnosisTaskRecord,
+  TTimeline extends DiagnosisTimelineRecord,
 >(
   assessment: T,
   draft: DiagnosisReviewQueueDraft,
   cases: DiagnosisCaseRecord[],
-  tasks: DiagnosisTaskRecord[],
-  timeline: DiagnosisTimelineRecord[],
+  tasks: TTask[],
+  timeline: TTimeline[],
   isAdmin: boolean,
 ) {
   if (!isAdmin)
@@ -136,41 +139,57 @@ export function applyDiagnosisReviewQueueDraft<
   const taskId = assertQueueAvailable(assessment, tasks);
   if (taskId !== draft.taskId)
     throw new Error('검토업무 연결을 다시 확인해 주세요.');
-  const timelineExists = timeline.some(
+  const timelineId = `diagnosis-review-${assessment.id}`;
+  const stableTimelineMatches = timeline.filter((item) => item.id === timelineId);
+  if (
+    stableTimelineMatches.length > 1 ||
+    stableTimelineMatches.some((item) =>
+      item.caseId !== assessment.caseId ||
+      item.title !== 'AI 1차 진단 초안 검토대기'
+    )
+  )
+    throw new Error('가상 검토대기 타임라인 식별자가 충돌합니다. 진행 기록을 확인해 주세요.');
+  const timelineExists = stableTimelineMatches.length === 1 || timeline.some(
     (item) =>
+      !item.id &&
       item.caseId === assessment.caseId &&
       item.title === 'AI 1차 진단 초안 검토대기',
   );
+  const task = {
+    id: taskId,
+    caseId: assessment.caseId,
+    company: assessment.company,
+    title: '1차 정밀진단 초안 생성 전 근거·동의 검토',
+    kind: '내부업무' as const,
+    assignee: '김성민 대표',
+    partnerMemberId: '',
+    due: '오늘',
+    dueState: 'today' as const,
+    status: '대기' as const,
+    priority: '보통' as const,
+    related: 'AI 진단 사전점검',
+  };
+  const createdTimeline = timelineExists
+    ? null
+    : {
+        id: timelineId,
+        caseId: assessment.caseId,
+        date: '방금 전',
+        title: 'AI 1차 진단 초안 검토대기',
+        detail:
+          '가상 사전점검 A 통과 / 실제 AI 전송 없음 / 김성민 대표 승인 대기',
+        type: '기업진단',
+        tone: 'blue',
+      };
   return {
     assessment: {
       ...assessment,
       status: '대표 검토 대기',
       updatedAt: '방금 전 · 대기열 등록',
     },
-    task: {
-      id: taskId,
-      caseId: assessment.caseId,
-      company: assessment.company,
-      title: '1차 정밀진단 초안 생성 전 근거·동의 검토',
-      kind: '내부업무' as const,
-      assignee: '김성민 대표',
-      partnerMemberId: '',
-      due: '오늘',
-      dueState: 'today' as const,
-      status: '대기' as const,
-      priority: '보통' as const,
-      related: 'AI 진단 사전점검',
-    },
-    timeline: timelineExists
-      ? null
-      : {
-          caseId: assessment.caseId,
-          date: '방금 전',
-          title: 'AI 1차 진단 초안 검토대기',
-          detail:
-            '가상 사전점검 A 통과 / 실제 AI 전송 없음 / 김성민 대표 승인 대기',
-          type: '기업진단',
-          tone: 'blue',
-        },
+    task,
+    tasks: [task, ...tasks],
+    createdTimeline,
+    timeline: createdTimeline ? [...timeline, createdTimeline] : timeline,
   };
 }

@@ -55,23 +55,36 @@ void test('pilot diagnosis queue remains isolated until explicit apply', () => {
   assert.equal(queued.task.partnerMemberId, '');
   assert.equal(isPilotSeedRecord('task', queued.task), true);
   assert.equal(portalTaskNotificationCount([queued.task]), 0);
-  assert.equal(queued.timeline?.caseId, assessment.caseId);
+  assert.equal(queued.createdTimeline?.id, `diagnosis-review-${assessment.id}`);
+  assert.equal(queued.createdTimeline?.caseId, assessment.caseId);
+  assert.equal(queued.timeline.length, 1);
+  assert.equal(queued.tasks.length, 1);
+  assert.deepEqual(
+    applyDiagnosisReviewQueueDraft(assessment, draft, cases, [], [], true),
+    queued,
+  );
   assert.deepEqual(assessment, original);
 });
 
 void test('pilot diagnosis queue is deterministic and does not duplicate an open task or timeline', () => {
   const draft = createDiagnosisReviewQueueDraft(assessment, cases, [], true);
+  const legacyTimeline = [{ caseId: assessment.caseId, title: 'AI 1차 진단 초안 검토대기' }];
   const queued = applyDiagnosisReviewQueueDraft(
     assessment,
     draft,
     cases,
     [],
-    [{ caseId: assessment.caseId, title: 'AI 1차 진단 초안 검토대기' }],
+    legacyTimeline,
     true,
   );
-  assert.equal(queued.timeline, null);
+  assert.equal(queued.createdTimeline, null);
+  assert.equal(queued.timeline, legacyTimeline);
   assert.throws(
     () => createDiagnosisReviewQueueDraft(assessment, cases, [queued.task], true),
+    /이미 이 진행/,
+  );
+  assert.throws(
+    () => applyDiagnosisReviewQueueDraft(assessment, draft, cases, queued.tasks, queued.timeline, true),
     /이미 이 진행/,
   );
   assert.throws(
@@ -114,5 +127,9 @@ void test('pilot diagnosis queue rejects non-pilot, stale and mismatched evidenc
   assert.throws(
     () => applyDiagnosisReviewQueueDraft(assessment, draft, cases, [], [], false),
     /관리자 권한/,
+  );
+  assert.throws(
+    () => applyDiagnosisReviewQueueDraft(assessment, draft, cases, [], [{ id: `diagnosis-review-${assessment.id}`, caseId: 'case-2', title: 'AI 1차 진단 초안 검토대기' }], true),
+    /타임라인 식별자가 충돌/,
   );
 });

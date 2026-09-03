@@ -4122,8 +4122,8 @@ export default function Home() {
     try {
       const queued = applyDiagnosisReviewQueueDraft(latest, diagnosisQueueDraft, cases, tasks, timeline, isAdmin);
       setDiagnosisAssessments((current) => current.map((item) => item.id === queued.assessment.id ? queued.assessment : item));
-      if (queued.timeline) setTimeline((current) => [...current, queued.timeline as TimelineItem]);
-      setTasks((current) => [queued.task, ...current]);
+      setTimeline(queued.timeline);
+      setTasks(queued.tasks);
       setDiagnosisQueueDraft(null);
       notify(`${queued.assessment.company}을 1차 초안 대표 검토대기에 등록했습니다. 실제 AI 전송은 하지 않았습니다.`);
     } catch (error) {
