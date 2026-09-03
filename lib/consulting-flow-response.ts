@@ -13,6 +13,10 @@ export type ConsultingFlowReadPayload = ConsultingFlowMutationPayload & {
   readiness: { aiConnected: boolean; model: string };
 };
 
+export type ConsultingFlowStateRefreshResult =
+  | { current: false }
+  | { current: true; payload: ConsultingFlowReadPayload };
+
 export class ConsultingFlowResponseError extends Error {
   constructor(
     message: string,
@@ -130,4 +134,31 @@ export async function readConsultingFlowStateResponse(
     );
   }
   return payload as ConsultingFlowReadPayload;
+}
+
+export class ConsultingFlowStateRefresh {
+  private requestVersion = 0;
+
+  cancel() {
+    this.requestVersion += 1;
+  }
+
+  async refresh(
+    request: () => Promise<Response>,
+    messages: Partial<ResponseMessages> = {},
+  ): Promise<ConsultingFlowStateRefreshResult> {
+    const requestVersion = ++this.requestVersion;
+    try {
+      const payload = await readConsultingFlowStateResponse(
+        await request(),
+        messages,
+      );
+      return requestVersion === this.requestVersion
+        ? { current: true, payload }
+        : { current: false };
+    } catch (error) {
+      if (requestVersion !== this.requestVersion) return { current: false };
+      throw error;
+    }
+  }
 }

@@ -54,6 +54,7 @@ import {
 } from '@/lib/consulting-flow';
 import {
   ConsultingFlowResponseError,
+  ConsultingFlowStateRefresh,
   readConsultingFlowMutationResponse,
   readConsultingFlowStateResponse,
 } from '@/lib/consulting-flow-response';
@@ -336,40 +337,46 @@ export function ConsultingWorkflow({
   const currentDate = new Date(clock + 9 * 3600000).toISOString().slice(0, 10);
   const busyRef = useRef(false);
   const pending = useRef<{ key: string; id: string } | null>(null);
+  const [flowStateRefresh] = useState(() => new ConsultingFlowStateRefresh());
   const endpoint = `/api/consulting-flow/${encodeURIComponent(caseId)}`;
+  function applyFlowState(
+    data: Awaited<ReturnType<typeof readConsultingFlowStateResponse>>,
+    initial = false,
+  ) {
+    setFlow(data.flow);
+    setRole(data.role);
+    setReadiness(data.readiness);
+    setCanUpload(data.canUpload);
+    setError('');
+    if (initial) setSection(phaseSection[phaseOf(data.flow)]);
+  }
   async function refresh(initial = false) {
     try {
-      const response = await fetch(endpoint, { cache: 'no-store' });
-      const data = await readConsultingFlowStateResponse(response);
-      setFlow(data.flow);
-      setRole(data.role);
-      setReadiness(data.readiness);
-      setCanUpload(data.canUpload);
-      setError('');
-      if (initial) setSection(phaseSection[phaseOf(data.flow)]);
-      return data.flow as ConsultingFlow;
+      const result = await flowStateRefresh.refresh(() =>
+        fetch(endpoint, { cache: 'no-store' }),
+      );
+      if (!result.current) return null;
+      applyFlowState(result.payload, initial);
+      setLoading(false);
+      return result.payload.flow;
     } catch (e) {
       setError(e instanceof Error ? e.message : '연결을 확인해 주세요.');
-      return null;
-    } finally {
       setLoading(false);
+      return null;
     }
   }
   useEffect(() => {
     const controller = new AbortController();
-    void fetch(endpoint, { cache: 'no-store', signal: controller.signal })
-      .then(async (response) => {
-        return readConsultingFlowStateResponse(response, {
+    void flowStateRefresh
+      .refresh(
+        () => fetch(endpoint, { cache: 'no-store', signal: controller.signal }),
+        {
           failedMessage: '진행을 불러오지 못했습니다.',
-        });
-      })
-      .then((data) => {
-        if (controller.signal.aborted) return;
-        setFlow(data.flow);
-        setRole(data.role);
-        setReadiness(data.readiness);
-        setCanUpload(data.canUpload);
-        setSection(phaseSection[phaseOf(data.flow)]);
+        },
+      )
+      .then((result) => {
+        if (controller.signal.aborted || !result.current) return;
+        applyFlowState(result.payload, true);
         setLoading(false);
       })
       .catch((error) => {
@@ -381,9 +388,10 @@ export function ConsultingWorkflow({
     const timer = window.setInterval(() => setClock(Date.now()), 30000);
     return () => {
       controller.abort();
+      flowStateRefresh.cancel();
       window.clearInterval(timer);
     };
-  }, [endpoint]);
+  }, [endpoint, flowStateRefresh]);
   async function runQueued() {
     const response = await fetch(`${endpoint}/run`, { method: 'POST' });
     const data = await readConsultingFlowMutationResponse(response, {

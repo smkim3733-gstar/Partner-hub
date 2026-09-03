@@ -3,6 +3,7 @@ import test from 'node:test';
 import { newConsultingFlow } from '../lib/consulting-flow';
 import {
   ConsultingFlowResponseError,
+  ConsultingFlowStateRefresh,
   readConsultingFlowMutationResponse,
   readConsultingFlowStateResponse,
 } from '../lib/consulting-flow-response';
@@ -66,4 +67,52 @@ void test('unreadable and malformed successful FLOW responses never become UI st
     readConsultingFlowStateResponse(Response.json({ flow })),
     /응답 형식이 올바르지 않습니다/,
   );
+});
+
+void test('latest FLOW state refresh wins when successful responses arrive out of order', async () => {
+  const refresh = new ConsultingFlowStateRefresh();
+  let finishFirst!: (response: Response) => void;
+  const firstResponse = new Promise<Response>((resolve) => {
+    finishFirst = resolve;
+  });
+  const first = refresh.refresh(() => firstResponse);
+  const secondFlow = { ...flow, revision: 2 };
+  const second = await refresh.refresh(() =>
+    Promise.resolve(Response.json({
+      flow: secondFlow,
+      role: 'admin',
+      canUpload: true,
+      readiness: { aiConnected: false, model: '' },
+    })),
+  );
+  finishFirst(Response.json({
+    flow: { ...flow, revision: 1 },
+    role: 'admin',
+    canUpload: true,
+    readiness: { aiConnected: false, model: '' },
+  }));
+
+  assert.equal(second.current && second.payload.flow.revision, 2);
+  assert.deepEqual(await first, { current: false });
+});
+
+void test('obsolete FLOW state refresh failure cannot replace a newer success', async () => {
+  const refresh = new ConsultingFlowStateRefresh();
+  let failFirst!: (error: Error) => void;
+  const firstResponse = new Promise<Response>((_resolve, reject) => {
+    failFirst = reject;
+  });
+  const first = refresh.refresh(() => firstResponse);
+  const second = await refresh.refresh(() =>
+    Promise.resolve(Response.json({
+      flow,
+      role: 'partner',
+      canUpload: false,
+      readiness: { aiConnected: false, model: '' },
+    })),
+  );
+  failFirst(new Error('obsolete network failure'));
+
+  assert.equal(second.current, true);
+  assert.deepEqual(await first, { current: false });
 });
