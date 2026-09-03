@@ -8,6 +8,7 @@
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md) | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인 |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md) | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항 |
 | [파트너 유형 명시 선택 안전성](PARTNER_TYPE_SELECTION_SAFETY_2026_09_03.md) | 직접등록·승인대기 유형 자동선택 제거와 허용 유형 검증 |
+| [파트너 계정 설정 저장 안전성](PARTNER_ACCOUNT_SETTINGS_DRAFT_SAFETY_2026_09_03.md) | 이메일·유형·상태·권한의 저장 전 초안 격리와 취소 폐기 |
 | [Step 0 가상시험 입력 안전성](STEP_ZERO_PILOT_INPUT_SAFETY_2026_09_03.md) | 빈 가상 입력, 변경 후 재동의, 초과·식별정보의 외부 호출 전 차단 |
 | [서류요청 제출기한 알림 안전성](DOCUMENT_REQUEST_DEADLINE_ALERT_SAFETY_2026_09_03.md) | 한국시간 기준 기한 상태와 후속 업무 알림·우선순위 동기화 |
 | [서류요청 등록 입력 안전성](DOCUMENT_REQUEST_ENTRY_SAFETY_2026_09_03.md) | 추천 서류 명시 추가, 실제 저장 계약 정리, 서류명·중복 검증 |

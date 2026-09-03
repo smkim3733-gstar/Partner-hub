@@ -12,13 +12,18 @@ import {
   mutatePortalState,
 } from '../lib/portal-state';
 import {
+  applyPartnerAccountSettingsDraft,
+  createPartnerAccountSettingsDraft,
   defaultPartnerPermissions,
   membersRevisionOf,
+  partnerAccountSettingsChanged,
   partnerTypeSelectionForReview,
   partnerTypeSelectionProblem,
   sameMemberRecords,
   registrationFieldUpdate,
+  togglePartnerAccountPermission,
   validatePartnerRegistration,
+  type PartnerAccount,
   type PartnerRegistrationResult,
 } from '../lib/partner-registration';
 import { env } from 'cloudflare:workers';
@@ -345,6 +350,105 @@ void test('pending-account review never inherits a partner type automatically', 
   assert.equal(partnerTypeSelectionForReview('초대대기', '보험설계사'), '');
   assert.equal(partnerTypeSelectionForReview('활성', '타사 컨설턴트'), '타사 컨설턴트');
   assert.equal(partnerTypeSelectionForReview('정지', '기타'), '기타');
+});
+
+void test('account settings remain isolated until the explicit apply step', () => {
+  const member: PartnerAccount = {
+    id: 'settings-member',
+    name: '가상 설정파트너',
+    email: 'settings@example.invalid',
+    cohort: '',
+    role: '리더 파트너',
+    memberType: '타사 컨설턴트',
+    status: '활성',
+    companies: 1,
+    permissions: { ...defaultPartnerPermissions },
+  };
+  const original = structuredClone(member);
+  const initial = createPartnerAccountSettingsDraft(
+    member,
+    '타사 컨설턴트',
+  );
+  assert.equal(
+    partnerAccountSettingsChanged(member, initial, '타사 컨설턴트'),
+    false,
+  );
+  const toggled = togglePartnerAccountPermission(
+    initial,
+    'fileUpload',
+  );
+  const draft = {
+    ...toggled,
+    email: ' UPDATED@EXAMPLE.INVALID ',
+    memberType: '보험설계사' as const,
+    status: '정지' as const,
+  };
+  assert.deepEqual(member, original);
+  assert.equal(partnerAccountSettingsChanged(member, draft, '타사 컨설턴트'), true);
+  const saved = applyPartnerAccountSettingsDraft(member, draft);
+  assert.equal(saved.email, 'updated@example.invalid');
+  assert.equal(saved.memberType, '보험설계사');
+  assert.equal(saved.status, '정지');
+  assert.equal(saved.role, '리더 파트너');
+  assert.equal(saved.permissions.fileUpload, false);
+  assert.deepEqual(member, original);
+});
+
+void test('pending approval applies the reviewed type and permission draft together', () => {
+  const pending: PartnerAccount = {
+    id: 'pending-settings',
+    name: '가상 승인대기',
+    email: 'pending-settings@example.invalid',
+    cohort: '',
+    role: '교육생',
+    memberType: '한기평 컨설턴트',
+    status: '승인대기',
+    companies: 0,
+    permissions: { ...defaultPartnerPermissions },
+  };
+  const initial = createPartnerAccountSettingsDraft(
+    pending,
+    '한기평 컨설턴트',
+  );
+  assert.equal(initial.memberType, '');
+  const reviewed = togglePartnerAccountPermission(
+    { ...initial, memberType: '기타' },
+    'quoteContract',
+  );
+  const approved = applyPartnerAccountSettingsDraft(pending, reviewed, true);
+  assert.equal(approved.status, '활성');
+  assert.equal(approved.memberType, '기타');
+  assert.equal(approved.role, '일반 파트너');
+  assert.equal(approved.permissions.quoteContract, true);
+  assert.equal(pending.status, '승인대기');
+  assert.equal(pending.permissions.quoteContract, false);
+});
+
+void test('account settings cannot be applied to another or invalid account', () => {
+  const member: PartnerAccount = {
+    id: 'safe-settings',
+    name: '가상 안전설정',
+    email: 'safe-settings@example.invalid',
+    cohort: '',
+    role: '일반 파트너',
+    memberType: '기타',
+    status: '활성',
+    companies: 0,
+    permissions: { ...defaultPartnerPermissions },
+  };
+  const draft = createPartnerAccountSettingsDraft(member, '기타');
+  assert.throws(
+    () => applyPartnerAccountSettingsDraft(member, { ...draft, memberId: 'other' }),
+    /다시 확인/,
+  );
+  assert.throws(
+    () => applyPartnerAccountSettingsDraft(member, { ...draft, email: 'invalid' }),
+    /올바른 로그인 이메일/,
+  );
+  assert.throws(
+    () => applyPartnerAccountSettingsDraft(member, { ...draft, memberType: '' }),
+    /파트너 유형/,
+  );
 });
 
 void test('simultaneous independent creates preserve both; concurrent identical requests create only once', async () => {

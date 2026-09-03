@@ -60,6 +60,13 @@ export type PartnerRegistrationResult = {
   membersRevision: number;
   replayed: boolean;
 };
+export type PartnerAccountSettingsDraft = {
+  memberId: string;
+  email: string;
+  memberType: PartnerType | '';
+  status: '활성' | '정지';
+  permissions: PartnerAccount['permissions'];
+};
 
 export const defaultPartnerPermissions = {
   sharedSchedule: true,
@@ -81,6 +88,72 @@ export function partnerTypeSelectionForReview(
   currentType: PartnerType,
 ): PartnerType | '' {
   return status === '승인대기' || status === '초대대기' ? '' : currentType;
+}
+export function createPartnerAccountSettingsDraft(
+  member: PartnerAccount,
+  currentType: PartnerType,
+): PartnerAccountSettingsDraft {
+  return {
+    memberId: member.id,
+    email: member.email,
+    memberType: partnerTypeSelectionForReview(member.status, currentType),
+    status: member.status === '정지' ? '정지' : '활성',
+    permissions: { ...member.permissions },
+  };
+}
+export function togglePartnerAccountPermission(
+  draft: PartnerAccountSettingsDraft,
+  key: keyof PartnerAccount['permissions'],
+): PartnerAccountSettingsDraft {
+  return {
+    ...draft,
+    permissions: {
+      ...draft.permissions,
+      [key]: !draft.permissions[key],
+    },
+  };
+}
+export function partnerAccountSettingsChanged(
+  member: PartnerAccount,
+  draft: PartnerAccountSettingsDraft,
+  currentType: PartnerType,
+) {
+  return (
+    member.id !== draft.memberId ||
+    normalizeLoginEmail(member.email) !== normalizeLoginEmail(draft.email) ||
+    partnerTypeSelectionForReview(member.status, currentType) !==
+      draft.memberType ||
+    (member.status === '정지' ? '정지' : '활성') !== draft.status ||
+    Object.keys(member.permissions).some(
+      (key) =>
+        member.permissions[key as keyof PartnerAccount['permissions']] !==
+        draft.permissions[key as keyof PartnerAccount['permissions']],
+    )
+  );
+}
+export function applyPartnerAccountSettingsDraft(
+  member: PartnerAccount,
+  draft: PartnerAccountSettingsDraft,
+  approve = false,
+): PartnerAccount {
+  if (member.id !== draft.memberId)
+    throw new Error('설정 중인 파트너 계정을 다시 확인해 주세요.');
+  if (!isValidLoginEmail(draft.email))
+    throw new Error('올바른 로그인 이메일을 입력해 주세요.');
+  const typeProblem = partnerTypeSelectionProblem(draft.memberType);
+  if (typeProblem) throw new Error(typeProblem);
+  return {
+    ...member,
+    email: normalizeLoginEmail(draft.email),
+    memberType: draft.memberType as PartnerType,
+    role: approve
+      ? '일반 파트너'
+      : member.role === '리더 파트너'
+        ? member.role
+        : '일반 파트너',
+    status: approve ? '활성' : draft.status,
+    permissions: { ...draft.permissions },
+  };
 }
 export function validatePartnerRegistration(raw: Record<string, unknown>) {
   const value = {
