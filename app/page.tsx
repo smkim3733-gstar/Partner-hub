@@ -54,6 +54,12 @@ import {
 } from '@/lib/portal-state-response';
 import { TransientMessageGuard } from '@/lib/transient-message-guard';
 import { ApplicationSubmission } from '@/lib/application-submission';
+import {
+  readAiIntegrationReadinessResponse,
+  readStepZeroRunResponse,
+  type AiIntegrationReadiness,
+} from '@/lib/ai-diagnosis-response';
+import type { SavedStepZeroRun as StepZeroRun } from '@/lib/ai-diagnosis';
 import { uploadCompanyFile, type StoredCompanyFile } from '@/lib/company-file-upload';
 import { prependStoredCompanyDocument, storedCompanyDocument } from '@/lib/company-document-link';
 import {
@@ -341,43 +347,6 @@ type DiagnosisCheck = {
   label: string;
   status: DiagnosisCheckStatus;
   detail: string;
-};
-
-type AiIntegrationReadiness = {
-  provider: string;
-  directProjectConnection: boolean;
-  instructionImported: boolean;
-  instructionVersion: string;
-  apiKeyConfigured: boolean;
-  modelConfigured: boolean;
-  model?: string | null;
-  sourceStorageConfigured: boolean;
-  generationEnabled: boolean;
-  nextAction: string;
-};
-
-type StepZeroReport = {
-  companyOverview: string;
-  confirmedStrengths: string[];
-  mainRisks: string[];
-  solutionCandidates: Array<{ solution: string; basis: string; condition: string }>;
-  verificationQuestions: string[];
-  missingDocuments: string[];
-  complianceNotes: string[];
-  nextAction: string;
-};
-
-type StepZeroRun = {
-  id: string;
-  caseId: string;
-  company: string;
-  stage: 'Step 0';
-  status: '대표 검토 대기';
-  instructionVersion: string;
-  model: string;
-  result: StepZeroReport;
-  usage: { inputTokens: number; outputTokens: number };
-  createdAt: string;
 };
 
 function partnerTypeOf(member: TraineeMember): PartnerType {
@@ -951,8 +920,7 @@ function DiagnosisPreflight({
     async function loadIntegrationReadiness() {
       try {
         const response = await fetch('/api/ai-diagnosis/readiness', { cache: 'no-store' });
-        const payload = await response.json() as AiIntegrationReadiness & { error?: string };
-        if (!response.ok) throw new Error(payload.error || 'AI 연동 준비상태를 확인하지 못했습니다.');
+        const payload = await readAiIntegrationReadinessResponse(response);
         if (!active) return;
         setIntegrationReadiness(payload);
         setIntegrationStatus('ready');
@@ -973,9 +941,10 @@ function DiagnosisPreflight({
     async function loadLatestRun() {
       try {
         const response = await fetch(`/api/ai-diagnosis/step-zero?caseId=${encodeURIComponent(selected.caseId)}`, { cache: 'no-store' });
-        if (!response.ok) return;
-        const payload = await response.json() as { run?: StepZeroRun | null };
-        if (active) setStepZeroRun(payload.run ?? null);
+        const payload = await readStepZeroRunResponse(response, {
+          caseId: selected.caseId,
+        });
+        if (active) setStepZeroRun(payload.run);
       } catch {
         if (active) setStepZeroRun(null);
       }
@@ -1052,8 +1021,13 @@ function DiagnosisPreflight({
           consentConfirmed: true,
         }),
       });
-      const payload = await response.json() as { run?: StepZeroRun; error?: string };
-      if (!response.ok || !payload.run) throw new Error(payload.error || 'Step 0 생성에 실패했습니다.');
+      const payload = await readStepZeroRunResponse(response, {
+        caseId: selected.caseId,
+        company: selected.company,
+        runId: requestId,
+        requireRun: true,
+      });
+      if (!payload.run) throw new Error('Step 0 생성 결과를 확인하지 못했습니다.');
       setStepZeroRun(payload.run);
       pilotRequestId.current = null;
       setPilotConsent(false);
