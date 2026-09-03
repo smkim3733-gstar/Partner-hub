@@ -181,6 +181,22 @@ void test('partner cannot create an operational record with a reserved seed ID',
     () => mergeStateForPortalUser(current, incoming, user),
     /가상 예시 식별자는 새 운영 기록에 사용할 수 없습니다/,
   );
+  const taskIncoming = {
+    ...structuredClone(current),
+    tasks: [
+      ...structuredClone(current.tasks),
+      {
+        id: 'task-diagnosis-review-1',
+        title: '가상 파생업무 위장 시도',
+        assignee: user.memberName,
+        partnerMemberId: user.memberId,
+      },
+    ],
+  };
+  assert.throws(
+    () => mergeStateForPortalUser(current, taskIncoming, user),
+    /가상 예시 식별자는 새 운영 기록에 사용할 수 없습니다/,
+  );
 });
 
 void test('unambiguous legacy names remain usable, including normalized display names', () => {

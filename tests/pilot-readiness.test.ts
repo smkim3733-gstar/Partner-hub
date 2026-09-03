@@ -10,6 +10,7 @@ import {
   isPilotSeedId,
   isPilotSeedRecord,
   operationalPilotRecords,
+  pilotDiagnosisReviewTaskId,
   portalStorageTelemetry,
 } from '../lib/pilot-readiness';
 
@@ -38,6 +39,9 @@ void test('pilot seed classification uses reserved IDs instead of client-writabl
     { id: 'operational-case' },
   ]);
   assert.equal(original.length, 2, 'derived filtering must not mutate saved arrays');
+  assert.equal(pilotDiagnosisReviewTaskId('diagnosis-1'), 'task-diagnosis-review-1');
+  assert.equal(pilotDiagnosisReviewTaskId('diagnosis-operational'), null);
+  assert.equal(isPilotSeedId('task', 'task-diagnosis-review-1'), true);
 });
 
 void test('empty pilot baseline contains no virtual or operational records', () => {

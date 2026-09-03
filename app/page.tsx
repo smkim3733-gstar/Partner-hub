@@ -17,7 +17,8 @@ import {
   prepareDocumentRequestItem,
   type DocumentRequestDueState,
 } from '@/lib/legacy-document-request';
-import { diagnosisDocumentsForCase, hasOpenDiagnosisReviewTask } from '@/lib/diagnosis-preflight';
+import { diagnosisDocumentsForCase } from '@/lib/diagnosis-preflight';
+import { applyDiagnosisReviewQueueDraft, createDiagnosisReviewQueueDraft, type DiagnosisReviewQueueDraft } from '@/lib/diagnosis-review-queue';
 import { applyCompanyDocumentStatusDraft, COMPANY_DOCUMENT_STATUSES, COMPANY_DOCUMENT_STATUS_IMPACTS, createCompanyDocumentStatusDraft, type CompanyDocumentStatusDraft } from '@/lib/company-document-review';
 import { applyWorkTaskStatusDraft, createSupportAcknowledgementDraft, createWorkTaskCompletionDraft, workTaskStatusImpact, type WorkTaskStatusDraft } from '@/lib/work-task-status';
 import {
@@ -3746,6 +3747,7 @@ export default function Home() {
   const [companyDocuments, setCompanyDocuments] = useState<CompanyDocument[]>(sampleDocuments);
   const [cases, setCases] = useState<CollaborationCase[]>(sampleCases);
   const [diagnosisAssessments, setDiagnosisAssessments] = useState<DiagnosisAssessment[]>(sampleDiagnosisAssessments);
+  const [diagnosisQueueDraft, setDiagnosisQueueDraft] = useState<DiagnosisReviewQueueDraft | null>(null);
   const [selectedCaseId, setSelectedCaseId] = useState('case-1');
   const [members, setMembers] = useState<TraineeMember[]>(sampleTrainees);
   const [membersRevision, setMembersRevision] = useState(0);
@@ -3918,6 +3920,8 @@ export default function Home() {
     tone: 'navy',
   }];
   const isAdmin = currentUser?.role === 'admin';
+  const diagnosisQueueAssessment = diagnosisAssessments.find((item) => item.id === diagnosisQueueDraft?.assessmentId) ?? null;
+  const diagnosisQueueCase = cases.find((item) => item.id === diagnosisQueueDraft?.caseId) ?? null;
   const previewMember = currentMember ?? members.find((member) => member.status === '활성') ?? emptyPreviewMember;
   // Password partners already receive server-authorized records. Only the
   // administrator's partner preview needs a presentation filter by member ID.
@@ -4079,42 +4083,35 @@ export default function Home() {
     window.setTimeout(() => setToast(''), 2600);
   }
 
-  function queueDiagnosisDraft(assessment: DiagnosisAssessment) {
+  function requestDiagnosisReviewQueue(assessment: DiagnosisAssessment) {
     const latest = evaluateDiagnosis(assessment, companyDocuments, cases, members);
     if (latest.level !== 'A') {
       setDiagnosisAssessments((current) => current.map((item) => item.id === assessment.id ? latest : item));
       notify('최신 자료로 다시 판정한 결과 A가 아니므로 대기열에 등록하지 않았습니다.');
       return;
     }
-    setDiagnosisAssessments((current) => current.map((item) =>
-      item.id === assessment.id ? { ...item, status: '대표 검토 대기', updatedAt: '방금 전 · 대기열 등록' } : item,
-    ));
-    setTimeline((current) => current.some((item) => item.caseId === assessment.caseId && item.title === 'AI 1차 진단 초안 검토대기')
-      ? current
-      : [...current, {
-        caseId: assessment.caseId,
-        date: '방금 전',
-        title: 'AI 1차 진단 초안 검토대기',
-        detail: '가상 사전점검 A 통과 / 실제 AI 전송 없음 / 김성민 대표 승인 대기',
-        type: '기업진단',
-        tone: 'blue',
-      }]);
-    setTasks((current) => hasOpenDiagnosisReviewTask(current, assessment.caseId)
-      ? current
-      : [{
-        id: `task-ai-${Date.now()}`,
-        caseId: assessment.caseId,
-        company: assessment.company,
-        title: '1차 정밀진단 초안 생성 전 근거·동의 검토',
-        kind: '내부업무',
-        assignee: '김성민 대표',
-        due: '오늘',
-        dueState: 'today',
-        status: '대기',
-        priority: '보통',
-        related: 'AI 진단 사전점검',
-      }, ...current]);
-    notify(`${assessment.company}을 1차 초안 대표 검토대기에 등록했습니다. 실제 AI 전송은 하지 않았습니다.`);
+    try {
+      setDiagnosisQueueDraft(createDiagnosisReviewQueueDraft(latest, cases, tasks, isAdmin));
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '가상 검토대기 등록 내용을 다시 확인해 주세요.');
+    }
+  }
+
+  function confirmDiagnosisReviewQueue() {
+    if (!diagnosisQueueAssessment || !diagnosisQueueDraft) return;
+    const latest = evaluateDiagnosis(diagnosisQueueAssessment, companyDocuments, cases, members);
+    try {
+      const queued = applyDiagnosisReviewQueueDraft(latest, diagnosisQueueDraft, cases, tasks, timeline, isAdmin);
+      setDiagnosisAssessments((current) => current.map((item) => item.id === queued.assessment.id ? queued.assessment : item));
+      if (queued.timeline) setTimeline((current) => [...current, queued.timeline as TimelineItem]);
+      setTasks((current) => [queued.task, ...current]);
+      setDiagnosisQueueDraft(null);
+      notify(`${queued.assessment.company}을 1차 초안 대표 검토대기에 등록했습니다. 실제 AI 전송은 하지 않았습니다.`);
+    } catch (error) {
+      setDiagnosisAssessments((current) => current.map((item) => item.id === latest.id ? latest : item));
+      setDiagnosisQueueDraft(null);
+      notify(error instanceof Error ? error.message : '가상 검토대기 등록 내용을 다시 확인해 주세요.');
+    }
   }
 
   function saveConsultation(input: ConsultationPayload) {
@@ -4278,7 +4275,7 @@ export default function Home() {
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate(cases.length ? 'consultation' : 'application')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}
           {view === 'tasks' ? <WorkManagement key={taskFilterRequest.id} tasks={tasks} setTasks={setTasks} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} initialFilter={taskFilterRequest.filter} notify={notify} /> : null}
           {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} currentUserId={currentUser.id} recoveryControls={{ recoveryBusy: fileRecoveryBusy, recoveryDisabled: dataStatus !== 'saved' || fileRecoveryBusy || applicationPending || applicationDirty, beginRecovery: beginFileRecovery, finishRecovery: finishFileRecovery }} notify={notify} /> : null}
-          {view === 'ai-diagnosis' ? <DiagnosisPreflight assessments={diagnosisAssessments} setAssessments={setDiagnosisAssessments} cases={cases} members={members} documents={companyDocuments} onOpenFiles={() => navigate('files')} onRequestDocuments={(caseId) => { setSelectedCaseId(caseId); navigate('documents'); }} onQueueDraft={queueDiagnosisDraft} notify={notify} /> : null}
+          {view === 'ai-diagnosis' ? <DiagnosisPreflight assessments={diagnosisAssessments} setAssessments={setDiagnosisAssessments} cases={cases} members={members} documents={companyDocuments} onOpenFiles={() => navigate('files')} onRequestDocuments={(caseId) => { setSelectedCaseId(caseId); navigate('documents'); }} onQueueDraft={requestDiagnosisReviewQueue} notify={notify} /> : null}
           {view === 'trainee' ? <TraineeDashboard onOpenCase={openCase} onOpenTasks={() => openTasks()} onNew={() => navigate('application')} onOpenSchedule={() => openSchedule('trainee')} schedule={schedule} member={previewMember} cases={previewCases} tasks={previewTasks} documents={previewDocuments} /> : null}
           {view === 'access' && isAdmin ? <AccessManagement notify={notify} members={members} setMembers={setMembers} registrationDisabled={dataStatus !== 'saved'} passwordLinks={passwordLinks} onRegistered={result => { setMembers(result.members); setMembersRevision(result.membersRevision); notify(`${result.member.name} 파트너 등록을 확인했습니다.`); }} /> : null}
           {view === 'application' ? <ApplicationForm onSubmissionBusy={setApplicationPending} currentUserId={currentUser.id} onDraftSaved={hasFiles => setApplicationDirty(hasFiles)} awaitingSave={applicationAwaitingSave} onDirty={() => setApplicationDirty(true)} applicant={collaborationApplicant} members={members} canUpload={isAdmin || Boolean(currentMember?.permissions.fileUpload)} onCancel={() => navigate('trainee')} onDone={async (files, companyName, selectedServices, applicantType, applicantName, recordingConsent, selectedMemberId, details, draftId, draftRevision) => {
@@ -4338,6 +4335,17 @@ export default function Home() {
           {view === 'documents' ? cases.length ? <DocumentRequest key={selectedCase.id} caseItem={selectedCase} requestNumber={selectedCaseTimeline.filter((item) => item.type === '서류').length + 1} outstandingNames={companyDocuments.filter(document => recordBelongsToCase(document, document.assignedTrainee, selectedCase, cases, members) && document.category === '요청서류' && (document.status === '요청중' || document.status === '보완필요')).map(document => document.title)} onCancel={() => navigate('case')} onSave={({ items, dueDate, dueState, skippedOutstanding }) => { const requestNumber = selectedCaseTimeline.filter((item) => item.type === '서류').length + 1; const dueLabel = formatKoreanDate(dueDate); setTimeline((current) => [...current, { caseId: selectedCase.id, date: '방금 전', title: `서류요청 #${requestNumber} 등록`, detail: `요청서류 ${items.length}건 / 제출기한 ${dueLabel} / 전달 담당자: ${selectedCase.trainee} 파트너`, type: '서류', tone: 'amber' }]); setCompanyDocuments((current) => [...items.map((item, index): CompanyDocument => ({ id: `file-request-${Date.now()}-${index}`, company: selectedCase.company, title: item.name, category: '요청서류', status: '요청중', assignedTrainee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, submittedBy: '기업대표 요청', updatedAt: '방금 전', dueDate, version: '-', sensitive: true })), ...current]); setTasks((current) => [{ id: `task-request-${Date.now()}`, company: selectedCase.company, title: `요청서류 ${items.length}건 제출 확인`, kind: '서류요청', assignee: selectedCase.trainee, partnerMemberId: selectedCase.partnerMemberId, caseId: selectedCase.id, due: dueLabel, dueState, status: '대기', priority: dueState === 'upcoming' ? '보통' : '긴급', related: `서류요청 #${requestNumber}` }, ...current]); setCases((current) => current.map((item) => item.id === selectedCase.id ? { ...item, nextAction: `요청서류 ${items.length}건 제출 확인`, updatedAt: '방금 전', idleDays: 0 } : item)); notify(`${selectedCase.company} 서류요청 ${items.length}건을 자료함과 업무목록에 등록했습니다.${skippedOutstanding ? ` 이미 요청 중인 ${skippedOutstanding}건은 제외했습니다.` : ''}`); navigate('case'); }} /> : <Card><CardContent className="py-8">서류를 요청할 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card> : null}
         </main>
       </div>
+
+      {diagnosisQueueAssessment && diagnosisQueueCase && diagnosisQueueDraft ? <PortalDialog titleId="diagnosis-review-queue-title" onClose={() => setDiagnosisQueueDraft(null)}>
+        <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">가상 검토대기 등록 확인</p><h2 id="diagnosis-review-queue-title" className="mt-1 text-xl font-bold">1차 초안 검토업무를 만들까요?</h2><p className="mt-1 text-sm text-slate-500">{diagnosisQueueAssessment.company} · 진행 {diagnosisQueueCase.id}</p></div><DialogClose className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="가상 검토대기 등록 취소"><X className="size-5" aria-hidden="true" /></DialogClose></div>
+          <div className="space-y-4 p-5">
+            <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2"><div><p className="text-xs text-slate-500">최신 사전판정</p><p className="mt-1 text-sm font-bold text-emerald-800">A · 초안 생성 가능</p></div><div><p className="text-xs text-slate-500">등록할 업무</p><p className="mt-1 text-sm font-bold text-slate-800">대표 검토 · 오늘</p></div></div>
+            <div className="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-sm leading-6 text-slate-700"><p className="font-bold text-[#15375b]">확인하면 가상 검토업무 1건과 진행 타임라인을 저장합니다.</p><p className="mt-1 text-xs leading-5">실제 AI 호출·외부 전송은 실행하지 않습니다. 파생 기록은 가상 시험 기록으로 분류해 운영 알림·지표에서 제외합니다.</p></div>
+          </div>
+          <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setDiagnosisQueueDraft(null)}>취소</SecondaryButton><PrimaryButton onClick={confirmDiagnosisReviewQueue}><Check className="size-4" aria-hidden="true" /> 검토대기 등록</PrimaryButton></div>
+        </div>
+      </PortalDialog> : null}
 
 
       {toast ? <output aria-live="polite" aria-atomic="true" className="fixed bottom-5 left-1/2 z-[70] flex w-[min(92vw,520px)] -translate-x-1/2 items-center gap-3 rounded-2xl bg-[#112f50] px-5 py-4 text-sm font-semibold text-white shadow-2xl"><span className="grid size-7 shrink-0 place-items-center rounded-full bg-emerald-400 text-[#112f50]"><Check className="size-4" /></span>{toast}</output> : null}

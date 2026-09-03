@@ -9,14 +9,34 @@ export type PilotSeedKind =
   | 'member'
   | 'diagnosis';
 
+const pilotDiagnosisIds = Array.from(
+  { length: 3 },
+  (_, index) => `diagnosis-${index + 1}`,
+);
+const pilotDiagnosisReviewTaskIds = new Map(
+  pilotDiagnosisIds.map((diagnosisId, index) => [
+    diagnosisId,
+    `task-diagnosis-review-${index + 1}`,
+  ]),
+);
+
 const seedIds: Record<PilotSeedKind, ReadonlySet<string>> = {
   case: new Set(Array.from({ length: 10 }, (_, index) => `case-${index + 1}`)),
-  task: new Set(Array.from({ length: 7 }, (_, index) => `task-${index + 1}`)),
+  task: new Set([
+    ...Array.from({ length: 7 }, (_, index) => `task-${index + 1}`),
+    ...pilotDiagnosisReviewTaskIds.values(),
+  ]),
   document: new Set(Array.from({ length: 6 }, (_, index) => `file-${index + 1}`)),
   schedule: new Set(Array.from({ length: 5 }, (_, index) => `schedule-${index + 1}`)),
   member: new Set(Array.from({ length: 4 }, (_, index) => `trainee-${index + 1}`)),
-  diagnosis: new Set(Array.from({ length: 3 }, (_, index) => `diagnosis-${index + 1}`)),
+  diagnosis: new Set(pilotDiagnosisIds),
 };
+
+export function pilotDiagnosisReviewTaskId(diagnosisId: unknown) {
+  return typeof diagnosisId === 'string'
+    ? pilotDiagnosisReviewTaskIds.get(diagnosisId) ?? null
+    : null;
+}
 
 export function isPilotSeedId(kind: PilotSeedKind, id: unknown) {
   return typeof id === 'string' && seedIds[kind].has(id);

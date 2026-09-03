@@ -13,6 +13,7 @@
 | [진행단계·중단 상태 변경 확인 안전성](PIPELINE_CHANGE_CONFIRMATION_SAFETY_2026_09_03.md) | 수동 단계·진행 중단·재개의 영향 확인과 stale 상태 차단 |
 | [기업자료 상태 변경 확인 안전성](DOCUMENT_STATUS_CONFIRMATION_SAFETY_2026_09_03.md) | 현재·변경 후 상태 영향 확인, 취소 보존과 저장 직전 원본 연결 재검증 |
 | [업무·지원요청 상태 변경 확인 안전성](WORK_TASK_STATUS_CONFIRMATION_SAFETY_2026_09_03.md) | 완료·재개·처리 시작 확인과 담당·마감·지원 주기 재검증 |
+| [가상 진단 검토대기 등록 확인 안전성](DIAGNOSIS_REVIEW_QUEUE_CONFIRMATION_SAFETY_2026_09_03.md) | 가상 A 판정 확인, 최신 근거 재검증과 파생 업무의 운영 알림·지표 제외 |
 | [Step 0 가상시험 입력 안전성](STEP_ZERO_PILOT_INPUT_SAFETY_2026_09_03.md) | 빈 가상 입력, 변경 후 재동의, 초과·식별정보의 외부 호출 전 차단 |
 | [서류요청 제출기한 알림 안전성](DOCUMENT_REQUEST_DEADLINE_ALERT_SAFETY_2026_09_03.md) | 한국시간 기준 기한 상태와 후속 업무 알림·우선순위 동기화 |
 | [서류요청 등록 입력 안전성](DOCUMENT_REQUEST_ENTRY_SAFETY_2026_09_03.md) | 추천 서류 명시 추가, 실제 저장 계약 정리, 서류명·중복 검증 |
