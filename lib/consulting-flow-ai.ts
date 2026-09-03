@@ -26,6 +26,7 @@ import {
   flowEnvironment,
   readFlow,
 } from '@/lib/consulting-flow-store';
+import { readAnthropicMessageResponse } from '@/lib/anthropic-message-response';
 
 type TextBlock = { type: 'text'; text: string };
 type BinaryBlock = {
@@ -195,17 +196,17 @@ async function generate(
           ? 'Claude API 인증 설정을 확인해 주세요.'
           : `Claude 응답 오류(${response.status}). 비용·연결 상태 확인 후 재시도해 주세요.`,
     );
-  const result = (await response.json()) as {
-    stop_reason?: string;
-    content?: Array<{ type: string; text?: string }>;
-  };
-  const body =
-    result.content
-      ?.filter((c) => c.type === 'text')
-      .map((c) => c.text || '')
-      .join('\n') || '';
+  let result: Awaited<ReturnType<typeof readAnthropicMessageResponse>>;
+  try {
+    result = await readAnthropicMessageResponse(response);
+  } catch {
+    throw new FlowError(
+      'Claude 응답 형식을 확인하지 못해 정식 보고서로 저장하지 않았습니다. 비용·연결 상태 확인 후 재시도해 주세요.',
+    );
+  }
+  const body = result.text;
   if (
-    result.stop_reason !== 'end_turn' ||
+    result.stopReason !== 'end_turn' ||
     body.length < 200 ||
     body.length > 80000 ||
     !body.includes('[분석 끝]')

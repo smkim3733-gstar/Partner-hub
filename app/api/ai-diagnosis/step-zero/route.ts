@@ -17,6 +17,10 @@ import { readPortalState } from '@/lib/portal-state';
 import { CompanyFileError } from '@/lib/company-files';
 import { stepZeroPreflight } from '@/lib/step-zero-preflight';
 import { prepareStepZeroPilotInput } from '@/lib/step-zero-pilot-input';
+import {
+  AnthropicMessageResponseError,
+  readAnthropicMessageResponse,
+} from '@/lib/anthropic-message-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,13 +38,6 @@ type StepZeroRequest = {
   consentConfirmed?: unknown;
 };
 
-type AnthropicMessageResponse = {
-  content?: Array<{ type?: string; text?: string }>;
-  usage?: { input_tokens?: number; output_tokens?: number };
-  error?: { message?: string };
-  request_id?: string;
-};
-
 function accessErrorResponse(error: unknown) {
   if (error instanceof PortalAccessError || error instanceof CompanyFileError) {
     return Response.json({ error: error.message }, { status: error.status });
@@ -50,6 +47,10 @@ function accessErrorResponse(error: unknown) {
 
 function asText(value: unknown, maxLength: number) {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function stepZeroPrompt(company: string, pilotContext: string) {
@@ -129,7 +130,11 @@ export async function POST(request: Request) {
       return Response.json({ error: 'Step 0 생성은 김성민 대표만 실행할 수 있습니다.' }, { status: 403 });
     }
 
-    const body = await request.json() as StepZeroRequest;
+    const rawBody: unknown = await request.json();
+    if (!isObject(rawBody)) {
+      return Response.json({ error: '생성 요청 형식이 올바르지 않습니다.' }, { status: 400 });
+    }
+    const body: StepZeroRequest = rawBody;
     const requestId = asText(body.requestId, 100);
     const caseId = asText(body.caseId, 120);
     const company = asText(body.company, 100);
@@ -210,18 +215,38 @@ export async function POST(request: Request) {
           messages: [{ role: 'user', content: stepZeroPrompt(company, pilotContext) }],
         }),
       });
-      const payload = await response.json() as AnthropicMessageResponse;
+      const payload = await readAnthropicMessageResponse(response);
       if (!response.ok) {
         console.error('Anthropic Step 0 request failed', {
           status: response.status,
-          requestId: payload.request_id,
+          requestId: payload.requestId,
         });
         await failStepZeroRequest(requestId, currentUser.id, fingerprint);
-        return Response.json({ error: payload.error?.message || 'Claude Step 0 생성 요청이 실패했습니다.' }, { status: 502 });
+        return Response.json(
+          {
+            error:
+              response.status === 429
+                ? 'Claude API 사용 한도에 도달했습니다. 자동 재시도하지 않습니다.'
+                : response.status === 401
+                  ? 'Claude API 인증 설정을 확인해 주세요.'
+                  : 'Claude Step 0 생성 요청이 실패했습니다. 처리·과금 상태를 확인해 주세요.',
+          },
+          { status: 502 },
+        );
       }
 
-      const rawText = payload.content?.filter((block) => block.type === 'text').map((block) => block.text ?? '').join('\n').trim() ?? '';
-      const result = parseStepZeroResult(rawText);
+      if (payload.stopReason !== 'end_turn')
+        throw new AnthropicMessageResponseError(
+          'Claude Step 0 응답이 완결되지 않았습니다.',
+        );
+      let result: ReturnType<typeof parseStepZeroResult>;
+      try {
+        result = parseStepZeroResult(payload.text.trim());
+      } catch {
+        throw new AnthropicMessageResponseError(
+          'Claude Step 0 결과 형식이 올바르지 않습니다.',
+        );
+      }
       const latestState = await readPortalState();
       const latestUser = await requirePortalUser(request, latestState);
       const finalPreflight = await stepZeroPreflight(
@@ -253,10 +278,7 @@ export async function POST(request: Request) {
         instructionVersion: CLAUDE_FLOW_INSTRUCTION_VERSION,
         model,
         result,
-        usage: {
-          inputTokens: payload.usage?.input_tokens ?? 0,
-          outputTokens: payload.usage?.output_tokens ?? 0,
-        },
+        usage: payload.usage,
         createdAt: new Date().toISOString(),
       };
       if (!(await completeStepZeroRequest(run, currentUser.id, fingerprint))) {
@@ -270,6 +292,16 @@ export async function POST(request: Request) {
   } catch (error) {
     const accessResponse = accessErrorResponse(error);
     if (accessResponse) return accessResponse;
+    if (error instanceof AnthropicMessageResponseError) {
+      console.error('Invalid Anthropic Step 0 response', error.message);
+      return Response.json(
+        {
+          error:
+            'Claude 응답을 완전한 결과로 확인하지 못했습니다. 처리·과금 상태를 확인한 뒤 새 요청으로 실행해 주세요.',
+        },
+        { status: 502 },
+      );
+    }
     console.error('Failed to create Step 0 run', error);
     return Response.json({ error: 'Step 0 결과를 생성하거나 저장하지 못했습니다.' }, { status: 500 });
   }

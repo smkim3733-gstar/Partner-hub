@@ -167,6 +167,7 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
   const oldFetch = globalThis.fetch;
   let externalCalls = 0;
   const modelResponse = () => Response.json({
+    stop_reason: 'end_turn',
     content: [
       {
         type: 'text',
@@ -300,7 +301,12 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
       );
     };
     const failedId = 'step-zero-failed-request-0001';
-    assert.equal((await POST(request(failedId, concurrentContext))).status, 502);
+    const providerFailure = await POST(request(failedId, concurrentContext));
+    assert.equal(providerFailure.status, 502);
+    assert.doesNotMatch(
+      await providerFailure.text(),
+      /synthetic provider failure/,
+    );
     assert.equal(externalCalls, 3);
     assert.equal((await POST(request(failedId, concurrentContext))).status, 409);
     assert.equal(externalCalls, 3, 'an uncertain failed request is not replayed');
