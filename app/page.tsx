@@ -47,6 +47,7 @@ import {
   putPortalSnapshot,
 } from '@/lib/portal-save-queue';
 import { PortalFlowProjectionRefresh } from '@/lib/portal-flow-projection-refresh';
+import { TransientMessageGuard } from '@/lib/transient-message-guard';
 import { ApplicationSubmission } from '@/lib/application-submission';
 import { uploadCompanyFile, type StoredCompanyFile } from '@/lib/company-file-upload';
 import { prependStoredCompanyDocument, storedCompanyDocument } from '@/lib/company-document-link';
@@ -3763,6 +3764,7 @@ export default function Home() {
   const [membersRevision, setMembersRevision] = useState(0);
   const [scheduleAudience, setScheduleAudience] = useState<'admin' | 'trainee'>('admin');
   const [toast, setToast] = useState('');
+  const [toastGuard] = useState(() => new TransientMessageGuard());
   const [persistenceReady, setPersistenceReady] = useState(false);
   const [initializationRequired, setInitializationRequired] = useState(false);
   const [initializationBusy, setInitializationBusy] = useState(false);
@@ -3820,9 +3822,10 @@ export default function Home() {
     saveQueue.activate();
     return () => {
       flowProjectionRefresh.cancel();
+      toastGuard.cancel();
       saveQueue.dispose();
     };
-  }, [flowProjectionRefresh, saveQueue]);
+  }, [flowProjectionRefresh, saveQueue, toastGuard]);
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
@@ -4099,7 +4102,7 @@ export default function Home() {
 
   function notify(message: string) {
     setToast(message);
-    window.setTimeout(() => setToast(''), 2600);
+    window.setTimeout(toastGuard.next(() => setToast('')), 2600);
   }
 
   function requestDiagnosisReviewQueue(assessment: DiagnosisAssessment) {
