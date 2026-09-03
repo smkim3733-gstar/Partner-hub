@@ -141,6 +141,35 @@ void test('forged incoming assignee and ID cannot rewrite another account case, 
   assert.deepEqual(saved.members, current.members);
 });
 
+void test('stable timeline IDs preserve same-title events and stay scoped to their case', () => {
+  const current = {
+    ...fixture(),
+    timeline: [
+      { id: 'shared-id', caseId: 'other-case', date: '방금 전', title: '상담 #1 저장', detail: '타인 원본' },
+      { id: 'own-existing', caseId: 'own-case', date: '방금 전', title: '상담 #1 저장', detail: '본인 원본' },
+    ],
+  };
+  const incoming = {
+    ...structuredClone(current),
+    timeline: [
+      { id: 'shared-id', caseId: 'own-case', date: '방금 전', title: '상담 #1 저장', detail: '같은 ID의 본인 기록' },
+      { id: 'own-existing', caseId: 'own-case', date: '방금 전', title: '상담 #1 저장', detail: '본인 수정' },
+      { id: 'own-first', caseId: 'own-case', date: '방금 전', title: '상담 #2 저장', detail: '첫 번째' },
+      { id: 'own-second', caseId: 'own-case', date: '방금 전', title: '상담 #2 저장', detail: '두 번째' },
+      { id: 'own-duplicate', caseId: 'own-case', date: '방금 전', title: '상담 #3 저장', detail: '중복 첫 번째' },
+      { id: 'own-duplicate', caseId: 'own-case', date: '방금 전', title: '상담 #3 저장', detail: '중복 마지막' },
+    ],
+  };
+
+  const saved = mergeStateForPortalUser(current, incoming, user) as typeof current;
+  assert.equal(saved.timeline.find((item) => item.caseId === 'other-case')?.detail, '타인 원본');
+  assert.equal(saved.timeline.find((item) => item.id === 'own-existing')?.detail, '본인 수정');
+  assert.equal(saved.timeline.filter((item) => item.caseId === 'own-case' && item.id === 'shared-id').length, 1);
+  assert.equal(saved.timeline.filter((item) => item.caseId === 'own-case' && item.title === '상담 #2 저장').length, 2);
+  assert.equal(saved.timeline.filter((item) => item.id === 'own-duplicate').length, 1);
+  assert.equal(saved.timeline.find((item) => item.id === 'own-duplicate')?.detail, '중복 마지막');
+});
+
 void test('new partner records bind to the authenticated ID without changing an existing assignment', () => {
   const current = fixture();
   const incoming = {

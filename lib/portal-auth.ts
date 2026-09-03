@@ -231,6 +231,14 @@ function timelineCaseId(record: PortalRecord) {
   return field(record, 'caseId') || 'case-1';
 }
 
+function timelineMergeKey(record: PortalRecord) {
+  const caseId = timelineCaseId(record);
+  const id = field(record, 'id');
+  return id
+    ? `id:${caseId}:${id}`
+    : `legacy:${caseId}:${field(record, 'date')}:${field(record, 'title')}`;
+}
+
 function sanitizeScheduleForTrainee(
   state: PortalStateRecord,
   record: PortalRecord,
@@ -439,24 +447,17 @@ export function mergeStateForPortalUser(
   );
   const timelineByKey = new Map(
     incomingTimeline.map((record) => [
-      `${timelineCaseId(record)}:${field(record, 'date')}:${field(record, 'title')}`,
+      timelineMergeKey(record),
       record,
     ]),
   );
   const existingTimelineKeys = new Set(
-    current.timeline.map(
-      (record) =>
-        `${timelineCaseId(record)}:${field(record, 'date')}:${field(record, 'title')}`,
-    ),
+    current.timeline.map(timelineMergeKey),
   );
   const mergedTimeline = current.timeline.map(
-    (record) =>
-      timelineByKey.get(
-        `${timelineCaseId(record)}:${field(record, 'date')}:${field(record, 'title')}`,
-      ) ?? record,
+    (record) => timelineByKey.get(timelineMergeKey(record)) ?? record,
   );
-  for (const record of incomingTimeline) {
-    const key = `${timelineCaseId(record)}:${field(record, 'date')}:${field(record, 'title')}`;
+  for (const [key, record] of timelineByKey) {
     if (!existingTimelineKeys.has(key)) mergedTimeline.push(record);
   }
 

@@ -184,6 +184,7 @@ export function commitDocumentRequest<
     related: `서류요청 #${requestNumber}`,
   };
   const createdTimeline = {
+    id: `document-request-${input.requestId}`,
     caseId: selected.id,
     date: '방금 전',
     title: `서류요청 #${requestNumber} 등록`,

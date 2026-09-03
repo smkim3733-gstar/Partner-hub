@@ -6,8 +6,8 @@ import {
   consultationTitleMaxLength,
   emptyConsultationSelections,
   prepareConsultation,
-  type ConsultationPayload,
 } from '@/lib/legacy-consultation';
+import { commitConsultation, consultationCaseFingerprint, type ConsultationCommitInput } from '@/lib/consultation-commit';
 import {
   documentRequestItemNameMaxLength,
   documentRequestSuggestions,
@@ -391,6 +391,7 @@ function casePartnerType(item: CollaborationCase, members: TraineeMember[]): Par
 }
 
 type TimelineItem = {
+  id?: string;
   caseId?: string;
   date: string;
   title: string;
@@ -3498,7 +3499,7 @@ function ConsultationForm({
 }: {
   number: number;
   caseItem: CollaborationCase;
-  onSave: (payload: ConsultationPayload) => void;
+  onSave: (input: ConsultationCommitInput) => boolean;
   onCancel: () => void;
 }) {
   const initialSelections = emptyConsultationSelections();
@@ -3513,6 +3514,9 @@ function ConsultationForm({
   const [shareMode, setShareMode] = useState(initialSelections.shareMode);
 
   const [formError, setFormError] = useState('');
+  const requestIdRef = useRef('');
+  const expectedCaseRef = useRef(consultationCaseFingerprint(caseItem));
+  const expectedNumberRef = useRef(number);
   const titleRef = useRef<HTMLInputElement>(null);
   const dateRef = useRef<HTMLInputElement>(null);
   const methodRef = useRef<HTMLSelectElement>(null);
@@ -3531,7 +3535,13 @@ function ConsultationForm({
       return;
     }
     setFormError('');
-    onSave(result.payload);
+    requestIdRef.current ||= crypto.randomUUID();
+    onSave({
+      requestId: requestIdRef.current,
+      expectedCase: expectedCaseRef.current,
+      expectedNumber: expectedNumberRef.current,
+      payload: result.payload,
+    });
   }
 
   function toggle(item: string) {
@@ -3931,6 +3941,7 @@ export default function Home() {
     tone: 'navy',
   }];
   const isAdmin = currentUser?.role === 'admin';
+  const canManageCases = isAdmin || Boolean(currentMember?.permissions.ownCases);
   const canFileUpload = isAdmin || Boolean(currentMember?.permissions.fileUpload);
   const diagnosisQueueAssessment = diagnosisAssessments.find((item) => item.id === diagnosisQueueDraft?.assessmentId) ?? null;
   const diagnosisQueueCase = cases.find((item) => item.id === diagnosisQueueDraft?.caseId) ?? null;
@@ -4127,78 +4138,30 @@ export default function Home() {
     }
   }
 
-  function saveConsultation(input: ConsultationPayload) {
-    const result = prepareConsultation(input);
-    if (!result.ok) { notify(result.error); return; }
-    const { payload, schedule: scheduleTime, detail } = result;
-    const number = Math.max(1, consultationNumber);
-    setTimeline((current) => [
-      ...current,
-      {
-        caseId: selectedCase.id,
-        date: '방금 전',
-        title: `상담 #${number} 저장`,
-        detail,
-        type: '상담',
-        tone: 'green',
-      },
-    ]);
-    if (payload.status !== '취소') {
-      const nextStage: PipelineStage = payload.status === '일정 요청' || payload.status === '일정 확정' ? '상담예약' : '상담진행';
-      setCases((current) => current.map((item) => item.id === selectedCase.id ? { ...item, stage: nextStage, consultationCount: payload.status === '상담 완료' ? item.consultationCount + 1 : item.consultationCount, nextAction: payload.followUps.length ? payload.followUps.join(' · ') : stageNextActions[nextStage], updatedAt: '방금 전', idleDays: 0 } : item));
-    }
-    if (scheduleTime) {
-      setSchedule((current) => [
-        ...current,
-        {
-          id: `schedule-${Date.now()}`,
-          ...scheduleTime,
-          caseId: selectedCase.id,
-          partnerMemberId: selectedCase.partnerMemberId,
-          company: selectedCase.company,
-          service: payload.title || `상담 #${number}`,
-          method: payload.method,
-          status: '확정',
-          tone: 'green',
-          source: 'partner',
-          assignedTrainee: selectedCase.trainee,
-          shareMode: payload.shareMode,
-        },
-      ]);
-    }
-    if (payload.followUps.length) {
-      const taskAssignee = selectedCase.trainee;
-      const kindMap: Record<string, WorkTask['kind']> = {
-        '다음 상담 등록': '상담',
-        '서류요청': '서류요청',
-        '견적서 작성': '견적서',
-        '계약서 작성': '계약서',
-        '내부업무 등록': '내부업무',
-      };
-      setTasks((current) => [
-        ...payload.followUps.map((followUp, index): WorkTask => ({
-          id: `task-${Date.now()}-${index}`,
-          company: selectedCase.company,
-          title: `상담 후 ${followUp}`,
-          kind: kindMap[followUp] ?? '내부업무',
-          assignee: taskAssignee,
-          partnerMemberId: selectedCase.partnerMemberId,
-          caseId: selectedCase.id,
-          due: '기한 확인',
-          dueState: 'upcoming',
-          status: '대기',
-          priority: '보통',
-          related: `상담 #${number}`,
-        })),
-        ...current,
-      ]);
-    }
-    setConsultationNumber((value) => Math.max(1, value) + 1);
-    notify(`상담 #${number} 저장을 요청했습니다. 상단의 DB 저장됨 표시를 확인해 주세요.`);
-    if (scheduleTime) {
-      openSchedule('admin');
-    } else {
-      navigate('case');
+  function saveConsultation(input: ConsultationCommitInput) {
+    try {
+      const saved = commitConsultation(
+        selectedCase,
+        input,
+        consultationNumber,
+        timeline,
+        schedule,
+        tasks,
+        cases,
+        canManageCases,
+      );
+      setConsultationNumber(saved.consultationNumber);
+      setTimeline(saved.timeline);
+      setSchedule(saved.schedule);
+      setTasks(saved.tasks);
+      setCases(saved.cases);
+      notify(`상담 #${saved.number} 저장을 요청했습니다. 상단의 DB 저장됨 표시를 확인해 주세요.`);
+      if (saved.scheduleAdded) openSchedule('admin');
+      else navigate('case');
+      return true;
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '상담 내용을 다시 확인해 주세요.');
+      return false;
     }
   }
 

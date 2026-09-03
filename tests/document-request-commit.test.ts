@@ -102,7 +102,10 @@ void test('document request commits one immutable case-scoped record set with st
   const preservedTask = saved.tasks.find((item) => item.id === 'other-task');
   assert.ok(preservedTask && 'marker' in preservedTask);
   assert.equal(preservedTask.marker, 'other');
-  assert.equal(saved.timeline.at(-1)?.title, '서류요청 #2 등록');
+  const createdTimeline = saved.timeline.at(-1);
+  assert.ok(createdTimeline && 'id' in createdTimeline);
+  assert.equal(createdTimeline.id, `document-request-${requestId}`);
+  assert.equal(createdTimeline.title, '서류요청 #2 등록');
   assert.equal(saved.cases.find((item) => item.id === selected.id)?.nextAction, '요청서류 2건 제출 확인');
   assert.equal(saved.cases.find((item) => item.id === selected.id)?.idleDays, 0);
   assert.equal(saved.cases.find((item) => item.id === otherCase.id)?.marker, 'other');

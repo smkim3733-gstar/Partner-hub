@@ -19,6 +19,7 @@
 | [누락 요청서류 제출기한 변경 확인 안전성](DOCUMENT_REQUEST_DUE_DATE_CONFIRMATION_SAFETY_2026_09_03.md) | 자료·연결 업무·타임라인 변경 전 영향 확인과 최신 상태 재검증 |
 | [서류요청 등록 입력 안전성](DOCUMENT_REQUEST_ENTRY_SAFETY_2026_09_03.md) | 추천 서류 명시 추가, 실제 저장 계약 정리, 서류명·중복 검증 |
 | [새 서류요청 원자적 저장 안전성](DOCUMENT_REQUEST_COMMIT_SAFETY_2026_09_03.md) | 요청별 고정 UUID, 중복 생성 차단과 자료·업무·타임라인·진행의 일괄 반영 |
+| [새 상담 원자적 저장 안전성](CONSULTATION_COMMIT_SAFETY_2026_09_03.md) | 요청별 고정 UUID, 중복·단계 역행 차단과 타임라인·일정·업무·진행의 일괄 반영 |
 | [상담 제목·일정 공개범위 입력 안전성](CONSULTATION_TITLE_SHARING_SAFETY_2026_09_03.md) | 빈 상담 제목, 일정 추가 시 공개범위 명시 선택과 내부 전용 정규화 |
 | [상담 등록 입력 안전성](CONSULTATION_ENTRY_SAFETY_2026_09_03.md) | 상담방식·상태·일정·후속조치 명시 선택과 저장 경계 검증 |
 | [협업신청 핵심 입력 안전성](APPLICATION_ENTRY_SAFETY_2026_09_03.md) | 요청서비스 명시 선택, 신청 핵심 필드 공통 검증과 동의 재확인 |
