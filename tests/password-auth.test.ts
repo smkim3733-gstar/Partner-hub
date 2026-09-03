@@ -30,6 +30,7 @@ import {
 import { PartnerAuthPanel } from '../components/partner-auth-panel';
 import { PartnerPasswordLink } from '../components/partner-password-link';
 import { readPasswordAuthResponse } from '../lib/password-auth-response';
+import { readPasswordLinkResponse } from '../lib/password-link-response';
 import {
   readPasswordLinkSummary,
   recordPasswordLinkMetric,
@@ -104,7 +105,7 @@ async function link(memberId = 'existing') {
     await issue(request({ memberId, confirmed: true }, ownerHeaders)),
     201,
   );
-  const result = (await response.json()) as { path: string };
+  const result = await readPasswordLinkResponse(response);
   return result.path.split('#token=')[1];
 }
 beforeEach(async () => {

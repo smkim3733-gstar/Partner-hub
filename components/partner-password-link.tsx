@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { KeyRound } from 'lucide-react';
+import { readPasswordLinkResponse } from '@/lib/password-link-response';
 
 export function PartnerPasswordLink({
   memberId,
@@ -31,15 +32,9 @@ export function PartnerPasswordLink({
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ memberId, confirmed }),
       });
-      const result = (await response.json()) as {
-        error?: string;
-        path?: string;
-        expiresAt?: number;
-      };
-      if (!response.ok || !result.path)
-        throw new Error(result.error || '링크를 발급하지 못했습니다.');
+      const result = await readPasswordLinkResponse(response);
       setLink(`${window.location.origin}${result.path}`);
-      setExpiresAt(result.expiresAt ?? 0);
+      setExpiresAt(result.expiresAt);
     } catch (error) {
       setMessage(
         error instanceof Error ? error.message : '연결 상태를 확인해 주세요.',

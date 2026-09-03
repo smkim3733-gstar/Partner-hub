@@ -12,6 +12,7 @@
 | [원본 보관 현황 응답 검증 안전성](FILE_INVENTORY_RESPONSE_VALIDATION_SAFETY_2026_09_04.md) | 목록·필터·커서·파일 ID·원본 존재와 크기 관계 검증 |
 | [신청자료 검토 응답 검증 안전성](INTAKE_SOURCE_RESPONSE_VALIDATION_SAFETY_2026_09_04.md) | 목록 메타데이터·선택 파일·원본 해시·본문 구조 검증 |
 | [사이트 인증 응답 검증 안전성](PASSWORD_AUTH_RESPONSE_VALIDATION_SAFETY_2026_09_04.md) | 가입·로그인·설정·로그아웃별 성공 계약과 안전한 오류 검증 |
+| [비밀번호 설정 링크 응답 검증 안전성](PASSWORD_LINK_RESPONSE_VALIDATION_SAFETY_2026_09_04.md) | 동일 출처 fragment 경로·토큰·만료시각 검증 |
 | [파트너 계정 설정 저장 안전성](PARTNER_ACCOUNT_SETTINGS_DRAFT_SAFETY_2026_09_03.md) | 이메일·유형·상태·권한의 저장 전 초안 격리와 취소 폐기 |
 | [진행 담당 계정 변경 확인 안전성](CASE_ASSIGNMENT_CONFIRMATION_SAFETY_2026_09_03.md) | 현재·변경 후 담당 대조, 취소 보존과 저장 직전 재검증 |
 | [진행단계·중단 상태 변경 확인 안전성](PIPELINE_CHANGE_CONFIRMATION_SAFETY_2026_09_03.md) | 수동 단계·진행 중단·재개의 영향 확인과 stale 상태 차단 |
