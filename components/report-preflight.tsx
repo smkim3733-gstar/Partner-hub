@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { currentPreflight, type ReportPreflight } from '@/lib/report-preflight';
+import { readReportPreflightResponse } from '@/lib/report-preflight-response';
 
 export function FirstReportPreflight({
   caseId,
@@ -50,11 +51,11 @@ export function FirstReportPreflight({
         `/api/consulting-flow/${encodeURIComponent(caseId)}/preflight`,
         { cache: 'no-store', signal: request.signal },
       );
-      const data = (await response.json()) as ReportPreflight & {
-        error?: string;
-      };
-      if (!response.ok)
-        throw new Error(data.error || '자료를 점검하지 못했습니다.');
+      const data = await readReportPreflightResponse(
+        response,
+        caseId,
+        revision,
+      );
       if (!request.signal.aborted) setResult(data);
     } catch (error) {
       if (!request.signal.aborted)

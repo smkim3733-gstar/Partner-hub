@@ -9,7 +9,7 @@ import {
   readFlow,
 } from '../lib/consulting-flow-store';
 import type { ConsultingFlow } from '../lib/consulting-flow';
-import type { ReportPreflight } from '../lib/report-preflight';
+import { readReportPreflightResponse } from '../lib/report-preflight-response';
 
 const caseId = 'preflight-api';
 const context = { params: Promise.resolve({ caseId }) };
@@ -113,7 +113,10 @@ void test('admin-only preflight is non-mutating and generation rechecks files af
   const empty = await GET(request(`${url}/preflight`), context);
   assert.equal(empty.status, 200);
   assert.match(empty.headers.get('cache-control') || '', /private, no-store/);
-  assert.equal(((await empty.json()) as ReportPreflight).canGenerate, false);
+  assert.equal(
+    (await readReportPreflightResponse(empty, caseId, 0)).canGenerate,
+    false,
+  );
   assert.equal(await readFlow(caseId), null);
   let revision = 0;
   let sequence = 0;
@@ -175,14 +178,14 @@ void test('admin-only preflight is non-mutating and generation rechecks files af
     const before = await readFlow(caseId);
     assert.ok(before);
     const checked = await GET(request(`${url}/preflight`), context);
-    const json = await checked.text();
-    const result = JSON.parse(json) as ReportPreflight;
+    const raw = await checked.clone().text();
+    const result = await readReportPreflightResponse(checked, caseId, revision);
     assert.equal(result.canGenerate, true);
     assert.equal(result.files[0].name, 'verified.txt');
     assert.ok(
-      !json.includes(bodyText) &&
-        !json.includes('synthetic-preflight-test-key') &&
-        !json.includes(before.files[0].key),
+      !raw.includes(bodyText) &&
+        !raw.includes('synthetic-preflight-test-key') &&
+        !raw.includes(before.files[0].key),
     );
     assert.deepEqual(await readFlow(caseId), before);
     await flowBucket().delete(before.files[0].key);
@@ -204,9 +207,11 @@ void test('admin-only preflight is non-mutating and generation rechecks files af
     assert.equal(calls, 0, 'Neither inspection nor queuing calls the model');
     assert.equal(
       (
-        (await (
-          await GET(request(`${url}/preflight`), context)
-        ).json()) as ReportPreflight
+        await readReportPreflightResponse(
+          await GET(request(`${url}/preflight`), context),
+          caseId,
+          revision,
+        )
       ).canGenerate,
       false,
     );
