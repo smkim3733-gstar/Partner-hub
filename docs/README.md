@@ -13,6 +13,7 @@
 | [상담 제목·일정 공개범위 입력 안전성](CONSULTATION_TITLE_SHARING_SAFETY_2026_09_03.md) | 빈 상담 제목, 일정 추가 시 공개범위 명시 선택과 내부 전용 정규화 |
 | [상담 등록 입력 안전성](CONSULTATION_ENTRY_SAFETY_2026_09_03.md) | 상담방식·상태·일정·후속조치 명시 선택과 저장 경계 검증 |
 | [협업신청 핵심 입력 안전성](APPLICATION_ENTRY_SAFETY_2026_09_03.md) | 요청서비스 명시 선택, 신청 핵심 필드 공통 검증과 동의 재확인 |
+| [기업자료 종류 명시 선택 안전성](PORTAL_DOCUMENT_CATEGORY_SAFETY_2026_09_03.md) | 단일 기업자료 등록의 빈 종류 시작, 파일명 자동확정 제거와 공용 검증 |
 | [기업자료 등록 입력 안전성](PORTAL_DOCUMENT_ENTRY_SAFETY_2026_09_03.md) | 가상·이전 기본값 제거, 메타정보 검증, 변경 후 동의 재확인과 폼 초기화 |
 | [새 업무 입력 안전성](PORTAL_TASK_ENTRY_SAFETY_2026_09_03.md) | 가상 기본값 제거, 필수 입력·길이 검증과 성공 후 초기화 |
 | [운영 업무 사이트 알림](PORTAL_TASK_NOTIFICATIONS_2026_09_03.md) | 운영 업무만 세는 알림 숫자와 데스크톱·모바일 메뉴 표시 |

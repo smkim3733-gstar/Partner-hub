@@ -3,8 +3,21 @@ import test from 'node:test';
 import {
   COMPANY_FILE_COMPANY_MAX_LENGTH,
   COMPANY_FILE_TITLE_MAX_LENGTH,
+  EMPTY_COMPANY_FILE_CATEGORY,
   prepareCompanyFileMetadata,
 } from '../lib/company-file-metadata';
+
+void test('new standalone company upload starts without an invented category', () => {
+  assert.equal(EMPTY_COMPANY_FILE_CATEGORY, '');
+  assert.deepEqual(
+    prepareCompanyFileMetadata({
+      company: '가상기업',
+      title: '가상자료',
+      category: EMPTY_COMPANY_FILE_CATEGORY,
+    }),
+    { ok: false, error: '자료종류를 선택해 주세요.' },
+  );
+});
 
 void test('company file metadata trims explicit operational input', () => {
   assert.deepEqual(

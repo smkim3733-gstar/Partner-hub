@@ -5,6 +5,7 @@ import {
 
 export const COMPANY_FILE_COMPANY_MAX_LENGTH = 100;
 export const COMPANY_FILE_TITLE_MAX_LENGTH = 150;
+export const EMPTY_COMPANY_FILE_CATEGORY = '';
 
 export type CompanyFileMetadataInput = {
   company: string;

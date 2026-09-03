@@ -47,6 +47,7 @@ import { uploadCompanyFile, type StoredCompanyFile } from '@/lib/company-file-up
 import {
   COMPANY_FILE_COMPANY_MAX_LENGTH,
   COMPANY_FILE_TITLE_MAX_LENGTH,
+  EMPTY_COMPANY_FILE_CATEGORY,
   prepareCompanyFileMetadata,
 } from '@/lib/company-file-metadata';
 import {
@@ -117,7 +118,7 @@ import { AdminFileInventory } from '@/components/admin-file-inventory';
 import { FileRecoveryNote } from '@/components/file-recovery-note';
 import type { RecoveryControls } from '@/lib/file-recovery';
 import { partnerTypes, type PartnerType, type PartnerAccount as TraineeMember, type PartnerRegistrationResult } from '@/lib/partner-registration';
-import { companyCategoryLabel, companyFileProblem, documentCategoryFromFileName, applicationAttachmentTitle, MAX_APPLICATION_FILES, type ApplicationAttachment } from '@/lib/company-file-policy';
+import { companyCategoryLabel, companyFileProblem, applicationAttachmentTitle, MAX_APPLICATION_FILES, type ApplicationAttachment } from '@/lib/company-file-policy';
 import {
   countPilotSeedRecords,
   emptyPortalStateBaseline,
@@ -2350,7 +2351,7 @@ function DocumentCenter({
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadCompany, setUploadCompany] = useState('');
   const [uploadTitle, setUploadTitle] = useState('');
-  const [uploadCategory, setUploadCategory] = useState<CompanyDocument['category']>('사업자등록증');
+  const [uploadCategory, setUploadCategory] = useState<CompanyDocument['category'] | ''>(EMPTY_COMPANY_FILE_CATEGORY);
   const [uploadMemberId, setUploadMemberId] = useState(isAdmin ? '' : currentMemberId ?? '');
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadConsent, setUploadConsent] = useState(false);
@@ -2382,7 +2383,7 @@ function DocumentCenter({
   function resetUploadDraft() {
     setUploadCompany('');
     setUploadTitle('');
-    setUploadCategory('사업자등록증');
+    setUploadCategory(EMPTY_COMPANY_FILE_CATEGORY);
     setUploadMemberId(isAdmin ? '' : currentMemberId ?? '');
     setUploadFile(null);
     setUploadConsent(false);
@@ -2517,9 +2518,9 @@ function DocumentCenter({
           <div className="grid max-h-[65vh] gap-5 overflow-y-auto p-5 md:grid-cols-2">
             <Field label="기업명" required><input value={uploadCompany} onChange={(event) => { setUploadCompany(event.target.value); setUploadConsent(false); setUploadError(''); }} maxLength={COMPANY_FILE_COMPANY_MAX_LENGTH} required className={inputClass} /></Field>
             <Field label="담당 계정" required hint="이메일을 확인해 동명이인을 구별하세요."><select value={uploadMemberId} onChange={(event) => { setUploadMemberId(event.target.value); setUploadConsent(false); setUploadError(''); }} className={inputClass} disabled={!isAdmin}>{isAdmin && <option value="">대표 전용 보관 · 파트너 공유 없음</option>}{members.filter((member) => member.status === '활성').map((member) => <option key={member.id} value={member.id}>{member.name.replace('(가상)', '').trim()} · {member.email}</option>)}</select></Field>
-            <Field label="자료종류" required><select value={uploadCategory} onChange={(event) => { setUploadCategory(event.target.value as CompanyDocument['category']); setUploadConsent(false); setUploadError(''); }} className={inputClass}><option>사업자등록증</option><option>크레탑</option><option>재무제표</option><option value="상담녹취">녹취자료</option><option>인증·특허</option><option>계약자료</option><option>요청서류</option><option>기타자료</option></select></Field>
+            <Field label="자료종류" required><select value={uploadCategory} onChange={(event) => { setUploadCategory(event.target.value as CompanyDocument['category'] | ''); setUploadConsent(false); setUploadError(''); }} className={inputClass} required><option value="">자료종류 선택</option><option>사업자등록증</option><option>크레탑</option><option>재무제표</option><option value="상담녹취">녹취자료</option><option>인증·특허</option><option>계약자료</option><option>요청서류</option><option>기타자료</option></select></Field>
             <Field label="자료명" required><input value={uploadTitle} onChange={(event) => { setUploadTitle(event.target.value); setUploadConsent(false); setUploadError(''); }} maxLength={COMPANY_FILE_TITLE_MAX_LENGTH} required className={inputClass} /></Field>
-            <div className="md:col-span-2"><label className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 px-4 text-center hover:border-sky-300 hover:bg-sky-50"><Upload className="size-7 text-[#0877b8]" aria-hidden="true" /><span className="mt-3 text-sm font-semibold text-slate-800">{uploadFile?.name || 'PDF·이미지·엑셀·워드·녹취 파일 선택'}</span><span className="mt-1 text-xs text-slate-500">파일당 25MB 이하 · MP3, M4A, WAV 녹취 포함</span><input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.docx,.txt,.mp3,.m4a,.wav" className="sr-only" onChange={(event) => { const file = event.target.files?.[0] ?? null; setUploadFile(file); if (file && documentCategoryFromFileName(file.name) === '상담녹취') setUploadCategory('상담녹취'); setUploadConsent(false); setUploadError(''); }} /></label></div>
+            <div className="md:col-span-2"><label className="flex min-h-32 cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 px-4 text-center hover:border-sky-300 hover:bg-sky-50"><Upload className="size-7 text-[#0877b8]" aria-hidden="true" /><span className="mt-3 text-sm font-semibold text-slate-800">{uploadFile?.name || 'PDF·이미지·엑셀·워드·녹취 파일 선택'}</span><span className="mt-1 text-xs text-slate-500">파일당 25MB 이하 · MP3, M4A, WAV 녹취 포함</span><input type="file" accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls,.docx,.txt,.mp3,.m4a,.wav" className="sr-only" onChange={(event) => { setUploadFile(event.target.files?.[0] ?? null); setUploadConsent(false); setUploadError(''); }} /></label></div>
             <label className="md:col-span-2 flex cursor-pointer items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm font-semibold text-slate-700"><input type="checkbox" checked={uploadConsent} onChange={(event) => { setUploadConsent(event.target.checked); setUploadError(''); }} className="mt-1 size-4 accent-[#0877b8]" /><span>기업으로부터 자료 제출 권한을 확인했고 불필요한 개인정보를 마스킹했습니다. 녹취자료는 저장·내부 검토·담당 파트너 공유 권한도 확인했습니다.</span></label>
             {uploadError ? <p role="alert" className="md:col-span-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{uploadError}</p> : null}
           </div>
