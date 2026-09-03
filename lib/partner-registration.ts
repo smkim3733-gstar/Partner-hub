@@ -39,7 +39,7 @@ export type PartnerRegistration = {
   phone: string;
   affiliation: string;
   email: string;
-  memberType: PartnerType;
+  memberType: PartnerType | '';
 };
 export type RegistrationErrors = Partial<
   Record<keyof PartnerRegistration | 'confirmed', string>
@@ -70,6 +70,18 @@ export const defaultPartnerPermissions = {
 };
 const clean = (value: unknown) =>
   typeof value === 'string' ? value.trim() : '';
+export function partnerTypeSelectionProblem(value: unknown) {
+  return typeof value === 'string' &&
+    partnerTypes.includes(value as PartnerType)
+    ? ''
+    : '파트너 유형을 선택해 주세요.';
+}
+export function partnerTypeSelectionForReview(
+  status: PartnerAccount['status'],
+  currentType: PartnerType,
+): PartnerType | '' {
+  return status === '승인대기' || status === '초대대기' ? '' : currentType;
+}
 export function validatePartnerRegistration(raw: Record<string, unknown>) {
   const value = {
     name: clean(raw.name),
@@ -98,8 +110,8 @@ export function validatePartnerRegistration(raw: Record<string, unknown>) {
     errors.affiliation = '소속은 2~80자로 입력해 주세요.';
   if (value.email.length > 254 || !isValidLoginEmail(value.email))
     errors.email = '올바른 로그인 이메일을 입력해 주세요.';
-  if (!partnerTypes.includes(value.memberType))
-    errors.memberType = '파트너 유형을 선택해 주세요.';
+  const memberTypeProblem = partnerTypeSelectionProblem(value.memberType);
+  if (memberTypeProblem) errors.memberType = memberTypeProblem;
   if (raw.confirmed !== true)
     errors.confirmed = '등록정보와 기본 접근 권한을 확인해 주세요.';
   return { value, errors };

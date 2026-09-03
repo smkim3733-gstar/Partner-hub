@@ -117,7 +117,7 @@ import { AdminPartnerRegistration } from '@/components/admin-partner-registratio
 import { AdminFileInventory } from '@/components/admin-file-inventory';
 import { FileRecoveryNote } from '@/components/file-recovery-note';
 import type { RecoveryControls } from '@/lib/file-recovery';
-import { partnerTypes, type PartnerType, type PartnerAccount as TraineeMember, type PartnerRegistrationResult } from '@/lib/partner-registration';
+import { partnerTypes, partnerTypeSelectionForReview, partnerTypeSelectionProblem, type PartnerType, type PartnerAccount as TraineeMember, type PartnerRegistrationResult } from '@/lib/partner-registration';
 import { applicationAttachmentCategoryProblem, companyCategoryLabel, companyFileProblem, applicationAttachmentTitle, MAX_APPLICATION_FILES, type ApplicationAttachment } from '@/lib/company-file-policy';
 import {
   countPilotSeedRecords,
@@ -2595,9 +2595,11 @@ function AccessManagement({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedEmail, setSelectedEmail] = useState('');
   const [selectedEmailError, setSelectedEmailError] = useState('');
-  const [selectedMemberType, setSelectedMemberType] = useState<PartnerType>('한기평 컨설턴트');
+  const [selectedMemberType, setSelectedMemberType] = useState<PartnerType | ''>('');
+  const [selectedMemberTypeError, setSelectedMemberTypeError] = useState('');
   const [deleteConfirming, setDeleteConfirming] = useState(false);
   const selectedEmailRef = useRef<HTMLInputElement>(null);
+  const selectedMemberTypeRef = useRef<HTMLSelectElement>(null);
 
   const filteredMembers = members.filter((member) => {
     const keywordMatch = `${member.name} ${member.email} ${member.phone ?? ''} ${member.affiliation ?? ''} ${partnerTypeOf(member)}`.toLowerCase().includes(query.toLowerCase());
@@ -2617,7 +2619,8 @@ function AccessManagement({
     setSelectedId(member.id);
     setSelectedEmail(member.email);
     setSelectedEmailError('');
-    setSelectedMemberType(partnerTypeOf(member));
+    setSelectedMemberType(partnerTypeSelectionForReview(member.status, partnerTypeOf(member)));
+    setSelectedMemberTypeError('');
     setDeleteConfirming(false);
   }
 
@@ -2625,7 +2628,8 @@ function AccessManagement({
     setSelectedId(null);
     setSelectedEmail('');
     setSelectedEmailError('');
-    setSelectedMemberType('한기평 컨설턴트');
+    setSelectedMemberType('');
+    setSelectedMemberTypeError('');
     setDeleteConfirming(false);
   }
 
@@ -2641,6 +2645,12 @@ function AccessManagement({
 
   function saveSelectedMember() {
     if (!selectedMember) return;
+    const memberTypeError = partnerTypeSelectionProblem(selectedMemberType);
+    if (memberTypeError) {
+      setSelectedMemberTypeError(memberTypeError);
+      selectedMemberTypeRef.current?.focus();
+      return;
+    }
     const emailError = validateEmail(selectedEmail, selectedMember.id);
     if (emailError) {
       setSelectedEmailError(emailError);
@@ -2652,7 +2662,7 @@ function AccessManagement({
       member.id === selectedMember.id ? {
         ...member,
         email: nextEmail,
-        memberType: selectedMemberType,
+        memberType: selectedMemberType as PartnerType,
         role: member.role === '리더 파트너' ? member.role : '일반 파트너',
       } : member,
     ));
@@ -2662,6 +2672,12 @@ function AccessManagement({
 
   function approveSelectedMember() {
     if (!selectedMember || !['승인대기', '초대대기'].includes(selectedMember.status)) return;
+    const memberTypeError = partnerTypeSelectionProblem(selectedMemberType);
+    if (memberTypeError) {
+      setSelectedMemberTypeError(memberTypeError);
+      selectedMemberTypeRef.current?.focus();
+      return;
+    }
     const emailError = validateEmail(selectedEmail, selectedMember.id);
     if (emailError) {
       setSelectedEmailError(emailError);
@@ -2671,7 +2687,7 @@ function AccessManagement({
     setMembers((current) => current.map((member) => member.id === selectedMember.id ? {
       ...member,
       email: selectedEmail.trim().toLowerCase(),
-      memberType: selectedMemberType,
+      memberType: selectedMemberType as PartnerType,
       role: '일반 파트너',
       status: '활성',
     } : member));
@@ -2811,7 +2827,7 @@ function AccessManagement({
                 {selectedEmailError ? <p id="selected-email-error" role="alert" className="mt-2 text-sm font-semibold text-red-700">{selectedEmailError}</p> : null}
               </div>
               <div className="grid gap-4 rounded-2xl border border-blue-100 bg-blue-50/60 p-4 sm:grid-cols-2">
-                <Field label="파트너 유형" required><select value={selectedMemberType} onChange={(event) => setSelectedMemberType(event.target.value as PartnerType)} className={inputClass}>{partnerTypes.map((type) => <option key={type}>{type}</option>)}</select></Field>
+                <Field label="파트너 유형" required><select ref={selectedMemberTypeRef} value={selectedMemberType} onChange={(event) => { setSelectedMemberType(event.target.value as PartnerType | ''); setSelectedMemberTypeError(''); }} className={inputClass} required aria-invalid={Boolean(selectedMemberTypeError)} aria-describedby={selectedMemberTypeError ? 'selected-member-type-error' : undefined}><option value="">파트너 유형 선택</option>{partnerTypes.map((type) => <option key={type}>{type}</option>)}</select>{selectedMemberTypeError ? <span id="selected-member-type-error" role="alert" className="mt-2 block text-sm font-semibold text-red-700">{selectedMemberTypeError}</span> : null}</Field>
                 {['승인대기', '초대대기'].includes(selectedMember.status) ? <Field label="신청상태"><input value="대표 승인대기" readOnly className={`${inputClass} bg-amber-50 text-amber-800`} /></Field> : <Field label="로그인 상태"><select value={selectedMember.status} onChange={(event) => updateSelectedMember({ status: event.target.value as TraineeMember['status'] })} className={inputClass}><option>활성</option><option>정지</option></select></Field>}
               </div>
               <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2"><div><p className="text-xs text-slate-500">연락처</p><p className="mt-1 text-sm font-bold text-slate-800">{selectedMember.phone || '미등록'}</p></div><div><p className="text-xs text-slate-500">소속</p><p className="mt-1 text-sm font-bold text-slate-800">{selectedMember.affiliation || '기존 계정'}</p></div></div>

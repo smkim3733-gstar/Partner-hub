@@ -35,7 +35,7 @@ const emptyForm: PartnerRegistration = {
   phone: '',
   affiliation: '',
   email: '',
-  memberType: '한기평 컨설턴트',
+  memberType: '',
 };
 const fields = [
   {
@@ -297,6 +297,7 @@ export function AdminPartnerRegistration({
                       : undefined
                   }
                 >
+                  <option value="">파트너 유형 선택</option>
                   {partnerTypes.map((type) => (
                     <option key={type}>{type}</option>
                   ))}

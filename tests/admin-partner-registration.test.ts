@@ -14,6 +14,8 @@ import {
 import {
   defaultPartnerPermissions,
   membersRevisionOf,
+  partnerTypeSelectionForReview,
+  partnerTypeSelectionProblem,
   sameMemberRecords,
   registrationFieldUpdate,
   validatePartnerRegistration,
@@ -146,7 +148,8 @@ void test('direct-registration UI provides four empty labeled fields, four partn
     assert.match(html, new RegExp(`id="partner-register-${key}"`));
   }
   assert.equal((html.match(/<input[^>]*value=""/g) ?? []).length, 4);
-  assert.equal((html.match(/<option(?: |>)/g) ?? []).length, 4);
+  assert.equal((html.match(/<option(?: |>)/g) ?? []).length, 5);
+  assert.match(html, /<option value="" selected="">파트너 유형 선택<\/option>/);
   assert.match(html, /type="checkbox"/);
   assert.ok(!html.includes('checked=""'));
   assert.match(html, /관리자 권한과 견적·계약 열람 권한은 부여하지 않습니다/);
@@ -328,6 +331,20 @@ void test('retry uses the same account; request id cannot be reused for differen
   const summary = await readDuplicateRequestSummary();
   assert.equal(summary.totalSafeRetries, 1);
   assert.equal(summary.totalRequestKeyConflicts, 1);
+});
+
+void test('partner type requires an explicit allowed selection', () => {
+  assert.equal(partnerTypeSelectionProblem(''), '파트너 유형을 선택해 주세요.');
+  assert.equal(partnerTypeSelectionProblem('관리자'), '파트너 유형을 선택해 주세요.');
+  for (const memberType of ['한기평 컨설턴트', '타사 컨설턴트', '보험설계사', '기타'])
+    assert.equal(partnerTypeSelectionProblem(memberType), '');
+});
+
+void test('pending-account review never inherits a partner type automatically', () => {
+  assert.equal(partnerTypeSelectionForReview('승인대기', '한기평 컨설턴트'), '');
+  assert.equal(partnerTypeSelectionForReview('초대대기', '보험설계사'), '');
+  assert.equal(partnerTypeSelectionForReview('활성', '타사 컨설턴트'), '타사 컨설턴트');
+  assert.equal(partnerTypeSelectionForReview('정지', '기타'), '기타');
 });
 
 void test('simultaneous independent creates preserve both; concurrent identical requests create only once', async () => {
