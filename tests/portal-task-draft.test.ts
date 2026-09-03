@@ -4,7 +4,9 @@ import {
   PORTAL_TASK_COMPANY_MAX_LENGTH,
   PORTAL_TASK_DUE_MAX_LENGTH,
   PORTAL_INTERNAL_TASK_COMPANY,
+  PORTAL_TASK_KINDS,
   PORTAL_TASK_TITLE_MAX_LENGTH,
+  emptyPortalTaskClassification,
   preparePortalTaskDraft,
 } from '../lib/portal-task-draft';
 import { SUPPORT_REQUEST_COMPANY } from '../lib/support-request-metrics';
@@ -23,8 +25,22 @@ void test('task draft trims required operational input without inventing values'
       company: '세림테크',
       due: '9월 5일 16:00',
       dueState: 'upcoming',
+      kind: '서류요청',
     },
   });
+});
+
+void test('new task starts without an invented kind or support category', () => {
+  assert.deepEqual(emptyPortalTaskClassification(), { kind: '', supportCategory: '' });
+  assert.deepEqual(
+    preparePortalTaskDraft({ title: '업무', company: '회사', due: '오늘', dueState: 'today', kind: '' }),
+    { ok: false, error: '업무유형을 선택해 주세요.' },
+  );
+  assert.deepEqual(
+    preparePortalTaskDraft({ title: '업무', company: '회사', due: '오늘', dueState: 'today', kind: '임의업무' }),
+    { ok: false, error: '업무유형을 선택해 주세요.' },
+  );
+  assert.deepEqual(PORTAL_TASK_KINDS, ['서류요청', '상담', '견적서', '계약서', '사후관리', '내부업무', '지원요청']);
 });
 
 void test('support request uses its fixed non-company scope', () => {
@@ -34,6 +50,7 @@ void test('support request uses its fixed non-company scope', () => {
     due: '오늘',
     dueState: 'today',
     kind: '지원요청',
+    supportCategory: 'account_access',
   }), {
     ok: true,
     value: {
@@ -41,7 +58,21 @@ void test('support request uses its fixed non-company scope', () => {
       company: SUPPORT_REQUEST_COMPANY,
       due: '오늘',
       dueState: 'today',
+      kind: '지원요청',
+      supportCategory: 'account_access',
     },
+  });
+});
+
+void test('support request requires an explicit allowed category', () => {
+  const base = { title: '도움 요청', company: '', due: '오늘', dueState: 'today', kind: '지원요청' };
+  assert.deepEqual(preparePortalTaskDraft(base), {
+    ok: false,
+    error: '지원 요청 유형을 선택해 주세요.',
+  });
+  assert.deepEqual(preparePortalTaskDraft({ ...base, supportCategory: '임의분류' }), {
+    ok: false,
+    error: '지원 요청 유형을 선택해 주세요.',
   });
 });
 
@@ -59,6 +90,7 @@ void test('internal work uses its fixed non-company scope', () => {
       company: PORTAL_INTERNAL_TASK_COMPANY,
       due: '금요일',
       dueState: 'upcoming',
+      kind: '내부업무',
     },
   });
 });

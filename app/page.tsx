@@ -150,8 +150,11 @@ import {
   PORTAL_TASK_COMPANY_MAX_LENGTH,
   PORTAL_TASK_DUE_MAX_LENGTH,
   PORTAL_INTERNAL_TASK_COMPANY,
+  PORTAL_TASK_KINDS,
   PORTAL_TASK_TITLE_MAX_LENGTH,
+  emptyPortalTaskClassification,
   preparePortalTaskDraft,
+  type PortalTaskKind,
 } from '@/lib/portal-task-draft';
 
 type View =
@@ -212,7 +215,7 @@ type WorkTask = {
   id: string;
   company: string;
   title: string;
-  kind: '서류요청' | '상담' | '견적서' | '계약서' | '사후관리' | '내부업무' | '지원요청';
+  kind: PortalTaskKind;
   assignee: string;
   partnerMemberId?: string;
   caseId?: string;
@@ -2163,8 +2166,9 @@ function WorkManagement({
   const [addOpen, setAddOpen] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newCompany, setNewCompany] = useState('');
-  const [newKind, setNewKind] = useState<WorkTask['kind']>('내부업무');
-  const [newSupportCategory, setNewSupportCategory] = useState<SupportCategory>('account_access');
+  const initialClassification = emptyPortalTaskClassification();
+  const [newKind, setNewKind] = useState<WorkTask['kind'] | ''>(initialClassification.kind);
+  const [newSupportCategory, setNewSupportCategory] = useState<SupportCategory | ''>(initialClassification.supportCategory);
   const [newMemberId, setNewMemberId] = useState(isAdmin ? '' : currentMemberId ?? '');
   const [newDue, setNewDue] = useState('');
   const [newDueState, setNewDueState] = useState<WorkTask['dueState'] | ''>('');
@@ -2202,6 +2206,26 @@ function WorkManagement({
     notify(`${task.title} 지원 요청의 처리를 시작했습니다.`);
   }
 
+  function resetTaskDraft() {
+    setNewTitle('');
+    setNewCompany('');
+    setNewKind(initialClassification.kind);
+    setNewSupportCategory(initialClassification.supportCategory);
+    setNewMemberId(isAdmin ? '' : currentMemberId ?? '');
+    setNewDue('');
+    setNewDueState('');
+  }
+
+  function openTaskDialog() {
+    resetTaskDraft();
+    setAddOpen(true);
+  }
+
+  function closeTaskDialog() {
+    resetTaskDraft();
+    setAddOpen(false);
+  }
+
   function addTask() {
     const prepared = preparePortalTaskDraft({
       title: newTitle,
@@ -2209,6 +2233,7 @@ function WorkManagement({
       due: newDue,
       dueState: newDueState,
       kind: newKind,
+      supportCategory: newSupportCategory,
     });
     if (!prepared.ok) {
       notify(prepared.error);
@@ -2222,8 +2247,8 @@ function WorkManagement({
         id: `task-${crypto.randomUUID()}`,
         company: prepared.value.company,
         title: prepared.value.title,
-        kind: newKind,
-        ...(newKind === '지원요청' ? { supportCategory: newSupportCategory } : {}),
+        kind: prepared.value.kind,
+        ...(prepared.value.supportCategory ? { supportCategory: prepared.value.supportCategory } : {}),
         ...assignment,
         due: prepared.value.due,
         dueState: prepared.value.dueState,
@@ -2233,13 +2258,7 @@ function WorkManagement({
       },
       ...current,
     ]);
-    setNewTitle('');
-    setNewCompany('');
-    setNewKind('내부업무');
-    setNewSupportCategory('account_access');
-    setNewMemberId(isAdmin ? '' : currentMemberId ?? '');
-    setNewDue('');
-    setNewDueState('');
+    resetTaskDraft();
     setAddOpen(false);
     notify('새 업무를 등록했습니다. 담당자 업무·알림에 즉시 표시됩니다.');
   }
@@ -2250,7 +2269,7 @@ function WorkManagement({
         eyebrow={isAdmin ? '누락 방지 통합관리' : '내 담당업무'}
         title={isAdmin ? '업무·알림 관리' : `${currentName} 파트너 업무·알림`}
         description={isAdmin ? '상담 뒤 생성되는 후속조치와 직접 등록한 업무를 담당자·마감일 기준으로 추적합니다.' : '본인에게 배정된 기업 업무만 표시되며 완료 여부가 대표 화면에도 함께 반영됩니다.'}
-        action={<PrimaryButton onClick={() => setAddOpen(true)}><Plus className="size-4" aria-hidden="true" /> 업무 추가</PrimaryButton>}
+        action={<PrimaryButton onClick={openTaskDialog}><Plus className="size-4" aria-hidden="true" /> 업무 추가</PrimaryButton>}
       />
 
       <section aria-label="업무 현황 요약" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -2305,19 +2324,19 @@ function WorkManagement({
 
       <div className="mt-6 rounded-2xl border border-blue-100 bg-blue-50/70 p-5"><div className="flex items-start gap-3"><Bell className="mt-0.5 size-5 shrink-0 text-[#0877b8]" aria-hidden="true" /><div><p className="text-sm font-bold text-[#15375b]">사이트 알림 기준</p><p className="mt-1 text-xs leading-5 text-slate-600">오늘 마감·기한 지연 운영 업무는 상단과 메뉴의 알림 숫자에 포함됩니다. 가상 예시 업무와 완료 업무는 제외하며, 상담 저장 시 선택한 후속조치는 이 목록에 추가됩니다.</p></div></div></div>
 
-      {addOpen ? <PortalDialog titleId="task-modal-title" onClose={() => setAddOpen(false)}>
+      {addOpen ? <PortalDialog titleId="task-modal-title" onClose={closeTaskDialog}>
         <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl">
           <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">독립 업무 등록</p><h2 id="task-modal-title" className="mt-1 text-xl font-bold">새 업무 추가</h2><p className="mt-1 text-sm text-slate-500">상담 단계와 무관하게 필요한 업무를 즉시 만들 수 있습니다.</p></div><DialogClose className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="업무 추가 닫기"><X className="size-5" aria-hidden="true" /></DialogClose></div>
           <div className="grid max-h-[65vh] gap-5 overflow-y-auto p-5 md:grid-cols-2">
             <div className="md:col-span-2"><Field label="업무명" required><input value={newTitle} onChange={(event) => setNewTitle(event.target.value)} className={inputClass} maxLength={PORTAL_TASK_TITLE_MAX_LENGTH} required placeholder="예: 추가서류 제출 여부 확인" /></Field></div>
             {newKind === '지원요청' || newKind === '내부업무' ? <Field label="업무 범위"><input value={newKind === '지원요청' ? SUPPORT_REQUEST_COMPANY : PORTAL_INTERNAL_TASK_COMPANY} className={inputClass} disabled /></Field> : <Field label="기업명" required><input value={newCompany} onChange={(event) => setNewCompany(event.target.value)} className={inputClass} maxLength={PORTAL_TASK_COMPANY_MAX_LENGTH} required placeholder="예: 세림테크" /></Field>}
-            <Field label="업무유형" required><select value={newKind} onChange={(event) => setNewKind(event.target.value as WorkTask['kind'])} className={inputClass}><option>서류요청</option><option>상담</option><option>견적서</option><option>계약서</option><option>사후관리</option><option>내부업무</option><option>지원요청</option></select></Field>
-            {newKind === '지원요청' ? <Field label="지원 요청 유형" required><select value={newSupportCategory} onChange={(event) => setNewSupportCategory(event.target.value as SupportCategory)} className={inputClass}>{Object.entries(SUPPORT_CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field> : null}
+            <Field label="업무유형" required><select value={newKind} onChange={(event) => { setNewKind(event.target.value as WorkTask['kind'] | ''); setNewCompany(''); setNewSupportCategory(''); }} className={inputClass} required><option value="">업무유형 선택</option>{PORTAL_TASK_KINDS.map((kind) => <option key={kind}>{kind}</option>)}</select></Field>
+            {newKind === '지원요청' ? <Field label="지원 요청 유형" required><select value={newSupportCategory} onChange={(event) => setNewSupportCategory(event.target.value as SupportCategory | '')} className={inputClass} required><option value="">지원 요청 유형 선택</option>{Object.entries(SUPPORT_CATEGORY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field> : null}
             <Field label="담당 계정" required hint="이메일로 동명이인을 구별합니다."><select value={newMemberId} onChange={(event) => setNewMemberId(event.target.value)} className={inputClass} disabled={!isAdmin}>{isAdmin ? <option value="">김성민 대표 · 대표 전용</option> : null}{members.filter((member) => member.status === '활성').map((member) => <option key={member.id} value={member.id}>{member.name.replace('(가상)', '').trim()} · {member.email}</option>)}</select></Field>
             <Field label="마감일" required><input value={newDue} onChange={(event) => setNewDue(event.target.value)} className={inputClass} maxLength={PORTAL_TASK_DUE_MAX_LENGTH} required placeholder="예: 9월 5일 또는 오늘 16:00" /></Field>
             <div className="md:col-span-2"><Field label="마감 구분" required hint="오늘 마감·기한 지연 선택은 상단 알림과 확인 필요 목록의 기준입니다."><div className="grid gap-2 sm:grid-cols-3">{[['upcoming', '예정'], ['today', '오늘 마감'], ['overdue', '기한 지연']].map(([value, label]) => <button key={value} type="button" aria-pressed={newDueState === value} onClick={() => setNewDueState(value as WorkTask['dueState'])} className={`min-h-11 rounded-xl border px-4 text-sm font-semibold ${newDueState === value ? 'border-[#0877b8] bg-sky-50 text-[#075f93]' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>{label}</button>)}</div></Field></div>
           </div>
-          <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={() => setAddOpen(false)}>취소</SecondaryButton><PrimaryButton onClick={addTask}><Check className="size-4" aria-hidden="true" /> 업무 등록</PrimaryButton></div>
+          <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-end sm:px-5"><SecondaryButton onClick={closeTaskDialog}>취소</SecondaryButton><PrimaryButton onClick={addTask}><Check className="size-4" aria-hidden="true" /> 업무 등록</PrimaryButton></div>
         </div>
       </PortalDialog> : null}
     </>
