@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import type { RecoveryControls, RecoveryPreview } from '@/lib/file-recovery';
 import { FileRecoverySubmission } from '@/lib/file-recovery-submission';
+import { readFileRecoveryPreviewResponse } from '@/lib/file-recovery-preview-response';
 
 export function RecoverOriginal({
   fileId,
@@ -30,11 +31,7 @@ export function RecoverOriginal({
         `/api/admin/file-inventory/${encodeURIComponent(fileId)}/recovery`,
         { cache: 'no-store' },
       );
-      const result = (await response.json()) as RecoveryPreview & {
-        error?: string;
-      };
-      if (!response.ok)
-        throw new Error(result.error || '회수 조건을 확인하지 못했습니다.');
+      const result = await readFileRecoveryPreviewResponse(response, fileId);
       setPreview(result);
       setConfirmed(false);
       requestId.current = crypto.randomUUID();

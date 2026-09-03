@@ -15,7 +15,7 @@ import { readPortalState, writePortalState } from '../lib/portal-state';
 import { flowDatabase } from '../lib/consulting-flow-store';
 import { listIntakeSources } from '../lib/consulting-intake-sources';
 import { newConsultingFlow } from '../lib/consulting-flow';
-import type { RecoveryPreview } from '../lib/file-recovery';
+import { readFileRecoveryPreviewResponse } from '../lib/file-recovery-preview-response';
 import { portalStateId } from '../db/schema';
 import { portalRevision } from '../lib/portal-revision';
 import { FileRecoverySubmission } from '../lib/file-recovery-submission';
@@ -295,7 +295,7 @@ void test('review status changes, unrelated work and reordered JSON preserve rec
 async function body() {
   const response = await preview(request(), context);
   assert.equal(response.status, 200, await response.clone().text());
-  const review = (await response.json()) as RecoveryPreview;
+  const review = await readFileRecoveryPreviewResponse(response, id);
   assert.doesNotMatch(
     JSON.stringify(review),
     /storage_key|company-source|private-upload|private-hash/,
