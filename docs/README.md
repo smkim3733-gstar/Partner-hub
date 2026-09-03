@@ -31,6 +31,7 @@
 | [기업자료 등록 입력 안전성](PORTAL_DOCUMENT_ENTRY_SAFETY_2026_09_03.md) | 가상·이전 기본값 제거, 메타정보 검증, 변경 후 동의 재확인과 폼 초기화 |
 | [새 업무 분류 명시 선택 안전성](PORTAL_TASK_CLASSIFICATION_SAFETY_2026_09_03.md) | 빈 업무유형·지원분류, 공용 허용 목록 검증과 검증 결과 저장 |
 | [새 업무 입력 안전성](PORTAL_TASK_ENTRY_SAFETY_2026_09_03.md) | 가상 기본값 제거, 필수 입력·길이 검증과 성공 후 초기화 |
+| [직접 업무 원자적 등록 안전성](PORTAL_TASK_COMMIT_SAFETY_2026_09_03.md) | 폼별 고정 UUID, 중복 차단과 현재 담당 계정 재검증 |
 | [운영 업무 사이트 알림](PORTAL_TASK_NOTIFICATIONS_2026_09_03.md) | 운영 업무만 세는 알림 숫자와 데스크톱·모바일 메뉴 표시 |
 | [모바일 기업·신청번호 검색](MOBILE_CASE_SEARCH_2026_09_03.md) | 공용 검색 폼, 모바일 메뉴 검색과 고유 입력·자동완성 ID |
 | [진행현황 CSV 내보내기](PIPELINE_CSV_EXPORT_2026_09_03.md) | 대표용 필터 결과 CSV, 가상 예시·민감 필드 제외와 수식 주입 차단 |

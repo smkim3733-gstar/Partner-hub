@@ -38,7 +38,8 @@ import { DialogClose } from '@/components/ui/dialog';
 import { PortalNavigationButton } from '@/components/portal-navigation';
 import { PortalCaseSearchForm } from '@/components/portal-case-search-form';
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
-import { applyCaseAssignmentDraft, assignmentMemberId, assignmentDisplayName, createCaseAssignmentDraft, newTaskAssignment, type CaseAssignmentDraft } from '@/lib/assignment-display';
+import { applyCaseAssignmentDraft, assignmentMemberId, assignmentDisplayName, createCaseAssignmentDraft, type CaseAssignmentDraft } from '@/lib/assignment-display';
+import { commitPortalTask } from '@/lib/portal-task-commit';
 import { prependApplicationCase, recordBelongsToCase } from '@/lib/application-case-links';
 import {
   PortalSaveError,
@@ -161,7 +162,6 @@ import {
   PORTAL_TASK_KINDS,
   PORTAL_TASK_TITLE_MAX_LENGTH,
   emptyPortalTaskClassification,
-  preparePortalTaskDraft,
   type PortalTaskKind,
 } from '@/lib/portal-task-draft';
 
@@ -2260,6 +2260,7 @@ function WorkManagement({
   const [newDue, setNewDue] = useState('');
   const [newDueState, setNewDueState] = useState<WorkTask['dueState'] | ''>('');
   const [statusDraft, setStatusDraft] = useState<WorkTaskStatusDraft | null>(null);
+  const taskRequestIdRef = useRef('');
 
   // Do not re-filter server-authorized tasks by a mutable display name.
   const accountTasks = tasks;
@@ -2319,6 +2320,7 @@ function WorkManagement({
     setNewMemberId(isAdmin ? '' : currentMemberId ?? '');
     setNewDue('');
     setNewDueState('');
+    taskRequestIdRef.current = '';
   }
 
   function openTaskDialog() {
@@ -2332,40 +2334,33 @@ function WorkManagement({
   }
 
   function addTask() {
-    const prepared = preparePortalTaskDraft({
-      title: newTitle,
-      company: newCompany,
-      due: newDue,
-      dueState: newDueState,
-      kind: newKind,
-      supportCategory: newSupportCategory,
-    });
-    if (!prepared.ok) {
-      notify(prepared.error);
-      return;
+    taskRequestIdRef.current ||= crypto.randomUUID();
+    try {
+      const saved = commitPortalTask(
+        {
+          requestId: taskRequestIdRef.current,
+          assigneeMemberId: isAdmin ? newMemberId : currentMemberId ?? '',
+          draft: {
+            title: newTitle,
+            company: newCompany,
+            due: newDue,
+            dueState: newDueState,
+            kind: newKind,
+            supportCategory: newSupportCategory,
+          },
+        },
+        tasks,
+        members,
+        isAdmin,
+        currentMemberId,
+      );
+      setTasks(saved.tasks);
+      resetTaskDraft();
+      setAddOpen(false);
+      notify('새 업무를 등록했습니다. 담당자 업무·알림에 즉시 표시됩니다.');
+    } catch (error) {
+      notify(error instanceof Error ? error.message : '업무 내용을 다시 확인해 주세요.');
     }
-    let assignment: ReturnType<typeof newTaskAssignment>;
-    try { assignment = newTaskAssignment(isAdmin ? newMemberId : currentMemberId ?? '', members, isAdmin); }
-    catch (error) { notify(error instanceof Error ? error.message : '담당 계정을 확인해 주세요.'); return; }
-    setTasks((current) => [
-      {
-        id: `task-${crypto.randomUUID()}`,
-        company: prepared.value.company,
-        title: prepared.value.title,
-        kind: prepared.value.kind,
-        ...(prepared.value.supportCategory ? { supportCategory: prepared.value.supportCategory } : {}),
-        ...assignment,
-        due: prepared.value.due,
-        dueState: prepared.value.dueState,
-        status: '대기',
-        priority: prepared.value.dueState === 'today' || prepared.value.dueState === 'overdue' ? '긴급' : '보통',
-        related: '직접 등록',
-      },
-      ...current,
-    ]);
-    resetTaskDraft();
-    setAddOpen(false);
-    notify('새 업무를 등록했습니다. 담당자 업무·알림에 즉시 표시됩니다.');
   }
 
   return (
