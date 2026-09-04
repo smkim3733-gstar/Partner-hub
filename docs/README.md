@@ -38,6 +38,7 @@
 | [상담 FLOW 화면 재시도 지문 정책](FLOW_CLIENT_RETRY_FINGERPRINT_POLICY_2026_09_04.md) | 첨부 실제 바이트·정규 파일명 기반 명령 ID 유지와 파일 수정시각 의존 제거 |
 | [협업신청 첨부 실제 내용 중복 판정 정책](APPLICATION_ATTACHMENT_CONTENT_DEDUPLICATION_POLICY_2026_09_04.md) | 메타정보 충돌 파일 누락 방지, 정규 파일명·실제 바이트 기반 재선택 중복 판정 |
 | [협업신청 첨부 내용 확인 중 제출 잠금 정책](APPLICATION_ATTACHMENT_HASHING_SUBMISSION_LOCK_POLICY_2026_09_04.md) | 바이트 지문 계산 중 제출·임시저장·화면이동 경합과 방금 고른 파일 누락 차단 |
+| [운영 의존성 보안 패치와 잔여 위험](DEPENDENCY_SECURITY_PATCH_AND_RESIDUAL_RISK_2026_09_04.md) | React/RSC·Vite 패치, 미배포 image-size 수정본과 실제 입력 경계, Sites 버전 102 저장·운영 미배포 상태 |
 | [업로드 파일명 정규화 보안 경계](UPLOAD_FILENAME_NORMALIZATION_BOUNDARY_2026_09_04.md) | 기업자료·상담 FLOW 저장 파일명의 공용 Unicode·제어문자·길이 경계 |
 | [파트너 계정 설정 저장 안전성](PARTNER_ACCOUNT_SETTINGS_DRAFT_SAFETY_2026_09_03.md) | 이메일·유형·상태·권한의 저장 전 초안 격리와 취소 폐기 |
 | [진행 담당 계정 변경 확인 안전성](CASE_ASSIGNMENT_CONFIRMATION_SAFETY_2026_09_03.md) | 현재·변경 후 담당 대조, 취소 보존과 저장 직전 재검증 |
