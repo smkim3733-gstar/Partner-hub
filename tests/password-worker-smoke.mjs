@@ -2253,6 +2253,34 @@ try {
     1,
   );
   checks.push('identical ChatGPT registration retries do not rewrite state');
+  const chatGPTOwnedMember = chatGPTState.members.find(
+    (member) => member.email === chatGPTSignup.email,
+  );
+  await db
+    .prepare(`INSERT INTO portal_password_accounts
+      (member_id, email, password_hash, credential_version, created_at, updated_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?5)`)
+    .bind(
+      chatGPTOwnedMember.id,
+      chatGPTSignup.email,
+      'synthetic-chatgpt-owned-hash',
+      'synthetic-chatgpt-owned-version',
+      new Date().toISOString(),
+    )
+    .run();
+  await db.prepare('DELETE FROM portal_auth_limits').run();
+  await expect(
+    await call('/chatgpt-register', chatGPTSignup, chatGPTHeaders),
+    200,
+    'ChatGPT retry accepts the pending member own credential',
+  );
+  assert.equal(
+    JSON.parse(
+      (await db.prepare('SELECT payload FROM portal_state').first()).payload,
+    ).membersRevision,
+    chatGPTRevision,
+  );
+  checks.push('owned credential ChatGPT retry remains a no-op');
 
   const disposableEmail = 'disposable-runtime@example.invalid';
   const disposablePassword = 'disposable runtime test secret 123!';
@@ -2403,6 +2431,41 @@ try {
     'detached-runtime-member',
   );
   checks.push('credential email conflict leaves the detached credential intact');
+  await db.prepare('DELETE FROM portal_auth_limits').run();
+  const reservedChatGPTStateBefore = JSON.parse(
+    (await db.prepare('SELECT payload FROM portal_state').first()).payload,
+  );
+  await expect(
+    await call(
+      '/chatgpt-register',
+      {
+        name: '가상 ChatGPT 예약충돌',
+        phone: '010-0000-0091',
+        affiliation: '가상 예약충돌 소속',
+        email: reservedCredentialEmail,
+      },
+      {
+        'oai-authenticated-user-id': 'synthetic-chatgpt-reserved-user',
+        'oai-authenticated-user-email': reservedCredentialEmail,
+      },
+    ),
+    409,
+    'ChatGPT registration rejects a detached credential email',
+  );
+  const reservedChatGPTStateAfter = JSON.parse(
+    (await db.prepare('SELECT payload FROM portal_state').first()).payload,
+  );
+  assert.equal(
+    reservedChatGPTStateAfter.membersRevision,
+    reservedChatGPTStateBefore.membersRevision,
+  );
+  assert.equal(
+    reservedChatGPTStateAfter.members.some(
+      (member) => member.email === reservedCredentialEmail,
+    ),
+    false,
+  );
+  checks.push('blocked ChatGPT credential collision leaves the roster unchanged');
   assert.equal(outboundRequests, 0);
   checks.push('no external network calls during the isolated pilot');
   console.log(

@@ -16,6 +16,8 @@ import { privateJsonResponse } from '@/lib/private-response';
 import {
   limitAuthenticationAttempts,
   PasswordError,
+  passwordCredentialEmailConflictMessage,
+  passwordCredentialEmailReserved,
 } from '@/lib/password-store';
 
 const MAX_REQUEST_BYTES = 12_000;
@@ -106,7 +108,7 @@ export async function POST(request: Request) {
       );
     }
 
-    await mutatePortalState((rawState) => {
+    await mutatePortalState(async (rawState) => {
       const state = asRegistrationState(rawState);
       if (!state) {
         throw new FlowError(
@@ -131,6 +133,8 @@ export async function POST(request: Request) {
           403,
         );
       }
+      if (await passwordCredentialEmailReserved(email, existing?.id))
+        throw new FlowError(passwordCredentialEmailConflictMessage, 409);
 
       const pendingMember: RegistrationMember = {
         ...existing,

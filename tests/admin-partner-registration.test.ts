@@ -113,9 +113,11 @@ async function created(data = body()) {
   return (await response.json()) as PartnerRegistrationResult;
 }
 beforeEach(async () => {
-  await (await passwordDatabase())
-    .prepare('DELETE FROM portal_password_accounts')
-    .run();
+  const passwordDb = await passwordDatabase();
+  await passwordDb.batch([
+    passwordDb.prepare('DELETE FROM portal_password_accounts'),
+    passwordDb.prepare('DELETE FROM portal_auth_limits'),
+  ]);
   await writePortalState({
     version: 1,
     consultationNumber: 0,
@@ -709,6 +711,73 @@ void test('public self registration still requires matching authenticated email 
       ?.status,
     '정지',
   );
+});
+
+void test('public ChatGPT registration rejects detached credentials but permits the pending member own credential', async () => {
+  const db = await passwordDatabase();
+  const signup = body({ email: 'chatgpt-reserved@example.invalid' });
+  await db
+    .prepare(`INSERT INTO portal_password_accounts
+      (member_id, email, password_hash, credential_version, created_at, updated_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?5)`)
+    .bind(
+      'detached-chatgpt-member',
+      signup.email,
+      'synthetic-detached-chatgpt-hash',
+      'synthetic-detached-chatgpt-version',
+      new Date().toISOString(),
+    )
+    .run();
+  const blocked = await selfRegister(
+    request(signup, signup.email, '/api/register'),
+  );
+  assert.equal(blocked.status, 409, await blocked.clone().text());
+  assert.match(
+    ((await blocked.json()) as { error: string }).error,
+    /비밀번호 자격/,
+  );
+  assert.equal((await state()).members.length, 2);
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT member_id FROM portal_password_accounts WHERE email = ?1',
+        )
+        .bind(signup.email)
+        .first<{ member_id: string }>()
+    )?.member_id,
+    'detached-chatgpt-member',
+  );
+
+  await db
+    .prepare('DELETE FROM portal_password_accounts WHERE email = ?1')
+    .bind(signup.email)
+    .run();
+  assert.equal(
+    (await selfRegister(request(signup, signup.email, '/api/register'))).status,
+    200,
+  );
+  const pending = (await state()).members.find(
+    (member) => member.email === signup.email,
+  )!;
+  await db
+    .prepare(`INSERT INTO portal_password_accounts
+      (member_id, email, password_hash, credential_version, created_at, updated_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?5)`)
+    .bind(
+      pending.id,
+      signup.email,
+      'synthetic-owned-chatgpt-hash',
+      'synthetic-owned-chatgpt-version',
+      new Date().toISOString(),
+    )
+    .run();
+  const revision = membersRevisionOf(await state());
+  assert.equal(
+    (await selfRegister(request(signup, signup.email, '/api/register'))).status,
+    200,
+  );
+  assert.equal(membersRevisionOf(await state()), revision);
 });
 
 void test('public ChatGPT registration rate limits one stable identity across changing client IPs without repeated state writes', async () => {

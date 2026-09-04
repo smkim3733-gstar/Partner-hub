@@ -12,6 +12,7 @@
 | [로그인 세션·설정 링크 발급 커밋 무결성 경계](PASSWORD_ISSUANCE_COMMIT_GUARD_2026_09_05.md)                   | 동시 상태·비밀번호 변경 뒤 늦은 세션·링크 재생성과 최신 링크 삭제 차단                   |
 | [비밀번호 자격 생명주기 무결성 경계](PASSWORD_CREDENTIAL_LIFECYCLE_INTEGRITY_2026_09_05.md)                  | 이메일 변경·회원 삭제의 고아 비밀번호 자격 제거와 정지 계정 자격 보존                   |
 | [비밀번호 자격 이메일 예약 무결성 경계](PASSWORD_CREDENTIAL_EMAIL_RESERVATION_INTEGRITY_2026_09_05.md)    | 분리된 자격 이메일의 대표 직접등록·회원 변경 차단과 동일 회원 복구 허용                 |
+| [ChatGPT 등록 비밀번호 자격 소유자 결속 무결성](CHATGPT_CREDENTIAL_EMAIL_OWNERSHIP_INTEGRITY_2026_09_05.md) | ChatGPT 등록 이메일의 회원 ID·비밀번호 자격 소유자 결속과 분리 자격 차단              |
 | [파트너 유형 명시 선택 안전성](PARTNER_TYPE_SELECTION_SAFETY_2026_09_03.md)                                      | 직접등록·승인대기 유형 자동선택 제거와 허용 유형 검증                                    |
 | [대표 직접등록 응답 검증 안전성](PARTNER_REGISTRATION_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                  | 등록 입력·최소 권한·명단 일관성 검증과 손상 응답 재시도 보호                             |
 | [원본 보관 현황 응답 검증 안전성](FILE_INVENTORY_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                       | 목록·필터·커서·파일 ID·원본 존재와 크기 관계 검증                                        |
