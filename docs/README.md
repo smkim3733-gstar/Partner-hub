@@ -30,6 +30,7 @@
 | [업로드 파일 형식 공용 등록표](UPLOAD_FORMAT_REGISTRY_2026_09_04.md) | 확장자·고정 MIME·실제 내용 판정·파일 선택값의 단일 정책 원천 |
 | [상담 FLOW 목적별 업로드 형식 정책](CONSULTING_FLOW_UPLOAD_POLICY_2026_09_04.md) | 보고서 차수·AI 근거·녹취·추가서류·계약서의 화면·서버 허용 형식 일치 |
 | [상담 FLOW 목적별 업로드 크기 정책](CONSULTING_FLOW_UPLOAD_SIZE_POLICY_2026_09_04.md) | AI 근거·전사문·음성·일반 첨부의 화면·서버 크기 일치와 내용 판독 전 조기 거절 |
+| [상담 FLOW 명령 영수증 Content-Type 정책](FLOW_COMMAND_RECEIPT_CONTENT_TYPE_POLICY_2026_09_04.md) | 브라우저 MIME과 무관한 첨부 멱등 지문, 이전 영수증 호환과 변경 내용 충돌 유지 |
 | [업로드 제한 안내 공용화](UPLOAD_LIMIT_LABEL_REGISTRY_2026_09_04.md) | 기업자료·AI 근거·전사문·음성의 실제 크기·개수 정책과 화면·서버 안내 일치 |
 | [기업자료 업로드 Content-Type 저장 정책](COMPANY_UPLOAD_CONTENT_TYPE_POLICY_2026_09_04.md) | 브라우저 MIME 불신, 응답·D1·R2 고정 MIME과 배포 전후 재시도 호환 |
 | [업로드 파일명 정규화 보안 경계](UPLOAD_FILENAME_NORMALIZATION_BOUNDARY_2026_09_04.md) | 기업자료·상담 FLOW 저장 파일명의 공용 Unicode·제어문자·길이 경계 |
