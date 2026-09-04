@@ -38,7 +38,7 @@
 | [상담 FLOW 화면 재시도 지문 정책](FLOW_CLIENT_RETRY_FINGERPRINT_POLICY_2026_09_04.md)                            | 첨부 실제 바이트·정규 파일명 기반 명령 ID 유지와 파일 수정시각 의존 제거                 |
 | [협업신청 첨부 실제 내용 중복 판정 정책](APPLICATION_ATTACHMENT_CONTENT_DEDUPLICATION_POLICY_2026_09_04.md)      | 메타정보 충돌 파일 누락 방지, 정규 파일명·실제 바이트 기반 재선택 중복 판정              |
 | [협업신청 첨부 내용 확인 중 제출 잠금 정책](APPLICATION_ATTACHMENT_HASHING_SUBMISSION_LOCK_POLICY_2026_09_04.md) | 바이트 지문 계산 중 제출·임시저장·화면이동 경합과 방금 고른 파일 누락 차단               |
-| [브라우저 화면 보안 헤더 경계](BROWSER_PAGE_SECURITY_HEADERS_2026_09_04.md)                                      | Worker·정적 캐시 화면의 클릭재킹·기본 CSP·브라우저 권한 방어와 Sites 버전 105 저장 상태  |
+| [브라우저 화면 보안 헤더 경계](BROWSER_PAGE_SECURITY_HEADERS_2026_09_04.md)                                      | Worker·정적 캐시 화면의 클릭재킹·기본 CSP·브라우저 권한 방어와 Sites 버전 105 운영 반영  |
 | [빌드 도구와 운영 의존성 경계](BUILD_TOOL_RUNTIME_DEPENDENCY_BOUNDARY_2026_09_04.md)                             | shadcn CLI의 빌드 전용 분류, qs 운영 감사 경로 제거와 Sites 버전 103 운영 반영           |
 | [운영 의존성 보안 패치와 잔여 위험](DEPENDENCY_SECURITY_PATCH_AND_RESIDUAL_RISK_2026_09_04.md)                   | React/RSC·Vite 패치, 미배포 image-size 수정본과 실제 입력 경계, Sites 버전 102 운영 반영 |
 | [업로드 파일명 정규화 보안 경계](UPLOAD_FILENAME_NORMALIZATION_BOUNDARY_2026_09_04.md)                           | 기업자료·상담 FLOW 저장 파일명의 공용 Unicode·제어문자·길이 경계                         |

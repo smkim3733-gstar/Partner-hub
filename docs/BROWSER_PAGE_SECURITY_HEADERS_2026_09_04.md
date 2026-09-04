@@ -34,9 +34,10 @@
 - Worker 화면 기능 커밋: `3b41b21b485eecf771eebeb119a5a8bb5654e9be` (`fix: protect browser pages with security headers`)
 - 정적 자산 보완 커밋: `44808687b4b98ae9b097fdabd2456e793a44af96` (`fix: secure static page responses`)
 - GitHub `main`과 Sites 소스 저장소: 보완 커밋까지 반영
-- 현재 공개 운영본: 버전 104, 배포 `appgdep_6a9ad4b896d08191a7854d79d24ec0e7`
+- 버전 104 배포: `appgdep_6a9ad4b896d08191a7854d79d24ec0e7`
 - 버전 104 운영 점검: `/`, `/account`, `/account/setup` HTTP 200과 보호 API 3곳의 익명 HTTP 401 확인. 캐시 우회 화면은 새 헤더가 있었지만 기본 `/`와 `/account/setup`의 정적 자산 응답에는 헤더가 없어 보완함
 - Sites 저장 버전 105: `appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_1164854357a48191b8e1e01e8eec6fd1`, 소스 `44808687b4b98ae9b097fdabd2456e793a44af96`
-- 버전 105 배포: 플랫폼 안전 심사가 추가 정적 캐시 보안 변경에 대한 버전 105 명시 승인을 요구해 시작하지 않음
+- 현재 공개 운영본: 버전 105, 배포 `appgdep_6a9ad7b533b88191bea822ed2dd10a11`
+- 버전 105 운영 점검: 캐시 우회 없이 `/`, `/account`, `/account/setup` HTTP 200과 여섯 가지 화면 보안 헤더 확인. 보호 API 3곳은 익명 HTTP 401과 `private, no-store, max-age=0`, 참조정보 차단, MIME 오인 방지 헤더 유지
 
-버전 105 승인 뒤 기존 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결을 유지해 배포하고, 캐시 우회 없이 공개 화면 세 곳의 새 헤더와 보호 API의 기존 401·비공개 보안 헤더를 다시 확인한다.
+버전 105는 기존 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결을 유지해 배포했다. 운영 점검은 조회만 수행했고 고객 데이터·원본·메일·유료 AI를 변경하거나 실행하지 않았다.
