@@ -6,6 +6,7 @@ import {
   recheckFlowAccess,
 } from '@/lib/consulting-flow-store';
 import { readRouteParam } from '@/lib/request-path';
+import { privateResponseHeaders } from '@/lib/private-response';
 export const dynamic = 'force-dynamic';
 export async function GET(
   request: Request,
@@ -37,12 +38,10 @@ export async function GET(
       throw error;
     }
     return new Response(object.body, {
-      headers: {
+      headers: privateResponseHeaders({
         'content-type': file.contentType,
         'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-        'cache-control': 'private, no-store',
-        'x-content-type-options': 'nosniff',
-      },
+      }),
     });
   } catch (error) {
     return flowErrorResponse(error);

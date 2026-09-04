@@ -85,3 +85,21 @@ void test('API JSON routes stay behind the shared private response boundary', as
     assert.match(source, /privateJsonResponse/);
   }
 });
+
+void test('API stream, document and empty responses use the same private headers', async () => {
+  const root = process.cwd();
+  for (const file of await sourceFiles(path.resolve(root, 'app/api'))) {
+    const source = await readFile(file, 'utf8');
+    assert.doesNotMatch(
+      source,
+      /['"]cache-control['"]\s*:/,
+      `${path.relative(root, file)}: direct cache policy`,
+    );
+    if (/new Response\s*\(/.test(source))
+      assert.match(
+        source,
+        /privateResponseHeaders/,
+        `${path.relative(root, file)}: missing private response headers`,
+      );
+  }
+});

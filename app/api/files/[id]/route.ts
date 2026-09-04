@@ -15,7 +15,10 @@ import {
 } from '@/lib/company-file-access';
 import { isCrossSiteRequest } from '@/lib/request-origin';
 import { readRouteParam, RouteParamError } from '@/lib/request-path';
-import { privateJsonResponse } from '@/lib/private-response';
+import {
+  privateJsonResponse,
+  privateResponseHeaders,
+} from '@/lib/private-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -98,12 +101,10 @@ export async function GET(
     const encodedName = encodeURIComponent(row.original_name);
 
     return new Response(object.body, {
-      headers: {
-        'cache-control': 'private, no-store',
+      headers: privateResponseHeaders({
         'content-disposition': `attachment; filename*=UTF-8''${encodedName}`,
         'content-type': row.content_type || 'application/octet-stream',
-        'x-content-type-options': 'nosniff',
-      },
+      }),
     });
   } catch (error) {
     const response = errorResponse(error);
@@ -152,7 +153,7 @@ export async function DELETE(
         );
       return new Response(null, {
         status: 204,
-        headers: { 'cache-control': 'private, no-store' },
+        headers: privateResponseHeaders(),
       });
     }
     const canDelete =
@@ -187,7 +188,7 @@ export async function DELETE(
       if (await findCompanyFile(id)) throw fileStateConflict();
       return new Response(null, {
         status: 204,
-        headers: { 'cache-control': 'private, no-store' },
+        headers: privateResponseHeaders(),
       });
     }
     await companyFileBucket().delete(row.storage_key);
@@ -202,7 +203,7 @@ export async function DELETE(
     ]);
     return new Response(null, {
       status: 204,
-      headers: { 'cache-control': 'private, no-store' },
+      headers: privateResponseHeaders(),
     });
   } catch (error) {
     const response = errorResponse(error);
