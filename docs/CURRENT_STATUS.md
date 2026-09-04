@@ -80,7 +80,7 @@
 
 [서버 변경 요청 출처 경계 감사](SERVER_MUTATION_ORIGIN_BOUNDARY_2026_09_04.md)에서는 파일 업로드·삭제와 Step 0 생성의 개별 출처 검사를 공용 교차 사이트 판별로 통합하고, 대표 직접등록·ChatGPT 자가가입·포털 저장·신청 임시저장·원본 회수의 검사를 인증과 저장소 접근보다 앞당겼다. 자동 테스트 414개, 격리 workerd/D1/R2 검사 129개, 타입검사·전체 lint·프로덕션 빌드와 localhost `/` HTTP 200 응답을 확인했다. 실제 운영 쓰기·메일·유료 AI·외부 요청은 0건이다. 사용자 운영 승인 후 커밋 `d5cec0b`를 GitHub `main`과 기존 공개 Sites 버전 75에 반영했으며, D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 범위를 유지했다. 운영 `/`, `/account`, `/account/setup`의 HTTP 200 응답과 `outputs/release/server-mutation-origin-deployment.json`을 배포 결과 기준으로 삼는다.
 
-[서버 JSON 요청 파서 통합](SERVER_JSON_REQUEST_PARSER_CONSOLIDATION_2026_09_04.md)에서는 신청 임시저장·원본 회수·상담 FLOW·사이트 비밀번호 인증의 남은 개별 JSON 파서를 공용 스트림 경계로 통합했다. JSON처럼 보이는 잘못된 미디어 유형과 비정상 `Content-Length`를 거절하고 선언 크기·실제 스트림 크기·객체 구조를 함께 검사한다. 멀티파트 업로드는 기존 별도 크기 경계를 유지한다. 자동 테스트 416개, 격리 workerd/D1/R2 검사 129개, 타입검사·전체 lint·프로덕션 빌드와 localhost `/` HTTP 200 응답을 확인했다. 실제 운영 쓰기·메일·유료 AI·외부 요청은 0건이다. 기존 인증·권한·D1/R2 스키마·보관 정책은 변경하지 않았다. GitHub 푸시와 공개 Sites 배포는 사용자 운영 반영 승인 전까지 수행하지 않는다.
+[서버 JSON 요청 파서 통합](SERVER_JSON_REQUEST_PARSER_CONSOLIDATION_2026_09_04.md)에서는 신청 임시저장·원본 회수·상담 FLOW·사이트 비밀번호 인증의 남은 개별 JSON 파서를 공용 스트림 경계로 통합했다. JSON처럼 보이는 잘못된 미디어 유형과 비정상 `Content-Length`를 거절하고 선언 크기·실제 스트림 크기·객체 구조를 함께 검사한다. 멀티파트 업로드는 기존 별도 크기 경계를 유지한다. 자동 테스트 416개, 격리 workerd/D1/R2 검사 129개, 타입검사·전체 lint·프로덕션 빌드와 localhost `/` HTTP 200 응답을 확인했다. 실제 운영 쓰기·메일·유료 AI·외부 요청은 0건이다. 기존 인증·권한·D1/R2 스키마·보관 정책은 변경하지 않았다. 사용자 운영 승인 후 커밋 `9be8ae3`을 GitHub `main`과 공개 Sites 버전 76에 반영했으며, 운영 `/`, `/account`, `/account/setup`의 HTTP 200 응답과 `outputs/release/server-json-request-parser-deployment.json`을 배포 결과 기준으로 삼는다.
 
 운영 고객 파일·명단을 개발용으로 읽거나 복사하지 않는다. 가상 데이터로 테스트하며 실제 계정 등록·메일 발송·유료 AI를 검증 수단으로 사용하지 않는다. 서비스 전체 침투시험, 실제 파트너의 로그인 쿠키 왕복과 전체 레거시 이관은 완료로 표시하지 않는다.
 

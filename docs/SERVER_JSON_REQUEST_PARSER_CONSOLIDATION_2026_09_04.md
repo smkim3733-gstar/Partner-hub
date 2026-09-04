@@ -27,4 +27,4 @@
 - 로컬 Workers `/` HTTP 200 확인
 - 격리검사 중 운영 쓰기, 메일, 유료 AI, 외부 요청 0건
 
-GitHub 푸시와 공개 Sites 배포는 별도 운영 반영 승인 전까지 수행하지 않는다. 승인 전 공개 운영본은 Sites 버전 75이며 기존 D1 `DB`, R2 `AI_SOURCE_FILES` 연결을 그대로 사용한다.
+2026-09-04 사용자 운영 반영 승인 후 커밋 `9be8ae3`을 GitHub `main`과 공개 Sites 버전 76에 반영했다. 기존 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 범위를 유지했으며 `/`, `/account`, `/account/setup`의 HTTP 200 응답을 확인했다. 결과는 `outputs/release/server-json-request-parser-deployment.json`에 기록한다.
