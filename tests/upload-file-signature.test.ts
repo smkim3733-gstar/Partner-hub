@@ -104,7 +104,14 @@ void test('text uploads reject binary controls and unreadable encodings', async 
 });
 
 void test('unregistered extensions fail closed at the content boundary', async () => {
-  for (const name of ['future.bin', 'extensionless'])
+  for (const name of [
+    'future.bin',
+    'extensionless',
+    'untrusted.icns',
+    'untrusted.jxl',
+    'untrusted.heif',
+    'untrusted.heic',
+  ])
     assert.match(
       await uploadFileContentProblem(new File(['unknown'], name)),
       /실제 파일 형식/,
