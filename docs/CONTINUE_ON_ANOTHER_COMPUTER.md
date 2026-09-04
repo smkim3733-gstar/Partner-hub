@@ -6,14 +6,14 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `49d48ce` (`fix: bind flow retries to file bytes`)
-- 최신 기능: 상담 FLOW 화면 재시도를 정규 파일명·고정 MIME·실제 첨부 바이트 지문에 연결하고 파일 수정시각 의존 제거
-- 검증: Node 회귀 검사 460개, 격리 workerd/D1/R2 검사 135개, 타입검사, 전체 lint, 변경 파일 형식검사, 프로덕션 빌드 통과
+- 최신 기능 커밋: `cf19918` (`fix: dedupe application files by bytes`)
+- 최신 기능: 협업신청 첨부 선택을 정규 파일명·고정 MIME·실제 바이트 지문으로 판정해 동일 메타정보의 다른 파일 누락 방지
+- 검증: Node 회귀 검사 461개, 격리 workerd/D1/R2 검사 135개, 타입검사, 전체 lint, 변경 파일 형식검사, 프로덕션 빌드 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
-- Sites 저장 버전: 99 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_0ad2f62e1888819184d37d7637f03394`), 소스 `49d48ceb8442dfa04f16bca9907188c8990ec3ea`
-- 운영 상태: 2026-09-04 자동 운영 승인 원칙에 따라 버전 99를 기존 공개 사이트에 배포했다. 주요 화면 3곳의 HTTP 200, 보호 API 2곳의 익명 HTTP 401과 비공개 보안 헤더를 확인했고 공개 범위와 D1/R2 연결은 변경하지 않았다.
+- Sites 저장 버전: 100 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_0c5238c916388191ad5052b70d2fd28d`), 소스 `cf1991826cfae30c15c87b0aaccda693a312a8e1`
+- 운영 상태: 2026-09-04 자동 운영 승인 원칙에 따라 버전 100을 기존 공개 사이트에 배포했다. 주요 화면 3곳의 HTTP 200, 보호 API 2곳의 익명 HTTP 401과 비공개 보안 헤더를 확인했고 공개 범위와 D1/R2 연결은 변경하지 않았다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
 ## 새 컴퓨터 준비
@@ -44,10 +44,11 @@ node tests/password-worker-smoke.mjs
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [제품 기획 검수](PRODUCT_PLANNING_REVIEW.md)
-3. [상담 FLOW 화면 재시도 지문 정책](FLOW_CLIENT_RETRY_FINGERPRINT_POLICY_2026_09_04.md)
-4. [업로드 멱등키·영수증 파일명 정규화 정책](UPLOAD_RECEIPT_FILENAME_NORMALIZATION_POLICY_2026_09_04.md)
-5. [신청 첨부 업로드 멱등키 Content-Type 정책](APPLICATION_UPLOAD_KEY_CONTENT_TYPE_POLICY_2026_09_04.md)
-6. [문서 전체 목록](README.md)
+3. [협업신청 첨부 실제 내용 중복 판정 정책](APPLICATION_ATTACHMENT_CONTENT_DEDUPLICATION_POLICY_2026_09_04.md)
+4. [상담 FLOW 화면 재시도 지문 정책](FLOW_CLIENT_RETRY_FINGERPRINT_POLICY_2026_09_04.md)
+5. [업로드 멱등키·영수증 파일명 정규화 정책](UPLOAD_RECEIPT_FILENAME_NORMALIZATION_POLICY_2026_09_04.md)
+6. [신청 첨부 업로드 멱등키 Content-Type 정책](APPLICATION_UPLOAD_KEY_CONTENT_TYPE_POLICY_2026_09_04.md)
+7. [문서 전체 목록](README.md)
 
 ## Git에 넣지 않는 것
 
@@ -60,4 +61,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 버전 99의 공개 배포와 주요 화면·보호 API 응답 확인을 완료했다. 사용자의 연속 개발·자동 운영 반영 요청에 따라 앱 내부의 비파괴적 보안·데이터 무결성 항목을 우선순위대로 이어간다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
+Sites 버전 100의 공개 배포와 주요 화면·보호 API 응답 확인을 완료했다. 사용자의 연속 개발·자동 운영 반영 요청에 따라 앱 내부의 비파괴적 보안·데이터 무결성 항목을 우선순위대로 이어간다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.

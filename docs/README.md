@@ -36,6 +36,7 @@
 | [신청 첨부 업로드 멱등키 Content-Type 정책](APPLICATION_UPLOAD_KEY_CONTENT_TYPE_POLICY_2026_09_04.md) | 브라우저 MIME과 무관한 신청 첨부 키, 이전 원장 이동과 파일·삭제 상태 보존 |
 | [업로드 멱등키·영수증 파일명 정규화 정책](UPLOAD_RECEIPT_FILENAME_NORMALIZATION_POLICY_2026_09_04.md) | NFC/NFD 파일명과 무관한 신청 첨부 키·FLOW 영수증, 이전 기록 호환과 중복 원장 보존 |
 | [상담 FLOW 화면 재시도 지문 정책](FLOW_CLIENT_RETRY_FINGERPRINT_POLICY_2026_09_04.md) | 첨부 실제 바이트·정규 파일명 기반 명령 ID 유지와 파일 수정시각 의존 제거 |
+| [협업신청 첨부 실제 내용 중복 판정 정책](APPLICATION_ATTACHMENT_CONTENT_DEDUPLICATION_POLICY_2026_09_04.md) | 메타정보 충돌 파일 누락 방지, 정규 파일명·실제 바이트 기반 재선택 중복 판정 |
 | [업로드 파일명 정규화 보안 경계](UPLOAD_FILENAME_NORMALIZATION_BOUNDARY_2026_09_04.md) | 기업자료·상담 FLOW 저장 파일명의 공용 Unicode·제어문자·길이 경계 |
 | [파트너 계정 설정 저장 안전성](PARTNER_ACCOUNT_SETTINGS_DRAFT_SAFETY_2026_09_03.md) | 이메일·유형·상태·권한의 저장 전 초안 격리와 취소 폐기 |
 | [진행 담당 계정 변경 확인 안전성](CASE_ASSIGNMENT_CONFIRMATION_SAFETY_2026_09_03.md) | 현재·변경 후 담당 대조, 취소 보존과 저장 직전 재검증 |
