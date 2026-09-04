@@ -2434,9 +2434,11 @@ try {
   const activatedChatGPTState = (
     await (await call('/state', undefined, ownerHeaders)).json()
   ).state;
-  activatedChatGPTState.members.find(
+  const activatedChatGPTMember = activatedChatGPTState.members.find(
     (member) => member.id === chatGPTOwnedMember.id,
-  ).status = '활성';
+  );
+  activatedChatGPTMember.status = '활성';
+  activatedChatGPTMember.memberType = '기타';
   await expect(
     await call('/save', { state: activatedChatGPTState }, ownerHeaders, 'PUT'),
     200,
@@ -2543,6 +2545,14 @@ try {
   const protectedPasswordMember = protectedMemberFieldsState.members.find(
     (member) => member.id === memberId,
   );
+  Object.assign(protectedPasswordMember, {
+    phone: '010-9999-9999',
+    affiliation: '가상 위조 회원소속',
+    cohort: '가상 위조 회원기수',
+    role: '리더 파트너',
+    companies: 999999,
+    forgedRuntimeMemberField: '가상 위조 회원필드',
+  });
   protectedPasswordMember.lastLoginAt = '2000-01-01T00:00:00.000Z';
   protectedPasswordMember.loginCount = 999999;
   protectedMemberFieldsState.members.find(
@@ -2557,6 +2567,34 @@ try {
     await call('/save', { state: protectedMemberFieldsState }, ownerHeaders, 'PUT'),
     200,
     'generic owner state save preserves server-owned member audit fields',
+  );
+  assert.equal(
+    (await db.prepare('SELECT payload FROM portal_state').first()).payload,
+    stateBeforeAmbiguousLegacyEmail.payload,
+  );
+
+  const invalidStatusSaveState = structuredClone(cleanMemberIdState);
+  invalidStatusSaveState.members.find(
+    (member) => member.id === memberId,
+  ).status = '승인대기';
+  await expect(
+    await call('/save', { state: invalidStatusSaveState }, ownerHeaders, 'PUT'),
+    403,
+    'generic owner state save rejects an invalid account status transition',
+  );
+  const invalidPermissionSaveState = structuredClone(cleanMemberIdState);
+  invalidPermissionSaveState.members.find(
+    (member) => member.id === memberId,
+  ).permissions.quoteContract = 'allowed';
+  await expect(
+    await call(
+      '/save',
+      { state: invalidPermissionSaveState },
+      ownerHeaders,
+      'PUT',
+    ),
+    403,
+    'generic owner state save rejects malformed account permissions',
   );
   assert.equal(
     (await db.prepare('SELECT payload FROM portal_state').first()).payload,

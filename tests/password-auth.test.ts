@@ -933,6 +933,7 @@ void test('approval preserves a pending account setup link while suspension rema
   const setupToken = await link('existing');
   const approved = await state();
   approved.members[0].status = '활성';
+  approved.members[0].memberType = '기타';
   await expectStatus(
     await saveState(request({ state: approved }, ownerHeaders, 'PUT')),
     200,

@@ -3,6 +3,7 @@ import {
   isReservedPortalOwnerEmail,
   isValidLoginEmail,
   LOCAL_PORTAL_OWNER_EMAIL,
+  normalizeLoginEmail,
   PORTAL_OWNER_EMAIL,
 } from '@/lib/member-email';
 import type { PortalLoginStat } from '@/lib/portal-state';
@@ -20,7 +21,10 @@ import {
   chatGPTDisplayNameFromRequest,
   chatGPTIdentityFromRequest,
 } from '@/lib/request-auth';
-import { membersRevisionOf } from '@/lib/partner-registration';
+import {
+  membersRevisionOf,
+  partnerTypes,
+} from '@/lib/partner-registration';
 
 type PortalPermissions = {
   sharedSchedule: boolean;
@@ -55,23 +59,119 @@ type PortalStateRecord = {
   diagnosisAssessments?: PortalRecord[];
 };
 
-const memberServerOwnedFields = [
-  'registration',
-  'lastLoginAt',
-  'loginCount',
+const portalPermissionKeys = [
+  'sharedSchedule',
+  'collaborationApply',
+  'ownCases',
+  'fileUpload',
+  'quoteContract',
 ] as const;
 
-function preserveMemberServerOwnedFields(
+const portalMemberStatusTransitions = {
+  활성: new Set(['활성', '정지']),
+  정지: new Set(['정지', '활성']),
+  승인대기: new Set(['승인대기', '활성']),
+  초대대기: new Set(['초대대기', '활성']),
+} as const;
+
+function isPortalPermissions(value: unknown): value is PortalPermissions {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    Object.keys(record).length === portalPermissionKeys.length &&
+    portalPermissionKeys.every((key) => typeof record[key] === 'boolean')
+  );
+}
+
+function samePermissionValues(left: unknown, right: unknown) {
+  if (
+    !left ||
+    typeof left !== 'object' ||
+    Array.isArray(left) ||
+    !right ||
+    typeof right !== 'object' ||
+    Array.isArray(right)
+  )
+    return Object.is(left, right);
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord).sort();
+  const rightKeys = Object.keys(rightRecord).sort();
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key, index) =>
+        key === rightKeys[index] && leftRecord[key] === rightRecord[key],
+    )
+  );
+}
+
+function isPartnerType(value: unknown) {
+  return (
+    typeof value === 'string' &&
+    partnerTypes.includes(value as (typeof partnerTypes)[number])
+  );
+}
+
+function applyAdminMemberEdits(
   stored: PortalMember,
   incoming: PortalMember,
+  validate: boolean,
 ) {
-  const protectedMember: PortalMember = { ...incoming };
-  const protectedRecord: Record<string, unknown> = protectedMember;
-  for (const key of memberServerOwnedFields) {
-    if (Object.prototype.hasOwnProperty.call(stored, key))
-      protectedRecord[key] = stored[key];
-    else delete protectedRecord[key];
+  const incomingName =
+    typeof incoming.name === 'string' ? incoming.name.trim() : '';
+  const nameChanged = incoming.name !== stored.name;
+  const permissionsChanged = !samePermissionValues(
+    stored.permissions,
+    incoming.permissions,
+  );
+  if (validate) {
+    if (
+      nameChanged &&
+      (incomingName.length < 2 ||
+        incomingName.length > 40 ||
+        /[\r\n\t]/.test(incomingName))
+    )
+      throw new PortalAccessError(
+        '파트너 이름은 2~40자로 입력해 주세요.',
+        403,
+      );
+    const allowedStatuses = portalMemberStatusTransitions[stored.status];
+    if (!allowedStatuses?.has(incoming.status))
+      throw new PortalAccessError(
+        '허용되지 않은 파트너 로그인 상태 변경입니다.',
+        403,
+      );
+    if (permissionsChanged && !isPortalPermissions(incoming.permissions))
+      throw new PortalAccessError(
+        '파트너 권한 설정 형식이 올바르지 않습니다.',
+        403,
+      );
+    const memberTypeChanged = incoming.memberType !== stored.memberType;
+    const pendingActivation =
+      (stored.status === '승인대기' || stored.status === '초대대기') &&
+      incoming.status === '활성';
+    if (
+      (memberTypeChanged || pendingActivation) &&
+      !isPartnerType(incoming.memberType)
+    )
+      throw new PortalAccessError('파트너 유형을 다시 선택해 주세요.', 403);
   }
+
+  const protectedMember: PortalMember = {
+    ...stored,
+    name: nameChanged ? incomingName : stored.name,
+    email: normalizeLoginEmail(incoming.email),
+    status: incoming.status,
+    permissions: permissionsChanged
+      ? isPortalPermissions(incoming.permissions)
+        ? { ...incoming.permissions }
+        : incoming.permissions
+      : stored.permissions,
+  };
+  if (Object.prototype.hasOwnProperty.call(incoming, 'memberType'))
+    protectedMember.memberType = incoming.memberType;
+  else delete protectedMember.memberType;
   return protectedMember;
 }
 
@@ -608,9 +708,11 @@ export function mergeStateForPortalUser(
         '이미 등록된 파트너 로그인 이메일입니다.',
         403,
       );
+    const currentMemberRevision =
+      current && membersRevisionOf(incoming) === membersRevisionOf(current);
     if (
       current &&
-      membersRevisionOf(incoming) === membersRevisionOf(current)
+      currentMemberRevision
     )
       assertMemberDeletionsAllowed(current, incoming);
     const members = current
@@ -634,7 +736,11 @@ export function mergeStateForPortalUser(
               '파트너 계정 ID가 중복되어 변경 대상을 확인할 수 없습니다. 중복 계정을 먼저 정리해 주세요.',
               403,
             );
-          return preserveMemberServerOwnedFields(stored, member);
+          return applyAdminMemberEdits(
+            stored,
+            member,
+            Boolean(currentMemberRevision),
+          );
         })
       : incoming.members;
     return { ...incoming, members };

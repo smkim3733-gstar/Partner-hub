@@ -656,6 +656,82 @@ void test('login statistics do not increment member revision; ordinary case/task
   );
 });
 
+void test('generic administrator state save accepts a valid display name but preserves non-editable member fields', async () => {
+  const registered = await created();
+  const before = await state();
+  const original = structuredClone(
+    before.members.find((member) => member.id === registered.member.id),
+  )!;
+  const changed = structuredClone(before);
+  const member = changed.members.find(
+    (candidate) => candidate.id === registered.member.id,
+  )! as PartnerAccount & Record<string, unknown>;
+  Object.assign(member, {
+    name: '가상 변경표시명',
+    phone: '010-9999-9999',
+    affiliation: '가상 위조소속',
+    cohort: '가상 위조기수',
+    role: '리더 파트너',
+    companies: 999999,
+    forgedMemberField: '가상 위조필드',
+  });
+  changed.tasks.push({ id: 'profile-boundary-task', assignee: '김성민 대표' });
+
+  const response = await save(
+    request({ state: changed }, owner, '/api/state', 'PUT'),
+  );
+  assert.equal(response.status, 200, await response.clone().text());
+  const stored = (await state()).members.find(
+    (candidate) => candidate.id === registered.member.id,
+  )! as PartnerAccount & Record<string, unknown>;
+  assert.equal(stored.name, '가상 변경표시명');
+  for (const key of [
+    'phone',
+    'affiliation',
+    'cohort',
+    'role',
+    'companies',
+  ])
+    assert.deepEqual(stored[key], (original as Record<string, unknown>)[key]);
+  assert.equal(stored.forgedMemberField, undefined);
+  assert.equal(
+    membersRevisionOf(await state()),
+    membersRevisionOf(before) + 1,
+  );
+});
+
+void test('generic administrator state save rejects invalid member settings and status transitions', async () => {
+  const before = await state();
+  const variants: Array<(member: PartnerAccount) => void> = [
+    (member) => {
+      member.name = '\n';
+    },
+    (member) => {
+      member.status = '승인대기';
+    },
+    (member) => {
+      member.status = '삭제됨' as PartnerAccount['status'];
+    },
+    (member) => {
+      member.memberType = '관리자' as PartnerAccount['memberType'];
+    },
+    (member) => {
+      member.permissions.quoteContract = '허용' as unknown as boolean;
+    },
+  ];
+
+  for (const change of variants) {
+    await writePortalState(before);
+    const invalid = structuredClone(before);
+    change(invalid.members[0]);
+    const response = await save(
+      request({ state: invalid }, owner, '/api/state', 'PUT'),
+    );
+    assert.equal(response.status, 403, await response.clone().text());
+    assert.deepEqual(await state(), before);
+  }
+});
+
 void test('generic administrator state save cannot delete an active unassigned partner', async () => {
   const registered = await created();
   const before = await state();
