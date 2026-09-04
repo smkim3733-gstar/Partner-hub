@@ -33,6 +33,7 @@ import { isMultipartFormDataContentType } from '@/lib/request-multipart';
 import { HeaderRequestError, readIdempotencyKey } from '@/lib/request-header';
 import { privateJsonResponse } from '@/lib/private-response';
 import { uploadFileContentProblem } from '@/lib/upload-file-signature';
+import { downloadContentType } from '@/lib/download-content-type';
 
 export const dynamic = 'force-dynamic';
 
@@ -184,7 +185,8 @@ export async function POST(request: Request) {
         assignedTrainee,
         partnerMemberId,
         caseId,
-        contentType: fileValue.type || 'application/octet-stream',
+        contentType: downloadContentType(originalName),
+        legacyContentType: fileValue.type || 'application/octet-stream',
         sizeBytes: fileValue.size,
       },
       fileBytes,

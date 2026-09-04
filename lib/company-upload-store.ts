@@ -6,6 +6,7 @@ import {
 import type { PortalUser } from './portal-auth';
 import { fileDigest } from './file-upload-key';
 import { fileStateConflict, fileStateGuard } from './company-file-access';
+import { downloadContentType } from './download-content-type';
 
 type UploadRecord = {
   file_id: string;
@@ -22,17 +23,17 @@ export type UploadMetadata = {
   partnerMemberId: string;
   caseId: string | null;
   contentType: string;
+  /** Browser-reported MIME used only to resume requests reserved before MIME normalization. */
+  legacyContentType?: string;
   sizeBytes: number;
 };
-export type UploadDuplicateOutcome =
-  | 'safe_retry'
-  | 'request_key_conflict';
+export type UploadDuplicateOutcome = 'safe_retry' | 'request_key_conflict';
 export function storedFileResult(row: CompanyFileRow) {
   return {
     id: row.id,
     fileName: row.original_name,
     sizeBytes: row.size_bytes,
-    contentType: row.content_type,
+    contentType: downloadContentType(row.original_name),
     createdAt: row.created_at,
     assignedTrainee: row.assigned_trainee,
     partnerMemberId: row.partner_member_id ?? '',
@@ -56,9 +57,20 @@ export async function storeCompanyUpload(
 ) {
   const owner =
     user.role === 'admin' ? `admin:${user.email}` : `member:${user.memberId}`;
+  const bytesFingerprint = await fileDigest(bytes);
+  const { legacyContentType, ...storedMetadata } = metadata;
   const fingerprint = await fileDigest(
-    JSON.stringify(metadata) + (await fileDigest(bytes)),
+    JSON.stringify(storedMetadata) + bytesFingerprint,
   );
+  const legacyFingerprint =
+    legacyContentType && legacyContentType !== metadata.contentType
+      ? await fileDigest(
+          JSON.stringify({
+            ...storedMetadata,
+            contentType: legacyContentType,
+          }) + bytesFingerprint,
+        )
+      : fingerprint;
   const initialPayload = await authorize();
   const candidateFileId = crypto.randomUUID();
   await db
@@ -91,7 +103,10 @@ export async function storeCompanyUpload(
       // Telemetry must never change upload behavior.
     }
   };
-  if (record.fingerprint !== fingerprint) {
+  if (
+    record.fingerprint !== fingerprint &&
+    record.fingerprint !== legacyFingerprint
+  ) {
     if (record.status !== 'deleted') observe('request_key_conflict');
     throw new CompanyFileError(
       '같은 업로드 요청의 파일 또는 자료정보가 변경되었습니다.',

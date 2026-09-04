@@ -6,6 +6,7 @@ import {
   type CompanyFileCategory,
 } from './company-file-policy';
 import { COMPANY_FILE_TITLE_MAX_LENGTH } from './company-file-metadata';
+import { downloadContentType } from './download-content-type';
 
 export type StoredCompanyFile = {
   id: string;
@@ -32,6 +33,8 @@ function storedFileFrom(
 ): StoredCompanyFile | null {
   const file = asObject(value);
   const caseId = file?.caseId;
+  const contentType = downloadContentType(input.file.name);
+  const legacyContentType = input.file.type || 'application/octet-stream';
   if (
     !file ||
     typeof file.id !== 'string' ||
@@ -41,7 +44,8 @@ function storedFileFrom(
     file.sizeBytes !== input.file.size ||
     file.sizeBytes <= 0 ||
     file.sizeBytes > MAX_COMPANY_FILE_BYTES ||
-    file.contentType !== (input.file.type || 'application/octet-stream') ||
+    (file.contentType !== contentType &&
+      file.contentType !== legacyContentType) ||
     typeof file.createdAt !== 'string' ||
     !Number.isFinite(Date.parse(file.createdAt)) ||
     typeof file.assignedTrainee !== 'string' ||
@@ -64,7 +68,7 @@ function storedFileFrom(
     id: file.id,
     fileName: file.fileName,
     sizeBytes: file.sizeBytes,
-    contentType: file.contentType,
+    contentType,
     createdAt: file.createdAt,
     assignedTrainee: file.assignedTrainee,
     partnerMemberId: file.partnerMemberId,
@@ -107,9 +111,9 @@ export async function uploadCompanyFile(
     const payload = asObject(rawPayload);
     if (!response.ok)
       throw new Error(
-        (typeof payload?.error === 'string' && payload.error.trim()
+        typeof payload?.error === 'string' && payload.error.trim()
           ? payload.error
-          : '기업자료 업로드를 확인하지 못했습니다.'),
+          : '기업자료 업로드를 확인하지 못했습니다.',
       );
     const stored = storedFileFrom(payload?.file, input);
     if (!stored)

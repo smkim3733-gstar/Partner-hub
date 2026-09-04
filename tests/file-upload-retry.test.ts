@@ -6,11 +6,13 @@ import { writePortalState } from '../lib/portal-state';
 import {
   companyFileDatabase,
   companyFileBucket,
+  ensureCompanyFileTables,
   findCompanyFile,
 } from '../lib/company-files';
 import { uploadCompanyFile } from '../lib/company-file-upload';
 import {
   companyUploadKey,
+  fileDigest,
   type CompanyUploadInput,
 } from '../lib/file-upload-key';
 import { ApplicationSubmission } from '../lib/application-submission';
@@ -147,6 +149,88 @@ void test('lost upload response recovers identical metadata and file ID without 
   assert.equal((await findCompanyFile(first.id))?.partner_member_id, member.id);
   await flushWaitUntil();
   assert.equal((await readDuplicateRequestSummary()).totalSafeRetries, 1);
+});
+
+void test('company upload stores registry MIME instead of browser MIME', async () => {
+  await seed();
+  const data = form();
+  data.set(
+    'file',
+    new File(['SYNTHETIC_DOCUMENT'], 'synthetic.txt', { type: 'text/html' }),
+  );
+  const bucket = companyFileBucket();
+  const originalPut = bucket.put.bind(bucket);
+  let storedContentType: string | undefined;
+  bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+    const httpMetadata = args[2]?.httpMetadata;
+    storedContentType =
+      httpMetadata instanceof Headers
+        ? (httpMetadata.get('content-type') ?? undefined)
+        : httpMetadata?.contentType;
+    return originalPut.apply(bucket, args);
+  };
+  try {
+    const file = (
+      (await (await upload(request('registry-mime-request', data))).json()) as {
+        file: { id: string; contentType: string };
+      }
+    ).file;
+    assert.equal(file.contentType, 'text/plain');
+    assert.equal((await findCompanyFile(file.id))?.content_type, 'text/plain');
+    assert.equal(storedContentType, 'text/plain');
+  } finally {
+    bucket.put = originalPut;
+  }
+});
+
+void test('MIME normalization resumes a pending request reserved by the previous release', async () => {
+  await seed();
+  const db = companyFileDatabase();
+  await ensureCompanyFileTables(db);
+  const data = form();
+  const legacyFile = new File(['SYNTHETIC_DOCUMENT'], 'synthetic.txt', {
+    type: 'text/html',
+  });
+  data.set('file', legacyFile);
+  const bytes = await legacyFile.arrayBuffer();
+  const legacyMetadata = {
+    originalName: legacyFile.name,
+    company: '가상기업',
+    title: '가상 근거자료',
+    category: '기타자료',
+    assignedTrainee: member.name,
+    partnerMemberId: member.id,
+    caseId: null,
+    contentType: legacyFile.type,
+    sizeBytes: legacyFile.size,
+  };
+  const legacyFingerprint = await fileDigest(
+    JSON.stringify(legacyMetadata) + (await fileDigest(bytes)),
+  );
+  const key = 'legacy-mime-retry-request';
+  const id = 'legacy-mime-retry-file';
+  await db
+    .prepare(`INSERT INTO company_file_upload_requests
+      (owner_key, request_key, fingerprint, file_id, created_at, status)
+      VALUES (?1, ?2, ?3, ?4, ?5, 'pending')`)
+    .bind(
+      `member:${member.id}`,
+      key,
+      legacyFingerprint,
+      id,
+      '2026-09-04T00:00:00.000Z',
+    )
+    .run();
+
+  const response = await upload(request(key, data));
+  assert.equal(response.status, 201, await response.clone().text());
+  assert.equal(
+    ((await response.json()) as { file: { contentType: string } }).file
+      .contentType,
+    'text/plain',
+  );
+  assert.equal((await findCompanyFile(id))?.content_type, 'text/plain');
+  assert.equal((await rowFor(key))?.status, 'ready');
 });
 
 void test('accepted upload without a request key records only the coverage warning', async () => {
@@ -302,7 +386,10 @@ void test('explicit deletion tombstones retries; failed deletion can be retried 
     .prepare('DELETE FROM portal_duplicate_request_stats')
     .run();
   assert.equal((await upload(request(key))).status, 409);
-  assert.equal((await upload(request(key, form('CHANGED_AFTER_DELETE')))).status, 409);
+  assert.equal(
+    (await upload(request(key, form('CHANGED_AFTER_DELETE')))).status,
+    409,
+  );
   await flushWaitUntil();
   const summary = await readDuplicateRequestSummary();
   assert.equal(summary.totalSafeRetries, 0);
@@ -441,6 +528,7 @@ void test('upload client rejects unreadable or mismatched file acknowledgements'
       { ...validFile, id: 'short' },
       { ...validFile, fileName: 'another.txt' },
       { ...validFile, sizeBytes: validFile.sizeBytes + 1 },
+      { ...validFile, contentType: 'image/png' },
       { ...validFile, caseId: 'another-case' },
       { ...validFile, category: 'unknown' },
       { ...validFile, partnerMemberId: 'another-member' },
@@ -456,6 +544,23 @@ void test('upload client rejects unreadable or mismatched file acknowledgements'
     const stored = await uploadCompanyFile(requestInput);
     assert.equal(stored.id, validFile.id);
     assert.equal(Object.hasOwn(stored, 'storageKey'), false);
+
+    const spoofedInput = {
+      ...requestInput,
+      file: new File(['SYNTHETIC_DOCUMENT'], requestInput.file.name, {
+        type: 'text/html',
+      }),
+    };
+    for (const acknowledgedContentType of ['text/plain', 'text/html']) {
+      globalThis.fetch = async () =>
+        Response.json({
+          file: { ...validFile, contentType: acknowledgedContentType },
+        });
+      assert.equal(
+        (await uploadCompanyFile(spoofedInput)).contentType,
+        'text/plain',
+      );
+    }
   } finally {
     globalThis.fetch = originalFetch;
   }

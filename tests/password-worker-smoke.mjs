@@ -194,11 +194,7 @@ try {
     requestId: 'runtime-peer-register-001',
   };
   const peerResponse = await expect(
-    await call(
-      '/partners',
-      peerRegistration,
-      ownerHeaders,
-    ),
+    await call('/partners', peerRegistration, ownerHeaders),
     201,
     'owner directly registers a distinct same-name partner',
   );
@@ -451,7 +447,10 @@ try {
     Object.hasOwn(submittedPartnerState, 'jointAnalysisConfirmation'),
     false,
   );
-  assert.equal(Object.hasOwn(submittedPartnerState, 'documentReviewWait'), false);
+  assert.equal(
+    Object.hasOwn(submittedPartnerState, 'documentReviewWait'),
+    false,
+  );
   assert.equal(Object.hasOwn(submittedPartnerState, 'supportRequests'), false);
   assert.equal(Object.hasOwn(submittedPartnerState, 'pipelineDropoff'), false);
   const submittedOwnerState = await (
@@ -484,11 +483,22 @@ try {
     Object.hasOwn(submittedOwnerState.state, 'documentReviewWait'),
     false,
   );
-  assert.equal(Object.hasOwn(submittedOwnerState.state, 'supportRequests'), false);
-  assert.equal(Object.hasOwn(submittedOwnerState.state, 'pipelineDropoff'), false);
+  assert.equal(
+    Object.hasOwn(submittedOwnerState.state, 'supportRequests'),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(submittedOwnerState.state, 'pipelineDropoff'),
+    false,
+  );
   submittedCase.pipelineLifecycleStatus = 'discontinued';
   await expect(
-    await call('/save', { state: submittedPartnerState.state }, { cookie }, 'PUT'),
+    await call(
+      '/save',
+      { state: submittedPartnerState.state },
+      { cookie },
+      'PUT',
+    ),
     200,
     'partner cannot create a pipeline discontinuation event',
   );
@@ -712,12 +722,13 @@ try {
     partnerMemberId,
     caseId,
     sourceText = 'SYNTHETIC_NEW_ACCOUNT_FILE',
+    reportedContentType = 'text/plain',
   ) {
     const form = new FormData();
     form.set(
       'file',
       new File([sourceText], 'synthetic.txt', {
-        type: 'text/plain',
+        type: reportedContentType,
       }),
     );
     form.set('company', '가상 본인기업');
@@ -739,6 +750,40 @@ try {
       body: await multipart.arrayBuffer(),
     });
   }
+  const normalizedFile = (
+    await (
+      await expect(
+        await uploadSource(
+          {
+            cookie,
+            'idempotency-key': 'worker-upload-mime-normalization',
+          },
+          memberId,
+          undefined,
+          'SYNTHETIC_MIME_NORMALIZATION',
+          'text/html',
+        ),
+        201,
+        'browser MIME is normalized before private storage',
+      )
+    ).json()
+  ).file;
+  assert.equal(normalizedFile.contentType, 'text/plain');
+  assert.equal(
+    (await bucket.head(`company-source/${normalizedFile.id}`)).httpMetadata
+      .contentType,
+    'text/plain',
+  );
+  assert.equal(
+    (
+      await db
+        .prepare('SELECT content_type FROM company_file_objects WHERE id = ?1')
+        .bind(normalizedFile.id)
+        .first()
+    ).content_type,
+    'text/plain',
+  );
+  checks.push('registry MIME is identical across response, native D1 and R2');
   const retryHeaders = {
     cookie,
     'idempotency-key': 'worker-upload-response-retry',
@@ -1502,7 +1547,12 @@ try {
     (task) => task.id === 'runtime-support-request',
   ).status = '진행';
   await expect(
-    await call('/save', { state: ownerSupportState.state }, ownerHeaders, 'PUT'),
+    await call(
+      '/save',
+      { state: ownerSupportState.state },
+      ownerHeaders,
+      'PUT',
+    ),
     200,
     'administrator acknowledges the synthetic support request',
   );
@@ -1512,18 +1562,24 @@ try {
   const acknowledgedSupport = ownerSupportProgress.state.tasks.find(
     (task) => task.id === 'runtime-support-request',
   );
-  assert.match(acknowledgedSupport.supportAcknowledgedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.match(
+    acknowledgedSupport.supportAcknowledgedAt,
+    /^\d{4}-\d{2}-\d{2}T/,
+  );
   acknowledgedSupport.status = '완료';
   await expect(
-    await call('/save', { state: ownerSupportProgress.state }, ownerHeaders, 'PUT'),
+    await call(
+      '/save',
+      { state: ownerSupportProgress.state },
+      ownerHeaders,
+      'PUT',
+    ),
     200,
     'administrator resolves the synthetic support request',
   );
   const trackedCaseId = `case-draft-${draftId}`;
   const trackedFlowInitial = (
-    await (
-      await call(`/flow/${trackedCaseId}`, undefined, ownerHeaders)
-    ).json()
+    await (await call(`/flow/${trackedCaseId}`, undefined, ownerHeaders)).json()
   ).flow;
   const trackedFlowCommand = {
     revision: trackedFlowInitial.revision,
@@ -1531,7 +1587,9 @@ try {
     command: {
       type: 'save_report',
       stage: 1,
-      body: '명시적 진행 중단 검증을 위한 가상 보고서입니다. 실제 자료나 외부 처리를 사용하지 않습니다. '.repeat(4),
+      body: '명시적 진행 중단 검증을 위한 가상 보고서입니다. 실제 자료나 외부 처리를 사용하지 않습니다. '.repeat(
+        4,
+      ),
     },
   };
   await expect(
@@ -1549,7 +1607,12 @@ try {
   assert.equal(trackedDropoffCase.stage, '기업진단');
   trackedDropoffCase.pipelineLifecycleStatus = 'discontinued';
   await expect(
-    await call('/save', { state: ownerDropoffState.state }, ownerHeaders, 'PUT'),
+    await call(
+      '/save',
+      { state: ownerDropoffState.state },
+      ownerHeaders,
+      'PUT',
+    ),
     200,
     'administrator explicitly discontinues the tracked FLOW case',
   );
@@ -1588,9 +1651,7 @@ try {
     receivedAt: '2026-08-31T00:00:00.000Z',
   });
   await db
-    .prepare(
-      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
-    )
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(JSON.stringify(metricFlow), 'runtime-own')
     .run();
 
@@ -1791,7 +1852,10 @@ try {
   assert.equal(ownerStateAfterReset.pipelineDropoff.discontinuedCases, 1);
   assert.equal(ownerStateAfterReset.pipelineDropoff.flowVerified.cases, 1);
   assert.equal(ownerStateAfterReset.pipelineDropoff.manualReported.cases, 0);
-  assert.equal(ownerStateAfterReset.pipelineDropoff.observationStatus, 'observed');
+  assert.equal(
+    ownerStateAfterReset.pipelineDropoff.observationStatus,
+    'observed',
+  );
   assert.equal(
     Object.hasOwn(ownerStateAfterReset.state, 'pipelineDropoff'),
     false,
