@@ -109,12 +109,17 @@ export async function requirePortalUser(
     throw error;
   }
   if (passwordUser) {
-    const member = asPortalState(rawState)?.members.find(
-      (item) =>
-        item.id === passwordUser.member_id &&
-        item.email.trim().toLowerCase() === passwordUser.email,
-    );
-    if (!member || member.status !== '활성')
+    const matchingIds =
+      asPortalState(rawState)?.members.filter(
+        (item) => item.id === passwordUser.member_id,
+      ) ?? [];
+    const member = matchingIds.length === 1 ? matchingIds[0] : null;
+    if (
+      !member ||
+      typeof member.email !== 'string' ||
+      member.email.trim().toLowerCase() !== passwordUser.email ||
+      member.status !== '활성'
+    )
       throw new PortalAccessError(
         '대표 승인 전이거나 이용이 정지된 계정입니다.',
         403,
@@ -185,9 +190,16 @@ export async function requirePortalUser(
       ) ?? []);
   if (!boundMemberId && matchingMembers.length > 1)
     throw new PortalAccessError(chatGPTIdentityConflictMessage, 403);
-  const member = boundMemberId
-    ? state?.members.find((item) => item.id === boundMemberId)
-    : matchingMembers[0];
+  const candidateMember = boundMemberId ? null : matchingMembers[0];
+  const candidateMemberId = boundMemberId ?? candidateMember?.id ?? null;
+  const matchingIds = candidateMemberId
+    ? (state?.members.filter((item) => item.id === candidateMemberId) ?? [])
+    : [];
+  if (candidateMember && !candidateMemberId)
+    throw new PortalAccessError(chatGPTIdentityConflictMessage, 403);
+  if (candidateMemberId && matchingIds.length > 1)
+    throw new PortalAccessError(chatGPTIdentityConflictMessage, 403);
+  const member = boundMemberId ? matchingIds[0] : candidateMember;
   if (!member || member.status !== '활성') {
     throw new PortalAccessError(
       '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
@@ -439,6 +451,24 @@ export function mergeStateForPortalUser(
     throw new PortalAccessError('저장 데이터 형식이 올바르지 않습니다.', 403);
 
   if (user.role === 'admin') {
+    const memberIds = new Set<string>();
+    const invalidMemberId = incoming.members.find((member) => {
+      if (
+        typeof member.id !== 'string' ||
+        !member.id ||
+        member.id !== member.id.trim() ||
+        memberIds.has(member.id)
+      )
+        return true;
+      memberIds.add(member.id);
+      return false;
+    });
+    if (invalidMemberId)
+      throw new PortalAccessError(
+        '파트너 계정 ID가 없거나 중복되었습니다.',
+        403,
+      );
+
     const invalidEmail = incoming.members.find(
       (member) => !isValidLoginEmail(member.email),
     );

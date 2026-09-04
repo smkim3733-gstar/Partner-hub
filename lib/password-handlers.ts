@@ -52,12 +52,14 @@ function stateWithMembers(raw: unknown): State {
   return raw as State;
 }
 function usableMember(state: State, id: string, email: string) {
-  return state.members.find(
-    (m) =>
-      m.id === id &&
-      normalizeLoginEmail(m.email) === email &&
-      m.status !== '정지',
-  );
+  const matchingIds = state.members.filter((member) => member.id === id);
+  if (matchingIds.length !== 1) return undefined;
+  const member = matchingIds[0];
+  return typeof member.email === 'string' &&
+    normalizeLoginEmail(member.email) === email &&
+    member.status !== '정지'
+    ? member
+    : undefined;
 }
 function checkedPassword(value: unknown) {
   const problem = passwordProblem(value);
@@ -223,6 +225,8 @@ export const loginPassword = passwordHandler(async (request) => {
           WHERE a.member_id = ?2 AND a.email = ?3 AND a.credential_version = ?4)
           AND EXISTS (SELECT 1 FROM portal_state s, json_each(s.payload, '$.members') m
           WHERE s.id = ?6 AND json_extract(m.value, '$.id') = ?2
+          AND (SELECT COUNT(*) FROM json_each(s.payload, '$.members') all_m
+            WHERE json_extract(all_m.value, '$.id') = ?2) = 1
           AND lower(trim(json_extract(m.value, '$.email'))) = ?3
           AND json_extract(m.value, '$.status') = '활성')`,
       )
@@ -267,9 +271,11 @@ export const createPasswordLink = passwordHandler(async (request) => {
     );
   if (body.confirmed !== true)
     throw new PasswordError('기존 연락처로 본인을 확인한 후 발급해 주세요.');
-  const member = state.members.find(
-    (m) => m.id === body.memberId && m.status !== '정지',
-  );
+  const matchingIds = state.members.filter((member) => member.id === body.memberId);
+  const member =
+    matchingIds.length === 1 && matchingIds[0].status !== '정지'
+      ? matchingIds[0]
+      : undefined;
   if (
     !member ||
     !isValidLoginEmail(member.email) ||
@@ -309,6 +315,8 @@ export const createPasswordLink = passwordHandler(async (request) => {
         `DELETE FROM portal_password_links WHERE (member_id = ?1 OR expires_at <= ?2)
         AND EXISTS (SELECT 1 FROM portal_state s, json_each(s.payload, '$.members') m
           WHERE s.id = ?3 AND json_extract(m.value, '$.id') = ?1
+          AND (SELECT COUNT(*) FROM json_each(s.payload, '$.members') all_m
+            WHERE json_extract(all_m.value, '$.id') = ?1) = 1
           AND lower(trim(json_extract(m.value, '$.email'))) = ?4
           AND json_extract(m.value, '$.status') != '정지')`,
       )
@@ -319,6 +327,8 @@ export const createPasswordLink = passwordHandler(async (request) => {
         SELECT ?1, ?2, ?3, ?4, ?5, ?6
         WHERE EXISTS (SELECT 1 FROM portal_state s, json_each(s.payload, '$.members') m
           WHERE s.id = ?7 AND json_extract(m.value, '$.id') = ?2
+          AND (SELECT COUNT(*) FROM json_each(s.payload, '$.members') all_m
+            WHERE json_extract(all_m.value, '$.id') = ?2) = 1
           AND lower(trim(json_extract(m.value, '$.email'))) = ?3
           AND json_extract(m.value, '$.status') != '정지')`,
       )
@@ -398,6 +408,8 @@ export const setupPassword = passwordHandler(async (request) => {
       WHERE l.token_hash = ?4 AND l.consumed_by IS NULL AND l.expires_at > ?5
         AND EXISTS (SELECT 1 FROM portal_state s, json_each(s.payload, '$.members') m
           WHERE s.id = ?6 AND json_extract(m.value, '$.id') = l.member_id
+          AND (SELECT COUNT(*) FROM json_each(s.payload, '$.members') all_m
+            WHERE json_extract(all_m.value, '$.id') = l.member_id) = 1
           AND lower(trim(json_extract(m.value, '$.email'))) = l.email AND json_extract(m.value, '$.status') != '정지')
       ON CONFLICT(member_id) DO UPDATE SET email = excluded.email, password_hash = excluded.password_hash,
         credential_version = excluded.credential_version, updated_at = excluded.updated_at`)

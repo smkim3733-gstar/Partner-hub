@@ -151,6 +151,13 @@ export async function POST(request: Request) {
         const existingIndex = existingIndexes[0] ?? -1;
         const existing =
           existingIndex >= 0 ? state.members[existingIndex] : null;
+        if (
+          existing &&
+          (!existing.id ||
+            state.members.filter((member) => member.id === existing.id)
+              .length !== 1)
+        )
+          throw new FlowError(chatGPTIdentityConflictMessage, 409);
         if (existing?.status === '활성') {
           throw new FlowError(
             '이미 활성화된 파트너 계정입니다. 화면을 새로고침해 주세요.',

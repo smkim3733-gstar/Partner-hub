@@ -417,6 +417,34 @@ void test('administrator cannot assign a reserved owner email to a partner', asy
     assert.deepEqual(await state(), before);
   }
 });
+void test('administrator cannot save missing or duplicate stable member IDs', async () => {
+  const before = await state();
+  for (const changed of [
+    {
+      ...structuredClone(before),
+      members: before.members.map((member, index) =>
+        index === 0 ? { ...member, id: '' } : member,
+      ),
+    },
+    {
+      ...structuredClone(before),
+      members: [
+        ...before.members,
+        {
+          ...before.members[0],
+          email: 'duplicate-id@example.invalid',
+          name: '가상 중복ID 파트너',
+        },
+      ],
+    },
+  ]) {
+    const response = await saveState(
+      request({ state: changed }, ownerHeaders, 'PUT'),
+    );
+    assert.equal(response.status, 403, await response.clone().text());
+    assert.deepEqual(await state(), before);
+  }
+});
 void test('ChatGPT stable identity binding claims a legacy member, rejects a recycled email and accepts the bound user after an email change', async () => {
   const db = await passwordDatabase();
   const initial = await getState(
@@ -455,6 +483,77 @@ void test('ChatGPT stable identity binding claims a legacy member, rejects a rec
     'existing',
   );
 });
+void test('unbound ChatGPT identity rejects a unique email whose legacy member ID is duplicated', async () => {
+  const current = await state();
+  current.members.push({
+    ...current.members[0],
+    email: 'duplicate-id-chatgpt@example.invalid',
+    name: '가상 중복ID ChatGPT 파트너',
+  });
+  await writePortalState(current);
+  const userId = 'duplicate-id-chatgpt-user';
+
+  const response = await getState(
+    request(undefined, {
+      'oai-authenticated-user-id': userId,
+      'oai-authenticated-user-email': 'duplicate-id-chatgpt@example.invalid',
+    }),
+  );
+  assert.equal(response.status, 403, await response.clone().text());
+  assert.equal(
+    await (
+      await passwordDatabase()
+    )
+      .prepare(
+        'SELECT subject_id FROM portal_chatgpt_identity_bindings WHERE user_key = ?1',
+      )
+      .bind(tokenHash(`chatgpt-user:${userId}`))
+      .first(),
+    null,
+  );
+});
+void test('unbound ChatGPT identity rejects a legacy member without a stable ID', async () => {
+  const current = await state();
+  current.members[0].id = '';
+  await writePortalState(current);
+  const userId = 'missing-id-chatgpt-user';
+
+  const response = await getState(
+    request(undefined, {
+      'oai-authenticated-user-id': userId,
+      'oai-authenticated-user-email': current.members[0].email,
+    }),
+  );
+  assert.equal(response.status, 403, await response.clone().text());
+  assert.equal(
+    await (
+      await passwordDatabase()
+    )
+      .prepare(
+        'SELECT subject_id FROM portal_chatgpt_identity_bindings WHERE user_key = ?1',
+      )
+      .bind(tokenHash(`chatgpt-user:${userId}`))
+      .first(),
+    null,
+  );
+});
+void test('bound ChatGPT identity rejects a legacy duplicate member ID', async () => {
+  const headers = {
+    'oai-authenticated-user-id': 'bound-duplicate-id-user',
+    'oai-authenticated-user-email': 'existing@example.invalid',
+  };
+  await expectStatus(await getState(request(undefined, headers)), 200);
+  const current = await state();
+  current.members.push({
+    ...current.members[0],
+    email: 'bound-duplicate-id@example.invalid',
+    name: '가상 결속후 중복ID 파트너',
+  });
+  await writePortalState(current);
+
+  const response = await getState(request(undefined, headers));
+  assert.equal(response.status, 403, await response.clone().text());
+});
 void test('unbound ChatGPT identity rejects an ambiguous legacy member email without creating a binding', async () => {
   const current = await state();
   current.members.push({
@@ -482,6 +581,28 @@ void test('unbound ChatGPT identity rejects an ambiguous legacy member email wit
       .bind(tokenHash(`chatgpt-user:${userId}`))
       .first(),
     null,
+  );
+});
+void test('legacy duplicate member ID blocks password login, session use and setup-link issuance', async () => {
+  const cookie = await loggedIn();
+  const current = await state();
+  const member = current.members.find((item) => item.email === email)!;
+  current.members.push({
+    ...member,
+    email: 'duplicate-id-password@example.invalid',
+    name: '가상 중복ID 비밀번호 파트너',
+  });
+  await writePortalState(current);
+
+  assert.equal((await login(request({ email, password }))).status, 403);
+  assert.equal((await getState(request(undefined, { cookie }))).status, 403);
+  assert.equal(
+    (
+      await issue(
+        request({ memberId: member.id, confirmed: true }, ownerHeaders),
+      )
+    ).status,
+    400,
   );
 });
 void test('ChatGPT identity binding survives suspension but is removed by an administrator email change', async () => {

@@ -21,10 +21,13 @@ function syntheticSourceBody(name: string): string | Uint8Array<ArrayBuffer> {
   const extension = name.split('.').at(-1)?.toLowerCase();
   if (extension === 'pdf') return '%PDF-1.7\nLOCAL_SYNTHETIC_SOURCE';
   if (extension === 'docx')
-    return zipSync({
-      '[Content_Types].xml': strToU8('<Types/>'),
-      'word/document.xml': strToU8('<document/>'),
-    }) as Uint8Array<ArrayBuffer>;
+    return zipSync(
+      {
+        '[Content_Types].xml': strToU8('<Types/>'),
+        'word/document.xml': strToU8('<document/>'),
+      },
+      { mtime: new Date('2020-01-01T00:00:00.000Z') },
+    ) as Uint8Array<ArrayBuffer>;
   if (extension === 'm4a')
     return new Uint8Array([
       0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41, 0x20, 0, 0, 0,

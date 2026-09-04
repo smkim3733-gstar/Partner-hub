@@ -251,6 +251,8 @@ export async function claimChatGPTMemberBinding(
       SELECT 'member', ?1, ?2, ?3, ?3
       WHERE EXISTS (SELECT 1 FROM portal_state s, json_each(s.payload, '$.members') m
         WHERE s.id = ?4 AND json_extract(m.value, '$.id') = ?1
+        AND (SELECT COUNT(*) FROM json_each(s.payload, '$.members') all_m
+          WHERE json_extract(all_m.value, '$.id') = ?1) = 1
         AND lower(trim(json_extract(m.value, '$.email'))) = ?5
         AND json_extract(m.value, '$.status') = '활성')
       ON CONFLICT DO NOTHING`)

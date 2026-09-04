@@ -2530,6 +2530,130 @@ try {
     )
     .run();
 
+  const cleanMemberIdState = JSON.parse(
+    stateBeforeAmbiguousLegacyEmail.payload,
+  );
+  const passwordMember = cleanMemberIdState.members.find(
+    (member) => member.id === memberId,
+  );
+  const peerMember = cleanMemberIdState.members.find(
+    (member) => member.id === peerId,
+  );
+  const duplicateIdSaveState = structuredClone(cleanMemberIdState);
+  duplicateIdSaveState.members.push({
+    ...passwordMember,
+    email: 'duplicate-id-save-runtime@example.invalid',
+  });
+  await expect(
+    await call('/save', { state: duplicateIdSaveState }, ownerHeaders, 'PUT'),
+    403,
+    'owner state save rejects a duplicate stable member ID',
+  );
+  assert.equal(
+    (await db.prepare('SELECT payload FROM portal_state').first()).payload,
+    stateBeforeAmbiguousLegacyEmail.payload,
+  );
+
+  const duplicateIdEmail = 'duplicate-id-runtime@example.invalid';
+  const duplicateIdRegistrationEmail =
+    'duplicate-id-register-runtime@example.invalid';
+  const duplicateIdLegacyState = structuredClone(cleanMemberIdState);
+  duplicateIdLegacyState.members.push(
+    {
+      ...passwordMember,
+      email: duplicateIdEmail,
+      status: '활성',
+    },
+    {
+      ...peerMember,
+      email: duplicateIdRegistrationEmail,
+      status: '승인대기',
+    },
+  );
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(JSON.stringify(duplicateIdLegacyState), new Date().toISOString())
+    .run();
+  await expect(
+    await call('/login', { email, password: `${password} new` }),
+    403,
+    'legacy duplicate member ID blocks password login',
+  );
+  await expect(
+    await call('/issue', { memberId, confirmed: true }, ownerHeaders),
+    400,
+    'legacy duplicate member ID blocks setup-link issuance',
+  );
+  const duplicateIdUserId = 'synthetic-duplicate-id-user';
+  await expect(
+    await call('/state', undefined, {
+      'oai-authenticated-user-id': duplicateIdUserId,
+      'oai-authenticated-user-email': duplicateIdEmail,
+    }),
+    403,
+    'legacy duplicate member ID blocks ChatGPT member access',
+  );
+  const duplicateIdRegisterUserId = 'synthetic-duplicate-id-register-user';
+  await expect(
+    await call(
+      '/chatgpt-register',
+      {
+        name: '가상 중복ID 가입자',
+        phone: '010-0000-0096',
+        affiliation: '가상 중복ID 소속',
+        email: duplicateIdRegistrationEmail,
+      },
+      {
+        'oai-authenticated-user-id': duplicateIdRegisterUserId,
+        'oai-authenticated-user-email': duplicateIdRegistrationEmail,
+      },
+    ),
+    409,
+    'legacy duplicate member ID blocks ChatGPT registration binding',
+  );
+  for (const userId of [duplicateIdUserId, duplicateIdRegisterUserId])
+    assert.equal(
+      await db
+        .prepare(
+          'SELECT subject_id FROM portal_chatgpt_identity_bindings WHERE user_key = ?1',
+        )
+        .bind(await sha256(`chatgpt-user:${userId}`))
+        .first(),
+      null,
+    );
+
+  const missingIdState = structuredClone(cleanMemberIdState);
+  missingIdState.members.find((member) => member.id === memberId).id = '';
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(JSON.stringify(missingIdState), new Date().toISOString())
+    .run();
+  const missingIdUserId = 'synthetic-missing-id-user';
+  await expect(
+    await call('/state', undefined, {
+      'oai-authenticated-user-id': missingIdUserId,
+      'oai-authenticated-user-email': email,
+    }),
+    403,
+    'legacy missing member ID blocks ChatGPT member access',
+  );
+  assert.equal(
+    await db
+      .prepare(
+        'SELECT subject_id FROM portal_chatgpt_identity_bindings WHERE user_key = ?1',
+      )
+      .bind(await sha256(`chatgpt-user:${missingIdUserId}`))
+      .first(),
+    null,
+  );
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(
+      stateBeforeAmbiguousLegacyEmail.payload,
+      stateBeforeAmbiguousLegacyEmail.updated_at,
+    )
+    .run();
+
   const disposableEmail = 'disposable-runtime@example.invalid';
   const disposablePassword = 'disposable runtime test secret 123!';
   await expect(

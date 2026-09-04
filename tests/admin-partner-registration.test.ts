@@ -860,6 +860,41 @@ void test('public ChatGPT registration rejects an ambiguous legacy email without
   );
 });
 
+void test('public ChatGPT registration rejects a unique email whose legacy member ID is duplicated', async () => {
+  const signup = body({ email: 'duplicate-id-register@example.invalid' });
+  const current = await state();
+  current.members.push({
+    ...current.members[0],
+    email: signup.email,
+    name: signup.name,
+    phone: signup.phone,
+    affiliation: signup.affiliation,
+    status: '승인대기',
+  });
+  await writePortalState(current);
+  const before = await state();
+  const userId = 'duplicate-id-register-user';
+
+  const response = await selfRegister(
+    request(signup, signup.email, '/api/register', 'POST', {
+      'oai-authenticated-user-id': userId,
+    }),
+  );
+  assert.equal(response.status, 409, await response.clone().text());
+  assert.deepEqual(await state(), before);
+  assert.equal(
+    await (
+      await passwordDatabase()
+    )
+      .prepare(
+        'SELECT subject_id FROM portal_chatgpt_identity_bindings WHERE user_key = ?1',
+      )
+      .bind(tokenHash(`chatgpt-user:${userId}`))
+      .first(),
+    null,
+  );
+});
+
 void test('ChatGPT registration rolls back the pending member when identity binding storage fails', async () => {
   const signup = body({ email: 'binding-rollback@example.invalid' });
   const before = await state();
