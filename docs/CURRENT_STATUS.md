@@ -108,7 +108,7 @@
 
 [다운로드 파일명 Content-Disposition 보안 경계](CONTENT_DISPOSITION_DOWNLOAD_FILENAME_BOUNDARY_2026_09_04.md)에서는 기업 원본·상담 첨부·보고서 Markdown 다운로드의 파일명 헤더 조립을 공용 함수로 통합했다. 제어문자·경로 구분자·깨진 유니코드를 중화하고 180개 코드 포인트로 제한한 뒤 RFC 5987 UTF-8 값으로 인코딩한다. 원본 파일·MIME·저장 이름·권한 재확인·D1/R2 경계는 유지했다. 관련 회귀검사 10개, 전체 자동 테스트 437개, 격리 workerd/D1/R2 검사 129개, 타입검사·전체 lint·프로덕션 빌드를 확인했다. 자동 운영 승인 원칙에 따라 커밋 `b96df2a`를 GitHub `main`과 공개 Sites 버전 85에 반영했으며 운영 화면 3곳의 HTTP 200과 다운로드 API 3곳의 익명 거절·비공개 보안 헤더를 확인했다. 성공 다운로드 헤더는 운영 자료를 사용하지 않고 격리 workerd/R2에서 확인했으며 결과는 `outputs/release/content-disposition-download-filename-deployment.json`을 기준으로 삼는다.
 
-[다운로드 Content-Type 보안 경계](DOWNLOAD_CONTENT_TYPE_BOUNDARY_2026_09_04.md)에서는 기업 원본과 상담 FLOW 첨부의 응답 MIME을 저장된 브라우저 제공 값 대신 허용 확장자별 공용 고정 목록에서 결정한다. 알 수 없거나 확장자가 없는 레거시 파일은 `application/octet-stream`으로 처리한다. 파일 내용·이름·R2 키·권한 재확인·첨부 허용 형식·D1 스키마는 유지했다. 관련 회귀검사 8개, 전체 자동 테스트 439개, 격리 workerd/D1/R2 검사 129개, 타입검사·전체 lint·프로덕션 빌드를 확인했다. 현재 자동 운영 반영 전 로컬 검증 단계다.
+[다운로드 Content-Type 보안 경계](DOWNLOAD_CONTENT_TYPE_BOUNDARY_2026_09_04.md)에서는 기업 원본과 상담 FLOW 첨부의 응답 MIME을 저장된 브라우저 제공 값 대신 허용 확장자별 공용 고정 목록에서 결정한다. 알 수 없거나 확장자가 없는 레거시 파일은 `application/octet-stream`으로 처리한다. 파일 내용·이름·R2 키·권한 재확인·첨부 허용 형식·D1 스키마는 유지했다. 관련 회귀검사 8개, 전체 자동 테스트 439개, 격리 workerd/D1/R2 검사 129개, 타입검사·전체 lint·프로덕션 빌드를 확인했다. 자동 운영 승인 원칙에 따라 커밋 `4a4e7aa`를 GitHub `main`과 공개 Sites 버전 86에 반영했으며 운영 화면 3곳의 HTTP 200과 파일 다운로드 API 2곳의 익명 거절·비공개 보안 헤더를 확인했다. 성공 다운로드 MIME은 운영 자료를 사용하지 않고 격리 workerd/R2에서 확인했으며 결과는 `outputs/release/download-content-type-boundary-deployment.json`을 기준으로 삼는다.
 
 운영 고객 파일·명단을 개발용으로 읽거나 복사하지 않는다. 가상 데이터로 테스트하며 실제 계정 등록·메일 발송·유료 AI를 검증 수단으로 사용하지 않는다. 서비스 전체 침투시험, 실제 파트너의 로그인 쿠키 왕복과 전체 레거시 이관은 완료로 표시하지 않는다.
 
