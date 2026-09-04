@@ -42,7 +42,8 @@
 - GitHub `main`: 기능 커밋 반영 완료
 - Sites 저장 버전: 102 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_2bf9f54343488191b8890117033162ac`)
 - Sites 소스: 기능 커밋과 동일한 SHA
-- 배포 상태: 저장만 완료. 공개 운영 배포는 플랫폼 안전 심사가 프레임워크 의존성 변경을 중요 이슈로 분류해 명시적 재승인을 요구하면서 시작되지 않았다.
-- 현재 공개 운영본: 버전 101
+- 배포 상태: 사용자의 명시적 승인 후 2026-09-04 공개 운영 배포 완료
+- 운영 배포 ID: `appgdep_6a9ac77c42288191b96c2264f7c29e04`
+- 현재 공개 운영본: 버전 102
 
-다른 컴퓨터에서 이어갈 때 버전 102를 이미 운영 배포된 것으로 간주하면 안 된다. 먼저 사용자의 명시적 `버전 102 운영 배포 승인`을 받은 뒤 저장된 버전 102를 배포하고, 배포 성공 상태와 실서버 화면·보호 API를 확인한다. 그 다음 `shadcn` 의존성 분류를 정비한다.
+운영 `/`, `/account`, `/account/setup`은 HTTP 200을 반환했다. `/api/state`, `/api/admin/file-inventory`, `/api/consulting-flow/test-case`는 익명 요청에 HTTP 401을 반환하고 `Cache-Control: no-store, max-age=0, private`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`를 유지했다. 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결은 변경하지 않았다. 다음 개발은 `shadcn` 의존성 분류 정비부터 이어간다.
