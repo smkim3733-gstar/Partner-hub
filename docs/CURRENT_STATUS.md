@@ -132,6 +132,8 @@
 
 [상담 FLOW 명령 영수증 Content-Type 정책](FLOW_COMMAND_RECEIPT_CONTENT_TYPE_POLICY_2026_09_04.md)에서는 첨부 명령의 멱등 지문 MIME을 브라우저 값 대신 공용 업로드 형식 등록표 값으로 정규화했다. 신규 영수증에는 정규화된 단일 지문만 저장하므로 같은 이름·크기·바이트·명령은 브라우저 MIME이 달라도 안전 재시도로 복구된다. 배포 전 영수증은 동일한 이전 MIME 지문도 대조해 호환하고, 계정·명령·첨부 내용 변경의 기존 403·409 거절은 유지했다. 전체 자동 테스트 456개, 격리 workerd/D1/R2 검사 133개, 타입검사·전체 lint·형식검사·프로덕션 빌드를 확인했다. 자동 운영 승인 원칙에 따라 커밋 `4a65f58`을 GitHub `main`과 공개 Sites 버전 96에 반영했으며 운영 화면 3곳의 HTTP 200, 기업자료·상담 FLOW API의 익명 HTTP 401·비공개 보안 헤더를 확인했다. 결과는 `outputs/release/flow-command-receipt-content-type-deployment.json`을 기준으로 삼는다.
 
+[신청 첨부 업로드 멱등키 Content-Type 정책](APPLICATION_UPLOAD_KEY_CONTENT_TYPE_POLICY_2026_09_04.md)에서는 진행 연결 첨부의 클라이언트 멱등키 MIME을 공용 등록표 값으로 고정했다. 서버는 공식 이전·신규 키만 정규화하고, 동일 계정·파일·자료정보 지문을 확인한 뒤 이전 `pending`·`ready`·`deleted` 원장을 조건부 이동한다. 기존 파일 ID와 R2 원본을 재사용하고 삭제 tombstone을 보존하며 임의 API 키와 독립 업로드의 별도 등록 의미는 유지한다. 전체 자동 테스트 456개, 격리 workerd/D1/R2 검사 135개, 타입검사·전체 lint·형식검사·프로덕션 빌드를 확인했다. 자동 운영 승인 원칙에 따라 커밋 `d9c217f`를 GitHub `main`과 공개 Sites 버전 97에 반영했으며 운영 화면 3곳의 HTTP 200, 기업자료·상담 FLOW API의 익명 HTTP 401·비공개 보안 헤더를 확인했다. 결과는 `outputs/release/application-upload-key-content-type-deployment.json`을 기준으로 삼는다.
+
 운영 고객 파일·명단을 개발용으로 읽거나 복사하지 않는다. 가상 데이터로 테스트하며 실제 계정 등록·메일 발송·유료 AI를 검증 수단으로 사용하지 않는다. 서비스 전체 침투시험, 실제 파트너의 로그인 쿠키 왕복과 전체 레거시 이관은 완료로 표시하지 않는다.
 
 별도 승인에 따른 [로컬 가상 데이터 화면 점검](LOCAL_SCREEN_REVIEW_2026_09_01.md)으로 로그인·신청·첨부·회수·FLOW 초기 역할과 재시도를 확인했다. 파트너 홈의 고정 예시 목록·수치를 허용된 저장 데이터로 연결하고, FLOW의 비정상 응답을 한국어 재시도 안내로 보완했다. 키보드 전용 조작 및 전체 FLOW 단계의 브라우저 검증은 미완료로 구분한다. 기존 3항목 자동 점검은 재개하지 않는다. 후속 화면 수정의 반영 상태는 `outputs/release/ui-screen-deployment.json`을 기준으로 한다.
