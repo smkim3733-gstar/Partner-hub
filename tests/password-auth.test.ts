@@ -393,6 +393,97 @@ void test('suspension, deletion and email change immediately block a session', a
     assert.equal((await getState(request(undefined, { cookie }))).status, 403);
   }
 });
+void test('administrator status changes atomically revoke sessions and setup links so reactivation cannot revive them', async () => {
+  const cookie = await loggedIn();
+  const memberId = (await state()).members[1].id;
+  const setupToken = await link(memberId);
+  const suspended = await state();
+  suspended.members[1].status = '정지';
+  await expectStatus(
+    await saveState(request({ state: suspended }, ownerHeaders, 'PUT')),
+    200,
+  );
+  assert.equal(
+    (
+      await database
+        .prepare(
+          'SELECT COUNT(*) AS total FROM portal_password_sessions WHERE member_id = ?1',
+        )
+        .bind(memberId)
+        .first<{ total: number }>()
+    )?.total,
+    0,
+  );
+  assert.equal(
+    (
+      await database
+        .prepare(
+          'SELECT COUNT(*) AS total FROM portal_password_links WHERE member_id = ?1',
+        )
+        .bind(memberId)
+        .first<{ total: number }>()
+    )?.total,
+    0,
+  );
+
+  const restored = await state();
+  restored.members[1].status = '활성';
+  await expectStatus(
+    await saveState(request({ state: restored }, ownerHeaders, 'PUT')),
+    200,
+  );
+  assert.equal((await getState(request(undefined, { cookie }))).status, 401);
+  assert.equal(
+    (await setup(request({ token: setupToken, password: `${password} new` })))
+      .status,
+    400,
+  );
+  await expectStatus(await login(request({ email, password })), 200);
+});
+void test('approval preserves a pending account setup link while suspension remains revoking', async () => {
+  const pending = await state();
+  pending.members[0].status = '승인대기';
+  await writePortalState(pending);
+  const setupToken = await link('existing');
+  const approved = await state();
+  approved.members[0].status = '활성';
+  await expectStatus(
+    await saveState(request({ state: approved }, ownerHeaders, 'PUT')),
+    200,
+  );
+  await expectStatus(
+    await setup(request({ token: setupToken, password })),
+    200,
+  );
+});
+void test('member state write rolls back when password access revocation fails', async () => {
+  const cookie = await loggedIn();
+  const before = await state();
+  const memberId = before.members[1].id;
+  const suspended = structuredClone(before);
+  suspended.members[1].status = '정지';
+  failNextDatabaseStatement('DELETE FROM portal_password_sessions');
+  assert.equal(
+    (await saveState(request({ state: suspended }, ownerHeaders, 'PUT')))
+      .status,
+    500,
+  );
+  const after = await state();
+  assert.equal(after.members[1].status, '활성');
+  assert.equal(after.membersRevision, before.membersRevision);
+  assert.equal(
+    (
+      await database
+        .prepare(
+          'SELECT COUNT(*) AS total FROM portal_password_sessions WHERE member_id = ?1',
+        )
+        .bind(memberId)
+        .first<{ total: number }>()
+    )?.total,
+    1,
+  );
+  await expectStatus(await getState(request(undefined, { cookie })), 200);
+});
 void test('logout revokes token and clears host cookie; replay is unauthorized', async () => {
   const cookie = await loggedIn();
   const response = await expectStatus(

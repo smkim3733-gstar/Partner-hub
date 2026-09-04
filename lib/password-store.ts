@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:workers';
-import { portalPasswordSchemaSql } from '@/db/schema';
+import { portalPasswordSchemaSql, portalStateId } from '@/db/schema';
+import { normalizeLoginEmail } from '@/lib/member-email';
 import { tokenHash } from '@/lib/password-crypto';
 import { isCrossSiteRequest } from '@/lib/request-origin';
 import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
@@ -105,6 +106,84 @@ export async function limitAuthenticationAttempts(
       );
   }
 }
+
+type PasswordAccessMember = {
+  id?: unknown;
+  email?: unknown;
+  status?: unknown;
+};
+
+function passwordAccessMembers(state: unknown): PasswordAccessMember[] {
+  const members = (state as { members?: unknown } | null)?.members;
+  return Array.isArray(members) ? members : [];
+}
+
+export function passwordAccessRevocationForStateChange(
+  currentState: unknown,
+  nextState: unknown,
+) {
+  const nextById = new Map(
+    passwordAccessMembers(nextState)
+      .filter((member) => typeof member.id === 'string')
+      .map((member) => [member.id as string, member]),
+  );
+  const sessionMemberIds = new Set<string>();
+  const setupLinkMemberIds = new Set<string>();
+  for (const member of passwordAccessMembers(currentState)) {
+    if (typeof member.id !== 'string') continue;
+    const next = nextById.get(member.id);
+    const currentEmail =
+      typeof member.email === 'string' ? normalizeLoginEmail(member.email) : '';
+    const nextEmail =
+      typeof next?.email === 'string' ? normalizeLoginEmail(next.email) : '';
+    const identityChanged = !next || currentEmail !== nextEmail;
+    const statusChanged = member.status !== next?.status;
+    if (identityChanged || statusChanged) sessionMemberIds.add(member.id);
+    if (identityChanged || member.status === '정지' || next?.status === '정지')
+      setupLinkMemberIds.add(member.id);
+  }
+  return {
+    sessionMemberIds: [...sessionMemberIds],
+    setupLinkMemberIds: [...setupLinkMemberIds],
+  };
+}
+
+export function passwordAccessRevocationStatements(
+  db: D1Database,
+  revocation: {
+    sessionMemberIds: readonly string[];
+    setupLinkMemberIds: readonly string[];
+  },
+  committedPortalPayload: string,
+) {
+  const sessionMemberIds = [
+    ...new Set(revocation.sessionMemberIds.filter(Boolean)),
+  ];
+  const setupLinkMemberIds = [
+    ...new Set(revocation.setupLinkMemberIds.filter(Boolean)),
+  ];
+  if (sessionMemberIds.length === 0 && setupLinkMemberIds.length === 0)
+    return [];
+  const committed = `EXISTS (SELECT 1 FROM portal_state WHERE id = ?2 AND payload = ?3)`;
+  return [
+    ...portalPasswordSchemaSql.map((sql) => db.prepare(sql)),
+    ...sessionMemberIds.map((memberId) =>
+      db
+        .prepare(
+          `DELETE FROM portal_password_sessions WHERE member_id = ?1 AND ${committed}`,
+        )
+        .bind(memberId, portalStateId, committedPortalPayload),
+    ),
+    ...setupLinkMemberIds.map((memberId) =>
+      db
+        .prepare(
+          `DELETE FROM portal_password_links WHERE member_id = ?1 AND ${committed}`,
+        )
+        .bind(memberId, portalStateId, committedPortalPayload),
+    ),
+  ];
+}
+
 function cookieName(request: Request) {
   return new URL(request.url).protocol === 'https:'
     ? '__Host-keve_session'

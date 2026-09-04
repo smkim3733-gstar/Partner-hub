@@ -107,6 +107,10 @@ export type PortalDraftGuard = {
 export async function mutatePortalState<T>(
   update: (current: unknown) => T | Promise<T>,
   requiredDraft?: () => PortalDraftGuard | null,
+  writeEffects?: (
+    db: D1Database,
+    committedPayload: string,
+  ) => D1PreparedStatement[],
 ) {
   const db = database();
   await ensurePortalTables(db);
@@ -122,11 +126,15 @@ export async function mutatePortalState<T>(
         '운영 데이터 저장 한도에 도달했습니다. 관리자 확인이 필요합니다.',
         'capacity',
       );
-    if (payload === row?.payload) return { state, updatedAt: null };
+    const effects = writeEffects?.(db, payload) ?? [];
+    if (payload === row?.payload) {
+      if (effects.length > 0) await db.batch(effects);
+      return { state, updatedAt: null };
+    }
     const updatedAt = new Date().toISOString();
     const guard = requiredDraft?.();
-    const result = guard
-      ? await db
+    const write = guard
+      ? db
           .prepare(
             row
               ? 'UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3 AND payload = ?4 AND EXISTS (SELECT 1 FROM application_drafts WHERE owner_key = ?5 AND draft_id = ?6 AND revision = ?7 AND payload IS NOT NULL)'
@@ -141,20 +149,21 @@ export async function mutatePortalState<T>(
             guard.draftId,
             guard.revision,
           )
-          .run()
       : row
-        ? await db
+        ? db
             .prepare(
               'UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3 AND payload = ?4',
             )
             .bind(payload, updatedAt, portalStateId, row.payload)
-            .run()
-        : await db
+        : db
             .prepare(
               'INSERT INTO portal_state (id, payload, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO NOTHING',
             )
-            .bind(portalStateId, payload, updatedAt)
-            .run();
+            .bind(portalStateId, payload, updatedAt);
+    const result =
+      effects.length > 0
+        ? (await db.batch([write, ...effects]))[0]
+        : await write.run();
     if (result.meta.changes === 1) return { state, updatedAt };
   }
   throw new PortalStateConflict(

@@ -67,6 +67,10 @@ import {
 } from '@/lib/pipeline-dropoff-metrics';
 import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
 import { privateJsonResponse } from '@/lib/private-response';
+import {
+  passwordAccessRevocationForStateChange,
+  passwordAccessRevocationStatements,
+} from '@/lib/password-store';
 
 const privateJson = privateJsonResponse;
 
@@ -258,6 +262,10 @@ export async function PUT(request: Request) {
     const expectedRevision = readIfMatchRevision(request);
 
     let draftGuard: PortalDraftGuard | null = null;
+    let passwordAccessRevocation = {
+      sessionMemberIds: [] as string[],
+      setupLinkMemberIds: [] as string[],
+    };
     const result = await mutatePortalState(
       async (currentState) => {
         const currentUser = await requirePortalUser(request, currentState);
@@ -301,6 +309,13 @@ export async function PUT(request: Request) {
             (currentState as Record<string, unknown> | null)?.members,
             supportProtected.members,
           );
+        passwordAccessRevocation =
+          currentUser.role === 'admin'
+            ? passwordAccessRevocationForStateChange(
+                currentState,
+                supportProtected,
+              )
+            : { sessionMemberIds: [], setupLinkMemberIds: [] };
         if (
           memberChange &&
           membersRevisionOf(body.state) !== membersRevisionOf(currentState)
@@ -333,6 +348,12 @@ export async function PUT(request: Request) {
         return next;
       },
       () => draftGuard,
+      (db, committedPayload) =>
+        passwordAccessRevocationStatements(
+          db,
+          passwordAccessRevocation,
+          committedPayload,
+        ),
     );
     schedulePortalConflictRecovery({
       token: presentedReceipt,

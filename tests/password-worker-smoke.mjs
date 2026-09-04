@@ -308,7 +308,7 @@ try {
   assert.match(setCookie, /Secure/);
   assert.doesNotMatch(setCookie, /Domain=/i);
   assertPrivateAuthResponse(signed);
-  const cookie = setCookie.split(';')[0];
+  let cookie = setCookie.split(';')[0];
   const response = await expect(
     await call('/state', undefined, { cookie }),
     200,
@@ -1903,6 +1903,15 @@ try {
   assert.ok(await bucket.get('company-source/native-pending-delete'));
   checks.push('conflicted pending deletion preserves the synthetic original');
 
+  const preSuspensionLink = await expect(
+    await call('/issue', { memberId, confirmed: true }, ownerHeaders),
+    201,
+    'owner issues synthetic setup link before suspension',
+  );
+  const preSuspensionToken = (await preSuspensionLink.json()).path.split(
+    '#token=',
+  )[1];
+
   const suspended = (
     await (await call('/state', undefined, ownerHeaders)).json()
   ).state;
@@ -1914,8 +1923,30 @@ try {
   );
   await expect(
     await call('/state', undefined, { cookie }),
-    403,
-    'suspension blocks an already issued password session',
+    401,
+    'suspension revokes an already issued password session',
+  );
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT COUNT(*) AS total FROM portal_password_sessions WHERE member_id = ?1',
+        )
+        .bind(memberId)
+        .first()
+    ).total,
+    0,
+  );
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT COUNT(*) AS total FROM portal_password_links WHERE member_id = ?1',
+        )
+        .bind(memberId)
+        .first()
+    ).total,
+    0,
   );
   await expect(
     await call(
@@ -1942,23 +1973,23 @@ try {
   );
   await expect(
     await call('/flow/runtime-own', nativeAnalysis, { cookie }),
-    403,
-    'suspension denies even an identical previously successful FLOW command',
+    401,
+    'revoked suspension session denies even an identical previously successful FLOW command',
   );
   await expect(
     await uploadSource({ cookie }, memberId),
-    403,
-    'suspended password session cannot upload a file',
+    401,
+    'revoked suspension session cannot upload a file',
   );
   await expect(
     await call(`/files/${suspensionFile.id}`, undefined, { cookie }),
-    403,
-    'suspended password session cannot download an original',
+    401,
+    'revoked suspension session cannot download an original',
   );
   await expect(
     await call(`/files/${suspensionFile.id}`, undefined, { cookie }, 'DELETE'),
-    403,
-    'suspended password session cannot delete an original',
+    401,
+    'revoked suspension session cannot delete an original',
   );
   assert.ok(await bucket.get(`company-source/${suspensionFile.id}`));
   assert.ok(
@@ -1976,6 +2007,25 @@ try {
     await call('/save', { state: restored }, ownerHeaders, 'PUT'),
     200,
     'owner restores synthetic partner for reset checks',
+  );
+  await expect(
+    await call('/state', undefined, { cookie }),
+    401,
+    'reactivation cannot revive the pre-suspension session',
+  );
+  await expect(
+    await call('/setup', { token: preSuspensionToken, password }),
+    400,
+    'reactivation cannot revive the pre-suspension setup link',
+  );
+  const resumedLogin = await expect(
+    await call('/login', { email, password }),
+    200,
+    'reactivated partner signs in through a new session',
+  );
+  cookie = resumedLogin.headers.get('set-cookie').split(';')[0];
+  checks.push(
+    'member status transition atomically revokes sessions and setup links',
   );
   // Convert only this isolated fixture to the pre-ledger legacy shape.
   await db
@@ -2029,7 +2079,7 @@ try {
       FROM portal_password_link_stats`)
     .first();
   assert.deepEqual(passwordLinkStats, {
-    issued_count: 1,
+    issued_count: 2,
     active_replacement_count: 0,
     expired_at_reissue_count: 0,
     redeemed_count: 1,
@@ -2049,7 +2099,7 @@ try {
   const ownerStateAfterReset = await (
     await call('/state', undefined, ownerHeaders)
   ).json();
-  assert.equal(ownerStateAfterReset.passwordLinks.issued, 1);
+  assert.equal(ownerStateAfterReset.passwordLinks.issued, 2);
   assert.equal(ownerStateAfterReset.passwordLinks.redeemed, 1);
   assert.equal(
     Object.hasOwn(ownerStateAfterReset.state, 'passwordLinks'),
