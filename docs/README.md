@@ -41,6 +41,7 @@
 | [브라우저 화면 보안 헤더 경계](BROWSER_PAGE_SECURITY_HEADERS_2026_09_04.md)                                      | Worker·정적 캐시 화면의 클릭재킹·기본 CSP·브라우저 권한 방어와 Sites 버전 105 운영 반영  |
 | [빌드 스택 잔여 취약성 제거](BUILD_STACK_SECURITY_UPDATE_2026_09_04.md)                                          | image-size 제거, esbuild 패치, 공급망 예외 없는 Vite·Cloudflare 빌드 스택 갱신           |
 | [서버 오류 로그 개인정보 경계](SERVER_ERROR_LOG_PRIVACY_BOUNDARY_2026_09_05.md)                                  | 원본 예외·상세 메시지 로그 제거와 오류 종류만 남기는 재발 방지 검사                      |
+| [파트너 접속 통계 무결성·가용성 경계](PORTAL_LOGIN_ACTIVITY_INTEGRITY_2026_09_05.md)                             | 30분 비활동 기준 접속 세션 집계와 비핵심 통계 장애의 포털 조회 격리                      |
 | [빌드 도구와 운영 의존성 경계](BUILD_TOOL_RUNTIME_DEPENDENCY_BOUNDARY_2026_09_04.md)                             | shadcn CLI의 빌드 전용 분류, qs 운영 감사 경로 제거와 Sites 버전 103 운영 반영           |
 | [운영 의존성 보안 패치와 잔여 위험](DEPENDENCY_SECURITY_PATCH_AND_RESIDUAL_RISK_2026_09_04.md)                   | React/RSC·Vite 패치, 미배포 image-size 수정본과 실제 입력 경계, Sites 버전 102 운영 반영 |
 | [업로드 파일명 정규화 보안 경계](UPLOAD_FILENAME_NORMALIZATION_BOUNDARY_2026_09_04.md)                           | 기업자료·상담 FLOW 저장 파일명의 공용 Unicode·제어문자·길이 경계                         |

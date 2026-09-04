@@ -342,6 +342,48 @@ try {
     visible.state.tasks.map((task) => task.id),
     ['runtime-own-task', 'runtime-linked-task'],
   );
+  await expect(
+    await call('/state', undefined, { cookie }),
+    200,
+    'same partner session can refresh state without a new access count',
+  );
+  let loginStat = await db
+    .prepare(
+      'SELECT last_login_at, login_count FROM portal_login_stats WHERE member_id = ?1',
+    )
+    .bind(memberId)
+    .first();
+  assert.equal(loginStat.login_count, 1);
+  await db
+    .prepare(
+      'UPDATE portal_login_stats SET last_login_at = ?1 WHERE member_id = ?2',
+    )
+    .bind('2000-01-01T00:00:00.000Z', memberId)
+    .run();
+  await expect(
+    await call('/state', undefined, { cookie }),
+    200,
+    'partner access after idle window starts one new session',
+  );
+  loginStat = await db
+    .prepare(
+      'SELECT last_login_at, login_count FROM portal_login_stats WHERE member_id = ?1',
+    )
+    .bind(memberId)
+    .first();
+  assert.equal(loginStat.login_count, 2);
+  assert.notEqual(loginStat.last_login_at, '2000-01-01T00:00:00.000Z');
+  await db
+    .prepare(`CREATE TRIGGER synthetic_login_stats_failure
+      BEFORE UPDATE ON portal_login_stats
+      BEGIN SELECT RAISE(FAIL, 'synthetic login telemetry failure'); END`)
+    .run();
+  await expect(
+    await call('/state', undefined, { cookie }),
+    200,
+    'login telemetry failure does not block authorized state access',
+  );
+  await db.prepare('DROP TRIGGER synthetic_login_stats_failure').run();
   const runtimeDraft = {
     companyName: '가상 임시기업',
     applicantName: '가상 런타임파트너',

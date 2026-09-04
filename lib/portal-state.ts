@@ -29,6 +29,8 @@ type PortalLoginStatRow = {
   login_count: number;
 };
 
+const PORTAL_LOGIN_SESSION_IDLE_MS = 30 * 60_000;
+
 function database(): D1Database {
   const binding = (env as unknown as { DB?: D1Database }).DB;
   if (!binding) {
@@ -164,16 +166,27 @@ export async function mutatePortalState<T>(
 export async function recordPortalLogin(memberId: string) {
   const db = database();
   await ensurePortalTables(db);
-  const lastLoginAt = new Date().toISOString();
+  const observedAt = Date.now();
+  const lastLoginAt = new Date(observedAt).toISOString();
+  const sessionCutoff = new Date(
+    observedAt - PORTAL_LOGIN_SESSION_IDLE_MS,
+  ).toISOString();
   await db
     .prepare(`
       INSERT INTO portal_login_stats (member_id, last_login_at, login_count)
       VALUES (?1, ?2, 1)
       ON CONFLICT(member_id) DO UPDATE SET
-        last_login_at = excluded.last_login_at,
-        login_count = portal_login_stats.login_count + 1
+        last_login_at = CASE
+          WHEN portal_login_stats.last_login_at < excluded.last_login_at
+            THEN excluded.last_login_at
+          ELSE portal_login_stats.last_login_at
+        END,
+        login_count = portal_login_stats.login_count + CASE
+          WHEN portal_login_stats.last_login_at <= ?3 THEN 1
+          ELSE 0
+        END
     `)
-    .bind(memberId, lastLoginAt)
+    .bind(memberId, lastLoginAt, sessionCutoff)
     .run();
 
   return lastLoginAt;

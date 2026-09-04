@@ -93,7 +93,14 @@ export async function GET(request: Request) {
     const currentUser = await requirePortalUser(request, rawState);
     const state = await stateWithConsultingFlows(rawState);
     if (currentUser.role === 'trainee' && currentUser.memberId) {
-      await recordPortalLogin(currentUser.memberId);
+      await recordPortalLogin(currentUser.memberId).catch((error) => {
+        // Access telemetry must never block an authorized partner from loading
+        // their portal. Keep request and account details out of the log.
+        console.error(
+          'Failed to record portal login activity',
+          error instanceof Error ? error.name : 'unknown',
+        );
+      });
     }
     const responseState =
       currentUser.role === 'admin'

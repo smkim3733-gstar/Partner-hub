@@ -2672,7 +2672,7 @@ function loginActivityLabel(member: TraineeMember) {
     minute: '2-digit',
     hour12: false,
   }).format(date);
-  return `최근접속 ${formatted} · 누적 ${member.loginCount ?? 1}회`;
+  return `최근접속 ${formatted} · 누적 접속 세션 ${member.loginCount ?? 1}회`;
 }
 
 function AccessManagement({
