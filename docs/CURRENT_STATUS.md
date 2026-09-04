@@ -78,7 +78,7 @@
 
 [서버 API 요청 경계 최종 감사](SERVER_API_REQUEST_BOUNDARY_AUDIT_2026_09_04.md)에서는 대표 파트너 등록·ChatGPT 자가가입·포털 상태 저장·Step 0의 JSON 요청을 공용 스트림 경계로 통합했다. 과대·비-JSON·손상 요청을 저장·외부 AI 호출 전에 차단하고, API 라우트의 직접 본문 파싱을 정적 회귀검사로 금지한다. 자동 테스트 410개, 격리 workerd/D1/R2 검사 129개, 타입검사·전체 lint·프로덕션 빌드와 localhost `/` HTTP 200 응답을 확인했다. 실제 운영 쓰기·메일·유료 AI·외부 요청은 0건이다. 사용자 운영 승인 후 커밋 `1567333`을 GitHub `main`과 기존 공개 Sites 버전 74에 반영했으며, D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 범위를 유지했다. 운영 `/`, `/account`, `/account/setup`의 HTTP 200 응답과 `outputs/release/server-request-boundary-deployment.json`을 배포 결과 기준으로 삼는다.
 
-[서버 변경 요청 출처 경계 감사](SERVER_MUTATION_ORIGIN_BOUNDARY_2026_09_04.md)에서는 파일 업로드·삭제와 Step 0 생성의 개별 출처 검사를 공용 교차 사이트 판별로 통합하고, 대표 직접등록·ChatGPT 자가가입·포털 저장·신청 임시저장·원본 회수의 검사를 인증과 저장소 접근보다 앞당겼다. 자동 테스트 414개, 격리 workerd/D1/R2 검사 129개, 타입검사·전체 lint·프로덕션 빌드와 localhost `/` HTTP 200 응답을 확인했다. 실제 운영 쓰기·메일·유료 AI·외부 요청은 0건이다. GitHub 푸시와 공개 Sites 배포는 사용자 운영 승인 전까지 수행하지 않는다.
+[서버 변경 요청 출처 경계 감사](SERVER_MUTATION_ORIGIN_BOUNDARY_2026_09_04.md)에서는 파일 업로드·삭제와 Step 0 생성의 개별 출처 검사를 공용 교차 사이트 판별로 통합하고, 대표 직접등록·ChatGPT 자가가입·포털 저장·신청 임시저장·원본 회수의 검사를 인증과 저장소 접근보다 앞당겼다. 자동 테스트 414개, 격리 workerd/D1/R2 검사 129개, 타입검사·전체 lint·프로덕션 빌드와 localhost `/` HTTP 200 응답을 확인했다. 실제 운영 쓰기·메일·유료 AI·외부 요청은 0건이다. 사용자 운영 승인 후 커밋 `d5cec0b`를 GitHub `main`과 기존 공개 Sites 버전 75에 반영했으며, D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 범위를 유지했다. 운영 `/`, `/account`, `/account/setup`의 HTTP 200 응답과 `outputs/release/server-mutation-origin-deployment.json`을 배포 결과 기준으로 삼는다.
 
 운영 고객 파일·명단을 개발용으로 읽거나 복사하지 않는다. 가상 데이터로 테스트하며 실제 계정 등록·메일 발송·유료 AI를 검증 수단으로 사용하지 않는다. 서비스 전체 침투시험, 실제 파트너의 로그인 쿠키 왕복과 전체 레거시 이관은 완료로 표시하지 않는다.
 
