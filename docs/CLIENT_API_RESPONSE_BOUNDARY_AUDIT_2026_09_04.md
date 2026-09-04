@@ -39,4 +39,8 @@
 - localhost `/` HTTP 200
 - 직접 클라이언트 JSON 파싱 0건
 
-검증은 가상 데이터와 격리 저장소로 실행했다. 실제 운영 쓰기·메일·유료 AI·외부 요청은 0건이다. 기존 인증·권한·운영 데이터·D1/R2 스키마·보관·삭제 정책을 유지했다. GitHub 푸시와 공개 Sites 배포는 사용자 승인 전까지 수행하지 않는다.
+검증은 가상 데이터와 격리 저장소로 실행했다. 실제 운영 쓰기·메일·유료 AI·외부 요청은 0건이다. 기존 인증·권한·운영 데이터·D1/R2 스키마·보관·삭제 정책을 유지했다.
+
+## 운영 반영
+
+2026-09-04 사용자 승인 후 커밋 `8fa3091`을 GitHub `main`과 기존 공개 Sites 버전 73에 반영했다. 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결을 유지했으며 `/`, `/account`, `/account/setup`의 HTTP 200 응답을 확인했다. 배포 결과는 `outputs/release/client-response-boundary-deployment.json`에 기록한다.
