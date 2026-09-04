@@ -162,6 +162,8 @@ void test('two same-company applications retain both timelines and each private 
       date: '2026-08-31',
       title: '협업신청 접수',
       detail: item.id,
+      type: '접수',
+      tone: 'navy',
     })),
     companyDocuments: [fileA, fileB].map((file) => ({
       id: `doc-${file.id}`,

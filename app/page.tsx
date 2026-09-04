@@ -23,6 +23,7 @@ import { applyDiagnosisReviewQueueDraft, createDiagnosisReviewQueueDraft, type D
 import { diagnosisAssessmentStateError } from '@/lib/diagnosis-assessment';
 import { caseRecordStateError } from '@/lib/case-record-integrity';
 import { relatedRecordStateError } from '@/lib/related-record-integrity';
+import { timelineRecordStateError } from '@/lib/timeline-record-integrity';
 import { applyCompanyDocumentStatusDraft, COMPANY_DOCUMENT_STATUSES, COMPANY_DOCUMENT_STATUS_IMPACTS, createCompanyDocumentStatusDraft, type CompanyDocumentStatusDraft } from '@/lib/company-document-review';
 import { applyWorkTaskStatusDraft, createSupportAcknowledgementDraft, createWorkTaskCompletionDraft, workTaskStatusImpact, type WorkTaskStatusDraft } from '@/lib/work-task-status';
 import {
@@ -400,6 +401,7 @@ function isPortalState(value: unknown): value is PortalState {
     diagnosisAssessmentStateError(state.diagnosisAssessments, state.cases) ===
     null;
   const casesValid = caseRecordStateError(state.cases, state.members) === null;
+  const timelineValid = timelineRecordStateError(state.timeline, state.cases) === null;
   const relatedRecordsValid = relatedRecordStateError(
     state.tasks,
     state.companyDocuments,
@@ -414,6 +416,7 @@ function isPortalState(value: unknown): value is PortalState {
       Number.isSafeInteger(state.membersRevision) && Number(state.membersRevision) >= 0
     ))
     && casesValid
+    && timelineValid
     && relatedRecordsValid
     && diagnosisAssessmentsValid
     && Array.isArray(state.timeline)

@@ -1336,6 +1336,8 @@ try {
       date: '2026-08-31',
       title: '협업신청 접수',
       detail: file.caseId,
+      type: '접수',
+      tone: 'navy',
     });
   }
   await expect(
@@ -1665,6 +1667,9 @@ try {
     caseId: 'runtime-own',
     date: '2026-08-31T02:00:00Z',
     title: '위조 확인',
+    detail: '위조 회수 기록',
+    type: '서류',
+    tone: 'blue',
     recoveryFileId: 'fake-file',
   });
   await expect(
@@ -2637,6 +2642,29 @@ try {
       );
     }
   }
+  const validTimelineRecord = {
+    id: 'timeline-integrity-runtime',
+    caseId: cleanMemberIdState.cases[0].id,
+    date: '방금 전',
+    title: '가상 무결성 점검',
+    detail: '가상 타임라인 기록',
+    type: '진행',
+    tone: 'blue',
+  };
+  for (const { records, label } of [
+    { records: [{ ...validTimelineRecord, title: ' ' }], label: 'blank timeline title' },
+    { records: [{ ...validTimelineRecord, caseId: 'missing-runtime-case' }], label: 'unresolved timeline case link' },
+    { records: [{ ...validTimelineRecord, id: null }], label: 'non-string timeline stable ID' },
+    { records: [validTimelineRecord, { ...validTimelineRecord, caseId: cleanMemberIdState.cases.at(-1).id }], label: 'duplicate timeline stable ID' },
+  ]) {
+    const invalidTimelineState = structuredClone(cleanMemberIdState);
+    invalidTimelineState.timeline = records;
+    await expect(
+      await call('/save', { state: invalidTimelineState }, ownerHeaders, 'PUT'),
+      403,
+      `generic owner state save rejects ${label}`,
+    );
+  }
   for (const [mutate, label] of [
     [(state) => { state.version = 2; }, 'unsupported state version'],
     [(state) => { state.consultationNumber = -1; }, 'negative consultation counter'],
@@ -2832,6 +2860,36 @@ try {
       await call('/save', { state: cleanMemberIdState }, ownerHeaders, 'PUT'),
       503,
       `stored conflicting ${label} assignment blocks generic repair writes`,
+    );
+  }
+  for (const { records, label } of [
+    { records: [{ ...validTimelineRecord, detail: '' }], label: 'blank timeline detail' },
+    { records: [{ ...validTimelineRecord, caseId: 'missing-runtime-case' }], label: 'unresolved timeline case link' },
+    { records: [validTimelineRecord, { ...validTimelineRecord, caseId: cleanMemberIdState.cases.at(-1).id }], label: 'duplicate timeline stable ID' },
+  ]) {
+    const invalidStoredTimelineState = structuredClone(cleanMemberIdState);
+    invalidStoredTimelineState.timeline = records;
+    await db
+      .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+      .bind(
+        JSON.stringify(invalidStoredTimelineState),
+        new Date().toISOString(),
+      )
+      .run();
+    await expect(
+      await call('/state', undefined, { cookie: structuralCookie }),
+      403,
+      `stored ${label} blocks password partner access`,
+    );
+    await expect(
+      await call('/state', undefined, ownerHeaders),
+      503,
+      `stored ${label} blocks administrator reads`,
+    );
+    await expect(
+      await call('/save', { state: cleanMemberIdState }, ownerHeaders, 'PUT'),
+      503,
+      `stored ${label} blocks generic repair writes`,
     );
   }
   await db

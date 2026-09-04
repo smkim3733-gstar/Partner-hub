@@ -378,7 +378,7 @@ void test('lost save response followed by retry retains one case, timeline and d
         partnerMemberId: '',
       },
     ],
-    timeline: [{ caseId: 'stable-case', date: 'synthetic', title: '접수' }],
+    timeline: [{ caseId: 'stable-case', date: 'synthetic', title: '접수', detail: '가상 접수', type: '접수', tone: 'navy' }],
     companyDocuments: [
       {
         id: 'stable-document',

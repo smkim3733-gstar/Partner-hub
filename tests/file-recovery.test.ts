@@ -229,6 +229,9 @@ void test('generic state saves cannot create fake recovery facts for either role
     caseId,
     date: '2026-08-31T00:00:00Z',
     title: '보관 원본 연결 회수',
+    detail: '가상 회수 기록',
+    type: '서류',
+    tone: 'blue',
     recoveryFileId: id,
   };
   for (const user of [email, member.email]) {
@@ -280,6 +283,7 @@ void test('review status changes, unrelated work and reordered JSON preserve rec
       title: `검토 메모 ${user}`,
       detail: '정상 업무 메모',
       type: '서류',
+      tone: 'blue',
     });
     const response = await ordinarySave(next, user);
     assert.equal(response.status, 200, await response.clone().text());

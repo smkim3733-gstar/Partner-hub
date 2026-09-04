@@ -94,6 +94,8 @@ function fixture() {
         date: '2026-08-31',
         title: '비공개 진행',
         detail: '타인 기록',
+        type: '진행',
+        tone: 'blue',
       },
     ],
   };
@@ -126,6 +128,8 @@ void test('duplicate or blank case IDs fail closed before partner projection can
       date: '2026-09-05',
       title: '충돌 진행기록',
       detail: '다른 파트너 비공개 기록',
+      type: '진행',
+      tone: 'blue',
     },
   ];
   assert.throws(
@@ -227,29 +231,54 @@ void test('stable timeline IDs preserve same-title events and stay scoped to the
   const current = {
     ...fixture(),
     timeline: [
-      { id: 'shared-id', caseId: 'other-case', date: '방금 전', title: '상담 #1 저장', detail: '타인 원본' },
-      { id: 'own-existing', caseId: 'own-case', date: '방금 전', title: '상담 #1 저장', detail: '본인 원본' },
+      { id: 'shared-id', caseId: 'other-case', date: '방금 전', title: '상담 #1 저장', detail: '타인 원본', type: '상담', tone: 'green' },
+      { id: 'own-existing', caseId: 'own-case', date: '방금 전', title: '상담 #1 저장', detail: '본인 원본', type: '상담', tone: 'green' },
     ],
   };
   const incoming = {
     ...structuredClone(current),
     timeline: [
-      { id: 'shared-id', caseId: 'own-case', date: '방금 전', title: '상담 #1 저장', detail: '같은 ID의 본인 기록' },
-      { id: 'own-existing', caseId: 'own-case', date: '방금 전', title: '상담 #1 저장', detail: '본인 수정' },
-      { id: 'own-first', caseId: 'own-case', date: '방금 전', title: '상담 #2 저장', detail: '첫 번째' },
-      { id: 'own-second', caseId: 'own-case', date: '방금 전', title: '상담 #2 저장', detail: '두 번째' },
-      { id: 'own-duplicate', caseId: 'own-case', date: '방금 전', title: '상담 #3 저장', detail: '중복 첫 번째' },
-      { id: 'own-duplicate', caseId: 'own-case', date: '방금 전', title: '상담 #3 저장', detail: '중복 마지막' },
+      { id: 'own-existing', caseId: 'own-case', date: '방금 전', title: '상담 #1 저장', detail: '본인 수정', type: '상담', tone: 'green' },
+      { id: 'own-first', caseId: 'own-case', date: '방금 전', title: '상담 #2 저장', detail: '첫 번째', type: '상담', tone: 'green' },
+      { id: 'own-second', caseId: 'own-case', date: '방금 전', title: '상담 #2 저장', detail: '두 번째', type: '상담', tone: 'green' },
     ],
   };
 
   const saved = mergeStateForPortalUser(current, incoming, user) as typeof current;
   assert.equal(saved.timeline.find((item) => item.caseId === 'other-case')?.detail, '타인 원본');
   assert.equal(saved.timeline.find((item) => item.id === 'own-existing')?.detail, '본인 수정');
-  assert.equal(saved.timeline.filter((item) => item.caseId === 'own-case' && item.id === 'shared-id').length, 1);
   assert.equal(saved.timeline.filter((item) => item.caseId === 'own-case' && item.title === '상담 #2 저장').length, 2);
-  assert.equal(saved.timeline.filter((item) => item.id === 'own-duplicate').length, 1);
-  assert.equal(saved.timeline.find((item) => item.id === 'own-duplicate')?.detail, '중복 마지막');
+});
+
+void test('stable timeline IDs cannot duplicate or move to another case', () => {
+  const duplicate = {
+    ...fixture(),
+    timeline: [
+      { id: 'duplicate-event', caseId: 'own-case', date: '방금 전', title: '본인 기록', detail: '첫 기록', type: '상담', tone: 'green' },
+      { id: 'duplicate-event', caseId: 'other-case', date: '방금 전', title: '타인 기록', detail: '둘째 기록', type: '상담', tone: 'green' },
+    ],
+  };
+  assert.throws(
+    () => stateForPortalUser(duplicate, user),
+    /타임라인 안정 ID가 없거나 중복되었습니다/,
+  );
+
+  const current = {
+    ...fixture(),
+    timeline: [
+      { id: 'retained-event', caseId: 'other-case', date: '방금 전', title: '타인 기록', detail: '원본', type: '상담', tone: 'green' },
+    ],
+  };
+  const incoming = {
+    ...structuredClone(current),
+    timeline: [
+      { id: 'retained-event', caseId: 'own-case', date: '방금 전', title: '이동 시도', detail: '조작', type: '상담', tone: 'green' },
+    ],
+  };
+  assert.throws(
+    () => mergeStateForPortalUser(current, incoming, user),
+    /타임라인 안정 ID의 진행 연결은 변경할 수 없습니다/,
+  );
 });
 
 void test('new partner records bind to the authenticated ID without changing an existing assignment', () => {
@@ -334,6 +363,7 @@ void test('unambiguous legacy names remain usable, including normalized display 
     (item) => item.partnerMemberId !== 'partner-two',
   );
   current.schedule = [];
+  current.timeline = [];
   current.members[0].name = ` ${user.memberName!}(가상) `;
   const visible = stateForPortalUser(current, user) as typeof current;
   assert.deepEqual(
@@ -425,5 +455,6 @@ void test('legacy file permission refuses a same-name claimant and keeps adminis
     (item) => item.partnerMemberId !== 'partner-two',
   );
   unique.schedule = [];
+  unique.timeline = [];
   assert.equal(mayReadCompanyFile(user, row, unique), true);
 });

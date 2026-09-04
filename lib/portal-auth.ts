@@ -28,6 +28,7 @@ import {
 import { diagnosisAssessmentStateError } from '@/lib/diagnosis-assessment';
 import { caseRecordStateError } from '@/lib/case-record-integrity';
 import { relatedRecordStateError } from '@/lib/related-record-integrity';
+import { timelineRecordStateError } from '@/lib/timeline-record-integrity';
 
 type PortalPermissions = {
   sharedSchedule: boolean;
@@ -288,6 +289,7 @@ export function hasPortalStateStructure(value: unknown) {
     portalStateMetadataError(value) === null &&
     portalRecordIdError(value) === null &&
     caseRecordStateError(value.cases, value.members) === null &&
+    timelineRecordStateError(value.timeline, value.cases) === null &&
     relatedRecordStateError(
       value.tasks,
       value.companyDocuments,
@@ -309,6 +311,7 @@ function invalidPortalStateMessage(value: unknown) {
     ? portalStateMetadataError(value) ??
         portalRecordIdError(value) ??
         caseRecordStateError(value.cases, value.members) ??
+        timelineRecordStateError(value.timeline, value.cases) ??
         relatedRecordStateError(
           value.tasks,
           value.companyDocuments,
@@ -599,8 +602,28 @@ function timelineMergeKey(record: PortalRecord) {
   const caseId = timelineCaseId(record);
   const id = field(record, 'id');
   return id
-    ? `id:${caseId}:${id}`
+    ? `id:${id}`
     : `legacy:${caseId}:${field(record, 'date')}:${field(record, 'title')}`;
+}
+
+function assertTimelineStableIdCaseRetained(
+  current: PortalRecord[],
+  incoming: PortalRecord[],
+) {
+  const currentById = new Map(
+    current
+      .map((record) => [field(record, 'id'), record] as const)
+      .filter(([id]) => Boolean(id)),
+  );
+  for (const record of incoming) {
+    const id = field(record, 'id');
+    const stored = id ? currentById.get(id) : null;
+    if (stored && timelineCaseId(stored) !== timelineCaseId(record))
+      throw new PortalAccessError(
+        '타임라인 안정 ID의 진행 연결은 변경할 수 없습니다.',
+        403,
+      );
+  }
 }
 
 function sanitizeScheduleForTrainee(
@@ -889,6 +912,7 @@ export function mergeStateForPortalUser(
   const incomingTimeline = incoming.timeline.filter((record) =>
     ownCaseIds.has(timelineCaseId(record)),
   );
+  assertTimelineStableIdCaseRetained(current.timeline, incomingTimeline);
   const timelineByKey = new Map(
     incomingTimeline.map((record) => [timelineMergeKey(record), record]),
   );
