@@ -38,4 +38,18 @@ void test('all browser pages receive the security boundary from proxy', async ()
   const proxySource = await readFile(join(process.cwd(), 'proxy.ts'), 'utf8');
   assert.match(proxySource, /applyBrowserSecurityHeaders\(response\.headers\)/);
   assert.match(proxySource, /matcher:\s*\['\/', '\/account\/:path\*'\]/);
+
+  const staticAssetHeaders = await readFile(
+    join(process.cwd(), 'public', '_headers'),
+    'utf8',
+  );
+  assert.match(staticAssetHeaders, /^\/\*$/m);
+  for (const { key, value } of browserSecurityHeaders)
+    assert.ok(staticAssetHeaders.includes(`  ${key}: ${value}`));
+  assert.match(staticAssetHeaders, /^\/_next\/static\/\*$/m);
+  assert.ok(
+    staticAssetHeaders.includes(
+      '  Cache-Control: public, max-age=31536000, immutable',
+    ),
+  );
 });
