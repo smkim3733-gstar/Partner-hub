@@ -82,6 +82,14 @@ void test('text uploads stay on their existing text-validation path', async () =
   );
 });
 
+void test('unregistered extensions fail closed at the content boundary', async () => {
+  for (const name of ['future.bin', 'extensionless'])
+    assert.match(
+      await uploadFileContentProblem(new File(['unknown'], name)),
+      /실제 파일 형식/,
+    );
+});
+
 void test('both upload routes validate content before durable storage', async () => {
   for (const route of [
     'app/api/files/route.ts',

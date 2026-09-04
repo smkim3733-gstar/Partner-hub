@@ -127,7 +127,7 @@ export async function uploadFileContentProblem(
                   ? hasIsoBaseMediaTypeBox(bytes)
                   : extension === 'mp3'
                     ? isMpegAudio(bytes)
-                    : true;
+                    : false;
     return valid ? '' : SIGNATURE_MISMATCH;
   } catch {
     return SIGNATURE_MISMATCH;
