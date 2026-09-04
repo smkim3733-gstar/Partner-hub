@@ -2541,6 +2541,84 @@ try {
   const peerMember = cleanMemberIdState.members.find(
     (member) => member.id === peerId,
   );
+  const malformedPermissionState = structuredClone(cleanMemberIdState);
+  const malformedPermissions = {
+    sharedSchedule: 'false',
+    collaborationApply: 1,
+    ownCases: 'true',
+    fileUpload: {},
+    quoteContract: 'allowed',
+  };
+  malformedPermissionState.members.find(
+    (member) => member.id === memberId,
+  ).permissions = structuredClone(malformedPermissions);
+  malformedPermissionState.members.find(
+    (member) => member.id === chatGPTOwnedMember.id,
+  ).permissions = structuredClone(malformedPermissions);
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(JSON.stringify(malformedPermissionState), new Date().toISOString())
+    .run();
+  const malformedPasswordLogin = await expect(
+    await call('/login', { email, password: `${password} new` }),
+    200,
+    'password login accepts a legacy account with malformed permissions',
+  );
+  const malformedPasswordCookie = malformedPasswordLogin.headers
+    .get('set-cookie')
+    .split(';')[0];
+  const malformedPasswordView = await (
+    await expect(
+      await call('/state', undefined, { cookie: malformedPasswordCookie }),
+      200,
+      'password state denies malformed legacy permission values',
+    )
+  ).json();
+  const malformedChatGPTView = await (
+    await expect(
+      await call('/state', undefined, chatGPTHeaders),
+      200,
+      'ChatGPT state denies malformed legacy permission values',
+    )
+  ).json();
+  const deniedPermissions = {
+    sharedSchedule: false,
+    collaborationApply: false,
+    ownCases: false,
+    fileUpload: false,
+    quoteContract: false,
+  };
+  assert.deepEqual(
+    malformedPasswordView.currentUser.permissions,
+    deniedPermissions,
+  );
+  assert.deepEqual(
+    malformedPasswordView.state.members[0].permissions,
+    deniedPermissions,
+  );
+  assert.deepEqual(
+    malformedChatGPTView.currentUser.permissions,
+    deniedPermissions,
+  );
+  assert.deepEqual(
+    malformedChatGPTView.state.members[0].permissions,
+    deniedPermissions,
+  );
+  checks.push(
+    'native password and ChatGPT access fail closed on malformed legacy permissions',
+  );
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(
+      stateBeforeAmbiguousLegacyEmail.payload,
+      stateBeforeAmbiguousLegacyEmail.updated_at,
+    )
+    .run();
+  await expect(
+    await call('/logout', {}, { cookie: malformedPasswordCookie }),
+    200,
+    'legacy permission test session logout succeeds',
+  );
   const protectedMemberFieldsState = structuredClone(cleanMemberIdState);
   const protectedPasswordMember = protectedMemberFieldsState.members.find(
     (member) => member.id === memberId,

@@ -83,6 +83,20 @@ function isPortalPermissions(value: unknown): value is PortalPermissions {
   );
 }
 
+function effectivePortalPermissions(value: unknown): PortalPermissions {
+  const record =
+    value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  return {
+    sharedSchedule: record.sharedSchedule === true,
+    collaborationApply: record.collaborationApply === true,
+    ownCases: record.ownCases === true,
+    fileUpload: record.fileUpload === true,
+    quoteContract: record.quoteContract === true,
+  };
+}
+
 function samePermissionValues(left: unknown, right: unknown) {
   if (
     !left ||
@@ -252,7 +266,7 @@ export async function requirePortalUser(
       role: 'trainee',
       memberId: member.id,
       memberName: normalizedMemberName(member.name),
-      permissions: member.permissions,
+      permissions: effectivePortalPermissions(member.permissions),
       authMethod: 'password',
     };
   }
@@ -341,7 +355,7 @@ export async function requirePortalUser(
     role: 'trainee',
     memberId: member.id,
     memberName,
-    permissions: member.permissions,
+    permissions: effectivePortalPermissions(member.permissions),
     authMethod: 'chatgpt',
   };
 }
@@ -553,7 +567,10 @@ export function stateForPortalUser(
     ),
     members: state.members
       .filter((member) => member.id === user.memberId)
-      .map((member) => ({ ...member, permissions: { ...member.permissions } })),
+      .map((member) => ({
+        ...member,
+        permissions: effectivePortalPermissions(member.permissions),
+      })),
   };
 }
 

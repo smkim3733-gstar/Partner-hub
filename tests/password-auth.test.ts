@@ -46,6 +46,21 @@ const ownerHeaders = {
   'oai-authenticated-user-id': 'test-owner',
   'oai-authenticated-user-email': 'smkim3733@gmail.com',
 };
+const deniedPartnerPermissions = {
+  sharedSchedule: false,
+  collaborationApply: false,
+  ownCases: false,
+  fileUpload: false,
+  quoteContract: false,
+};
+const truthyMalformedPartnerPermissions = () =>
+  ({
+    sharedSchedule: 'false',
+    collaborationApply: 1,
+    ownCases: 'true',
+    fileUpload: {},
+    quoteContract: 'allowed',
+  }) as unknown as PartnerAccount['permissions'];
 function request(
   data?: unknown,
   headers: Record<string, string> = {},
@@ -345,6 +360,51 @@ void test('approval enables cookie-only login; session cannot elevate to mocked 
   );
   assert.doesNotMatch(sessionCookie(request(), token), /Domain=/i);
   assertPrivateAuthResponse(response);
+});
+void test('password authentication denies every malformed legacy permission value', async () => {
+  const cookie = await loggedIn();
+  const current = await state();
+  current.members.find((member) => member.email === email)!.permissions =
+    truthyMalformedPartnerPermissions();
+  await writePortalState(current);
+
+  const response = await expectStatus(
+    await getState(request(undefined, { cookie })),
+    200,
+  );
+  const payload = (await response.json()) as {
+    currentUser: { permissions: PartnerAccount['permissions'] };
+    state: { members: PartnerAccount[] };
+  };
+  assert.deepEqual(payload.currentUser.permissions, deniedPartnerPermissions);
+  assert.deepEqual(
+    payload.state.members[0].permissions,
+    deniedPartnerPermissions,
+  );
+});
+void test('ChatGPT authentication denies every malformed legacy permission value', async () => {
+  const current = await state();
+  current.members[0].permissions = truthyMalformedPartnerPermissions();
+  await writePortalState(current);
+
+  const response = await expectStatus(
+    await getState(
+      request(undefined, {
+        'oai-authenticated-user-id': 'malformed-permission-chatgpt-user',
+        'oai-authenticated-user-email': 'existing@example.invalid',
+      }),
+    ),
+    200,
+  );
+  const payload = (await response.json()) as {
+    currentUser: { permissions: PartnerAccount['permissions'] };
+    state: { members: PartnerAccount[] };
+  };
+  assert.deepEqual(payload.currentUser.permissions, deniedPartnerPermissions);
+  assert.deepEqual(
+    payload.state.members[0].permissions,
+    deniedPartnerPermissions,
+  );
 });
 void test('administrator access binds the stable ChatGPT identity, rejects a recycled owner email and survives a provider email change', async () => {
   const initial = await getState(request(undefined, ownerHeaders));
