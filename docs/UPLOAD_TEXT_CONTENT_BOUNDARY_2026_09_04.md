@@ -28,4 +28,4 @@ TXT·Markdown 확장자로 이름만 바꾼 바이너리나 읽을 수 없는 �
 - TypeScript 타입검사, 전체 lint, 프로덕션 빌드 통과
 - 격리검사 중 운영 쓰기, 메일, 유료 AI, 외부 요청 0건
 
-자동 운영 승인 원칙에 따라 검증한 커밋을 GitHub `main`과 기존 공개 Sites에 순차 반영하고 배포 결과를 별도 기록한다.
+2026-09-04 자동 운영 승인 원칙에 따라 커밋 `f5d0a83`을 GitHub `main`과 공개 Sites 버전 90에 반영했다. 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결을 유지했으며 운영 화면 3곳의 HTTP 200, 기업자료·상담 FLOW API의 익명 HTTP 401과 비공개 보안 헤더를 확인했다. 실제 업로드는 운영 자료를 만들지 않고 격리 workerd/R2와 API 테스트에서 확인했다. 배포 결과는 `outputs/release/upload-text-content-boundary-deployment.json`을 기준으로 삼는다.
