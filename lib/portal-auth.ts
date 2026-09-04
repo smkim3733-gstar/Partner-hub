@@ -176,9 +176,18 @@ export async function requirePortalUser(
   const state = asPortalState(rawState);
   const boundMemberId =
     identityBinding?.kind === 'member' ? identityBinding.memberId : null;
+  const matchingMembers = boundMemberId
+    ? []
+    : (state?.members.filter(
+        (item) =>
+          typeof item.email === 'string' &&
+          item.email.trim().toLowerCase() === email,
+      ) ?? []);
+  if (!boundMemberId && matchingMembers.length > 1)
+    throw new PortalAccessError(chatGPTIdentityConflictMessage, 403);
   const member = boundMemberId
     ? state?.members.find((item) => item.id === boundMemberId)
-    : state?.members.find((item) => item.email.trim().toLowerCase() === email);
+    : matchingMembers[0];
   if (!member || member.status !== '활성') {
     throw new PortalAccessError(
       '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',

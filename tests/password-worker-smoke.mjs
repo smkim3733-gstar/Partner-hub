@@ -2459,6 +2459,60 @@ try {
     'bound ChatGPT identity survives a provider email change',
   );
 
+  const ambiguousLegacyEmail = 'ambiguous-legacy-runtime@example.invalid';
+  const stateBeforeAmbiguousLegacyEmail = await db
+    .prepare('SELECT payload, updated_at FROM portal_state')
+    .first();
+  const ambiguousLegacyState = JSON.parse(
+    stateBeforeAmbiguousLegacyEmail.payload,
+  );
+  const ambiguousLegacyTemplate = ambiguousLegacyState.members.find(
+    (member) => member.id === peerId,
+  );
+  ambiguousLegacyState.members.push(
+    {
+      ...ambiguousLegacyTemplate,
+      id: 'ambiguous-legacy-runtime-a',
+      email: ambiguousLegacyEmail,
+      status: '활성',
+    },
+    {
+      ...ambiguousLegacyTemplate,
+      id: 'ambiguous-legacy-runtime-b',
+      email: ambiguousLegacyEmail,
+      status: '활성',
+    },
+  );
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(JSON.stringify(ambiguousLegacyState), new Date().toISOString())
+    .run();
+  const ambiguousLegacyUserId = 'synthetic-ambiguous-legacy-user';
+  await expect(
+    await call('/state', undefined, {
+      'oai-authenticated-user-id': ambiguousLegacyUserId,
+      'oai-authenticated-user-email': ambiguousLegacyEmail,
+    }),
+    403,
+    'ambiguous legacy email cannot claim a ChatGPT identity binding',
+  );
+  assert.equal(
+    await db
+      .prepare(
+        'SELECT subject_id FROM portal_chatgpt_identity_bindings WHERE user_key = ?1',
+      )
+      .bind(await sha256(`chatgpt-user:${ambiguousLegacyUserId}`))
+      .first(),
+    null,
+  );
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(
+      stateBeforeAmbiguousLegacyEmail.payload,
+      stateBeforeAmbiguousLegacyEmail.updated_at,
+    )
+    .run();
+
   const disposableEmail = 'disposable-runtime@example.invalid';
   const disposablePassword = 'disposable runtime test secret 123!';
   await expect(

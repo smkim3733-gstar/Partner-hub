@@ -455,6 +455,35 @@ void test('ChatGPT stable identity binding claims a legacy member, rejects a rec
     'existing',
   );
 });
+void test('unbound ChatGPT identity rejects an ambiguous legacy member email without creating a binding', async () => {
+  const current = await state();
+  current.members.push({
+    ...current.members[0],
+    id: 'duplicate-existing',
+    name: '가상 중복이메일 파트너',
+  });
+  await writePortalState(current);
+
+  const userId = 'ambiguous-legacy-user';
+  const response = await getState(
+    request(undefined, {
+      'oai-authenticated-user-id': userId,
+      'oai-authenticated-user-email': 'existing@example.invalid',
+    }),
+  );
+  assert.equal(response.status, 403, await response.clone().text());
+  assert.equal(
+    await (
+      await passwordDatabase()
+    )
+      .prepare(
+        'SELECT subject_id FROM portal_chatgpt_identity_bindings WHERE user_key = ?1',
+      )
+      .bind(tokenHash(`chatgpt-user:${userId}`))
+      .first(),
+    null,
+  );
+});
 void test('ChatGPT identity binding survives suspension but is removed by an administrator email change', async () => {
   const db = await passwordDatabase();
   const headers = {
