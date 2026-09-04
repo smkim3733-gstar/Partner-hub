@@ -16,6 +16,9 @@ import { privateJsonResponse } from '@/lib/private-response';
 import {
   limitAuthenticationAttempts,
   PasswordError,
+  chatGPTIdentityConflictMessage,
+  chatGPTMemberBindingStatements,
+  chatGPTMemberBindingStatus,
   passwordCredentialEmailConflictMessage,
   passwordCredentialEmailReserved,
 } from '@/lib/password-store';
@@ -108,72 +111,103 @@ export async function POST(request: Request) {
       );
     }
 
-    await mutatePortalState(async (rawState) => {
-      const state = asRegistrationState(rawState);
-      if (!state) {
-        throw new FlowError(
-          '파트너 운영정보가 준비되지 않았습니다. 관리자에게 문의해 주세요.',
-          503,
+    let binding: {
+      memberId: string;
+      needsInsert: boolean;
+      createdAt: string;
+    } | null = null;
+    await mutatePortalState(
+      async (rawState) => {
+        const state = asRegistrationState(rawState);
+        if (!state) {
+          throw new FlowError(
+            '파트너 운영정보가 준비되지 않았습니다. 관리자에게 문의해 주세요.',
+            503,
+          );
+        }
+
+        const existingIndex = state.members.findIndex(
+          (member) => member.email.trim().toLowerCase() === email,
         );
-      }
-
-      const existingIndex = state.members.findIndex(
-        (member) => member.email.trim().toLowerCase() === email,
-      );
-      const existing = existingIndex >= 0 ? state.members[existingIndex] : null;
-      if (existing?.status === '활성') {
-        throw new FlowError(
-          '이미 활성화된 파트너 계정입니다. 화면을 새로고침해 주세요.',
-          409,
+        const existing =
+          existingIndex >= 0 ? state.members[existingIndex] : null;
+        if (existing?.status === '활성') {
+          throw new FlowError(
+            '이미 활성화된 파트너 계정입니다. 화면을 새로고침해 주세요.',
+            409,
+          );
+        }
+        if (existing?.status === '정지') {
+          throw new FlowError(
+            '이용이 정지된 계정입니다. 대표님께 문의해 주세요.',
+            403,
+          );
+        }
+        if (await passwordCredentialEmailReserved(email, existing?.id))
+          throw new FlowError(passwordCredentialEmailConflictMessage, 409);
+        const memberId = existing?.id ?? `partner-${crypto.randomUUID()}`;
+        const bindingStatus = await chatGPTMemberBindingStatus(
+          identity.id,
+          memberId,
         );
-      }
-      if (existing?.status === '정지') {
-        throw new FlowError(
-          '이용이 정지된 계정입니다. 대표님께 문의해 주세요.',
-          403,
-        );
-      }
-      if (await passwordCredentialEmailReserved(email, existing?.id))
-        throw new FlowError(passwordCredentialEmailConflictMessage, 409);
+        if (bindingStatus === 'conflict')
+          throw new FlowError(chatGPTIdentityConflictMessage, 409);
+        binding = {
+          memberId,
+          needsInsert: bindingStatus === 'available',
+          createdAt: new Date().toISOString(),
+        };
 
-      const pendingMember: RegistrationMember = {
-        ...existing,
-        id: existing?.id ?? `partner-${crypto.randomUUID()}`,
-        name,
-        phone,
-        affiliation,
-        email,
-        cohort: existing?.cohort ?? '',
-        role: existing?.role ?? '일반 파트너',
-        status: '승인대기',
-        companies: existing?.companies ?? 0,
-        permissions: existing?.permissions ?? {
-          sharedSchedule: true,
-          collaborationApply: true,
-          ownCases: true,
-          fileUpload: true,
-          quoteContract: false,
-        },
-      };
+        const pendingMember: RegistrationMember = {
+          ...existing,
+          id: memberId,
+          name,
+          phone,
+          affiliation,
+          email,
+          cohort: existing?.cohort ?? '',
+          role: existing?.role ?? '일반 파트너',
+          status: '승인대기',
+          companies: existing?.companies ?? 0,
+          permissions: existing?.permissions ?? {
+            sharedSchedule: true,
+            collaborationApply: true,
+            ownCases: true,
+            fileUpload: true,
+            quoteContract: false,
+          },
+        };
 
-      if (
-        existing?.status === '승인대기' &&
-        existing.name === pendingMember.name &&
-        existing.phone === pendingMember.phone &&
-        existing.affiliation === pendingMember.affiliation &&
-        existing.email === pendingMember.email
-      )
-        return state;
+        if (
+          existing?.status === '승인대기' &&
+          existing.name === pendingMember.name &&
+          existing.phone === pendingMember.phone &&
+          existing.affiliation === pendingMember.affiliation &&
+          existing.email === pendingMember.email
+        )
+          return state;
 
-      const nextMembers = [...state.members];
-      if (existingIndex >= 0) nextMembers[existingIndex] = pendingMember;
-      else nextMembers.push(pendingMember);
-      return {
-        ...state,
-        members: nextMembers,
-        membersRevision: membersRevisionOf(state) + 1,
-      };
-    });
+        const nextMembers = [...state.members];
+        if (existingIndex >= 0) nextMembers[existingIndex] = pendingMember;
+        else nextMembers.push(pendingMember);
+        return {
+          ...state,
+          members: nextMembers,
+          membersRevision: membersRevisionOf(state) + 1,
+        };
+      },
+      undefined,
+      (db, committedPayload) =>
+        binding?.needsInsert
+          ? chatGPTMemberBindingStatements(
+              db,
+              identity.id,
+              binding.memberId,
+              committedPayload,
+              binding.createdAt,
+            )
+          : [],
+    );
 
     schedulePortalConflictRecovery({
       token: presentedReceipt,

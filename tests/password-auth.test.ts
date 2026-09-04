@@ -127,6 +127,7 @@ beforeEach(async () => {
   await db.batch(
     [
       'portal_password_accounts',
+      'portal_chatgpt_member_bindings',
       'portal_password_sessions',
       'portal_password_links',
       'portal_auth_limits',
@@ -345,6 +346,122 @@ void test('approval enables cookie-only login; session cannot elevate to mocked 
   assert.doesNotMatch(sessionCookie(request(), token), /Domain=/i);
   assertPrivateAuthResponse(response);
 });
+void test('ChatGPT stable identity binding claims a legacy member, rejects a recycled email and accepts the bound user after an email change', async () => {
+  const db = await passwordDatabase();
+  const initial = await getState(
+    request(undefined, {
+      'oai-authenticated-user-id': 'test-bound-user',
+      'oai-authenticated-user-email': 'existing@example.invalid',
+    }),
+  );
+  assert.equal(initial.status, 200, await initial.clone().text());
+  const binding = await db
+    .prepare(`SELECT member_id, user_key
+      FROM portal_chatgpt_member_bindings WHERE member_id = ?1`)
+    .bind('existing')
+    .first<{ member_id: string; user_key: string }>();
+  assert.equal(binding?.member_id, 'existing');
+  assert.equal(
+    binding?.user_key,
+    tokenHash('chatgpt-user:test-bound-user'),
+  );
+
+  const recycled = await getState(
+    request(undefined, {
+      'oai-authenticated-user-id': 'different-user',
+      'oai-authenticated-user-email': 'existing@example.invalid',
+    }),
+  );
+  assert.equal(recycled.status, 403, await recycled.clone().text());
+  const changedEmail = await getState(
+    request(undefined, {
+      'oai-authenticated-user-id': 'test-bound-user',
+      'oai-authenticated-user-email': 'changed@example.invalid',
+    }),
+  );
+  assert.equal(changedEmail.status, 200, await changedEmail.clone().text());
+  assert.equal(
+    ((await changedEmail.json()) as { currentUser: { memberId: string } })
+      .currentUser.memberId,
+    'existing',
+  );
+});
+void test('ChatGPT identity binding survives suspension but is removed by an administrator email change', async () => {
+  const db = await passwordDatabase();
+  const headers = {
+    'oai-authenticated-user-id': 'lifecycle-user',
+    'oai-authenticated-user-email': 'existing@example.invalid',
+  };
+  await expectStatus(await getState(request(undefined, headers)), 200);
+
+  const suspended = await state();
+  suspended.members[0].status = '정지';
+  await expectStatus(
+    await saveState(request({ state: suspended }, ownerHeaders, 'PUT')),
+    200,
+  );
+  assert.ok(
+    await db
+      .prepare(
+        'SELECT member_id FROM portal_chatgpt_member_bindings WHERE member_id = ?1',
+      )
+      .bind('existing')
+      .first(),
+  );
+
+  const restored = await state();
+  restored.members[0].status = '활성';
+  await expectStatus(
+    await saveState(request({ state: restored }, ownerHeaders, 'PUT')),
+    200,
+  );
+  const changed = await state();
+  changed.members[0].email = 'changed-binding@example.invalid';
+  await expectStatus(
+    await saveState(request({ state: changed }, ownerHeaders, 'PUT')),
+    200,
+  );
+  assert.equal(
+    await db
+      .prepare(
+        'SELECT member_id FROM portal_chatgpt_member_bindings WHERE member_id = ?1',
+      )
+      .bind('existing')
+      .first(),
+    null,
+  );
+});
+void test('member email change rolls back when ChatGPT identity binding revocation fails', async () => {
+  const db = await passwordDatabase();
+  await expectStatus(
+    await getState(
+      request(undefined, {
+        'oai-authenticated-user-id': 'rollback-binding-user',
+        'oai-authenticated-user-email': 'existing@example.invalid',
+      }),
+    ),
+    200,
+  );
+  const before = await state();
+  const changed = structuredClone(before);
+  changed.members[0].email = 'rollback-binding@example.invalid';
+  failNextDatabaseStatement('DELETE FROM portal_chatgpt_member_bindings');
+  assert.equal(
+    (await saveState(request({ state: changed }, ownerHeaders, 'PUT'))).status,
+    500,
+  );
+  const after = await state();
+  assert.equal(after.members[0].email, 'existing@example.invalid');
+  assert.equal(after.membersRevision, before.membersRevision);
+  assert.ok(
+    await db
+      .prepare(
+        'SELECT member_id FROM portal_chatgpt_member_bindings WHERE member_id = ?1',
+      )
+      .bind('existing')
+      .first(),
+  );
+});
 void test('bad and nonexistent passwords return the same generic message; login rate limits expensive checks', async () => {
   await register();
   const absent = await login(
@@ -407,7 +524,9 @@ void test('login cannot commit a session after suspension wins the state race', 
     if (
       once &&
       statements.some((statement) =>
-        statementSql(statement).includes('INSERT INTO portal_password_sessions'),
+        statementSql(statement).includes(
+          'INSERT INTO portal_password_sessions',
+        ),
       )
     ) {
       once = false;
@@ -647,9 +766,7 @@ void test('email change and deletion atomically remove stale credentials while s
     0,
   );
   assert.equal(
-    (
-      await register({ email: changedEmail, password: changedPassword })
-    ).status,
+    (await register({ email: changedEmail, password: changedPassword })).status,
     201,
   );
 });
@@ -691,11 +808,8 @@ void test('member email changes reject credentials reserved by a detached accoun
     permissions: { ...defaultPartnerPermissions },
   });
   assert.equal(
-    (
-      await saveState(
-        request({ state: resurrected }, ownerHeaders, 'PUT'),
-      )
-    ).status,
+    (await saveState(request({ state: resurrected }, ownerHeaders, 'PUT')))
+      .status,
     409,
   );
   assert.equal((await state()).members.length, 1);
@@ -796,7 +910,9 @@ void test('email change rolls back state and all access revocation when credenti
     assert.equal(
       (
         await database
-          .prepare(`SELECT COUNT(*) AS total FROM ${table} WHERE member_id = ?1`)
+          .prepare(
+            `SELECT COUNT(*) AS total FROM ${table} WHERE member_id = ?1`,
+          )
           .bind(memberId)
           .first<{ total: number }>()
       )?.total,

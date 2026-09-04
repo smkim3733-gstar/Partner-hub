@@ -120,15 +120,108 @@ function passwordAccessMembers(state: unknown): PasswordAccessMember[] {
 
 export const passwordCredentialEmailConflictMessage =
   '이 이메일에는 다른 사이트 비밀번호 자격이 남아 있습니다. 이메일을 확인하거나 기존 자격을 정리한 뒤 다시 시도해 주세요.';
+export const chatGPTIdentityConflictMessage =
+  '이 ChatGPT 로그인 정보는 다른 파트너 계정과 연결되어 있습니다. 대표님께 계정 확인을 요청해 주세요.';
 
-async function passwordCredentialEmailOwner(
+const chatGPTUserKey = (userId: string) => tokenHash(`chatgpt-user:${userId}`);
+
+async function chatGPTBindingRows(
   db: D1Database,
+  userId: string,
+  memberId: string,
+) {
+  return (
+    await db
+      .prepare(`SELECT member_id, user_key FROM portal_chatgpt_member_bindings
+        WHERE member_id = ?1 OR user_key = ?2`)
+      .bind(memberId, chatGPTUserKey(userId))
+      .all<{ member_id: string; user_key: string }>()
+  ).results;
+}
+
+export async function chatGPTMemberBindingStatus(
+  userId: string,
+  memberId: string,
+): Promise<'available' | 'owned' | 'conflict'> {
+  const rows = await chatGPTBindingRows(
+    await passwordDatabase(),
+    userId,
+    memberId,
+  );
+  if (rows.length === 0) return 'available';
+  return rows.length === 1 &&
+    rows[0].member_id === memberId &&
+    rows[0].user_key === chatGPTUserKey(userId)
+    ? 'owned'
+    : 'conflict';
+}
+
+export function chatGPTMemberBindingStatements(
+  db: D1Database,
+  userId: string,
+  memberId: string,
+  committedPortalPayload: string,
+  createdAt: string,
+) {
+  return [
+    ...portalPasswordSchemaSql.map((sql) => db.prepare(sql)),
+    db
+      .prepare(`INSERT INTO portal_chatgpt_member_bindings
+        (member_id, user_key, created_at, updated_at)
+        SELECT ?1, ?2, ?3, ?3
+        WHERE EXISTS (SELECT 1 FROM portal_state WHERE id = ?4 AND payload = ?5)`)
+      .bind(
+        memberId,
+        chatGPTUserKey(userId),
+        createdAt,
+        portalStateId,
+        committedPortalPayload,
+      ),
+  ];
+}
+
+export async function chatGPTBoundMemberId(userId: string) {
+  const row = await (
+    await passwordDatabase()
+  )
+    .prepare(
+      'SELECT member_id FROM portal_chatgpt_member_bindings WHERE user_key = ?1',
+    )
+    .bind(chatGPTUserKey(userId))
+    .first<{ member_id: string }>();
+  return row?.member_id ?? null;
+}
+
+export async function claimChatGPTMemberBinding(
+  userId: string,
+  memberId: string,
   email: string,
 ) {
+  const db = await passwordDatabase();
+  const key = chatGPTUserKey(userId);
+  const now = new Date().toISOString();
+  await db
+    .prepare(`INSERT INTO portal_chatgpt_member_bindings
+      (member_id, user_key, created_at, updated_at)
+      SELECT ?1, ?2, ?3, ?3
+      WHERE EXISTS (SELECT 1 FROM portal_state s, json_each(s.payload, '$.members') m
+        WHERE s.id = ?4 AND json_extract(m.value, '$.id') = ?1
+        AND lower(trim(json_extract(m.value, '$.email'))) = ?5
+        AND json_extract(m.value, '$.status') = '활성')
+      ON CONFLICT DO NOTHING`)
+    .bind(memberId, key, now, portalStateId, normalizeLoginEmail(email))
+    .run();
+  const rows = await chatGPTBindingRows(db, userId, memberId);
+  return (
+    rows.length === 1 &&
+    rows[0].member_id === memberId &&
+    rows[0].user_key === key
+  );
+}
+
+async function passwordCredentialEmailOwner(db: D1Database, email: string) {
   const row = await db
-    .prepare(
-      'SELECT member_id FROM portal_password_accounts WHERE email = ?1',
-    )
+    .prepare('SELECT member_id FROM portal_password_accounts WHERE email = ?1')
     .bind(email)
     .first<{ member_id: string }>();
   return row?.member_id ?? null;
@@ -190,6 +283,7 @@ export function passwordAccessRevocationForStateChange(
   const sessionMemberIds = new Set<string>();
   const setupLinkMemberIds = new Set<string>();
   const credentialMemberIds = new Set<string>();
+  const chatGPTBindingMemberIds = new Set<string>();
   for (const member of passwordAccessMembers(currentState)) {
     if (typeof member.id !== 'string') continue;
     const next = nextById.get(member.id);
@@ -203,11 +297,13 @@ export function passwordAccessRevocationForStateChange(
     if (identityChanged || member.status === '정지' || next?.status === '정지')
       setupLinkMemberIds.add(member.id);
     if (identityChanged) credentialMemberIds.add(member.id);
+    if (identityChanged) chatGPTBindingMemberIds.add(member.id);
   }
   return {
     sessionMemberIds: [...sessionMemberIds],
     setupLinkMemberIds: [...setupLinkMemberIds],
     credentialMemberIds: [...credentialMemberIds],
+    chatGPTBindingMemberIds: [...chatGPTBindingMemberIds],
   };
 }
 
@@ -217,6 +313,7 @@ export function passwordAccessRevocationStatements(
     sessionMemberIds: readonly string[];
     setupLinkMemberIds: readonly string[];
     credentialMemberIds: readonly string[];
+    chatGPTBindingMemberIds: readonly string[];
   },
   committedPortalPayload: string,
 ) {
@@ -229,10 +326,14 @@ export function passwordAccessRevocationStatements(
   const credentialMemberIds = [
     ...new Set(revocation.credentialMemberIds.filter(Boolean)),
   ];
+  const chatGPTBindingMemberIds = [
+    ...new Set(revocation.chatGPTBindingMemberIds.filter(Boolean)),
+  ];
   if (
     sessionMemberIds.length === 0 &&
     setupLinkMemberIds.length === 0 &&
-    credentialMemberIds.length === 0
+    credentialMemberIds.length === 0 &&
+    chatGPTBindingMemberIds.length === 0
   )
     return [];
   const committed = `EXISTS (SELECT 1 FROM portal_state WHERE id = ?2 AND payload = ?3)`;
@@ -256,6 +357,13 @@ export function passwordAccessRevocationStatements(
       db
         .prepare(
           `DELETE FROM portal_password_accounts WHERE member_id = ?1 AND ${committed}`,
+        )
+        .bind(memberId, portalStateId, committedPortalPayload),
+    ),
+    ...chatGPTBindingMemberIds.map((memberId) =>
+      db
+        .prepare(
+          `DELETE FROM portal_chatgpt_member_bindings WHERE member_id = ?1 AND ${committed}`,
         )
         .bind(memberId, portalStateId, committedPortalPayload),
     ),

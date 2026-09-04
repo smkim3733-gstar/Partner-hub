@@ -268,6 +268,7 @@ export async function PUT(request: Request) {
       sessionMemberIds: [] as string[],
       setupLinkMemberIds: [] as string[],
       credentialMemberIds: [] as string[],
+      chatGPTBindingMemberIds: [] as string[],
     };
     const result = await mutatePortalState(
       async (currentState) => {
@@ -330,6 +331,7 @@ export async function PUT(request: Request) {
                 sessionMemberIds: [],
                 setupLinkMemberIds: [],
                 credentialMemberIds: [],
+                chatGPTBindingMemberIds: [],
               };
         if (
           memberChange &&

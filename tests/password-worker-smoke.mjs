@@ -2256,6 +2256,23 @@ try {
   const chatGPTOwnedMember = chatGPTState.members.find(
     (member) => member.email === chatGPTSignup.email,
   );
+  const chatGPTBinding = await db
+    .prepare(`SELECT member_id, user_key
+      FROM portal_chatgpt_member_bindings WHERE member_id = ?1`)
+    .bind(chatGPTOwnedMember.id)
+    .first();
+  assert.equal(chatGPTBinding.member_id, chatGPTOwnedMember.id);
+  assert.equal(
+    chatGPTBinding.user_key,
+    await sha256(`chatgpt-user:${chatGPTHeaders['oai-authenticated-user-id']}`),
+  );
+  assert.notEqual(
+    chatGPTBinding.user_key,
+    chatGPTHeaders['oai-authenticated-user-id'],
+  );
+  checks.push(
+    'ChatGPT registration stores only a hashed stable identity binding',
+  );
   await db
     .prepare(`INSERT INTO portal_password_accounts
       (member_id, email, password_hash, credential_version, created_at, updated_at)
@@ -2281,6 +2298,33 @@ try {
     chatGPTRevision,
   );
   checks.push('owned credential ChatGPT retry remains a no-op');
+  const activatedChatGPTState = (
+    await (await call('/state', undefined, ownerHeaders)).json()
+  ).state;
+  activatedChatGPTState.members.find(
+    (member) => member.id === chatGPTOwnedMember.id,
+  ).status = '활성';
+  await expect(
+    await call('/save', { state: activatedChatGPTState }, ownerHeaders, 'PUT'),
+    200,
+    'owner activates the identity-bound ChatGPT member',
+  );
+  await expect(
+    await call('/state', undefined, {
+      'oai-authenticated-user-id': 'synthetic-recycled-chatgpt-user',
+      'oai-authenticated-user-email': chatGPTSignup.email,
+    }),
+    403,
+    'recycled email cannot transfer an existing ChatGPT member binding',
+  );
+  await expect(
+    await call('/state', undefined, {
+      ...chatGPTHeaders,
+      'oai-authenticated-user-email': 'changed-chatgpt-runtime@example.invalid',
+    }),
+    200,
+    'bound ChatGPT identity survives a provider email change',
+  );
 
   const disposableEmail = 'disposable-runtime@example.invalid';
   const disposablePassword = 'disposable runtime test secret 123!';
@@ -2307,6 +2351,15 @@ try {
     await call('/save', { state: disposableState }, ownerHeaders, 'PUT'),
     200,
     'owner activates disposable credential account',
+  );
+  const disposableChatGPTHeaders = {
+    'oai-authenticated-user-id': 'synthetic-disposable-chatgpt-user',
+    'oai-authenticated-user-email': disposableEmail,
+  };
+  await expect(
+    await call('/state', undefined, disposableChatGPTHeaders),
+    200,
+    'legacy active member claims a stable ChatGPT identity binding',
   );
   await expect(
     await call('/login', {
@@ -2336,6 +2389,15 @@ try {
       .first(),
   );
   checks.push('suspension preserves the reusable password credential');
+  assert.ok(
+    await db
+      .prepare(
+        'SELECT member_id FROM portal_chatgpt_member_bindings WHERE member_id = ?1',
+      )
+      .bind(disposableMember.id)
+      .first(),
+  );
+  checks.push('suspension preserves the stable ChatGPT identity binding');
   disposableState = (
     await (await call('/state', undefined, ownerHeaders)).json()
   ).state;
@@ -2357,6 +2419,18 @@ try {
     null,
   );
   checks.push('member deletion atomically removes the password credential');
+  assert.equal(
+    await db
+      .prepare(
+        'SELECT member_id FROM portal_chatgpt_member_bindings WHERE member_id = ?1',
+      )
+      .bind(disposableMember.id)
+      .first(),
+    null,
+  );
+  checks.push(
+    'member deletion atomically removes the ChatGPT identity binding',
+  );
   await expect(
     await call('/signup', {
       name: '가상 재등록 파트너',
@@ -2369,8 +2443,7 @@ try {
     201,
     'deleted account email can register without an orphan credential conflict',
   );
-  const reservedCredentialEmail =
-    'detached-reserved-runtime@example.invalid';
+  const reservedCredentialEmail = 'detached-reserved-runtime@example.invalid';
   await db
     .prepare(`INSERT INTO portal_password_accounts
       (member_id, email, password_hash, credential_version, created_at, updated_at)
@@ -2430,7 +2503,9 @@ try {
     ).member_id,
     'detached-runtime-member',
   );
-  checks.push('credential email conflict leaves the detached credential intact');
+  checks.push(
+    'credential email conflict leaves the detached credential intact',
+  );
   await db.prepare('DELETE FROM portal_auth_limits').run();
   const reservedChatGPTStateBefore = JSON.parse(
     (await db.prepare('SELECT payload FROM portal_state').first()).payload,
@@ -2465,7 +2540,9 @@ try {
     ),
     false,
   );
-  checks.push('blocked ChatGPT credential collision leaves the roster unchanged');
+  checks.push(
+    'blocked ChatGPT credential collision leaves the roster unchanged',
+  );
   assert.equal(outboundRequests, 0);
   checks.push('no external network calls during the isolated pilot');
   console.log(

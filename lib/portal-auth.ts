@@ -1,6 +1,12 @@
 import { hasDuplicateLoginEmail, isValidLoginEmail } from '@/lib/member-email';
 import type { PortalLoginStat } from '@/lib/portal-state';
-import { passwordIdentity, PasswordError } from '@/lib/password-store';
+import {
+  chatGPTBoundMemberId,
+  chatGPTIdentityConflictMessage,
+  claimChatGPTMemberBinding,
+  passwordIdentity,
+  PasswordError,
+} from '@/lib/password-store';
 import { isPilotSeedId, type PilotSeedKind } from '@/lib/pilot-readiness';
 import {
   chatGPTDisplayNameFromRequest,
@@ -142,15 +148,21 @@ export async function requirePortalUser(
   }
 
   const state = asPortalState(rawState);
-  const member = state?.members.find(
-    (item) => item.email.trim().toLowerCase() === email,
-  );
+  const boundMemberId = await chatGPTBoundMemberId(id);
+  const member = boundMemberId
+    ? state?.members.find((item) => item.id === boundMemberId)
+    : state?.members.find((item) => item.email.trim().toLowerCase() === email);
   if (!member || member.status !== '활성') {
     throw new PortalAccessError(
       '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
       403,
     );
   }
+  if (
+    !boundMemberId &&
+    !(await claimChatGPTMemberBinding(id, member.id, email))
+  )
+    throw new PortalAccessError(chatGPTIdentityConflictMessage, 403);
 
   const memberName = normalizedMemberName(member.name);
   return {
@@ -433,14 +445,9 @@ export function mergeStateForPortalUser(
     ownCaseIds.has(timelineCaseId(record)),
   );
   const timelineByKey = new Map(
-    incomingTimeline.map((record) => [
-      timelineMergeKey(record),
-      record,
-    ]),
+    incomingTimeline.map((record) => [timelineMergeKey(record), record]),
   );
-  const existingTimelineKeys = new Set(
-    current.timeline.map(timelineMergeKey),
-  );
+  const existingTimelineKeys = new Set(current.timeline.map(timelineMergeKey));
   const mergedTimeline = current.timeline.map(
     (record) => timelineByKey.get(timelineMergeKey(record)) ?? record,
   );

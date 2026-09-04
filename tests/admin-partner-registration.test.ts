@@ -30,7 +30,8 @@ import { readPartnerRegistrationResponse } from '../lib/partner-registration-res
 import { env } from 'cloudflare:workers';
 import { readDuplicateRequestSummary } from '../lib/duplicate-request-metrics';
 import { passwordDatabase } from '../lib/password-store';
-import { flushWaitUntil } from './runtime-mock.mjs';
+import { tokenHash } from '../lib/password-crypto';
+import { failNextDatabaseStatement, flushWaitUntil } from './runtime-mock.mjs';
 
 const owner = 'seedy@sites.test';
 function assertPrivateAuthResponse(response: Response) {
@@ -116,6 +117,7 @@ beforeEach(async () => {
   const passwordDb = await passwordDatabase();
   await passwordDb.batch([
     passwordDb.prepare('DELETE FROM portal_password_accounts'),
+    passwordDb.prepare('DELETE FROM portal_chatgpt_member_bindings'),
     passwordDb.prepare('DELETE FROM portal_auth_limits'),
   ]);
   await writePortalState({
@@ -386,7 +388,9 @@ void test('retry uses the same account; request id cannot be reused for differen
   ).run();
   const data = body();
   const first = await created(data);
-  await (await passwordDatabase())
+  await (
+    await passwordDatabase()
+  )
     .prepare(`INSERT INTO portal_password_accounts
       (member_id, email, password_hash, credential_version, created_at, updated_at)
       VALUES (?1, ?2, ?3, ?4, ?5, ?5)`)
@@ -760,6 +764,27 @@ void test('public ChatGPT registration rejects detached credentials but permits 
   const pending = (await state()).members.find(
     (member) => member.email === signup.email,
   )!;
+  const binding = await db
+    .prepare(`SELECT member_id, user_key
+      FROM portal_chatgpt_member_bindings WHERE member_id = ?1`)
+    .bind(pending.id)
+    .first<{ member_id: string; user_key: string }>();
+  assert.equal(binding?.member_id, pending.id);
+  assert.equal(binding?.user_key, tokenHash(`chatgpt-user:${signup.email}`));
+  const recycledIdentity = await selfRegister(
+    request(signup, signup.email, '/api/register', 'POST', {
+      'oai-authenticated-user-id': 'recycled-chatgpt-user',
+    }),
+  );
+  assert.equal(
+    recycledIdentity.status,
+    409,
+    await recycledIdentity.clone().text(),
+  );
+  assert.match(
+    ((await recycledIdentity.json()) as { error: string }).error,
+    /ChatGPT 로그인 정보/,
+  );
   await db
     .prepare(`INSERT INTO portal_password_accounts
       (member_id, email, password_hash, credential_version, created_at, updated_at)
@@ -778,6 +803,23 @@ void test('public ChatGPT registration rejects detached credentials but permits 
     200,
   );
   assert.equal(membersRevisionOf(await state()), revision);
+});
+
+void test('ChatGPT registration rolls back the pending member when identity binding storage fails', async () => {
+  const signup = body({ email: 'binding-rollback@example.invalid' });
+  const before = await state();
+  failNextDatabaseStatement('INSERT INTO portal_chatgpt_member_bindings');
+  const response = await selfRegister(
+    request(signup, signup.email, '/api/register'),
+  );
+  assert.equal(response.status, 500, await response.clone().text());
+  const after = await state();
+  assert.equal(after.members.length, before.members.length);
+  assert.equal(membersRevisionOf(after), membersRevisionOf(before));
+  assert.equal(
+    after.members.some((member) => member.email === signup.email),
+    false,
+  );
 });
 
 void test('public ChatGPT registration rate limits one stable identity across changing client IPs without repeated state writes', async () => {
