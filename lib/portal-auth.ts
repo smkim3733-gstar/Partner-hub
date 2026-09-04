@@ -20,6 +20,7 @@ import {
   chatGPTDisplayNameFromRequest,
   chatGPTIdentityFromRequest,
 } from '@/lib/request-auth';
+import { membersRevisionOf } from '@/lib/partner-registration';
 
 type PortalPermissions = {
   sharedSchedule: boolean;
@@ -248,6 +249,83 @@ export async function requirePortalUser(
 function field(record: PortalRecord, key: string) {
   const value = record[key];
   return typeof value === 'string' ? value : '';
+}
+
+function incomingRetainsMember(
+  current: PortalStateRecord,
+  incoming: PortalStateRecord,
+  member: PortalMember,
+) {
+  const incomingMatches = incoming.members.filter(
+    (candidate) => candidate.id === member.id,
+  );
+  if (!incomingMatches.length) return false;
+  const currentMatches = current.members.filter(
+    (candidate) => candidate.id === member.id,
+  );
+  if (currentMatches.length === 1) return true;
+  const email =
+    typeof member.email === 'string' ? member.email.trim().toLowerCase() : '';
+  return (
+    Boolean(email) &&
+    incomingMatches.some(
+      (candidate) => candidate.email.trim().toLowerCase() === email,
+    )
+  );
+}
+
+function recordReferencesMember(
+  record: PortalRecord,
+  ownerKey: string,
+  member: PortalMember,
+) {
+  if (record.partnerMemberId != null)
+    return field(record, 'partnerMemberId') === member.id;
+  const memberName =
+    typeof member.name === 'string' ? normalizedMemberName(member.name) : '';
+  return (
+    Boolean(memberName) &&
+    normalizedMemberName(field(record, ownerKey)) === memberName
+  );
+}
+
+function memberHasAssignedRecords(
+  state: PortalStateRecord,
+  member: PortalMember,
+) {
+  return (
+    state.cases.some((record) =>
+      recordReferencesMember(record, 'trainee', member),
+    ) ||
+    state.tasks.some((record) =>
+      recordReferencesMember(record, 'assignee', member),
+    ) ||
+    state.companyDocuments.some((record) =>
+      recordReferencesMember(record, 'assignedTrainee', member),
+    ) ||
+    state.schedule.some((record) =>
+      recordReferencesMember(record, 'assignedTrainee', member),
+    )
+  );
+}
+
+function assertMemberDeletionsAllowed(
+  current: PortalStateRecord,
+  incoming: PortalStateRecord,
+) {
+  for (const member of current.members) {
+    if (incomingRetainsMember(current, incoming, member)) continue;
+    if (member.status === '활성')
+      throw new PortalAccessError(
+        '활성 파트너 계정은 먼저 정지한 뒤 삭제해 주세요.',
+        403,
+      );
+    if (memberHasAssignedRecords(current, member))
+      throw new PortalAccessError(
+        '담당 진행·업무·자료·일정을 다른 계정으로 옮긴 뒤 파트너 계정을 삭제해 주세요.',
+        403,
+      );
+  }
 }
 
 // Legacy names only authorize access when they resolve to exactly one account,
@@ -530,6 +608,11 @@ export function mergeStateForPortalUser(
         '이미 등록된 파트너 로그인 이메일입니다.',
         403,
       );
+    if (
+      current &&
+      membersRevisionOf(incoming) === membersRevisionOf(current)
+    )
+      assertMemberDeletionsAllowed(current, incoming);
     const members = current
       ? incoming.members.map((member) => {
           const storedMatches = current.members.filter(

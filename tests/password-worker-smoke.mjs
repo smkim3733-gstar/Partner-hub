@@ -2728,10 +2728,27 @@ try {
     (member) => member.email === disposableEmail,
   );
   disposableMember.status = '활성';
+  disposableState.tasks.push({
+    id: 'disposable-linked-task-runtime',
+    title: '가상 삭제 연결 검증업무',
+    assignee: disposableMember.name,
+    partnerMemberId: disposableMember.id,
+  });
   await expect(
     await call('/save', { state: disposableState }, ownerHeaders, 'PUT'),
     200,
     'owner activates disposable credential account',
+  );
+  const activeDeletionState = (
+    await (await call('/state', undefined, ownerHeaders)).json()
+  ).state;
+  activeDeletionState.members = activeDeletionState.members.filter(
+    (member) => member.id !== disposableMember.id,
+  );
+  await expect(
+    await call('/save', { state: activeDeletionState }, ownerHeaders, 'PUT'),
+    403,
+    'generic owner state save cannot delete an active account',
   );
   const disposableChatGPTHeaders = {
     'oai-authenticated-user-id': 'synthetic-disposable-chatgpt-user',
@@ -2779,6 +2796,28 @@ try {
       .first(),
   );
   checks.push('suspension preserves the stable ChatGPT identity binding');
+  const linkedDeletionState = (
+    await (await call('/state', undefined, ownerHeaders)).json()
+  ).state;
+  linkedDeletionState.members = linkedDeletionState.members.filter(
+    (member) => member.id !== disposableMember.id,
+  );
+  await expect(
+    await call('/save', { state: linkedDeletionState }, ownerHeaders, 'PUT'),
+    403,
+    'generic owner state save cannot delete an account with assigned records',
+  );
+  const unlinkedDisposableState = (
+    await (await call('/state', undefined, ownerHeaders)).json()
+  ).state;
+  unlinkedDisposableState.tasks = unlinkedDisposableState.tasks.filter(
+    (task) => task.id !== 'disposable-linked-task-runtime',
+  );
+  await expect(
+    await call('/save', { state: unlinkedDisposableState }, ownerHeaders, 'PUT'),
+    200,
+    'owner removes the disposable account assignment before deletion',
+  );
   disposableState = (
     await (await call('/state', undefined, ownerHeaders)).json()
   ).state;

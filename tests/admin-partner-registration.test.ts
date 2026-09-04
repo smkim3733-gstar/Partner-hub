@@ -656,6 +656,75 @@ void test('login statistics do not increment member revision; ordinary case/task
   );
 });
 
+void test('generic administrator state save cannot delete an active unassigned partner', async () => {
+  const registered = await created();
+  const before = await state();
+  const changed = structuredClone(before);
+  changed.members = changed.members.filter(
+    (member) => member.id !== registered.member.id,
+  );
+
+  const response = await save(
+    request({ state: changed }, owner, '/api/state', 'PUT'),
+  );
+  assert.equal(response.status, 403, await response.clone().text());
+  assert.deepEqual(await state(), before);
+});
+
+void test('generic administrator state save cannot delete a suspended partner with assigned records', async () => {
+  const base = await state();
+  base.members[0].status = '정지';
+  base.cases = [];
+  base.tasks = [];
+  base.companyDocuments = [];
+  base.schedule = [];
+  const assignments = [
+    ['cases', { id: 'linked-case', partnerMemberId: 'existing-id' }],
+    ['tasks', { id: 'linked-task', assignee: '가상 기존파트너' }],
+    [
+      'companyDocuments',
+      { id: 'linked-document', partnerMemberId: 'existing-id' },
+    ],
+    [
+      'schedule',
+      { id: 'linked-schedule', assignedTrainee: '가상 기존파트너' },
+    ],
+  ] as const;
+
+  for (const [collection, record] of assignments) {
+    const linked = structuredClone(base);
+    linked[collection] = [record];
+    await writePortalState(linked);
+    const before = await state();
+    const changed = structuredClone(before);
+    changed.members = changed.members.filter(
+      (member) => member.id !== 'existing-id',
+    );
+
+    const response = await save(
+      request({ state: changed }, owner, '/api/state', 'PUT'),
+    );
+    assert.equal(response.status, 403, await response.clone().text());
+    assert.deepEqual(await state(), before);
+  }
+});
+
+void test('generic administrator state save can delete a suspended unassigned partner', async () => {
+  const current = await state();
+  current.members = current.members.filter(
+    (member) => member.id !== 'suspended-id',
+  );
+
+  const response = await save(
+    request({ state: current }, owner, '/api/state', 'PUT'),
+  );
+  assert.equal(response.status, 200, await response.clone().text());
+  assert.equal(
+    (await state()).members.some((member) => member.id === 'suspended-id'),
+    false,
+  );
+});
+
 void test('partner autosave cannot change membership, permissions or revision after administrator creation', async () => {
   const before = await state();
   await created();
