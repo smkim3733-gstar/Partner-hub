@@ -309,6 +309,21 @@ try {
     200,
     'original owner identity is restored after the synthetic claim race',
   );
+  const reservedOwnerState = await (
+    await call('/state', undefined, ownerHeaders)
+  ).json();
+  reservedOwnerState.state.members[0].email =
+    ownerHeaders['oai-authenticated-user-email'];
+  await expect(
+    await call(
+      '/save',
+      { state: reservedOwnerState.state },
+      ownerHeaders,
+      'PUT',
+    ),
+    403,
+    'administrator cannot assign the owner email to a partner',
+  );
   const peerRetry = await expect(
     await call('/partners', peerRegistration, ownerHeaders),
     200,

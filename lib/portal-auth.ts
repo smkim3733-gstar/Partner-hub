@@ -1,5 +1,6 @@
 import {
   hasDuplicateLoginEmail,
+  isReservedPortalOwnerEmail,
   isValidLoginEmail,
   LOCAL_PORTAL_OWNER_EMAIL,
   PORTAL_OWNER_EMAIL,
@@ -435,6 +436,15 @@ export function mergeStateForPortalUser(
     if (invalidEmail)
       throw new PortalAccessError(
         '파트너 로그인 이메일 형식이 올바르지 않습니다.',
+        403,
+      );
+
+    const reservedOwnerEmail = incoming.members.find((member) =>
+      isReservedPortalOwnerEmail(member.email),
+    );
+    if (reservedOwnerEmail)
+      throw new PortalAccessError(
+        '대표 관리자 이메일은 파트너 계정에 사용할 수 없습니다.',
         403,
       );
 

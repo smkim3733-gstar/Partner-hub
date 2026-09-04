@@ -402,6 +402,21 @@ void test('administrator identity claim fails closed when binding storage fails'
     null,
   );
 });
+void test('administrator cannot assign a reserved owner email to a partner', async () => {
+  for (const reservedOwnerEmail of [
+    'smkim3733@gmail.com',
+    'seedy@sites.test',
+  ]) {
+    const before = await state();
+    const changed = structuredClone(before);
+    changed.members[0].email = reservedOwnerEmail;
+    const response = await saveState(
+      request({ state: changed }, ownerHeaders, 'PUT'),
+    );
+    assert.equal(response.status, 403, await response.clone().text());
+    assert.deepEqual(await state(), before);
+  }
+});
 void test('ChatGPT stable identity binding claims a legacy member, rejects a recycled email and accepts the bound user after an email change', async () => {
   const db = await passwordDatabase();
   const initial = await getState(
