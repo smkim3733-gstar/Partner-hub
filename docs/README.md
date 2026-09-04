@@ -9,6 +9,7 @@
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                  | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
 | [변경 요청 Origin 필수 보안 경계](MUTATION_ORIGIN_REQUIRED_BOUNDARY_2026_09_05.md)                              | Origin 없는 인증 변경 요청 차단과 정확한 동일 출처 증명                                  |
 | [ChatGPT 중복 이메일 결속 무결성](CHATGPT_AMBIGUOUS_EMAIL_BINDING_INTEGRITY_2026_09_05.md)                     | 레거시 중복 이메일의 임의 회원 선택·안정 ID 오결속 차단                                  |
+| [ChatGPT 자가등록 중복 이메일 무결성](CHATGPT_REGISTRATION_AMBIGUOUS_EMAIL_INTEGRITY_2026_09_05.md)            | 레거시 중복 이메일의 첫 승인대기 계정 선택·자가등록 오결속 차단                          |
 | [ChatGPT 가입 계정 상태 무결성 경계](CHATGPT_REGISTRATION_INTEGRITY_BOUNDARY_2026_09_05.md)                      | 정지 계정 보존, 동일 재시도 무기록과 사용자 ID 기반 반복 가입 제한                       |
 | [계정 상태 변경 인증수단 폐기 무결성 경계](PASSWORD_ACCESS_REVOCATION_INTEGRITY_2026_09_05.md)                  | 정지·재활성화·이메일 변경·삭제와 세션·설정 링크의 원자적 폐기                            |
 | [로그인 세션·설정 링크 발급 커밋 무결성 경계](PASSWORD_ISSUANCE_COMMIT_GUARD_2026_09_05.md)                   | 동시 상태·비밀번호 변경 뒤 늦은 세션·링크 재생성과 최신 링크 삭제 차단                   |
