@@ -73,10 +73,16 @@ export type ComputedFlowCommandReceipt = {
   legacyFingerprints?: readonly string[];
 };
 
-export async function flowCommandReceipt(
-  user: PortalUser,
-  input: { command: FlowCommand; file?: File; audio?: File },
-): Promise<ComputedFlowCommandReceipt> {
+async function commandFingerprints(
+  input: {
+    command: FlowCommand;
+    file?: File;
+    audio?: File;
+  },
+  includeLegacy = true,
+): Promise<
+  Pick<ComputedFlowCommandReceipt, 'fingerprint' | 'legacyFingerprints'>
+> {
   const command = canonical(input.command);
   const file = await attachment(input.file);
   const audio = await attachment(input.audio);
@@ -93,6 +99,7 @@ export async function flowCommandReceipt(
       }),
     );
   const fingerprint = await fingerprintFor(file?.name, audio?.name, false);
+  if (!includeLegacy) return { fingerprint };
   const legacyFingerprints = new Set<string>();
   for (const fileName of file?.legacyNames ?? [undefined]) {
     for (const audioName of audio?.legacyNames ?? [undefined]) {
@@ -107,12 +114,31 @@ export async function flowCommandReceipt(
     }
   }
   return {
-    actorKey:
-      user.role === 'admin' ? `admin:${user.email}` : `member:${user.memberId}`,
     fingerprint,
     ...(legacyFingerprints.size > 0
       ? { legacyFingerprints: [...legacyFingerprints] }
       : {}),
+  };
+}
+
+/** Keeps one browser command ID for identical bytes even after file reselection. */
+export async function flowCommandRetryKey(
+  command: FlowCommand,
+  file?: File,
+  audio?: File,
+) {
+  return (await commandFingerprints({ command, file, audio }, false))
+    .fingerprint;
+}
+
+export async function flowCommandReceipt(
+  user: PortalUser,
+  input: { command: FlowCommand; file?: File; audio?: File },
+): Promise<ComputedFlowCommandReceipt> {
+  return {
+    actorKey:
+      user.role === 'admin' ? `admin:${user.email}` : `member:${user.memberId}`,
+    ...(await commandFingerprints(input)),
   };
 }
 export function isFlowCommandRetry(

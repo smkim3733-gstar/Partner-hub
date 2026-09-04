@@ -67,6 +67,7 @@ import {
   MAX_AI_SOURCE_FILES,
   MAX_AI_SOURCE_MEGABYTES,
 } from '@/lib/intake-source-policy';
+import { flowCommandRetryKey } from '@/lib/flow-command-receipt';
 
 type Section =
   | 'reports'
@@ -424,19 +425,16 @@ export function ConsultingWorkflow({
     setBusy(true);
     setError('');
     setNotice('');
-    const key =
-      JSON.stringify(command) +
-      (file ? `${file.name}:${file.size}:${file.lastModified}` : '') +
-      (audio ? `:audio:${audio.name}:${audio.size}:${audio.lastModified}` : '');
-    if (pending.current?.key !== key)
-      pending.current = { key, id: crypto.randomUUID() };
-    const payload = JSON.stringify({
-      command,
-      revision: flow.revision,
-      commandId: pending.current.id,
-    });
     let saved = false;
     try {
+      const key = await flowCommandRetryKey(command, file, audio);
+      if (pending.current?.key !== key)
+        pending.current = { key, id: crypto.randomUUID() };
+      const payload = JSON.stringify({
+        command,
+        revision: flow.revision,
+        commandId: pending.current.id,
+      });
       const form = new FormData();
       if (file || audio) {
         form.set('payload', payload);

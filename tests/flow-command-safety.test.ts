@@ -20,6 +20,7 @@ import { readDuplicateRequestSummary } from '../lib/duplicate-request-metrics';
 import { flushWaitUntil } from './runtime-mock.mjs';
 import {
   flowCommandReceipt,
+  flowCommandRetryKey,
   isFlowCommandRetry,
 } from '../lib/flow-command-receipt';
 import type { PortalUser } from '../lib/portal-auth';
@@ -534,6 +535,38 @@ void test('FLOW receipt normalizes NFC/NFD filenames and resumes a raw NFD recei
   assert.equal(
     isFlowCommandRetry(previousReleaseFlow, commandId, nfcReceipt),
     true,
+  );
+});
+
+void test('FLOW browser retry key follows canonical names and bytes, not file timestamps', async () => {
+  const command = {
+    type: 'save_report',
+    stage: 1,
+    body,
+    fileConsent: true,
+  } as const;
+  const nfcName = '재시도자료.txt'.normalize('NFC');
+  const first = new File(['SAME_BYTES'], nfcName.normalize('NFD'), {
+    type: 'text/html',
+    lastModified: 100,
+  });
+  const reselected = new File(['SAME_BYTES'], nfcName, {
+    type: 'application/x-alternate-text',
+    lastModified: 200,
+  });
+  assert.equal(
+    await flowCommandRetryKey(command, first),
+    await flowCommandRetryKey(command, reselected),
+  );
+  assert.notEqual(
+    await flowCommandRetryKey(
+      command,
+      new File(['AAAA'], nfcName, { lastModified: 300 }),
+    ),
+    await flowCommandRetryKey(
+      command,
+      new File(['BBBB'], nfcName, { lastModified: 300 }),
+    ),
   );
 });
 

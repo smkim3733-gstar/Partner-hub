@@ -98,6 +98,8 @@ void test('consulting upload inputs use shared policy instead of literal lists',
   );
   assert.match(workflow, /accept=\{flowUploadAccept\(command\)\}/);
   assert.match(transcript, /accept=\{flowUploadAccept\(/);
+  assert.match(workflow, /await flowCommandRetryKey\(command, file, audio\)/);
+  assert.doesNotMatch(workflow, /(?:file|audio)\.lastModified/);
   assert.doesNotMatch(workflow, /accept="\.[a-z]+(?:,\.[a-z]+)+"/);
   assert.doesNotMatch(transcript, /accept="\.[a-z]+(?:,\.[a-z]+)+"/);
 });
