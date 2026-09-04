@@ -20,6 +20,12 @@ import {
   readIfMatchRevision,
 } from '../lib/request-header';
 import { portalConflictReceiptFromRequest } from '../lib/portal-conflict-receipt';
+import {
+  chatGPTDisplayNameFromRequest,
+  chatGPTIdentityFromRequest,
+  rateLimitClientKey,
+  readSessionCookieToken,
+} from '../lib/request-auth';
 
 function request(
   body: BodyInit | null,
@@ -275,6 +281,104 @@ void test('conflict receipt request reader ignores malformed telemetry tokens', 
   );
 });
 
+void test('platform identity and display name readers bound forwarded headers', () => {
+  const authenticated = request('{}', 'application/json', {
+    'oai-authenticated-user-id': 'user_01-test',
+    'oai-authenticated-user-email': ' USER@EXAMPLE.INVALID ',
+    'oai-authenticated-user-full-name': encodeURIComponent(' 가상 사용자 '),
+    'oai-authenticated-user-full-name-encoding': 'percent-encoded-utf-8',
+  });
+  assert.deepEqual(chatGPTIdentityFromRequest(authenticated), {
+    id: 'user_01-test',
+    email: 'user@example.invalid',
+  });
+  assert.equal(
+    chatGPTDisplayNameFromRequest(authenticated, 'fallback'),
+    '가상 사용자',
+  );
+  const invalidIdentities: Array<Record<string, string>> = [
+    { 'oai-authenticated-user-id': 'user-only' },
+    {
+      'oai-authenticated-user-id': 'x'.repeat(257),
+      'oai-authenticated-user-email': 'user@example.invalid',
+    },
+    {
+      'oai-authenticated-user-id': 'user',
+      'oai-authenticated-user-email': 'invalid',
+    },
+  ];
+  for (const headers of invalidIdentities)
+    assert.equal(
+      chatGPTIdentityFromRequest(request('{}', 'application/json', headers)),
+      null,
+    );
+  for (const headers of [
+    {
+      'oai-authenticated-user-full-name': '%E0%A4%A',
+      'oai-authenticated-user-full-name-encoding': 'percent-encoded-utf-8',
+    },
+    {
+      'oai-authenticated-user-full-name': encodeURIComponent('x'.repeat(81)),
+      'oai-authenticated-user-full-name-encoding': 'percent-encoded-utf-8',
+    },
+    {
+      'oai-authenticated-user-full-name': 'name',
+      'oai-authenticated-user-full-name-encoding': 'plain',
+    },
+  ])
+    assert.equal(
+      chatGPTDisplayNameFromRequest(
+        request('{}', 'application/json', headers),
+        'fallback',
+      ),
+      'fallback',
+    );
+});
+
+void test('rate-limit and session readers bound edge and cookie headers', () => {
+  assert.equal(
+    rateLimitClientKey(
+      request('{}', 'application/json', { 'cf-connecting-ip': '2001:DB8::1' }),
+    ),
+    '2001:db8::1',
+  );
+  for (const value of [undefined, 'not-an-ip', 'a'.repeat(65)])
+    assert.equal(
+      rateLimitClientKey(
+        request(
+          '{}',
+          'application/json',
+          value ? { 'cf-connecting-ip': value } : {},
+        ),
+      ),
+      'shared-no-edge-ip',
+    );
+
+  const token = 'a'.repeat(64);
+  assert.equal(
+    readSessionCookieToken(
+      request('{}', 'application/json', {
+        cookie: `other=1; keve_session=${token}`,
+      }),
+      'keve_session',
+    ),
+    token,
+  );
+  assert.equal(readSessionCookieToken(request('{}'), 'keve_session'), null);
+  for (const cookie of [
+    'keve_session=invalid',
+    `keve_session=${token}; keve_session=${token}`,
+    `other=${'x'.repeat(8_193)}; keve_session=${token}`,
+  ])
+    assert.equal(
+      readSessionCookieToken(
+        request('{}', 'application/json', { cookie }),
+        'keve_session',
+      ),
+      '',
+    );
+});
+
 async function routeFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   const nested = await Promise.all(
@@ -392,5 +496,28 @@ void test('business request headers remain routed through shared boundaries', as
   for (const [file, boundary] of expected) {
     const source = await readFile(path.resolve(process.cwd(), file), 'utf8');
     assert.ok(source.includes(boundary), `${file}: missing header boundary`);
+  }
+});
+
+void test('authentication inputs remain routed through shared boundaries', async () => {
+  const expected = [
+    ['lib/portal-auth.ts', 'chatGPTIdentityFromRequest(request)'],
+    ['lib/portal-auth.ts', 'chatGPTDisplayNameFromRequest(request, email)'],
+    ['app/api/register/route.ts', 'chatGPTIdentityFromRequest(request)'],
+    ['app/api/state/route.ts', 'chatGPTIdentityFromRequest(request)?.email'],
+    ['lib/password-store.ts', 'rateLimitClientKey(request)'],
+    [
+      'lib/password-store.ts',
+      'readSessionCookieToken(request, cookieName(request))',
+    ],
+  ] as const;
+  for (const [file, boundary] of expected) {
+    const source = await readFile(path.resolve(process.cwd(), file), 'utf8');
+    assert.ok(source.includes(boundary), `${file}: missing auth boundary`);
+    assert.doesNotMatch(
+      source,
+      /headers\.get\(\s*['"](?:oai-authenticated-user-(?:id|email|full-name)|cf-connecting-ip|cookie)['"]\s*\)/,
+      `${file}: direct auth header read`,
+    );
   }
 });

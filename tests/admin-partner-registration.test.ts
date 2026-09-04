@@ -222,6 +222,16 @@ void test('only authenticated administrator may create; wrong origin and product
     (
       await create(
         request(body(), owner, undefined, undefined, {
+          'oai-authenticated-user-id': 'x'.repeat(257),
+        }),
+      )
+    ).status,
+    401,
+  );
+  assert.equal(
+    (
+      await create(
+        request(body(), owner, undefined, undefined, {
           origin: 'https://unrelated.example.invalid',
         }),
       )
@@ -584,6 +594,20 @@ void test('public self registration still requires matching authenticated email 
     (await selfRegister(request(signup, owner, '/api/register'))).status,
     403,
   );
+  const malformedIdentityHeaders: Array<Record<string, string>> = [
+    { 'oai-authenticated-user-id': 'x'.repeat(257) },
+    { 'oai-authenticated-user-email': 'invalid' },
+  ];
+  for (const headers of malformedIdentityHeaders)
+    assert.equal(
+      (
+        await selfRegister(
+          request(signup, signup.email, '/api/register', 'POST', headers),
+        )
+      ).status,
+      401,
+    );
+  assert.equal((await state()).members.length, 2);
   const results = await Promise.all([
     selfRegister(request(signup, signup.email, '/api/register')),
     create(request(body())),

@@ -3,6 +3,7 @@ import { portalPasswordSchemaSql } from '@/db/schema';
 import { tokenHash } from '@/lib/password-crypto';
 import { isCrossSiteRequest } from '@/lib/request-origin';
 import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
+import { rateLimitClientKey, readSessionCookieToken } from '@/lib/request-auth';
 
 export class PasswordError extends Error {
   constructor(
@@ -83,7 +84,7 @@ export async function limitPasswordAttempts(
   const now = Date.now();
   const until = now + 15 * 60_000;
   // This header is supplied by Cloudflare at the edge; do not trust client-supplied X-Forwarded-For.
-  const ip = request.headers.get('cf-connecting-ip') ?? 'shared-no-edge-ip';
+  const ip = rateLimitClientKey(request);
   const buckets: [string, number][] = [
     [`${purpose}:ip:${ip}`, purpose === 'register' ? 8 : 30],
   ];
@@ -111,13 +112,7 @@ function cookieName(request: Request) {
     : 'keve_local_session';
 }
 export function sessionToken(request: Request): string | null {
-  const parts = (request.headers.get('cookie') ?? '')
-    .split(';')
-    .map((p) => p.trim());
-  const matches = parts.filter((p) => p.startsWith(`${cookieName(request)}=`));
-  if (!matches.length) return null;
-  if (matches.length !== 1) return '';
-  return matches[0].slice(cookieName(request).length + 1);
+  return readSessionCookieToken(request, cookieName(request));
 }
 export const sessionLifetimeSeconds = 12 * 60 * 60;
 export function sessionCookie(request: Request, token: string, clear = false) {

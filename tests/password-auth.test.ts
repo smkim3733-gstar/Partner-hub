@@ -358,6 +358,7 @@ void test('expiry, bad cookie and duplicate cookie never fall back to admin head
     cookie,
     '__Host-keve_session=invalid',
     `${cookie}; ${cookie}`,
+    `${cookie}; other=${'x'.repeat(8_193)}`,
   ])
     assert.equal(
       (await getState(request(undefined, { cookie: value, ...ownerHeaders })))

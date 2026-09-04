@@ -44,6 +44,7 @@ import {
 } from '@/lib/portal-conflict-metrics';
 import { portalConflictReceiptFromRequest } from '@/lib/portal-conflict-receipt';
 import { HeaderRequestError, readIfMatchRevision } from '@/lib/request-header';
+import { chatGPTIdentityFromRequest } from '@/lib/request-auth';
 import { readPasswordLinkSummary } from '@/lib/password-link-metrics';
 import {
   protectApplicationSubmissionTimes,
@@ -78,10 +79,7 @@ function accessErrorResponse(error: unknown, request: Request) {
   if (error instanceof PortalAccessError) {
     const authenticatedEmail =
       error.status === 403
-        ? request.headers
-            .get('oai-authenticated-user-email')
-            ?.trim()
-            .toLowerCase()
+        ? chatGPTIdentityFromRequest(request)?.email
         : undefined;
     return privateJson(
       { error: error.message, authenticatedEmail },

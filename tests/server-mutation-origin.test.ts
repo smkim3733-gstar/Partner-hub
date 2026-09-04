@@ -71,7 +71,7 @@ const guardedRoutes = [
     file: 'app/api/register/route.ts',
     handler: 'export async function POST',
     guard: 'assertSameOrigin(request);',
-    sensitive: 'const authenticatedId = request.headers',
+    sensitive: 'const identity = chatGPTIdentityFromRequest(request);',
   },
   {
     file: 'app/api/state/route.ts',

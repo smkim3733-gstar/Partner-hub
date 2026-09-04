@@ -2,6 +2,10 @@ import { hasDuplicateLoginEmail, isValidLoginEmail } from '@/lib/member-email';
 import type { PortalLoginStat } from '@/lib/portal-state';
 import { passwordIdentity, PasswordError } from '@/lib/password-store';
 import { isPilotSeedId, type PilotSeedKind } from '@/lib/pilot-readiness';
+import {
+  chatGPTDisplayNameFromRequest,
+  chatGPTIdentityFromRequest,
+} from '@/lib/request-auth';
 
 type PortalPermissions = {
   sharedSchedule: boolean;
@@ -74,19 +78,6 @@ function asPortalState(value: unknown): PortalStateRecord | null {
   return state as PortalStateRecord;
 }
 
-function headerDisplayName(request: Request, email: string) {
-  const encoded = request.headers.get('oai-authenticated-user-full-name');
-  const encoding = request.headers.get(
-    'oai-authenticated-user-full-name-encoding',
-  );
-  if (!encoded || encoding !== 'percent-encoded-utf-8') return email;
-  try {
-    return decodeURIComponent(encoded);
-  } catch {
-    return email;
-  }
-}
-
 export function normalizedMemberName(name: string) {
   return name.replace('(가상)', '').trim();
 }
@@ -128,14 +119,11 @@ export async function requirePortalUser(
       authMethod: 'password',
     };
   }
-  const id = request.headers.get('oai-authenticated-user-id')?.trim();
-  const email = request.headers
-    .get('oai-authenticated-user-email')
-    ?.trim()
-    .toLowerCase();
-  if (!id || !email) {
+  const identity = chatGPTIdentityFromRequest(request);
+  if (!identity) {
     throw new PortalAccessError('로그인 정보를 확인할 수 없습니다.', 401);
   }
+  const { id, email } = identity;
 
   const isLocalOwner =
     new URL(request.url).hostname === 'localhost' &&
@@ -168,7 +156,7 @@ export async function requirePortalUser(
   return {
     id,
     email,
-    displayName: headerDisplayName(request, email),
+    displayName: chatGPTDisplayNameFromRequest(request, email),
     role: 'trainee',
     memberId: member.id,
     memberName,

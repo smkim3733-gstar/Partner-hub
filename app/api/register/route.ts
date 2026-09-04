@@ -11,6 +11,7 @@ import {
 } from '@/lib/portal-conflict-metrics';
 import { portalConflictReceiptFromRequest } from '@/lib/portal-conflict-receipt';
 import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
+import { chatGPTIdentityFromRequest } from '@/lib/request-auth';
 
 const MAX_REQUEST_BYTES = 12_000;
 
@@ -72,14 +73,8 @@ export async function POST(request: Request) {
   const presentedReceipt = portalConflictReceiptFromRequest(request);
   try {
     assertSameOrigin(request);
-    const authenticatedId = request.headers
-      .get('oai-authenticated-user-id')
-      ?.trim();
-    const authenticatedEmail = request.headers
-      .get('oai-authenticated-user-email')
-      ?.trim()
-      .toLowerCase();
-    if (!authenticatedId || !authenticatedEmail) {
+    const identity = chatGPTIdentityFromRequest(request);
+    if (!identity) {
       return Response.json(
         { error: 'ChatGPT 로그인 후 등록을 신청해 주세요.' },
         { status: 401 },
@@ -93,7 +88,7 @@ export async function POST(request: Request) {
     const fieldError = registrationError(name, phone, affiliation, email);
     if (fieldError)
       return Response.json({ error: fieldError }, { status: 400 });
-    if (email !== authenticatedEmail) {
+    if (email !== identity.email) {
       return Response.json(
         {
           error: '현재 ChatGPT 로그인 이메일과 신청 이메일이 일치해야 합니다.',
