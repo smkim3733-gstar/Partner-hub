@@ -9,6 +9,7 @@ import {
   type FlowCommand,
   type FlowMeeting,
 } from '@/lib/consulting-flow';
+import { flowUploadAccept } from '@/lib/consulting-flow-upload-policy';
 import {
   audioFileProblem,
   MAX_TRANSCRIPT_CHARS,
@@ -210,7 +211,12 @@ export function ConsultationTranscriptForm({
             <Input
               id={`${id}-document`}
               type="file"
-              accept=".docx,.txt"
+              accept={flowUploadAccept(
+                {
+                  type: recordingId ? 'save_transcript' : 'save_recording',
+                },
+                'document',
+              )}
               className="min-h-11 py-2"
               aria-describedby={`${id}-document-help`}
               onChange={(e) => {
@@ -296,7 +302,7 @@ export function ConsultationTranscriptForm({
             <Input
               id={`${id}-audio`}
               type="file"
-              accept=".mp3,.m4a,.wav"
+              accept={flowUploadAccept({ type: 'save_recording' }, 'audio')}
               className="min-h-11 py-2"
               onChange={(e) => {
                 const file = e.target.files?.[0];

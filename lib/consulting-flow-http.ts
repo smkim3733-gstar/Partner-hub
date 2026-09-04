@@ -3,6 +3,11 @@ import {
   type FlowCommand,
   type FlowFile,
 } from '@/lib/consulting-flow';
+import {
+  flowUploadAllows,
+  flowUploadExtensions,
+  flowUploadPurpose,
+} from './consulting-flow-upload-policy';
 import { safeFileName } from './company-file-policy';
 import { uploadFileExtension, uploadFileFormat } from './upload-file-formats';
 import { audioFileProblem, transcriptFileProblem } from './transcript-policy';
@@ -94,17 +99,9 @@ export function describeUpload(
     throw new FlowError(
       '보조 음성은 상담 녹취자료 등록에만 첨부할 수 있습니다.',
     );
-  const purpose = (
-    {
-      save_source: 'source',
-      save_report: 'report',
-      save_recording: 'recording',
-      save_transcript: 'transcript',
-      receive_document: 'requested_document',
-      record_contract: 'signed_contract',
-    } as Record<string, string>
-  )[command.type];
-  if (!purpose)
+  const purpose = flowUploadPurpose(command);
+  const allowed = flowUploadExtensions(command, slot);
+  if (!purpose || !allowed)
     throw new FlowError('이 작업에는 첨부파일을 등록할 수 없습니다.');
   if (command.fileConsent !== true)
     throw new FlowError(
@@ -113,20 +110,8 @@ export function describeUpload(
   if (file.size > 25 * 1024 * 1024)
     throw new FlowError('첨부파일은 25MB 이하여야 합니다.', 413);
   const ext = uploadFileExtension(file.name);
-  const allowed =
-    slot === 'audio'
-      ? ['mp3', 'm4a', 'wav']
-      : purpose === 'transcript'
-        ? ['docx', 'txt']
-        : purpose === 'recording'
-          ? ['mp3', 'm4a', 'wav', 'docx', 'txt']
-          : purpose === 'signed_contract'
-            ? ['pdf', 'jpg', 'jpeg', 'png']
-            : purpose === 'report'
-              ? ['pdf', 'docx', 'pptx', 'txt', 'md']
-              : ['pdf', 'jpg', 'jpeg', 'png', 'docx', 'xlsx', 'txt'];
   const format = uploadFileFormat(ext);
-  if (!allowed.includes(ext) || !format)
+  if (!flowUploadAllows(command, ext, slot) || !format)
     throw new FlowError(
       `이 자료는 ${allowed.join(', ')} 형식으로 첨부해 주세요.`,
     );

@@ -58,6 +58,7 @@ import {
   readConsultingFlowMutationResponse,
   readConsultingFlowStateResponse,
 } from '@/lib/consulting-flow-response';
+import { flowUploadAccept } from '@/lib/consulting-flow-upload-policy';
 
 type Section =
   | 'reports'
@@ -662,7 +663,7 @@ export function ConsultingWorkflow({
                   </Field>
                 )}
                 <Files
-                  accept={stage === 3 ? '.pptx,.pdf' : '.pdf,.docx,.txt,.md'}
+                  accept={flowUploadAccept({ type: 'save_report', stage })}
                   required={stage === 3}
                 />
               </ActionForm>
@@ -1279,7 +1280,9 @@ export function ConsultingWorkflow({
                         }
                       >
                         <Files
-                          accept=".pdf,.png,.jpg,.jpeg,.docx,.xlsx,.txt"
+                          accept={flowUploadAccept({
+                            type: 'receive_document',
+                          })}
                           required
                         />
                         <Field label="수령 메모">
@@ -1459,7 +1462,10 @@ export function ConsultingWorkflow({
                     />
                   </Field>
                 </div>
-                <Files accept=".pdf,.png,.jpg,.jpeg" required />
+                <Files
+                  accept={flowUploadAccept({ type: 'record_contract' })}
+                  required
+                />
                 <Confirm name="signedConfirmed">
                   양 당사자의 실제 서명과 계약금 약정 내용을 확인했습니다.
                 </Confirm>
@@ -1793,7 +1799,7 @@ export function ConsultingWorkflow({
                   maxLength={40000}
                 />
               </Field>
-              <Files accept=".pdf,.jpg,.jpeg,.png,.txt" />
+              <Files accept={flowUploadAccept({ type: 'save_source' })} />
               <Confirm name="privacyMasked">
                 AI 분석에 사용할 사본이며, 불필요한 개인정보를 제거했습니다.
               </Confirm>
