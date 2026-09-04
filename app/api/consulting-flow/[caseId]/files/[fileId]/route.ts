@@ -8,6 +8,7 @@ import {
 import { readRouteParam } from '@/lib/request-path';
 import { privateResponseHeaders } from '@/lib/private-response';
 import { attachmentContentDisposition } from '@/lib/content-disposition';
+import { downloadContentType } from '@/lib/download-content-type';
 export const dynamic = 'force-dynamic';
 export async function GET(
   request: Request,
@@ -40,7 +41,7 @@ export async function GET(
     }
     return new Response(object.body, {
       headers: privateResponseHeaders({
-        'content-type': file.contentType,
+        'content-type': downloadContentType(file.name),
         'content-disposition': attachmentContentDisposition(file.name),
       }),
     });

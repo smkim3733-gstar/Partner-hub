@@ -900,6 +900,7 @@ try {
     linkedDownload.headers.get('content-disposition'),
     "attachment; filename*=UTF-8''synthetic.txt",
   );
+  assert.equal(linkedDownload.headers.get('content-type'), 'text/plain');
   const peerHeaders = {
     'oai-authenticated-user-id': 'synthetic-peer',
     'oai-authenticated-user-email': 'peer-runtime@example.invalid',

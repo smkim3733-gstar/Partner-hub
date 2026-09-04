@@ -20,6 +20,7 @@ import {
   privateResponseHeaders,
 } from '@/lib/private-response';
 import { attachmentContentDisposition } from '@/lib/content-disposition';
+import { downloadContentType } from '@/lib/download-content-type';
 
 export const dynamic = 'force-dynamic';
 
@@ -102,7 +103,7 @@ export async function GET(
     return new Response(object.body, {
       headers: privateResponseHeaders({
         'content-disposition': attachmentContentDisposition(row.original_name),
-        'content-type': row.content_type || 'application/octet-stream',
+        'content-type': downloadContentType(row.original_name),
       }),
     });
   } catch (error) {
