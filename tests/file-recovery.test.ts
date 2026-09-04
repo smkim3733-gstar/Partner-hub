@@ -196,10 +196,13 @@ void test('ordinary saves reject removing, replacing or duplicating recovered id
       delete next.timeline[0].recoveryFileId;
     },
   ];
-  for (const mutate of mutations) {
+  for (const [index, mutate] of mutations.entries()) {
     const next = structuredClone(original);
     mutate(next);
-    assert.equal((await ordinarySave(next)).status, 409);
+    // Structural case/member-link corruption is rejected before the narrower
+    // immutable-recovery comparison; both paths must remain atomic.
+    const expectedStatus = index === 4 || index === 5 ? 403 : 409;
+    assert.equal((await ordinarySave(next)).status, expectedStatus);
     assert.deepEqual(await state(), original);
   }
 });

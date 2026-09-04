@@ -2614,6 +2614,29 @@ try {
       `generic owner state save rejects a duplicate ${label} ID`,
     );
   }
+  for (const [field, label] of [
+    ['tasks', 'task'],
+    ['companyDocuments', 'document'],
+    ['schedule', 'schedule'],
+  ]) {
+    for (const { record, reason } of [
+      { record: { id: `invalid-${label}-case-runtime`, caseId: 'missing-runtime-case' }, reason: 'unresolved case link' },
+      { record: { id: `invalid-${label}-member-runtime`, partnerMemberId: 'missing-runtime-member' }, reason: 'unresolved member link' },
+      { record: {
+        id: `invalid-${label}-conflict-runtime`,
+        caseId: cleanMemberIdState.cases[0].id,
+        partnerMemberId: peerId,
+      }, reason: 'conflicting case and member link' },
+    ]) {
+      const invalidRelatedState = structuredClone(cleanMemberIdState);
+      invalidRelatedState[field] = [record];
+      await expect(
+        await call('/save', { state: invalidRelatedState }, ownerHeaders, 'PUT'),
+        403,
+        `generic owner state save rejects ${reason} on ${label}`,
+      );
+    }
+  }
   for (const [mutate, label] of [
     [(state) => { state.version = 2; }, 'unsupported state version'],
     [(state) => { state.consultationNumber = -1; }, 'negative consultation counter'],
@@ -2775,6 +2798,40 @@ try {
       await call('/save', { state: cleanMemberIdState }, ownerHeaders, 'PUT'),
       503,
       `stored ${String(label)} blocks generic repair writes`,
+    );
+  }
+  for (const [field, label] of [
+    ['tasks', 'task'],
+    ['companyDocuments', 'document'],
+    ['schedule', 'schedule'],
+  ]) {
+    const invalidStoredRelatedState = structuredClone(cleanMemberIdState);
+    invalidStoredRelatedState[field] = [{
+      id: `stored-${label}-conflict-runtime`,
+      caseId: cleanMemberIdState.cases[0].id,
+      partnerMemberId: peerId,
+    }];
+    await db
+      .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+      .bind(
+        JSON.stringify(invalidStoredRelatedState),
+        new Date().toISOString(),
+      )
+      .run();
+    await expect(
+      await call('/state', undefined, { cookie: structuralCookie }),
+      403,
+      `stored conflicting ${label} assignment blocks password partner access`,
+    );
+    await expect(
+      await call('/state', undefined, ownerHeaders),
+      503,
+      `stored conflicting ${label} assignment blocks administrator reads`,
+    );
+    await expect(
+      await call('/save', { state: cleanMemberIdState }, ownerHeaders, 'PUT'),
+      503,
+      `stored conflicting ${label} assignment blocks generic repair writes`,
     );
   }
   await db

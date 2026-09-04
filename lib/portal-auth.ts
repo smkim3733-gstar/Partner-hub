@@ -27,6 +27,7 @@ import {
 } from '@/lib/partner-registration';
 import { diagnosisAssessmentStateError } from '@/lib/diagnosis-assessment';
 import { caseRecordStateError } from '@/lib/case-record-integrity';
+import { relatedRecordStateError } from '@/lib/related-record-integrity';
 
 type PortalPermissions = {
   sharedSchedule: boolean;
@@ -287,6 +288,13 @@ export function hasPortalStateStructure(value: unknown) {
     portalStateMetadataError(value) === null &&
     portalRecordIdError(value) === null &&
     caseRecordStateError(value.cases, value.members) === null &&
+    relatedRecordStateError(
+      value.tasks,
+      value.companyDocuments,
+      value.schedule,
+      value.cases,
+      value.members,
+    ) === null &&
     diagnosisAssessmentStateError(value.diagnosisAssessments, value.cases) ===
       null
   );
@@ -301,6 +309,13 @@ function invalidPortalStateMessage(value: unknown) {
     ? portalStateMetadataError(value) ??
         portalRecordIdError(value) ??
         caseRecordStateError(value.cases, value.members) ??
+        relatedRecordStateError(
+          value.tasks,
+          value.companyDocuments,
+          value.schedule,
+          value.cases,
+          value.members,
+        ) ??
         diagnosisAssessmentStateError(value.diagnosisAssessments, value.cases) ??
         '저장 데이터 형식이 올바르지 않습니다.'
     : '저장 데이터 형식이 올바르지 않습니다.';

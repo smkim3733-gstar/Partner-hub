@@ -22,6 +22,7 @@ import { diagnosisDocumentsForCase } from '@/lib/diagnosis-preflight';
 import { applyDiagnosisReviewQueueDraft, createDiagnosisReviewQueueDraft, type DiagnosisReviewQueueDraft } from '@/lib/diagnosis-review-queue';
 import { diagnosisAssessmentStateError } from '@/lib/diagnosis-assessment';
 import { caseRecordStateError } from '@/lib/case-record-integrity';
+import { relatedRecordStateError } from '@/lib/related-record-integrity';
 import { applyCompanyDocumentStatusDraft, COMPANY_DOCUMENT_STATUSES, COMPANY_DOCUMENT_STATUS_IMPACTS, createCompanyDocumentStatusDraft, type CompanyDocumentStatusDraft } from '@/lib/company-document-review';
 import { applyWorkTaskStatusDraft, createSupportAcknowledgementDraft, createWorkTaskCompletionDraft, workTaskStatusImpact, type WorkTaskStatusDraft } from '@/lib/work-task-status';
 import {
@@ -399,6 +400,13 @@ function isPortalState(value: unknown): value is PortalState {
     diagnosisAssessmentStateError(state.diagnosisAssessments, state.cases) ===
     null;
   const casesValid = caseRecordStateError(state.cases, state.members) === null;
+  const relatedRecordsValid = relatedRecordStateError(
+    state.tasks,
+    state.companyDocuments,
+    state.schedule,
+    state.cases,
+    state.members,
+  ) === null;
   return state.version === 1
     && Number.isSafeInteger(state.consultationNumber)
     && Number(state.consultationNumber) >= 0
@@ -406,6 +414,7 @@ function isPortalState(value: unknown): value is PortalState {
       Number.isSafeInteger(state.membersRevision) && Number(state.membersRevision) >= 0
     ))
     && casesValid
+    && relatedRecordsValid
     && diagnosisAssessmentsValid
     && Array.isArray(state.timeline)
     && Array.isArray(state.schedule)

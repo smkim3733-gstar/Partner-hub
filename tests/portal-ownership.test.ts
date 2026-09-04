@@ -259,6 +259,7 @@ void test('new partner records bind to the authenticated ID without changing an 
     cases: [
       { id: 'new-case', trainee: user.memberName, company: '새 가상기업' },
     ],
+    schedule: [],
     timeline: [],
   };
   const saved = mergeStateForPortalUser(current, incoming, user) as ReturnType<
@@ -332,6 +333,7 @@ void test('unambiguous legacy names remain usable, including normalized display 
   current.cases = current.cases.filter(
     (item) => item.partnerMemberId !== 'partner-two',
   );
+  current.schedule = [];
   current.members[0].name = ` ${user.memberName!}(가상) `;
   const visible = stateForPortalUser(current, user) as typeof current;
   assert.deepEqual(
@@ -342,7 +344,7 @@ void test('unambiguous legacy names remain usable, including normalized display 
   assert.equal(visible.companyDocuments.length, 1);
 });
 
-void test('ID-linked related records survive duplicate names but conflicting case links and suspended duplicates never grant access', () => {
+void test('ID-linked and case-inherited related records survive duplicate names', () => {
   const current = fixture();
   current.members[1].status = '정지';
   const raw = {
@@ -354,12 +356,6 @@ void test('ID-linked related records survive duplicate names but conflicting cas
         partnerMemberId: user.memberId,
       },
       { id: 'linked-task', caseId: 'own-case' },
-      {
-        id: 'conflicting-task',
-        caseId: 'other-case',
-        partnerMemberId: user.memberId,
-      },
-      { id: 'unknown-task', caseId: 'missing-case', assignee: user.memberName },
       ...current.tasks,
     ],
   };
@@ -371,6 +367,35 @@ void test('ID-linked related records survive duplicate names but conflicting cas
   assert.deepEqual(
     visible.cases.map((item) => item.id),
     ['own-case'],
+  );
+});
+
+void test('conflicting and unresolved related case links fail closed', () => {
+  const current = fixture();
+  const conflicting = {
+    ...current,
+    tasks: [
+      {
+        id: 'conflicting-task',
+        caseId: 'other-case',
+        partnerMemberId: user.memberId,
+      },
+    ],
+  };
+  assert.throws(
+    () => stateForPortalUser(conflicting, user),
+    /업무 담당 계정과 진행 담당 계정이 일치하지 않습니다/,
+  );
+
+  const unresolved = {
+    ...current,
+    tasks: [
+      { id: 'unknown-task', caseId: 'missing-case', assignee: user.memberName },
+    ],
+  };
+  assert.throws(
+    () => stateForPortalUser(unresolved, user),
+    /업무 진행 연결을 하나로 확인할 수 없습니다/,
   );
 });
 
@@ -399,5 +424,6 @@ void test('legacy file permission refuses a same-name claimant and keeps adminis
   unique.cases = unique.cases.filter(
     (item) => item.partnerMemberId !== 'partner-two',
   );
+  unique.schedule = [];
   assert.equal(mayReadCompanyFile(user, row, unique), true);
 });
