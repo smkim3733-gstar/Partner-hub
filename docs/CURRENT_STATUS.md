@@ -105,7 +105,7 @@
 
 [서버 민감 스트림·문서 응답 보안 경계 통합](SERVER_PRIVATE_STREAM_RESPONSE_BOUNDARY_2026_09_04.md)에서는 기업 원본·상담 첨부·보고서 Markdown과 인쇄 HTML·삭제 204 응답을 공통 비공개 헤더 경계로 통합했다. 기존 파일 메타정보·보고서 CSP·권한 재확인·삭제 처리와 D1/R2 보관 정책은 유지했다. 정적 검사가 API 라우트의 직접 캐시 정책과 공용 경계를 거치지 않는 스트림 응답을 차단한다. 대상 회귀검사 18개, 전체 자동 테스트 433개, 격리 workerd/D1/R2 검사 129개, 타입검사·전체 lint·프로덕션 빌드와 localhost 응답을 확인했다. 자동 운영 승인 원칙에 따라 커밋 `82adb09`를 GitHub `main`과 공개 Sites 버전 84에 반영했으며, 운영 공개 화면 3곳의 HTTP 200과 파일·첨부·보고서 대표 API의 익명 HTTP 401·공통 비공개 보안 헤더를 확인했다. 결과는 `outputs/release/server-private-stream-response-boundary-deployment.json`을 기준으로 삼는다.
 
-[다운로드 파일명 Content-Disposition 보안 경계](CONTENT_DISPOSITION_DOWNLOAD_FILENAME_BOUNDARY_2026_09_04.md)에서는 기업 원본·상담 첨부·보고서 Markdown 다운로드의 파일명 헤더 조립을 공용 함수로 통합했다. 제어문자·경로 구분자·깨진 유니코드를 중화하고 180개 코드 포인트로 제한한 뒤 RFC 5987 UTF-8 값으로 인코딩한다. 원본 파일·MIME·저장 이름·권한 재확인·D1/R2 경계는 유지했다. 관련 회귀검사 10개, 전체 자동 테스트 437개, 격리 workerd/D1/R2 검사 129개, 타입검사·전체 lint·프로덕션 빌드를 확인했다. 현재 자동 운영 반영 전 로컬 검증 단계다.
+[다운로드 파일명 Content-Disposition 보안 경계](CONTENT_DISPOSITION_DOWNLOAD_FILENAME_BOUNDARY_2026_09_04.md)에서는 기업 원본·상담 첨부·보고서 Markdown 다운로드의 파일명 헤더 조립을 공용 함수로 통합했다. 제어문자·경로 구분자·깨진 유니코드를 중화하고 180개 코드 포인트로 제한한 뒤 RFC 5987 UTF-8 값으로 인코딩한다. 원본 파일·MIME·저장 이름·권한 재확인·D1/R2 경계는 유지했다. 관련 회귀검사 10개, 전체 자동 테스트 437개, 격리 workerd/D1/R2 검사 129개, 타입검사·전체 lint·프로덕션 빌드를 확인했다. 자동 운영 승인 원칙에 따라 커밋 `b96df2a`를 GitHub `main`과 공개 Sites 버전 85에 반영했으며 운영 화면 3곳의 HTTP 200과 다운로드 API 3곳의 익명 거절·비공개 보안 헤더를 확인했다. 성공 다운로드 헤더는 운영 자료를 사용하지 않고 격리 workerd/R2에서 확인했으며 결과는 `outputs/release/content-disposition-download-filename-deployment.json`을 기준으로 삼는다.
 
 운영 고객 파일·명단을 개발용으로 읽거나 복사하지 않는다. 가상 데이터로 테스트하며 실제 계정 등록·메일 발송·유료 AI를 검증 수단으로 사용하지 않는다. 서비스 전체 침투시험, 실제 파트너의 로그인 쿠키 왕복과 전체 레거시 이관은 완료로 표시하지 않는다.
 

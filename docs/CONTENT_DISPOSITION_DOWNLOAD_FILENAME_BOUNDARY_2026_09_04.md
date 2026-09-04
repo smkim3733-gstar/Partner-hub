@@ -27,4 +27,4 @@
 - TypeScript 타입검사, 전체 lint, 프로덕션 빌드 통과
 - 격리검사 중 운영 쓰기, 메일, 유료 AI, 외부 요청 0건
 
-2026-09-04 현재 자동 운영 반영 전 로컬 검증 단계다.
+2026-09-04 자동 운영 승인 원칙에 따라 커밋 `b96df2a`를 GitHub `main`과 공개 Sites 버전 85에 반영했다. 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결을 유지했으며 운영 화면 3곳의 HTTP 200, 다운로드 API 3곳의 익명 HTTP 401·비공개 보안 헤더를 확인했다. 성공 다운로드의 파일명 헤더는 운영 고객자료 대신 격리 workerd/R2에서 확인했다. 배포 결과는 `outputs/release/content-disposition-download-filename-deployment.json`을 기준으로 삼는다.
