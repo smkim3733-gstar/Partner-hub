@@ -13,7 +13,7 @@ import {
 } from './portal-auth';
 import { portalRevision } from './portal-revision';
 import { flowDatabase } from './consulting-flow-store';
-import { boundedBody } from './consulting-flow-http';
+import { readFlowJsonObject } from './consulting-flow-http';
 import { FlowError } from './consulting-flow';
 import { portalStateId } from '@/db/schema';
 import type { RecoveryPreview } from './file-recovery';
@@ -205,11 +205,7 @@ function parseBody(value: unknown): RecoveryBody {
 export async function recoverFile(request: Request, id: string) {
   const raw = await readPortalState();
   const user = await actor(request, raw);
-  if (!request.headers.get('content-type')?.startsWith('application/json'))
-    throw new CompanyFileError('JSON 요청이 필요합니다.', 400);
-  const body = parseBody(
-    JSON.parse(new TextDecoder().decode(await boundedBody(request, 5000))),
-  );
+  const body = parseBody(await readFlowJsonObject(request, 5000));
   if (body.expectedUserId !== user.id)
     throw new PortalAccessError(
       '확인하던 대표 계정으로 다시 로그인해 주세요.',

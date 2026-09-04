@@ -18,6 +18,7 @@
 | [클라이언트 API 응답 경계 최종 감사](CLIENT_API_RESPONSE_BOUNDARY_AUDIT_2026_09_04.md) | 전체 fetch 경로·전용 검증기·멱등 무시 응답과 재발 방지 검사 |
 | [서버 API 요청 경계 최종 감사](SERVER_API_REQUEST_BOUNDARY_AUDIT_2026_09_04.md) | 스트림 크기·JSON 형식·객체 구조 검증과 직접 본문 파싱 재발 방지 검사 |
 | [서버 변경 요청 출처 경계 감사](SERVER_MUTATION_ORIGIN_BOUNDARY_2026_09_04.md) | 교차 사이트 신호 통합 판별과 인증·저장소 접근 전 조기 차단 |
+| [서버 JSON 요청 파서 통합](SERVER_JSON_REQUEST_PARSER_CONSOLIDATION_2026_09_04.md) | 신청 임시저장·원본 회수·상담 FLOW·비밀번호 요청의 공용 형식·크기 경계 |
 | [파트너 계정 설정 저장 안전성](PARTNER_ACCOUNT_SETTINGS_DRAFT_SAFETY_2026_09_03.md) | 이메일·유형·상태·권한의 저장 전 초안 격리와 취소 폐기 |
 | [진행 담당 계정 변경 확인 안전성](CASE_ASSIGNMENT_CONFIRMATION_SAFETY_2026_09_03.md) | 현재·변경 후 담당 대조, 취소 보존과 저장 직전 재검증 |
 | [진행단계·중단 상태 변경 확인 안전성](PIPELINE_CHANGE_CONFIRMATION_SAFETY_2026_09_03.md) | 수동 단계·진행 중단·재개의 영향 확인과 stale 상태 차단 |

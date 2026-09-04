@@ -396,6 +396,12 @@ void test('only administrator can preview/recover, with explicit confirmation, r
     );
   }
   const value = await body();
+  const lookalike = request(value);
+  lookalike.headers.set('content-type', 'application/jsonx');
+  assert.equal((await recover(lookalike, context)).status, 415);
+  const invalidLength = request(value);
+  invalidLength.headers.set('content-length', 'invalid');
+  assert.equal((await recover(invalidLength, context)).status, 400);
   assert.equal(
     (await recover(request({ ...value, confirmed: false }), context)).status,
     400,

@@ -9,7 +9,7 @@ import {
 } from '@/lib/portal-auth';
 import { readPortalState } from '@/lib/portal-state';
 import { assertSameOrigin } from '@/lib/consulting-flow-store';
-import { boundedBody } from '@/lib/consulting-flow-http';
+import { readFlowJsonObject } from '@/lib/consulting-flow-http';
 import { FlowError } from '@/lib/consulting-flow';
 import {
   draftCaseId,
@@ -63,11 +63,7 @@ async function handle(request: Request) {
       updatedAt: row?.updated_at ?? null,
     });
     if (request.method === 'GET') return json(envelope());
-    if (!request.headers.get('content-type')?.startsWith('application/json'))
-      throw new FlowError('JSON 요청이 필요합니다.');
-    const body = JSON.parse(
-      new TextDecoder().decode(await boundedBody(request, 40_000)),
-    ) as {
+    const body = (await readFlowJsonObject(request, 40_000)) as {
       expectedUserId?: unknown;
       revision?: unknown;
       draftId?: unknown;

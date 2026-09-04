@@ -407,6 +407,14 @@ void test('all public credential routes reject missing/cross-site Origin; oversi
     (await signup(request({}, { 'content-type': 'text/plain' }))).status,
     415,
   );
+  assert.equal(
+    (await signup(request({}, { 'content-type': 'application/jsonx' }))).status,
+    415,
+  );
+  assert.equal(
+    (await signup(request({}, { 'content-length': 'invalid' }))).status,
+    400,
+  );
 });
 void test('cookie-authenticated legacy state and multipart writes enforce Origin, including missing Origin', async () => {
   const cookie = await loggedIn();

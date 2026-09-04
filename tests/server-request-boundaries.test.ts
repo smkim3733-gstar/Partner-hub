@@ -46,6 +46,17 @@ void test('bounded JSON reader accepts only a JSON object within the byte limit'
     ),
     415,
   );
+  for (const contentType of [
+    'application/jsonx',
+    'text/plain; profile=application/json',
+    'multipart/form-data',
+  ])
+    assert.equal(
+      await rejectedStatus(
+        readBoundedJsonObject(request('{}', contentType), 100),
+      ),
+      415,
+    );
 });
 
 void test('bounded JSON reader enforces declared and streamed byte limits', async () => {
@@ -102,4 +113,23 @@ void test('API routes cannot parse unbounded request JSON or text directly', asy
       offenders.push(path.relative(process.cwd(), file));
   }
   assert.deepEqual(offenders, []);
+});
+
+void test('legacy JSON consumers remain routed through the shared bounded reader', async () => {
+  const expected = [
+    [
+      'app/api/application-draft/route.ts',
+      'readFlowJsonObject(request, 40_000)',
+    ],
+    ['lib/file-recovery-store.ts', 'readFlowJsonObject(request, 5000)'],
+    ['lib/consulting-flow-http.ts', 'readFlowJsonObject(request, 400_000)'],
+    ['lib/password-store.ts', 'readBoundedJsonObject(request, 12_000)'],
+  ] as const;
+  for (const [file, boundary] of expected) {
+    const source = await readFile(path.resolve(process.cwd(), file), 'utf8');
+    assert.ok(
+      source.includes(boundary),
+      `${file}: missing shared JSON boundary`,
+    );
+  }
 });

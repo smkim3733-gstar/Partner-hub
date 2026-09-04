@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { portalPasswordSchemaSql } from '@/db/schema';
 import { tokenHash } from '@/lib/password-crypto';
 import { isCrossSiteRequest } from '@/lib/request-origin';
+import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
 
 export class PasswordError extends Error {
   constructor(
@@ -34,37 +35,20 @@ export async function passwordBody(
   request: Request,
 ): Promise<Record<string, unknown>> {
   assertPasswordOrigin(request);
-  if (
-    !/^application\/json(?:;|$)/i.test(
-      request.headers.get('content-type') ?? '',
-    )
-  )
-    throw new PasswordError('JSON 형식의 요청이 필요합니다.', 415);
-  // Bound streamed bodies as well as Content-Length (which may be absent or misleading).
-  const reader = request.body?.getReader();
-  if (!reader) throw new PasswordError('입력 내용을 확인해 주세요.');
-  let text = '';
-  let bytes = 0;
-  const decoder = new TextDecoder();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    bytes += value.byteLength;
-    if (bytes > 12_000) {
-      await reader.cancel();
-      throw new PasswordError('입력 내용이 너무 깁니다.', 413);
-    }
-    text += decoder.decode(value, { stream: true });
-  }
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(text + decoder.decode());
-  } catch {
-    throw new PasswordError('입력 내용을 확인해 주세요.');
+    return await readBoundedJsonObject(request, 12_000);
+  } catch (error) {
+    if (error instanceof JsonRequestError)
+      throw new PasswordError(
+        error.status === 413
+          ? '입력 내용이 너무 깁니다.'
+          : error.status === 415
+            ? 'JSON 형식의 요청이 필요합니다.'
+            : '입력 내용을 확인해 주세요.',
+        error.status,
+      );
+    throw error;
   }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
-    throw new PasswordError('입력 내용을 확인해 주세요.');
-  return parsed as Record<string, unknown>;
 }
 export function passwordResponse(data: unknown, status = 200, cookie?: string) {
   return Response.json(data, {

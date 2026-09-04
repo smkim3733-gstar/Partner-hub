@@ -4,10 +4,17 @@ import {
   type FlowFile,
 } from '@/lib/consulting-flow';
 import { audioFileProblem, transcriptFileProblem } from './transcript-policy';
+import { JsonRequestError, readBoundedJsonObject } from './request-json';
 
 export async function boundedBody(request: Request, max: number) {
-  if (Number(request.headers.get('content-length') || 0) > max)
-    throw new FlowError('첨부 용량이 허용 범위를 초과했습니다.', 413);
+  const declaredLength = request.headers.get('content-length');
+  if (declaredLength !== null) {
+    const normalized = declaredLength.trim();
+    if (!/^\d+$/.test(normalized))
+      throw new FlowError('요청 내용의 크기를 확인해 주세요.');
+    if (Number(normalized) > max)
+      throw new FlowError('첨부 용량이 허용 범위를 초과했습니다.', 413);
+  }
   if (!request.body) throw new FlowError('요청 내용이 없습니다.');
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -30,20 +37,25 @@ export async function boundedBody(request: Request, max: number) {
   }
   return bytes;
 }
+export async function readFlowJsonObject(request: Request, maxBytes: number) {
+  try {
+    return await readBoundedJsonObject(request, maxBytes);
+  } catch (error) {
+    if (error instanceof JsonRequestError)
+      throw new FlowError(error.message, error.status);
+    throw error;
+  }
+}
 export async function parseFlowRequest(request: Request) {
-  const multipart = request.headers
-    .get('content-type')
-    ?.startsWith('multipart/form-data');
-  const body = await boundedBody(
-    request,
-    multipart ? 31 * 1024 * 1024 : 400_000,
-  );
+  const contentType = request.headers.get('content-type') ?? '';
+  const multipart = /^multipart\/form-data(?:\s*;|$)/i.test(contentType);
   let raw: unknown;
   let file: File | undefined;
   let audio: File | undefined;
   if (multipart) {
+    const body = await boundedBody(request, 31 * 1024 * 1024);
     const form = await new Response(body, {
-      headers: { 'content-type': request.headers.get('content-type')! },
+      headers: { 'content-type': contentType },
     }).formData();
     const json = form.get('payload');
     if (typeof json !== 'string')
@@ -60,9 +72,7 @@ export async function parseFlowRequest(request: Request) {
     )
       throw new FlowError('전사문 1개와 보조 음성 1개만 첨부해 주세요.');
   } else {
-    if (!request.headers.get('content-type')?.includes('application/json'))
-      throw new FlowError('JSON 형식의 요청이 필요합니다.');
-    raw = JSON.parse(new TextDecoder().decode(body));
+    raw = await readFlowJsonObject(request, 400_000);
   }
   const value = raw as {
     commandId?: unknown;

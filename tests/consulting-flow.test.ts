@@ -829,6 +829,26 @@ test('bounded JSON/multipart parsing retains a private attachment and rejects ba
     ),
     FlowError,
   );
+  await assert.rejects(
+    parseFlowRequest(
+      new Request('http://localhost/api/flow', {
+        method: 'POST',
+        headers: { 'content-type': 'text/plain; profile=application/json' },
+        body: JSON.stringify(payload),
+      }),
+    ),
+    (error) => error instanceof FlowError && error.status === 415,
+  );
+  const invalidLength = new Request('http://localhost/api/flow', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  invalidLength.headers.set('content-length', 'invalid');
+  await assert.rejects(
+    parseFlowRequest(invalidLength),
+    (error) => error instanceof FlowError && error.status === 400,
+  );
 });
 
 test('source exclusion preserves the original and DOCX first report needs readable context', () => {

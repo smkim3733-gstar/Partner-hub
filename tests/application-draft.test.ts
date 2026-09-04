@@ -93,7 +93,10 @@ async function setup(id: string) {
 
 void test('partial draft fields survive server reload, while invalid shape and size are rejected', () => {
   assert.deepEqual(parseApplicationDraft(draft()), draft());
-  assert.equal(parseApplicationDraft({ ...draft(), applicantType: '' }).applicantType, '');
+  assert.equal(
+    parseApplicationDraft({ ...draft(), applicantType: '' }).applicantType,
+    '',
+  );
   for (const value of [
     null,
     [],
@@ -104,6 +107,22 @@ void test('partial draft fields survive server reload, while invalid shape and s
     { ...draft(), step: 7 },
   ])
     assert.throws(() => parseApplicationDraft(value));
+});
+
+void test('draft writes reject lookalike JSON media and invalid declared length without mutation', async () => {
+  const { request, body } = await setup('draft-json-boundary');
+  const before = await readPortalState();
+  const lookalike = request(body());
+  lookalike.headers.set('content-type', 'application/jsonx');
+  assert.equal((await PUT(lookalike)).status, 415);
+  const invalidLength = request(body());
+  invalidLength.headers.set('content-length', 'invalid');
+  assert.equal((await PUT(invalidLength)).status, 400);
+  assert.deepEqual(await readPortalState(), before);
+  assert.equal(
+    ((await (await GET(request())).json()) as DraftEnvelope).draft,
+    null,
+  );
 });
 
 void test('private draft persists across requests and duplicate saves reuse its revision without changing portal records', async () => {
