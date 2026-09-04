@@ -28,4 +28,4 @@ API 라우트의 직접 `Cache-Control` 선언을 금지하고, `new Response`�
 - 로컬 Workers `/` HTTP 200, 익명 보고서 요청 HTTP 401·보안 헤더 확인
 - 격리검사 중 운영 쓰기, 메일, 유료 AI, 외부 요청 0건
 
-2026-09-04 현재 자동 운영 반영 전 로컬 검증·커밋 단계다.
+2026-09-04 자동 운영 승인 원칙에 따라 커밋 `82adb09`를 GitHub `main`과 공개 Sites 버전 84에 반영했다. D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 범위를 유지했으며 운영 `/`, `/account`, `/account/setup`의 HTTP 200과 파일·첨부·보고서 대표 API의 익명 HTTP 401·공통 비공개 보안 헤더를 확인했다. 배포 결과는 `outputs/release/server-private-stream-response-boundary-deployment.json`을 기준으로 삼는다.
