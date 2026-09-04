@@ -31,4 +31,4 @@
 
 ## 배포 경계
 
-코드와 문서는 로컬 커밋까지 준비한다. GitHub 푸시와 기존 공개 Sites 반영은 사용자 운영 승인 뒤 수행한다. 현재 공개 Sites 버전 73의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 범위는 변경하지 않았다.
+사용자 운영 승인 후 커밋 `1567333`을 GitHub `main`과 기존 공개 Sites 버전 74에 반영했다. D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 범위를 유지했으며 `/`, `/account`, `/account/setup`의 HTTP 200 응답을 확인했다. 결과는 `outputs/release/server-request-boundary-deployment.json`에 기록한다.
