@@ -7,7 +7,7 @@ import path from 'node:path';
 const project = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const require = createRequire(import.meta.url);
 const wrangler = require.resolve('wrangler');
-const { Miniflare } = require(
+const { Miniflare, convertV4MiniflareOptions } = require(
   require.resolve('miniflare', { paths: [wrangler] }),
 );
 const { build } = require(require.resolve('esbuild', { paths: [wrangler] }));
@@ -48,20 +48,23 @@ export default { async fetch(request) {
   external: ['cloudflare:workers', 'node:*'],
 });
 let outboundRequests = 0;
-const mf = new Miniflare({
-  script: bundle.outputFiles[0].text,
-  modules: true,
-  compatibilityDate: '2026-05-15',
-  compatibilityFlags: ['nodejs_compat'],
-  d1Databases: ['DB'],
-  r2Buckets: ['AI_SOURCE_FILES'],
-  outboundService: () => {
-    outboundRequests++;
-    throw new Error(
-      'External requests are forbidden in the isolated partner pilot',
-    );
-  },
-});
+const mf = new Miniflare(
+  convertV4MiniflareOptions({
+    name: 'partner-hub-test',
+    script: bundle.outputFiles[0].text,
+    modules: true,
+    compatibilityDate: '2026-05-15',
+    compatibilityFlags: ['nodejs_compat'],
+    d1Databases: ['DB'],
+    r2Buckets: ['AI_SOURCE_FILES'],
+    outboundService: () => {
+      outboundRequests++;
+      throw new Error(
+        'External requests are forbidden in the isolated partner pilot',
+      );
+    },
+  }),
+);
 const origin = 'https://password-runtime.example.invalid';
 const email = 'runtime-synthetic@example.invalid';
 const password = 'isolated runtime test secret 123!';

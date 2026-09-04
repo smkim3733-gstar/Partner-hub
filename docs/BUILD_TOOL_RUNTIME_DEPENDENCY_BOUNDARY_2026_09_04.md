@@ -37,3 +37,5 @@
 - 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 
 운영 `/`, `/account`, `/account/setup`은 HTTP 200을 반환했다. 보호 API `/api/state`, `/api/admin/file-inventory`, `/api/consulting-flow/test-case`는 익명 요청에 HTTP 401을 반환했고 `Cache-Control: no-store, max-age=0, private`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`를 유지했다. 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결은 변경하지 않았다.
+
+후속 [빌드 스택 잔여 취약성 제거](BUILD_STACK_SECURITY_UPDATE_2026_09_04.md)에서 `vinext`와 Vite·Cloudflare 도구 묶음을 갱신해 `image-size`와 취약 `esbuild` 버전을 의존성 트리에서 제거했다. 이 문서의 잔여 항목 수는 버전 103 반영 당시 기록이다.

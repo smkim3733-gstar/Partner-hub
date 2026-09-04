@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import {
   randomBytes,
   scryptSync,
@@ -7,12 +8,13 @@ import {
 
 // OWASP's 16 MiB scrypt profile fits the Worker memory budget. No plain-text passwords are stored.
 const options = { N: 16384, r: 8, p: 5, maxmem: 32 * 1024 * 1024 };
-export const opaqueToken = () => randomBytes(32).toString('hex');
+const toHex = (bytes: Uint8Array) => Buffer.from(bytes).toString('hex');
+export const opaqueToken = () => toHex(randomBytes(32));
 export const tokenHash = (token: string) =>
-  createHash('sha256').update(token).digest('hex');
+  toHex(createHash('sha256').update(token).digest());
 export function hashPassword(password: string) {
-  const salt = randomBytes(16).toString('hex');
-  return `scrypt$16384$8$5$${salt}$${scryptSync(password, salt, 32, options).toString('hex')}`;
+  const salt = toHex(randomBytes(16));
+  return `scrypt$16384$8$5$${salt}$${toHex(scryptSync(password, salt, 32, options))}`;
 }
 export function verifyPassword(password: string, encoded?: string) {
   const match = encoded?.match(
