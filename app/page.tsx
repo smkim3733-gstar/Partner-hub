@@ -2976,6 +2976,8 @@ function ApplicationForm({
     emptyApplicationServices,
   );
   const [selectedFiles, setSelectedFiles] = useState<ApplicationAttachment[]>([]);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const attachmentBusyRef = useRef(false);
   const [recordingConsent, setRecordingConsent] = useState(false);
   const submitLock = useRef(false);
   const [companyName, setCompanyName] = useState('');
@@ -3088,7 +3090,14 @@ function ApplicationForm({
   }
 
   async function submitApplication() {
-    if (submitLock.current || draftBusy || !draftReady || draftSubmitted) return;
+    if (
+      submitLock.current ||
+      draftBusy ||
+      attachmentBusyRef.current ||
+      !draftReady ||
+      draftSubmitted
+    )
+      return;
     if (missingAttachments) { setSubmitError('이전 첨부파일을 다시 선택하거나 첨부 없이 진행 여부를 확인해 주세요.'); return; }
     if (!validateStep(3)) return;
     const core = prepareApplicationCoreFields({
@@ -3211,7 +3220,7 @@ function ApplicationForm({
 
           {step === 4 ? (
             <div className="space-y-6">
-              {canUpload ? <ApplicationAttachments value={selectedFiles} disabled={submitting} onChange={files => { setSelectedFiles(files); if (files.length) setMissingAttachments(false); setUploadConsent(false); setRecordingConsent(false); setSubmitError(''); }} /> : <p className="rounded-xl border p-4 text-sm">현재 계정에는 파일 업로드 권한이 없습니다. 자료 없이 협업신청을 접수하거나 대표님에게 권한을 요청해 주세요.</p>}
+              {canUpload ? <ApplicationAttachments value={selectedFiles} disabled={submitting} onBusyChange={busy => { attachmentBusyRef.current = busy; setAttachmentBusy(busy); }} onChange={files => { setSelectedFiles(files); if (files.length) setMissingAttachments(false); setUploadConsent(false); setRecordingConsent(false); setSubmitError(''); }} /> : <p className="rounded-xl border p-4 text-sm">현재 계정에는 파일 업로드 권한이 없습니다. 자료 없이 협업신청을 접수하거나 대표님에게 권한을 요청해 주세요.</p>}
               {selectedFiles.some(item => item.category === '상담녹취') && <label className="flex min-h-11 items-start gap-3 rounded-xl border border-primary/25 bg-primary/5 p-4 text-sm leading-6"><input type="checkbox" checked={recordingConsent} disabled={submitting} onChange={event => { setRecordingConsent(event.target.checked); setSubmitError(''); }} className="mt-1 size-4 shrink-0 accent-primary" /><span>녹취자료의 저장·내부 검토·담당 파트너 공유에 필요한 권한을 확인했습니다. 외부 AI 분석은 별도 동의·대표 검토 후 진행합니다. (녹취자료 첨부 시 필수)</span></label>}
 
               <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-5">
@@ -3235,13 +3244,13 @@ function ApplicationForm({
         </CardContent>
 
         <div className="flex flex-col-reverse gap-3 border-t bg-slate-50 p-4 sm:flex-row sm:justify-between sm:px-6">
-          <SecondaryButton onClick={step === 1 ? onCancel : () => setStep((value) => Math.max(1, value - 1))} disabled={submitting || awaitingSave || draftBusy || !draftReady || Boolean(draftSubmitted)}>
+          <SecondaryButton onClick={step === 1 ? onCancel : () => setStep((value) => Math.max(1, value - 1))} disabled={submitting || awaitingSave || draftBusy || attachmentBusy || !draftReady || Boolean(draftSubmitted)}>
             <ChevronLeft className="size-4" aria-hidden="true" /> {step === 1 ? '취소' : '이전'}
           </SecondaryButton>
           <div className="flex flex-wrap gap-3">
-            <SecondaryButton disabled={submitting || awaitingSave || draftBusy || !draftReady || Boolean(draftSubmitted)} onClick={() => { void saveDraft().catch(error => setSubmitError((error as Error).message)); }}>신청서 임시저장</SecondaryButton>
-            <PrimaryButton className="flex-1 sm:flex-none" disabled={submitting || draftBusy || !draftReady || Boolean(draftSubmitted)} onClick={step === 4 ? submitApplication : () => { if (validateStep(step)) setStep(value => Math.min(4, value + 1)); }}>
-              {submitting ? '저장 완료 확인 중' : awaitingSave ? '같은 신청 다시 저장' : step === 4 ? '협업신청 제출' : '다음'}
+            <SecondaryButton disabled={submitting || awaitingSave || draftBusy || attachmentBusy || !draftReady || Boolean(draftSubmitted)} onClick={() => { void saveDraft().catch(error => setSubmitError((error as Error).message)); }}>신청서 임시저장</SecondaryButton>
+            <PrimaryButton className="flex-1 sm:flex-none" disabled={submitting || draftBusy || attachmentBusy || !draftReady || Boolean(draftSubmitted)} onClick={step === 4 ? submitApplication : () => { if (validateStep(step)) setStep(value => Math.min(4, value + 1)); }}>
+              {attachmentBusy ? '첨부 내용 확인 중' : submitting ? '저장 완료 확인 중' : awaitingSave ? '같은 신청 다시 저장' : step === 4 ? '협업신청 제출' : '다음'}
               {submitting ? <RefreshCw className="size-4 animate-spin" aria-hidden="true" /> : step < 4 ? <ChevronRight className="size-4" aria-hidden="true" /> : <Send className="size-4" aria-hidden="true" />}
             </PrimaryButton>
           </div>

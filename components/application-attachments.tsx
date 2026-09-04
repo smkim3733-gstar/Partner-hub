@@ -19,10 +19,12 @@ import {
 export function ApplicationAttachments({
   value,
   onChange,
+  onBusyChange,
   disabled,
 }: {
   value: ApplicationAttachment[];
   onChange: (files: ApplicationAttachment[]) => void;
+  onBusyChange: (busy: boolean) => void;
   disabled: boolean;
 }) {
   const id = useId();
@@ -34,6 +36,7 @@ export function ApplicationAttachments({
     if (!files.length || disabled || checkingRef.current) return;
     checkingRef.current = true;
     setChecking(true);
+    onBusyChange(true);
     try {
       const result = await appendApplicationFiles(value, files, recording);
       onChange(result.files);
@@ -51,6 +54,7 @@ export function ApplicationAttachments({
     } finally {
       checkingRef.current = false;
       setChecking(false);
+      onBusyChange(false);
     }
   }
   return (

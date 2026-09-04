@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ApplicationAttachments } from '../components/application-attachments';
@@ -42,6 +44,7 @@ void test('intake UI exposes separate labeled recording and company inputs with 
     createElement(ApplicationAttachments, {
       value: [{ ...item, file }],
       onChange: () => {},
+      onBusyChange: () => {},
       disabled: false,
     }),
   );
@@ -175,4 +178,21 @@ void test('attachment deduplication follows normalized names and actual bytes', 
   assert.equal(distinct.duplicates, 0);
   assert.equal(distinct.files.length, 2);
   assert.notEqual(distinct.files[0].fingerprint, distinct.files[1].fingerprint);
+});
+
+void test('application submission stays locked while attachment bytes are checked', () => {
+  const picker = readFileSync(
+    join(process.cwd(), 'components/application-attachments.tsx'),
+    'utf8',
+  );
+  const page = readFileSync(join(process.cwd(), 'app/page.tsx'), 'utf8');
+  assert.match(picker, /onBusyChange\(true\)/);
+  assert.match(picker, /onBusyChange\(false\)/);
+  assert.match(page, /attachmentBusyRef\.current/);
+  assert.match(page, /onBusyChange=\{busy =>/);
+  assert.match(page, /attachmentBusy \? '첨부 내용 확인 중'/);
+  assert.match(
+    page,
+    /disabled=\{submitting \|\| draftBusy \|\| attachmentBusy \|\|/,
+  );
 });
