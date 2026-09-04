@@ -7,6 +7,7 @@ import { describeUpload } from '../lib/consulting-flow-http';
 import {
   flowUploadAccept,
   flowUploadExtensions,
+  flowUploadMaxMegabytes,
   flowUploadPurpose,
 } from '../lib/consulting-flow-upload-policy';
 
@@ -37,6 +38,13 @@ void test('consulting flow upload policy owns purpose and command-specific forma
     flowUploadExtensions({ type: 'record_contract' }, 'audio'),
     undefined,
   );
+  assert.equal(flowUploadMaxMegabytes({ type: 'save_source' }), 8);
+  assert.equal(
+    flowUploadMaxMegabytes({ type: 'save_recording' }, 'document'),
+    5,
+  );
+  assert.equal(flowUploadMaxMegabytes({ type: 'save_recording' }, 'audio'), 25);
+  assert.equal(flowUploadMaxMegabytes({ type: 'save_report', stage: 2 }), 25);
 });
 
 void test('server rejects files hidden by stage and AI-source controls', () => {
@@ -49,6 +57,15 @@ void test('server rejects files hidden by stage and AI-source controls', () => {
         now,
       ),
     FlowError,
+  );
+  assert.throws(
+    () =>
+      describeUpload(
+        new File([new Uint8Array(8 * 1024 * 1024 + 1)], 'ai-source.pdf'),
+        { type: 'save_source', fileConsent: true },
+        now,
+      ),
+    /8MB/,
   );
   assert.throws(
     () =>
@@ -79,8 +96,21 @@ void test('consulting upload inputs use shared policy instead of literal lists',
     join(process.cwd(), 'components/consultation-transcript-form.tsx'),
     'utf8',
   );
-  assert.match(workflow, /accept=\{flowUploadAccept\(/);
+  assert.match(workflow, /accept=\{flowUploadAccept\(command\)\}/);
   assert.match(transcript, /accept=\{flowUploadAccept\(/);
   assert.doesNotMatch(workflow, /accept="\.[a-z]+(?:,\.[a-z]+)+"/);
   assert.doesNotMatch(transcript, /accept="\.[a-z]+(?:,\.[a-z]+)+"/);
+});
+
+void test('flow route checks purpose and size before reading file content', async () => {
+  const route = await readFile(
+    join(process.cwd(), 'app/api/consulting-flow/[caseId]/route.ts'),
+    'utf8',
+  );
+  const sizePolicy = route.indexOf('const describedUpload = input.file');
+  const contentRead = route.indexOf(
+    'const contentProblem = await uploadFileContentProblem(file)',
+  );
+  assert.ok(sizePolicy > 0);
+  assert.ok(contentRead > sizePolicy);
 });

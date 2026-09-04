@@ -6,6 +6,8 @@ import {
 import {
   flowUploadAllows,
   flowUploadExtensions,
+  flowUploadMaxBytes,
+  flowUploadMaxMegabytes,
   flowUploadPurpose,
 } from './consulting-flow-upload-policy';
 import { safeFileName } from './company-file-policy';
@@ -107,9 +109,13 @@ export function describeUpload(
     throw new FlowError(
       '첨부자료의 저장·담당 파트너 공유 권한을 확인해 주세요.',
     );
-  if (file.size > 25 * 1024 * 1024)
-    throw new FlowError('첨부파일은 25MB 이하여야 합니다.', 413);
   const ext = uploadFileExtension(file.name);
+  const maxBytes = flowUploadMaxBytes(command, slot, ext);
+  if (maxBytes !== undefined && file.size > maxBytes)
+    throw new FlowError(
+      `첨부파일은 ${flowUploadMaxMegabytes(command, slot, ext)}MB 이하여야 합니다.`,
+      413,
+    );
   const format = uploadFileFormat(ext);
   if (!flowUploadAllows(command, ext, slot) || !format)
     throw new FlowError(

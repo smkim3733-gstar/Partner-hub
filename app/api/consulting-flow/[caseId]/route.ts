@@ -114,6 +114,14 @@ export async function POST(request: Request, context: Context) {
       throw new FlowError(
         '신청자료 불러오기에는 새 파일을 첨부할 수 없습니다.',
       );
+    const describedUpload = input.file
+      ? describeUpload(input.file, input.command, now)
+      : undefined;
+    const audioUpload = input.audio
+      ? describeUpload(input.audio, input.command, now, 'audio')
+      : undefined;
+    if (input.audio && input.file && /\.(mp3|m4a|wav)$/i.test(input.file.name))
+      throw new FlowError('음성은 보조 첨부 1개만 등록해 주세요.');
     for (const file of [input.file, input.audio]) {
       if (!file) continue;
       const contentProblem = await uploadFileContentProblem(file);
@@ -123,14 +131,7 @@ export async function POST(request: Request, context: Context) {
       input.command.type === 'import_intake_source'
         ? await prepareIntakeImport(flow, user, input.command, now)
         : undefined;
-    const upload =
-      imported?.file ??
-      (input.file ? describeUpload(input.file, input.command, now) : undefined);
-    const audioUpload = input.audio
-      ? describeUpload(input.audio, input.command, now, 'audio')
-      : undefined;
-    if (input.audio && input.file && /\.(mp3|m4a|wav)$/i.test(input.file.name))
-      throw new FlowError('음성은 보조 첨부 1개만 등록해 주세요.');
+    const upload = imported?.file ?? describedUpload;
     const next = applyFlowCommand(
       flow,
       input.command,

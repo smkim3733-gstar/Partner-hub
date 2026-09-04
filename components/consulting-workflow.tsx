@@ -58,7 +58,11 @@ import {
   readConsultingFlowMutationResponse,
   readConsultingFlowStateResponse,
 } from '@/lib/consulting-flow-response';
-import { flowUploadAccept } from '@/lib/consulting-flow-upload-policy';
+import {
+  flowUploadAccept,
+  flowUploadMaxMegabytes,
+  type FlowUploadCommand,
+} from '@/lib/consulting-flow-upload-policy';
 
 type Section =
   | 'reports'
@@ -234,19 +238,19 @@ function Confirm({
   );
 }
 function Files({
-  accept,
+  command,
   required = false,
 }: {
-  accept?: string;
+  command: FlowUploadCommand;
   required?: boolean;
 }) {
   return (
     <>
-      <Field label="첨부파일 (최대 25MB)">
+      <Field label={`첨부파일 (최대 ${flowUploadMaxMegabytes(command)}MB)`}>
         <input
           type="file"
           name="file"
-          accept={accept}
+          accept={flowUploadAccept(command)}
           required={required}
           className={`${control} py-2`}
         />
@@ -663,7 +667,7 @@ export function ConsultingWorkflow({
                   </Field>
                 )}
                 <Files
-                  accept={flowUploadAccept({ type: 'save_report', stage })}
+                  command={{ type: 'save_report', stage }}
                   required={stage === 3}
                 />
               </ActionForm>
@@ -1280,9 +1284,9 @@ export function ConsultingWorkflow({
                         }
                       >
                         <Files
-                          accept={flowUploadAccept({
+                          command={{
                             type: 'receive_document',
-                          })}
+                          }}
                           required
                         />
                         <Field label="수령 메모">
@@ -1462,10 +1466,7 @@ export function ConsultingWorkflow({
                     />
                   </Field>
                 </div>
-                <Files
-                  accept={flowUploadAccept({ type: 'record_contract' })}
-                  required
-                />
+                <Files command={{ type: 'record_contract' }} required />
                 <Confirm name="signedConfirmed">
                   양 당사자의 실제 서명과 계약금 약정 내용을 확인했습니다.
                 </Confirm>
@@ -1799,7 +1800,7 @@ export function ConsultingWorkflow({
                   maxLength={40000}
                 />
               </Field>
-              <Files accept={flowUploadAccept({ type: 'save_source' })} />
+              <Files command={{ type: 'save_source' }} />
               <Confirm name="privacyMasked">
                 AI 분석에 사용할 사본이며, 불필요한 개인정보를 제거했습니다.
               </Confirm>

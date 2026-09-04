@@ -9,7 +9,10 @@ import {
   type FlowCommand,
   type FlowMeeting,
 } from '@/lib/consulting-flow';
-import { flowUploadAccept } from '@/lib/consulting-flow-upload-policy';
+import {
+  flowUploadAccept,
+  flowUploadMaxMegabytes,
+} from '@/lib/consulting-flow-upload-policy';
 import {
   audioFileProblem,
   MAX_TRANSCRIPT_CHARS,
@@ -229,7 +232,13 @@ export function ConsultationTranscriptForm({
               id={`${id}-document-help`}
               className="text-sm leading-6 text-muted-foreground"
             >
-              5MB 이하 · 파일을 선택하면 이 기기에서 본문을 읽습니다. 아직
+              {flowUploadMaxMegabytes(
+                {
+                  type: recordingId ? 'save_transcript' : 'save_recording',
+                },
+                'document',
+              )}
+              MB 이하 · 파일을 선택하면 이 기기에서 본문을 읽습니다. 아직
               저장·AI 전송하지 않습니다. Word 본문·표의 텍스트만 읽으며
               이미지·머리글·주석은 제외됩니다.
             </p>
@@ -297,7 +306,9 @@ export function ConsultationTranscriptForm({
               원본 음성 선택 첨부 · 보조 자료
             </summary>
             <label htmlFor={`${id}-audio`} className="mb-2 block text-sm">
-              MP3·M4A·WAV / 25MB 이하
+              MP3·M4A·WAV /{' '}
+              {flowUploadMaxMegabytes({ type: 'save_recording' }, 'audio')}MB
+              이하
             </label>
             <Input
               id={`${id}-audio`}
