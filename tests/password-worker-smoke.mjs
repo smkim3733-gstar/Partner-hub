@@ -2541,6 +2541,87 @@ try {
   const peerMember = cleanMemberIdState.members.find(
     (member) => member.id === peerId,
   );
+  const malformedEmailSaveState = structuredClone(cleanMemberIdState);
+  malformedEmailSaveState.members.find(
+    (member) => member.id === memberId,
+  ).email = null;
+  await expect(
+    await call(
+      '/save',
+      { state: malformedEmailSaveState },
+      ownerHeaders,
+      'PUT',
+    ),
+    403,
+    'generic owner state save rejects a non-string member email',
+  );
+  const malformedNameState = structuredClone(cleanMemberIdState);
+  malformedNameState.members.find(
+    (member) => member.id === memberId,
+  ).name = null;
+  malformedNameState.members.find(
+    (member) => member.id === chatGPTOwnedMember.id,
+  ).name = null;
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(JSON.stringify(malformedNameState), new Date().toISOString())
+    .run();
+  const malformedNameLogin = await expect(
+    await call('/login', { email, password: `${password} new` }),
+    200,
+    'password login keeps credential checks separate from legacy display name',
+  );
+  const malformedNameCookie = malformedNameLogin.headers
+    .get('set-cookie')
+    .split(';')[0];
+  await expect(
+    await call('/state', undefined, { cookie: malformedNameCookie }),
+    403,
+    'password state rejects a non-string legacy member name',
+  );
+  await expect(
+    await call('/state', undefined, chatGPTHeaders),
+    403,
+    'ChatGPT state rejects a non-string legacy member name',
+  );
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(
+      stateBeforeAmbiguousLegacyEmail.payload,
+      stateBeforeAmbiguousLegacyEmail.updated_at,
+    )
+    .run();
+  await expect(
+    await call('/logout', {}, { cookie: malformedNameCookie }),
+    200,
+    'legacy member name test session logout succeeds',
+  );
+  const malformedBoundEmailState = structuredClone(cleanMemberIdState);
+  malformedBoundEmailState.members.find(
+    (member) => member.id === chatGPTOwnedMember.id,
+  ).email = null;
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(
+      JSON.stringify(malformedBoundEmailState),
+      new Date().toISOString(),
+    )
+    .run();
+  await expect(
+    await call('/state', undefined, {
+      ...chatGPTHeaders,
+      'oai-authenticated-user-email': 'changed-chatgpt-runtime@example.invalid',
+    }),
+    403,
+    'bound ChatGPT state rejects a non-string legacy member email',
+  );
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(
+      stateBeforeAmbiguousLegacyEmail.payload,
+      stateBeforeAmbiguousLegacyEmail.updated_at,
+    )
+    .run();
   const malformedPermissionState = structuredClone(cleanMemberIdState);
   const malformedPermissions = {
     sharedSchedule: 'false',

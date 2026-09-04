@@ -406,6 +406,58 @@ void test('ChatGPT authentication denies every malformed legacy permission value
     deniedPartnerPermissions,
   );
 });
+void test('administrator state save rejects a non-string member email without an internal error', async () => {
+  const before = await state();
+  const changed = structuredClone(before);
+  changed.members[0].email = null as unknown as string;
+
+  const response = await saveState(
+    request({ state: changed }, ownerHeaders, 'PUT'),
+  );
+  assert.equal(response.status, 403, await response.clone().text());
+  assert.deepEqual(await state(), before);
+});
+void test('password authentication rejects a legacy member with a non-string name', async () => {
+  const cookie = await loggedIn();
+  const current = await state();
+  current.members.find((member) => member.email === email)!.name =
+    null as unknown as string;
+  await writePortalState(current);
+
+  const response = await getState(request(undefined, { cookie }));
+  assert.equal(response.status, 403, await response.clone().text());
+});
+void test('ChatGPT authentication rejects a legacy member with a non-string name', async () => {
+  const current = await state();
+  current.members[0].name = null as unknown as string;
+  await writePortalState(current);
+
+  const response = await getState(
+    request(undefined, {
+      'oai-authenticated-user-id': 'malformed-name-chatgpt-user',
+      'oai-authenticated-user-email': 'existing@example.invalid',
+    }),
+  );
+  assert.equal(response.status, 403, await response.clone().text());
+});
+void test('bound ChatGPT authentication rejects a legacy member with a non-string email', async () => {
+  const headers = {
+    'oai-authenticated-user-id': 'malformed-email-bound-chatgpt-user',
+    'oai-authenticated-user-email': 'existing@example.invalid',
+  };
+  await expectStatus(await getState(request(undefined, headers)), 200);
+  const current = await state();
+  current.members[0].email = null as unknown as string;
+  await writePortalState(current);
+
+  const response = await getState(
+    request(undefined, {
+      ...headers,
+      'oai-authenticated-user-email': 'changed@example.invalid',
+    }),
+  );
+  assert.equal(response.status, 403, await response.clone().text());
+});
 void test('administrator access binds the stable ChatGPT identity, rejects a recycled owner email and survives a provider email change', async () => {
   const initial = await getState(request(undefined, ownerHeaders));
   assert.equal(initial.status, 200, await initial.clone().text());

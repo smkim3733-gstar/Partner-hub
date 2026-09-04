@@ -224,8 +224,8 @@ function asPortalState(value: unknown): PortalStateRecord | null {
   return state as PortalStateRecord;
 }
 
-export function normalizedMemberName(name: string) {
-  return name.replace('(가상)', '').trim();
+export function normalizedMemberName(name: unknown) {
+  return typeof name === 'string' ? name.replace('(가상)', '').trim() : '';
 }
 
 export async function requirePortalUser(
@@ -249,11 +249,13 @@ export async function requirePortalUser(
         (item) => item.id === passwordUser.member_id,
       ) ?? [];
     const member = matchingIds.length === 1 ? matchingIds[0] : null;
+    const memberName = member ? normalizedMemberName(member.name) : '';
     if (
       !member ||
       typeof member.email !== 'string' ||
       member.email.trim().toLowerCase() !== passwordUser.email ||
-      member.status !== '활성'
+      member.status !== '활성' ||
+      !memberName
     )
       throw new PortalAccessError(
         '대표 승인 전이거나 이용이 정지된 계정입니다.',
@@ -262,10 +264,10 @@ export async function requirePortalUser(
     return {
       id: `password:${member.id}`,
       email: passwordUser.email,
-      displayName: normalizedMemberName(member.name),
+      displayName: memberName,
       role: 'trainee',
       memberId: member.id,
-      memberName: normalizedMemberName(member.name),
+      memberName,
       permissions: effectivePortalPermissions(member.permissions),
       authMethod: 'password',
     };
@@ -335,7 +337,13 @@ export async function requirePortalUser(
   if (candidateMemberId && matchingIds.length > 1)
     throw new PortalAccessError(chatGPTIdentityConflictMessage, 403);
   const member = boundMemberId ? matchingIds[0] : candidateMember;
-  if (!member || member.status !== '활성') {
+  const memberName = member ? normalizedMemberName(member.name) : '';
+  if (
+    !member ||
+    member.status !== '활성' ||
+    !memberName ||
+    !isValidLoginEmail(member.email)
+  ) {
     throw new PortalAccessError(
       '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
       403,
@@ -347,7 +355,6 @@ export async function requirePortalUser(
   )
     throw new PortalAccessError(chatGPTIdentityConflictMessage, 403);
 
-  const memberName = normalizedMemberName(member.name);
   return {
     id,
     email,
@@ -739,8 +746,8 @@ export function mergeStateForPortalUser(
           );
           const emailMatches = storedMatches.filter(
             (candidate) =>
-              candidate.email.trim().toLowerCase() ===
-              member.email.trim().toLowerCase(),
+              normalizeLoginEmail(candidate.email) ===
+              normalizeLoginEmail(member.email),
           );
           const stored =
             storedMatches.length === 1
