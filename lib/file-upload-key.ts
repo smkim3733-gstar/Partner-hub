@@ -1,4 +1,4 @@
-import type { CompanyFileCategory } from './company-file-policy';
+import { safeFileName, type CompanyFileCategory } from './company-file-policy';
 import { downloadContentType } from './download-content-type';
 
 export async function fileDigest(value: ArrayBuffer | string) {
@@ -40,12 +40,12 @@ export async function companyUploadKeyVariants(
   const bytesDigest = await fileDigest(
     availableBytes ?? (await file.arrayBuffer()),
   );
-  const keyFor = (contentType: string) =>
+  const keyFor = (fileName: string, contentType: string) =>
     fileDigest(
       JSON.stringify([
         'company-upload-v1',
         scope,
-        file.name,
+        fileName,
         contentType,
         file.size,
         input.company.trim(),
@@ -56,11 +56,27 @@ export async function companyUploadKeyVariants(
         bytesDigest,
       ]),
     );
-  const legacy = await keyFor(file.type);
-  const current = input.caseId
-    ? await keyFor(downloadContentType(file.name))
-    : legacy;
-  return { current, legacy };
+  if (!input.caseId) {
+    return { current: await keyFor(file.name, file.type), legacyKeys: [] };
+  }
+  const normalizedName = safeFileName(file.name);
+  const current = await keyFor(
+    normalizedName,
+    downloadContentType(normalizedName),
+  );
+  const legacyNames = new Set([
+    file.name,
+    normalizedName,
+    normalizedName.normalize('NFD'),
+  ]);
+  const legacyKeys = new Set<string>();
+  for (const name of legacyNames) {
+    for (const contentType of [downloadContentType(name), file.type]) {
+      const candidate = await keyFor(name, contentType);
+      if (candidate !== current) legacyKeys.add(candidate);
+    }
+  }
+  return { current, legacyKeys: [...legacyKeys] };
 }
 
 /** Draft-linked uploads can be recovered by reselecting the same file after reload.

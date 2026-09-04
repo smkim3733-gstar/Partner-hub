@@ -172,7 +172,7 @@ export async function POST(request: Request) {
       partnerMemberId,
     );
     let requestKey = suppliedKey ?? `legacy-${crypto.randomUUID()}`;
-    let legacyRequestKey: string | undefined;
+    let legacyRequestKeys: string[] = [];
     if (suppliedKey && caseId) {
       const keys = await companyUploadKeyVariants(
         {
@@ -186,9 +186,12 @@ export async function POST(request: Request) {
         },
         fileBytes,
       );
-      if (suppliedKey === keys.current || suppliedKey === keys.legacy) {
+      if (
+        suppliedKey === keys.current ||
+        keys.legacyKeys.includes(suppliedKey)
+      ) {
         requestKey = keys.current;
-        if (keys.legacy !== keys.current) legacyRequestKey = keys.legacy;
+        legacyRequestKeys = keys.legacyKeys;
       }
     }
     const db = companyFileDatabase();
@@ -211,7 +214,7 @@ export async function POST(request: Request) {
         sizeBytes: fileValue.size,
       },
       fileBytes,
-      legacyRequestKey,
+      legacyRequestKeys,
       async () => {
         const access = await currentFileAccess(request, currentUser);
         if (!mayUploadCompanyFiles(access.user))

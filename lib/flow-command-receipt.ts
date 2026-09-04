@@ -6,6 +6,7 @@ import {
 import type { PortalUser } from './portal-auth';
 import { fileDigest } from './file-upload-key';
 import { downloadContentType } from './download-content-type';
+import { safeFileName } from './company-file-policy';
 
 export type FlowCommandReceiptErrorReason =
   | 'legacy_unknown'
@@ -35,25 +36,27 @@ function canonical(value: unknown, depth = 0): unknown {
   return value;
 }
 async function attachment(file?: File) {
-  return file
-    ? {
-        name: file.name,
-        contentType: downloadContentType(file.name),
-        legacyContentType: file.type,
-        size: file.size,
-        digest: await fileDigest(await file.arrayBuffer()),
-      }
-    : null;
+  if (!file) return null;
+  const name = safeFileName(file.name);
+  return {
+    name,
+    legacyNames: [...new Set([file.name, name, name.normalize('NFD')])],
+    contentType: downloadContentType(name),
+    legacyContentType: file.type,
+    size: file.size,
+    digest: await fileDigest(await file.arrayBuffer()),
+  };
 }
 type ReceiptAttachment = Awaited<ReturnType<typeof attachment>>;
 
 function receiptAttachment(
   value: ReceiptAttachment,
+  name: string | undefined,
   useLegacyContentType: boolean,
 ) {
   return value
     ? {
-        name: value.name,
+        name: name ?? value.name,
         type: useLegacyContentType
           ? value.legacyContentType
           : value.contentType,
@@ -66,8 +69,8 @@ function receiptAttachment(
 export type ComputedFlowCommandReceipt = {
   actorKey: string;
   fingerprint: string;
-  /** Used only to resume a matching command saved before MIME normalization. */
-  legacyFingerprint?: string;
+  /** Used only to resume matching commands saved before filename/MIME normalization. */
+  legacyFingerprints?: readonly string[];
 };
 
 export async function flowCommandReceipt(
@@ -77,24 +80,38 @@ export async function flowCommandReceipt(
   const command = canonical(input.command);
   const file = await attachment(input.file);
   const audio = await attachment(input.audio);
-  const fingerprintFor = (useLegacyContentType: boolean) =>
+  const fingerprintFor = (
+    fileName: string | undefined,
+    audioName: string | undefined,
+    useLegacyContentType: boolean,
+  ) =>
     fileDigest(
       JSON.stringify({
         command,
-        file: receiptAttachment(file, useLegacyContentType),
-        audio: receiptAttachment(audio, useLegacyContentType),
+        file: receiptAttachment(file, fileName, useLegacyContentType),
+        audio: receiptAttachment(audio, audioName, useLegacyContentType),
       }),
     );
-  const fingerprint = await fingerprintFor(false);
-  const needsLegacyFingerprint = [file, audio].some(
-    (value) => value && value.contentType !== value.legacyContentType,
-  );
+  const fingerprint = await fingerprintFor(file?.name, audio?.name, false);
+  const legacyFingerprints = new Set<string>();
+  for (const fileName of file?.legacyNames ?? [undefined]) {
+    for (const audioName of audio?.legacyNames ?? [undefined]) {
+      for (const useLegacyContentType of [false, true]) {
+        const candidate = await fingerprintFor(
+          fileName,
+          audioName,
+          useLegacyContentType,
+        );
+        if (candidate !== fingerprint) legacyFingerprints.add(candidate);
+      }
+    }
+  }
   return {
     actorKey:
       user.role === 'admin' ? `admin:${user.email}` : `member:${user.memberId}`,
     fingerprint,
-    ...(needsLegacyFingerprint
-      ? { legacyFingerprint: await fingerprintFor(true) }
+    ...(legacyFingerprints.size > 0
+      ? { legacyFingerprints: [...legacyFingerprints] }
       : {}),
   };
 }
@@ -122,7 +139,7 @@ export function isFlowCommandRetry(
     );
   if (
     saved.fingerprint !== receipt.fingerprint &&
-    saved.fingerprint !== receipt.legacyFingerprint
+    !receipt.legacyFingerprints?.includes(saved.fingerprint)
   )
     throw new FlowCommandReceiptError(
       '같은 요청 번호의 내용 또는 첨부가 변경되었습니다. 저장 결과를 확인해 주세요.',

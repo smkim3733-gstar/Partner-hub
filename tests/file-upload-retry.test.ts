@@ -126,6 +126,18 @@ void test('application upload keys survive file reselection; standalone keys kee
     }),
     await companyUploadKey(input()),
   );
+  const nfcName = '한글자료.txt'.normalize('NFC');
+  const nfdName = nfcName.normalize('NFD');
+  assert.equal(
+    await companyUploadKey({
+      ...input(),
+      file: new File(['SYNTHETIC_DOCUMENT'], nfcName, { type: 'text/plain' }),
+    }),
+    await companyUploadKey({
+      ...input(),
+      file: new File(['SYNTHETIC_DOCUMENT'], nfdName, { type: 'text/plain' }),
+    }),
+  );
   const standalone = { ...input(), caseId: undefined };
   assert.equal(
     await companyUploadKey(standalone),
@@ -207,7 +219,8 @@ void test('normalized application key migrates previous pending, ready and delet
   data.set('partnerMemberId', member.id);
   const bytes = await legacyFile.arrayBuffer();
   const keys = await companyUploadKeyVariants(keyInput, bytes);
-  assert.notEqual(keys.current, keys.legacy);
+  assert.equal(keys.legacyKeys.length, 1);
+  const legacyKey = keys.legacyKeys[0];
   const legacyMetadata = {
     originalName: legacyFile.name,
     company: '가상기업',
@@ -229,7 +242,7 @@ void test('normalized application key migrates previous pending, ready and delet
       VALUES (?1, ?2, ?3, ?4, ?5, 'pending')`)
     .bind(
       `member:${member.id}`,
-      keys.legacy,
+      legacyKey,
       legacyFingerprint,
       id,
       '2026-09-04T00:00:00.000Z',
@@ -244,14 +257,14 @@ void test('normalized application key migrates previous pending, ready and delet
     'text/plain',
   );
   assert.equal((await findCompanyFile(id))?.content_type, 'text/plain');
-  assert.equal(await rowFor(keys.legacy), null);
+  assert.equal(await rowFor(legacyKey), null);
   assert.equal((await rowFor(keys.current))?.status, 'ready');
 
   await db
     .prepare(`UPDATE company_file_upload_requests
       SET request_key = ?1, fingerprint = ?2
       WHERE owner_key = ?3 AND request_key = ?4`)
-    .bind(keys.legacy, legacyFingerprint, `member:${member.id}`, keys.current)
+    .bind(legacyKey, legacyFingerprint, `member:${member.id}`, keys.current)
     .run();
   const bucket = companyFileBucket();
   const originalPut = bucket.put.bind(bucket);
@@ -266,7 +279,7 @@ void test('normalized application key migrates previous pending, ready and delet
   } finally {
     bucket.put = originalPut;
   }
-  assert.equal(await rowFor(keys.legacy), null);
+  assert.equal(await rowFor(legacyKey), null);
   assert.equal((await rowFor(keys.current))?.status, 'ready');
 
   assert.equal(
@@ -281,12 +294,136 @@ void test('normalized application key migrates previous pending, ready and delet
     .prepare(`UPDATE company_file_upload_requests
       SET request_key = ?1, fingerprint = ?2
       WHERE owner_key = ?3 AND request_key = ?4`)
-    .bind(keys.legacy, legacyFingerprint, `member:${member.id}`, keys.current)
+    .bind(legacyKey, legacyFingerprint, `member:${member.id}`, keys.current)
     .run();
   assert.equal((await upload(request(keys.current, data))).status, 409);
-  assert.equal(await rowFor(keys.legacy), null);
+  assert.equal(await rowFor(legacyKey), null);
   assert.equal((await rowFor(keys.current))?.status, 'deleted');
   assert.equal(await bucket.get(`company-source/${id}`), null);
+});
+
+void test('normalized application filename key resumes a previous NFD-name ledger', async () => {
+  await seed();
+  const db = companyFileDatabase();
+  await ensureCompanyFileTables(db);
+  const nfcName = '한글자료.txt'.normalize('NFC');
+  const legacyFile = new File(
+    ['SYNTHETIC_FILENAME_NORMALIZATION'],
+    nfcName.normalize('NFD'),
+    { type: 'text/plain' },
+  );
+  const caseId = 'legacy-filename-key-case';
+  const keyInput = { ...input(caseId), file: legacyFile };
+  const bytes = await legacyFile.arrayBuffer();
+  const keys = await companyUploadKeyVariants(keyInput, bytes);
+  assert.equal(keys.legacyKeys.length, 1);
+  const legacyKey = keys.legacyKeys[0];
+  const fingerprint = await fileDigest(
+    JSON.stringify({
+      originalName: nfcName,
+      company: '가상기업',
+      title: '가상 근거자료',
+      category: '기타자료',
+      assignedTrainee: member.name,
+      partnerMemberId: member.id,
+      caseId,
+      contentType: 'text/plain',
+      sizeBytes: legacyFile.size,
+    }) + (await fileDigest(bytes)),
+  );
+  const id = 'legacy-filename-retry-file';
+  await db
+    .prepare(`INSERT INTO company_file_upload_requests
+      (owner_key, request_key, fingerprint, file_id, created_at, status)
+      VALUES (?1, ?2, ?3, ?4, ?5, 'pending')`)
+    .bind(
+      `member:${member.id}`,
+      legacyKey,
+      fingerprint,
+      id,
+      '2026-09-04T00:01:00.000Z',
+    )
+    .run();
+  const data = form();
+  data.set('file', legacyFile);
+  data.set('caseId', caseId);
+  data.set('partnerMemberId', member.id);
+
+  assert.equal(
+    (await stored(await upload(request(keys.current, data)))).id,
+    id,
+  );
+  assert.equal(await rowFor(legacyKey), null);
+  assert.equal((await rowFor(keys.current))?.status, 'ready');
+  assert.equal((await findCompanyFile(id))?.original_name, nfcName);
+});
+
+void test('multiple matching legacy filename ledgers are preserved for review', async () => {
+  await seed();
+  const db = companyFileDatabase();
+  await ensureCompanyFileTables(db);
+  const nfcName = '중복자료.txt'.normalize('NFC');
+  const legacyFile = new File(
+    ['SYNTHETIC_AMBIGUOUS_FILENAME'],
+    nfcName.normalize('NFD'),
+    { type: 'text/html' },
+  );
+  const caseId = 'ambiguous-filename-key-case';
+  const keyInput = { ...input(caseId), file: legacyFile };
+  const bytes = await legacyFile.arrayBuffer();
+  const keys = await companyUploadKeyVariants(keyInput, bytes);
+  assert.ok(keys.legacyKeys.length >= 2);
+  const bytesFingerprint = await fileDigest(bytes);
+  const metadata = {
+    originalName: nfcName,
+    company: '가상기업',
+    title: '가상 근거자료',
+    category: '기타자료',
+    assignedTrainee: member.name,
+    partnerMemberId: member.id,
+    caseId,
+    contentType: 'text/plain',
+    sizeBytes: legacyFile.size,
+  };
+  const fixedFingerprint = await fileDigest(
+    JSON.stringify(metadata) + bytesFingerprint,
+  );
+  const browserFingerprint = await fileDigest(
+    JSON.stringify({ ...metadata, contentType: 'text/html' }) +
+      bytesFingerprint,
+  );
+  for (const [index, fingerprint] of [
+    fixedFingerprint,
+    browserFingerprint,
+  ].entries())
+    await db
+      .prepare(`INSERT INTO company_file_upload_requests
+        (owner_key, request_key, fingerprint, file_id, created_at, status)
+        VALUES (?1, ?2, ?3, ?4, ?5, 'pending')`)
+      .bind(
+        `member:${member.id}`,
+        keys.legacyKeys[index],
+        fingerprint,
+        `ambiguous-filename-file-${index}`,
+        `2026-09-04T00:02:0${index}.000Z`,
+      )
+      .run();
+  const data = form();
+  data.set('file', legacyFile);
+  data.set('caseId', caseId);
+  data.set('partnerMemberId', member.id);
+
+  assert.equal((await upload(request(keys.current, data))).status, 409);
+  for (let index = 0; index < 2; index += 1) {
+    assert.equal((await rowFor(keys.legacyKeys[index]))?.status, 'pending');
+    assert.equal(
+      await companyFileBucket().get(
+        `company-source/ambiguous-filename-file-${index}`,
+      ),
+      null,
+    );
+  }
+  assert.equal(await rowFor(keys.current), null);
 });
 
 void test('accepted upload without a request key records only the coverage warning', async () => {

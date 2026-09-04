@@ -52,7 +52,7 @@ export async function storeCompanyUpload(
   requestKey: string,
   metadata: UploadMetadata,
   bytes: ArrayBuffer,
-  legacyRequestKey: string | undefined,
+  legacyRequestKeys: readonly string[],
   authorize: () => Promise<string | null>,
   onDuplicateObserved?: (outcome: UploadDuplicateOutcome) => void,
 ) {
@@ -73,7 +73,12 @@ export async function storeCompanyUpload(
         )
       : fingerprint;
   const initialPayload = await authorize();
-  if (legacyRequestKey && legacyRequestKey !== requestKey) {
+  const compatibleLegacyKeys = [
+    ...new Set(legacyRequestKeys.filter((key) => key !== requestKey)),
+  ];
+  if (compatibleLegacyKeys.length > 6)
+    throw new Error('Too many compatible upload request keys');
+  if (compatibleLegacyKeys.length > 0) {
     const currentRecord = await db
       .prepare(
         'SELECT file_id, fingerprint, created_at, status FROM company_file_upload_requests WHERE owner_key = ?1 AND request_key = ?2',
@@ -81,22 +86,33 @@ export async function storeCompanyUpload(
       .bind(owner, requestKey)
       .first<UploadRecord>();
     if (!currentRecord) {
-      const legacyRecord = await db
+      const placeholders = compatibleLegacyKeys
+        .map((_, index) => `?${index + 2}`)
+        .join(', ');
+      const legacyRecords = await db
         .prepare(
-          'SELECT file_id, fingerprint, created_at, status FROM company_file_upload_requests WHERE owner_key = ?1 AND request_key = ?2',
+          `SELECT request_key, file_id, fingerprint, created_at, status
+           FROM company_file_upload_requests
+           WHERE owner_key = ?1 AND request_key IN (${placeholders}) LIMIT 2`,
         )
-        .bind(owner, legacyRequestKey)
-        .first<UploadRecord>();
+        .bind(owner, ...compatibleLegacyKeys)
+        .all<UploadRecord & { request_key: string }>();
+      if (legacyRecords.results.length > 1)
+        throw new CompanyFileError(
+          '같은 신청 첨부의 이전 저장 기록이 둘 이상입니다. 원본 보관 현황에서 확인해 주세요.',
+          409,
+        );
+      const legacyRequest = legacyRecords.results[0];
       if (
-        legacyRecord &&
-        legacyRecord.fingerprint !== fingerprint &&
-        legacyRecord.fingerprint !== legacyFingerprint
+        legacyRequest &&
+        legacyRequest.fingerprint !== fingerprint &&
+        legacyRequest.fingerprint !== legacyFingerprint
       )
         throw new CompanyFileError(
           '같은 업로드 요청의 파일 또는 자료정보가 변경되었습니다.',
           409,
         );
-      if (legacyRecord)
+      if (legacyRequest)
         await db
           .prepare(`UPDATE company_file_upload_requests
             SET request_key = ?1, fingerprint = ?2
@@ -109,7 +125,7 @@ export async function storeCompanyUpload(
             requestKey,
             fingerprint,
             owner,
-            legacyRequestKey,
+            legacyRequest.request_key,
             initialPayload,
           )
           .run();

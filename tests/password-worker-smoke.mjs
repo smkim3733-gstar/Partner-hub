@@ -747,11 +747,12 @@ try {
     caseId,
     sourceText = 'SYNTHETIC_NEW_ACCOUNT_FILE',
     reportedContentType = 'text/plain',
+    fileName = 'synthetic.txt',
   ) {
     const form = new FormData();
     form.set(
       'file',
-      new File([sourceText], 'synthetic.txt', {
+      new File([sourceText], fileName, {
         type: reportedContentType,
       }),
     );
@@ -810,14 +811,16 @@ try {
   checks.push('registry MIME is identical across response, native D1 and R2');
   const bridgeCaseId = 'runtime-upload-key-migration';
   const bridgeText = 'SYNTHETIC_UPLOAD_KEY_MIGRATION';
+  const bridgeFileName = '한글자료.txt'.normalize('NFC');
+  const bridgeLegacyFileName = bridgeFileName.normalize('NFD');
   const bridgeBytes = new TextEncoder().encode(bridgeText);
   const bridgeBytesDigest = await sha256(bridgeBytes);
-  const bridgeKeyFor = (contentType) =>
+  const bridgeKeyFor = (fileName, contentType) =>
     sha256(
       JSON.stringify([
         'company-upload-v1',
         bridgeCaseId,
-        'synthetic.txt',
+        fileName,
         contentType,
         bridgeBytes.byteLength,
         '가상 본인기업',
@@ -828,18 +831,21 @@ try {
         bridgeBytesDigest,
       ]),
     );
-  const bridgeLegacyKey = await bridgeKeyFor('text/html');
-  const bridgeCurrentKey = await bridgeKeyFor('text/plain');
+  const bridgeLegacyKey = await bridgeKeyFor(
+    bridgeLegacyFileName,
+    'text/plain',
+  );
+  const bridgeCurrentKey = await bridgeKeyFor(bridgeFileName, 'text/plain');
   const bridgeLegacyFingerprint = await sha256(
     JSON.stringify({
-      originalName: 'synthetic.txt',
+      originalName: bridgeFileName,
       company: '가상 본인기업',
       title: '새 담당계정 자료',
       category: '기타자료',
       assignedTrainee: '가상 런타임파트너',
       partnerMemberId: memberId,
       caseId: bridgeCaseId,
-      contentType: 'text/html',
+      contentType: 'text/plain',
       sizeBytes: bridgeBytes.byteLength,
     }) + bridgeBytesDigest,
   );
@@ -863,10 +869,11 @@ try {
           memberId,
           bridgeCaseId,
           bridgeText,
-          'text/html',
+          'text/plain',
+          bridgeLegacyFileName,
         ),
         201,
-        'normalized application key resumes previous native D1 ledger',
+        'normalized application filename key resumes previous native D1 ledger',
       )
     ).json()
   ).file;
@@ -892,7 +899,7 @@ try {
     'ready',
   );
   checks.push(
-    'application upload key migration preserves one native R2 object',
+    'application filename key migration preserves one native R2 object',
   );
   const retryHeaders = {
     cookie,
@@ -1606,17 +1613,18 @@ try {
       fileConsent: true,
     },
   };
+  const flowFileName = '분석자료.txt'.normalize('NFC');
   const mimeSaved = await expect(
     await callFlowFile(
       '/flow/runtime-own',
       mimeCommand,
-      new File(['SYNTHETIC_FLOW_MIME'], 'flow-report.txt', {
+      new File(['SYNTHETIC_FLOW_MIME'], flowFileName.normalize('NFD'), {
         type: 'text/html',
       }),
       ownerHeaders,
     ),
     200,
-    'FLOW receipt normalizes browser MIME in native D1',
+    'FLOW receipt normalizes filename and browser MIME in native D1',
   );
   const mimeSavedFlow = (await mimeSaved.json()).flow;
   assert.equal(mimeSavedFlow.files.at(-1).contentType, 'text/plain');
@@ -1641,13 +1649,13 @@ try {
     await callFlowFile(
       '/flow/runtime-own',
       mimeCommand,
-      new File(['SYNTHETIC_FLOW_MIME'], 'flow-report.txt', {
+      new File(['SYNTHETIC_FLOW_MIME'], flowFileName, {
         type: 'application/x-alternate-text',
       }),
       ownerHeaders,
     ),
     200,
-    'FLOW retry ignores changed browser MIME for identical native content',
+    'FLOW retry ignores canonical filename form and browser MIME for identical native content',
   );
   assert.equal((await mimeRetry.json()).duplicate, true);
   const nativeAnalysis = {

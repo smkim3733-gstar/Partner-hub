@@ -470,18 +470,69 @@ void test('FLOW retry accepts a matching receipt saved before MIME normalization
     permissions: null,
   };
   const receipt = await flowCommandReceipt(user, { command, file });
-  assert.ok(receipt.legacyFingerprint);
+  assert.ok(receipt.legacyFingerprints?.length);
   const previousReleaseFlow = structuredClone(flow);
   previousReleaseFlow.commandIds.push(commandId);
   previousReleaseFlow.commandReceipts = {
     ...previousReleaseFlow.commandReceipts,
     [commandId]: {
       actorKey: receipt.actorKey,
-      fingerprint: receipt.legacyFingerprint,
+      fingerprint: receipt.legacyFingerprints[0],
     },
   };
   assert.equal(
     isFlowCommandRetry(previousReleaseFlow, commandId, receipt),
+    true,
+  );
+});
+
+void test('FLOW receipt normalizes NFC/NFD filenames and resumes a raw NFD receipt', async () => {
+  const flow = await fixture();
+  const commandId = `flow-safety-${++sequence}`;
+  const command = {
+    type: 'save_report',
+    stage: 1,
+    body,
+    fileConsent: true,
+  } as const;
+  const user: PortalUser = {
+    id: adminEmail,
+    email: adminEmail,
+    displayName: '가상 대표',
+    role: 'admin',
+    memberId: null,
+    memberName: null,
+    permissions: null,
+  };
+  const nfcName = '분석자료.txt'.normalize('NFC');
+  const nfdReceipt = await flowCommandReceipt(user, {
+    command,
+    file: new File(['SYNTHETIC_UNICODE_RECEIPT'], nfcName.normalize('NFD'), {
+      type: 'text/plain',
+    }),
+  });
+  const nfcReceipt = await flowCommandReceipt(user, {
+    command,
+    file: new File(['SYNTHETIC_UNICODE_RECEIPT'], nfcName, {
+      type: 'text/plain',
+    }),
+  });
+  assert.equal(nfdReceipt.fingerprint, nfcReceipt.fingerprint);
+  const rawNfdFingerprint = nfdReceipt.legacyFingerprints?.find((fingerprint) =>
+    nfcReceipt.legacyFingerprints?.includes(fingerprint),
+  );
+  assert.ok(rawNfdFingerprint);
+  const previousReleaseFlow = structuredClone(flow);
+  previousReleaseFlow.commandIds.push(commandId);
+  previousReleaseFlow.commandReceipts = {
+    ...previousReleaseFlow.commandReceipts,
+    [commandId]: {
+      actorKey: nfcReceipt.actorKey,
+      fingerprint: rawNfdFingerprint,
+    },
+  };
+  assert.equal(
+    isFlowCommandRetry(previousReleaseFlow, commandId, nfcReceipt),
     true,
   );
 });
