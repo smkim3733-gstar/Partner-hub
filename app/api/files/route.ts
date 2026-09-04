@@ -12,6 +12,7 @@ import { readPortalState } from '@/lib/portal-state';
 import {
   companyFileProblem,
   MAX_COMPANY_FILE_BYTES,
+  MAX_COMPANY_FILE_MEGABYTES,
 } from '@/lib/company-file-policy';
 import {
   COMPANY_FILE_COMPANY_MAX_LENGTH,
@@ -120,7 +121,7 @@ export async function POST(request: Request) {
     }
     if (fileValue.size > MAX_COMPANY_FILE_BYTES) {
       throw new CompanyFileError(
-        '파일 한 개의 크기는 25MB 이하여야 합니다.',
+        `파일 한 개의 크기는 ${MAX_COMPANY_FILE_MEGABYTES}MB 이하여야 합니다.`,
         413,
       );
     }

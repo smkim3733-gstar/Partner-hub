@@ -17,6 +17,8 @@ export const companyFileCategories = [
 ] as const;
 export type CompanyFileCategory = (typeof companyFileCategories)[number];
 export const MAX_COMPANY_FILE_BYTES = 25 * 1024 * 1024;
+export const MAX_COMPANY_FILE_MEGABYTES =
+  MAX_COMPANY_FILE_BYTES / (1024 * 1024);
 export const MAX_APPLICATION_FILES = 10;
 const documentFileExtensions = [
   'pdf',
@@ -84,7 +86,7 @@ export function companyFileProblem(
   if (!file.name.trim() || !file.size)
     return '비어 있는 파일은 등록할 수 없습니다.';
   if (file.size > MAX_COMPANY_FILE_BYTES)
-    return '파일 한 개의 크기는 25MB 이하여야 합니다.';
+    return `파일 한 개의 크기는 ${MAX_COMPANY_FILE_MEGABYTES}MB 이하여야 합니다.`;
   const ext = uploadFileExtension(file.name);
   if (category === '상담녹취') {
     if (!recordingExtensions.has(ext))

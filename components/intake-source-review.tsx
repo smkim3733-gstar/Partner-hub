@@ -17,9 +17,11 @@ import {
   type ConsultingFlow,
   type FlowCommand,
 } from '@/lib/consulting-flow';
-import type {
-  IntakeSourceOption,
-  IntakeSourcePreview,
+import {
+  MAX_AI_SOURCE_FILES,
+  MAX_AI_SOURCE_MEGABYTES,
+  type IntakeSourceOption,
+  type IntakeSourcePreview,
 } from '@/lib/intake-source-policy';
 import {
   readIntakeSourceListResponse,
@@ -27,6 +29,7 @@ import {
 } from '@/lib/intake-source-response';
 import {
   MAX_TRANSCRIPT_CHARS,
+  MAX_TRANSCRIPT_FILE_MEGABYTES,
   transcriptProblem,
 } from '@/lib/transcript-policy';
 
@@ -403,7 +406,7 @@ export function IntakeSourceReview({
           className="block text-sm leading-6 text-muted-foreground"
         >
           {notice ||
-            '1차 분석은 근거파일 최대 8개·합계 8MB입니다. 본문 읽기는 Word·TXT 5MB 이하만 지원합니다.'}
+            `1차 분석은 근거파일 최대 ${MAX_AI_SOURCE_FILES}개·합계 ${MAX_AI_SOURCE_MEGABYTES}MB입니다. 본문 읽기는 Word·TXT ${MAX_TRANSCRIPT_FILE_MEGABYTES}MB 이하만 지원합니다.`}
         </output>
       </CardContent>
     </Card>

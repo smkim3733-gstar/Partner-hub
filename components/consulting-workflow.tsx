@@ -63,6 +63,10 @@ import {
   flowUploadMaxMegabytes,
   type FlowUploadCommand,
 } from '@/lib/consulting-flow-upload-policy';
+import {
+  MAX_AI_SOURCE_FILES,
+  MAX_AI_SOURCE_MEGABYTES,
+} from '@/lib/intake-source-policy';
 
 type Section =
   | 'reports'
@@ -1732,7 +1736,7 @@ export function ConsultingWorkflow({
           <Panel
             id="flow-ai-sources"
             title="1차 분석용 근거자료"
-            description="위에서 확인한 신청자료 검토본 또는 직접 첨부한 사본을 사용합니다. 원본과 기존 요약은 보존하며, 이미 작성된 보고서는 새로 생성하기 전까지 바뀌지 않습니다. PDF·JPG·PNG·TXT 합계 8MB / 8개까지 분석합니다."
+            description={`위에서 확인한 신청자료 검토본 또는 직접 첨부한 사본을 사용합니다. 원본과 기존 요약은 보존하며, 이미 작성된 보고서는 새로 생성하기 전까지 바뀌지 않습니다. PDF·JPG·PNG·TXT 합계 ${MAX_AI_SOURCE_MEGABYTES}MB / ${MAX_AI_SOURCE_FILES}개까지 분석합니다.`}
           >
             {flow.files
               .filter((f) => f.purpose === 'source')

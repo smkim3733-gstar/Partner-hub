@@ -1,6 +1,10 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import {
+  MAX_AI_SOURCE_FILES,
+  MAX_AI_SOURCE_MEGABYTES,
+} from '@/lib/intake-source-policy';
 import { currentPreflight, type ReportPreflight } from '@/lib/report-preflight';
 import { readReportPreflightResponse } from '@/lib/report-preflight-response';
 
@@ -148,8 +152,9 @@ export function FirstReportPreflight({
           <div className="rounded-lg border p-3 text-sm leading-6">
             <p className="font-semibold">
               실제 분석 대상: 요약 {result.sourceTextChars.toLocaleString()}자 ·
-              파일 {result.fileCount}개 / 8개 ·{' '}
-              {(result.totalBytes / 1024 / 1024).toFixed(2)}MB / 8MB
+              파일 {result.fileCount}개 / {MAX_AI_SOURCE_FILES}개 ·{' '}
+              {(result.totalBytes / 1024 / 1024).toFixed(2)}MB /{' '}
+              {MAX_AI_SOURCE_MEGABYTES}MB
             </p>
             <p className="text-muted-foreground">
               AI 입력에서 제외된 보존 자료 {result.excludedCount}개 · 설정된

@@ -7,7 +7,13 @@ import {
   intakeSourceProblem,
   intakeSourceKind,
   MAX_AI_SOURCE_BYTES,
+  MAX_AI_SOURCE_FILES,
+  MAX_AI_SOURCE_MEGABYTES,
 } from '../lib/intake-source-policy';
+import {
+  MAX_AUDIO_MEGABYTES,
+  MAX_TRANSCRIPT_FILE_MEGABYTES,
+} from '../lib/transcript-policy';
 import {
   applyFlowCommand,
   newConsultingFlow,
@@ -15,6 +21,10 @@ import {
 } from '../lib/consulting-flow';
 
 void test('intake review distinguishes readable text, binary sources and auxiliary audio', () => {
+  assert.equal(MAX_AI_SOURCE_MEGABYTES, 8);
+  assert.equal(MAX_AI_SOURCE_FILES, 8);
+  assert.equal(MAX_TRANSCRIPT_FILE_MEGABYTES, 5);
+  assert.equal(MAX_AUDIO_MEGABYTES, 25);
   assert.equal(intakeSourceKind('call.DOCX'), 'text');
   assert.equal(intakeSourceKind('certificate.PDF'), 'binary');
   assert.match(

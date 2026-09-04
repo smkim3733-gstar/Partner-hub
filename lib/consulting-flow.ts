@@ -2,6 +2,7 @@ import { transcriptProblem } from './transcript-policy';
 import {
   MAX_AI_SOURCE_BYTES,
   MAX_AI_SOURCE_FILES,
+  MAX_AI_SOURCE_MEGABYTES,
 } from './intake-source-policy';
 
 /** Pure, server-enforced consulting workflow. No browser state is authoritative. */
@@ -541,7 +542,7 @@ export function applyFlowCommand(
         sources.length < MAX_AI_SOURCE_FILES &&
           sources.reduce((sum, f) => sum + f.size, 0) + upload.size <=
             MAX_AI_SOURCE_BYTES,
-        'AI 근거자료는 파일 8개·합계 8MB까지입니다. 불필요한 자료를 AI 입력에서 제외해 주세요.',
+        `AI 근거자료는 파일 ${MAX_AI_SOURCE_FILES}개·합계 ${MAX_AI_SOURCE_MEGABYTES}MB까지입니다. 불필요한 자료를 AI 입력에서 제외해 주세요.`,
         413,
       );
       detail = '신청자료 검토본을 1차 근거자료로 반영 · 원본 보존 · AI 미전송';

@@ -5,6 +5,7 @@ import test from 'node:test';
 import {
   companyFileAccept,
   companyPortalFileAccept,
+  MAX_COMPANY_FILE_MEGABYTES,
   recordingFileAccept,
 } from '../lib/company-file-policy';
 import { downloadContentType } from '../lib/download-content-type';
@@ -59,10 +60,19 @@ void test('file input accept values derive from registered extensions', async ()
     companyPortalFileAccept,
     '.pdf,.jpg,.jpeg,.png,.xlsx,.xls,.docx,.txt,.mp3,.m4a,.wav',
   );
+  assert.equal(MAX_COMPANY_FILE_MEGABYTES, 25);
   const page = await readFile(join(process.cwd(), 'app/page.tsx'), 'utf8');
   assert.match(page, /accept=\{companyPortalFileAccept\}/);
   assert.doesNotMatch(
     page,
     /accept="\.pdf,\.jpg,\.jpeg,\.png,\.xlsx,\.xls,\.docx,\.txt,\.mp3,\.m4a,\.wav"/,
   );
+  assert.match(page, /파일당 \{MAX_COMPANY_FILE_MEGABYTES\}MB 이하/);
+  assert.doesNotMatch(page, /파일당 25MB 이하/);
+  const attachments = await readFile(
+    join(process.cwd(), 'components/application-attachments.tsx'),
+    'utf8',
+  );
+  assert.match(attachments, /\{MAX_COMPANY_FILE_MEGABYTES\}MB 이하/);
+  assert.doesNotMatch(attachments, /파일당 25MB 이하/);
 });

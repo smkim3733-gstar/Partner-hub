@@ -9,6 +9,7 @@ import { flowReadiness } from './consulting-flow-store';
 import {
   MAX_AI_SOURCE_BYTES,
   MAX_AI_SOURCE_FILES,
+  MAX_AI_SOURCE_MEGABYTES,
 } from './intake-source-policy';
 import {
   reportPreflightCheckDefinitions,
@@ -47,7 +48,7 @@ export async function inspectFirstReport(
       passed: composition,
       detail: composition
         ? `근거 요약 ${sourceTextChars.toLocaleString()}자 · 파일 ${files.length}개 선택`
-        : '20자 이상의 요약 또는 근거파일이 필요합니다. 파일은 최대 8개·합계 8MB입니다.',
+        : `20자 이상의 요약 또는 근거파일이 필요합니다. 파일은 최대 ${MAX_AI_SOURCE_FILES}개·합계 ${MAX_AI_SOURCE_MEGABYTES}MB입니다.`,
     },
     {
       id: 'sources',

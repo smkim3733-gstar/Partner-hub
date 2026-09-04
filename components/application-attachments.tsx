@@ -12,6 +12,7 @@ import {
   companyFileCategories,
   isAudioFile,
   MAX_APPLICATION_FILES,
+  MAX_COMPANY_FILE_MEGABYTES,
   type ApplicationAttachment,
 } from '@/lib/company-file-policy';
 
@@ -50,7 +51,8 @@ export function ApplicationAttachments({
       <legend className="mb-2 text-base font-bold">자료 첨부</legend>
       <p className="text-sm leading-6 text-muted-foreground">
         사업자등록증·크레탑과 대표 전화통화 녹취자료를 함께 제출할 수 있습니다.
-        파일당 25MB 이하, 전체 {MAX_APPLICATION_FILES}개까지 선택합니다.
+        파일당 {MAX_COMPANY_FILE_MEGABYTES}MB 이하, 전체 {MAX_APPLICATION_FILES}
+        개까지 선택합니다.
       </p>
       <div className="grid gap-2 rounded-xl border bg-muted/20 p-4">
         <label htmlFor={`${id}-company`} className="text-sm font-semibold">

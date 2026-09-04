@@ -19,6 +19,7 @@ import { PortalAccessError } from '@/lib/portal-auth';
 import {
   MAX_AI_SOURCE_BYTES,
   MAX_AI_SOURCE_FILES,
+  MAX_AI_SOURCE_MEGABYTES,
 } from '@/lib/intake-source-policy';
 import {
   commitFlow,
@@ -91,7 +92,7 @@ export async function buildAnalysisSourceBlocks(
     files.reduce((total, f) => total + f.size, 0) > MAX_AI_SOURCE_BYTES
   )
     throw new FlowError(
-      'AI 입력은 파일 8개·합계 8MB까지입니다. 근거자료를 요약·변환한 별도 진행을 이용해 주세요.',
+      `AI 입력은 파일 ${MAX_AI_SOURCE_FILES}개·합계 ${MAX_AI_SOURCE_MEGABYTES}MB까지입니다. 근거자료를 요약·변환한 별도 진행을 이용해 주세요.`,
     );
   for (const file of files) {
     const supported = [

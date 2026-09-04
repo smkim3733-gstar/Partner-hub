@@ -1,6 +1,11 @@
-import { MAX_TRANSCRIPT_FILE_BYTES } from './transcript-policy';
+import {
+  MAX_TRANSCRIPT_FILE_BYTES,
+  MAX_TRANSCRIPT_FILE_MEGABYTES,
+} from './transcript-policy';
 
 export const MAX_AI_SOURCE_BYTES = 8 * 1024 * 1024;
+export const MAX_AI_SOURCE_MEGABYTES =
+  MAX_AI_SOURCE_BYTES / (1024 * 1024);
 export const MAX_AI_SOURCE_FILES = 8;
 export type IntakeSourceKind = 'text' | 'binary' | 'audio' | 'unsupported';
 export type IntakeSourceOption = {
@@ -34,8 +39,8 @@ export function intakeSourceProblem(file: { name: string; size: number }) {
   if (!Number.isSafeInteger(file.size) || file.size <= 0)
     return '비어 있거나 크기를 확인할 수 없는 자료입니다.';
   if (kind === 'text' && file.size > MAX_TRANSCRIPT_FILE_BYTES)
-    return '본문 읽기는 5MB 이하의 Word·TXT 문서만 지원합니다.';
+    return `본문 읽기는 ${MAX_TRANSCRIPT_FILE_MEGABYTES}MB 이하의 Word·TXT 문서만 지원합니다.`;
   if (file.size > MAX_AI_SOURCE_BYTES)
-    return '분석용 사본은 8MB 이하여야 합니다. 원본은 자료함에 보존됩니다.';
+    return `분석용 사본은 ${MAX_AI_SOURCE_MEGABYTES}MB 이하여야 합니다. 원본은 자료함에 보존됩니다.`;
   return '';
 }
