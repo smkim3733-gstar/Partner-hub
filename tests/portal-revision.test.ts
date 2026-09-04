@@ -119,6 +119,20 @@ void test('state writes reject non-JSON and oversized bodies before mutation', a
   assert.deepEqual(await readPortalState(), baseline.state);
 });
 
+void test('malformed state revision headers cannot write', async () => {
+  await writePortalState(seed());
+  const baseline = await snapshot();
+  const changed = structuredClone(baseline.state);
+  changed.tasks[0].status = '완료';
+  for (const value of ['*', `W/"${baseline.stateRevision}"`, 'x'.repeat(65)]) {
+    const response = await PUT(
+      request(changed, undefined, { 'if-match': value }),
+    );
+    assert.equal(response.status, 400);
+    assert.deepEqual(await readPortalState(), baseline.state);
+  }
+});
+
 void test('state capacity telemetry is exact, top-level, and administrator-only', async () => {
   const state = seed();
   state.members.push({

@@ -14,11 +14,11 @@ import {
 } from '@/lib/partner-registration';
 import {
   issuePortalConflictReceipt,
-  PORTAL_CONFLICT_RECEIPT_HEADER,
   PORTAL_CONFLICT_RECEIPT_TTL_SECONDS,
   schedulePortalConflictRecovery,
   schedulePortalSaveConflict,
 } from '@/lib/portal-conflict-metrics';
+import { portalConflictReceiptFromRequest } from '@/lib/portal-conflict-receipt';
 import {
   scheduleDuplicateRequestMetric,
   type DuplicateRequestOutcome,
@@ -31,7 +31,7 @@ const response = (data: unknown, status = 200) =>
   Response.json(data, { status, headers });
 
 export async function POST(request: Request) {
-  const presentedReceipt = request.headers.get(PORTAL_CONFLICT_RECEIPT_HEADER);
+  const presentedReceipt = portalConflictReceiptFromRequest(request);
   let duplicateOutcome: DuplicateRequestOutcome | null = null;
   const observeDuplicateOnce = () => {
     if (!duplicateOutcome) return;

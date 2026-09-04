@@ -14,6 +14,12 @@ import {
   readSingleQueryParam,
 } from '../lib/request-query';
 import { readRouteParam, RouteParamError } from '../lib/request-path';
+import {
+  HeaderRequestError,
+  readIdempotencyKey,
+  readIfMatchRevision,
+} from '../lib/request-header';
+import { portalConflictReceiptFromRequest } from '../lib/portal-conflict-receipt';
 
 function request(
   body: BodyInit | null,
@@ -210,6 +216,65 @@ void test('route parameter reader accepts bounded opaque IDs and rejects unsafe 
     assert.throws(() => readRouteParam(value), RouteParamError);
 });
 
+void test('request header readers accept exact revisions and bounded idempotency keys', () => {
+  const revision = 'a'.repeat(64);
+  for (const value of [revision, `"${revision}"`])
+    assert.equal(
+      readIfMatchRevision(
+        request('{}', 'application/json', { 'if-match': value }),
+      ),
+      revision,
+    );
+  assert.equal(readIfMatchRevision(request('{}')), null);
+  for (const value of ['*', `W/"${revision}"`, 'A'.repeat(64), 'a'.repeat(65)])
+    assert.throws(
+      () =>
+        readIfMatchRevision(
+          request('{}', 'application/json', { 'if-match': value }),
+        ),
+      HeaderRequestError,
+    );
+
+  assert.equal(
+    readIdempotencyKey(
+      request('{}', 'application/json', {
+        'idempotency-key': 'upload_request-01',
+      }),
+    ),
+    'upload_request-01',
+  );
+  assert.equal(readIdempotencyKey(request('{}')), null);
+  for (const value of ['short', 'invalid!', 'x'.repeat(129)])
+    assert.throws(
+      () =>
+        readIdempotencyKey(
+          request('{}', 'application/json', { 'idempotency-key': value }),
+        ),
+      HeaderRequestError,
+    );
+});
+
+void test('conflict receipt request reader ignores malformed telemetry tokens', () => {
+  const token = 'a'.repeat(43);
+  assert.equal(
+    portalConflictReceiptFromRequest(
+      request('{}', 'application/json', {
+        'x-portal-conflict-receipt': token,
+      }),
+    ),
+    token,
+  );
+  assert.equal(portalConflictReceiptFromRequest(request('{}')), null);
+  assert.equal(
+    portalConflictReceiptFromRequest(
+      request('{}', 'application/json', {
+        'x-portal-conflict-receipt': 'invalid!',
+      }),
+    ),
+    null,
+  );
+});
+
 async function routeFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   const nested = await Promise.all(
@@ -310,5 +375,22 @@ void test('dynamic route IDs remain routed through the shared path boundary', as
   for (const [file, boundary] of expected) {
     const source = await readFile(path.resolve(process.cwd(), file), 'utf8');
     assert.ok(source.includes(boundary), `${file}: missing path boundary`);
+  }
+});
+
+void test('business request headers remain routed through shared boundaries', async () => {
+  const expected = [
+    ['app/api/state/route.ts', 'readIfMatchRevision(request)'],
+    ['app/api/files/route.ts', 'readIdempotencyKey(request)'],
+    ['app/api/state/route.ts', 'portalConflictReceiptFromRequest(request)'],
+    ['app/api/register/route.ts', 'portalConflictReceiptFromRequest(request)'],
+    [
+      'app/api/admin/partners/route.ts',
+      'portalConflictReceiptFromRequest(request)',
+    ],
+  ] as const;
+  for (const [file, boundary] of expected) {
+    const source = await readFile(path.resolve(process.cwd(), file), 'utf8');
+    assert.ok(source.includes(boundary), `${file}: missing header boundary`);
   }
 });

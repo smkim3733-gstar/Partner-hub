@@ -29,6 +29,7 @@ import {
 import { scheduleDuplicateRequestMetric } from '@/lib/duplicate-request-metrics';
 import { isCrossSiteRequest } from '@/lib/request-origin';
 import { isMultipartFormDataContentType } from '@/lib/request-multipart';
+import { HeaderRequestError, readIdempotencyKey } from '@/lib/request-header';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,7 +42,8 @@ function errorResponse(error: unknown) {
   if (
     error instanceof PortalAccessError ||
     error instanceof CompanyFileError ||
-    error instanceof FlowError
+    error instanceof FlowError ||
+    error instanceof HeaderRequestError
   ) {
     return Response.json(
       { error: error.message },
@@ -65,12 +67,7 @@ export async function POST(request: Request) {
     checkSameOrigin(request);
     const state = await readPortalState();
     const currentUser = await requirePortalUser(request, state);
-    const suppliedKey = request.headers.get('idempotency-key');
-    if (suppliedKey !== null && !/^[a-zA-Z0-9_-]{10,128}$/.test(suppliedKey))
-      throw new CompanyFileError(
-        '업로드 요청 식별값이 올바르지 않습니다.',
-        400,
-      );
+    const suppliedKey = readIdempotencyKey(request);
     if (!mayUploadCompanyFiles(currentUser)) {
       throw new CompanyFileError(
         '현재 계정에는 기업자료 업로드 권한이 없습니다.',

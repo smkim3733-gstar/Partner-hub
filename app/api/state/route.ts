@@ -36,13 +36,14 @@ import {
 } from '@/lib/pilot-readiness';
 import {
   issuePortalConflictReceipt,
-  PORTAL_CONFLICT_RECEIPT_HEADER,
   PORTAL_CONFLICT_RECEIPT_TTL_SECONDS,
   readPortalSaveConflictSummary,
   schedulePortalConflictRecovery,
   schedulePortalSaveConflict,
   type PortalConflictActorRole,
 } from '@/lib/portal-conflict-metrics';
+import { portalConflictReceiptFromRequest } from '@/lib/portal-conflict-receipt';
+import { HeaderRequestError, readIfMatchRevision } from '@/lib/request-header';
 import { readPasswordLinkSummary } from '@/lib/password-link-metrics';
 import {
   protectApplicationSubmissionTimes,
@@ -224,7 +225,7 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
   let conflictActorRole: PortalConflictActorRole = 'unauthenticated';
-  const presentedReceipt = request.headers.get(PORTAL_CONFLICT_RECEIPT_HEADER);
+  const presentedReceipt = portalConflictReceiptFromRequest(request);
   try {
     assertSameOrigin(request);
     const currentUser = await requirePortalUser(
@@ -249,6 +250,7 @@ export async function PUT(request: Request) {
         { status: 400 },
       );
     }
+    const expectedRevision = readIfMatchRevision(request);
 
     let draftGuard: PortalDraftGuard | null = null;
     const result = await mutatePortalState(
@@ -315,8 +317,7 @@ export async function PUT(request: Request) {
           currentUser.role === 'admin' ? 'admin' : 'partner',
         );
         await assertRecoveryProofUnchanged(currentState, next);
-        const expected = request.headers.get('if-match')?.replace(/^"|"$/g, '');
-        if (expected !== revision) {
+        if (expectedRevision !== revision) {
           // An uncertain response may be retried only when it makes no changes.
           if ((await portalRevision(next)) === revision) return currentState;
           throw new PortalStateConflict(
@@ -388,6 +389,8 @@ export async function PUT(request: Request) {
     if (error instanceof PipelineLifecycleError)
       return privateJson({ error: error.message }, { status: 400 });
     if (error instanceof JsonRequestError)
+      return privateJson({ error: error.message }, { status: error.status });
+    if (error instanceof HeaderRequestError)
       return privateJson({ error: error.message }, { status: error.status });
     if (error instanceof FlowError)
       return privateJson({ error: error.message }, { status: error.status });

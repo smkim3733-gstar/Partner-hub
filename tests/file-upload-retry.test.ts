@@ -463,7 +463,8 @@ void test('upload client rejects unreadable or mismatched file acknowledgements'
 
 void test('invalid request keys, changed login identity and cross-origin retries cannot write', async () => {
   await seed();
-  assert.equal((await upload(request('invalid!'))).status, 400);
+  for (const key of ['short', 'invalid!', 'x'.repeat(129)])
+    assert.equal((await upload(request(key))).status, 400);
   const wrong = form();
   wrong.set('expectedUserId', 'another-account');
   assert.equal(

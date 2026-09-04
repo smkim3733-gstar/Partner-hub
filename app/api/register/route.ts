@@ -5,11 +5,11 @@ import { assertSameOrigin } from '@/lib/consulting-flow-store';
 import { FlowError } from '@/lib/consulting-flow';
 import {
   issuePortalConflictReceipt,
-  PORTAL_CONFLICT_RECEIPT_HEADER,
   PORTAL_CONFLICT_RECEIPT_TTL_SECONDS,
   schedulePortalConflictRecovery,
   schedulePortalSaveConflict,
 } from '@/lib/portal-conflict-metrics';
+import { portalConflictReceiptFromRequest } from '@/lib/portal-conflict-receipt';
 import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
 
 const MAX_REQUEST_BYTES = 12_000;
@@ -69,7 +69,7 @@ function registrationError(
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
-  const presentedReceipt = request.headers.get(PORTAL_CONFLICT_RECEIPT_HEADER);
+  const presentedReceipt = portalConflictReceiptFromRequest(request);
   try {
     assertSameOrigin(request);
     const authenticatedId = request.headers

@@ -3,9 +3,18 @@ export const PORTAL_CONFLICT_RECEIPT_TTL_SECONDS = 24 * 60 * 60;
 export const PORTAL_CONFLICT_RECEIPT_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 export function portalConflictReceiptFrom(value: unknown) {
-  return typeof value === 'string' && PORTAL_CONFLICT_RECEIPT_PATTERN.test(value)
+  return typeof value === 'string' &&
+    PORTAL_CONFLICT_RECEIPT_PATTERN.test(value)
     ? value
     : undefined;
+}
+
+export function portalConflictReceiptFromRequest(request: Request) {
+  return (
+    portalConflictReceiptFrom(
+      request.headers.get(PORTAL_CONFLICT_RECEIPT_HEADER),
+    ) ?? null
+  );
 }
 
 export function portalConflictReceiptHeaders(
