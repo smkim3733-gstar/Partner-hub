@@ -24,11 +24,11 @@ import {
   type DuplicateRequestOutcome,
 } from '@/lib/duplicate-request-metrics';
 import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
+import { privateJsonResponse } from '@/lib/private-response';
 
 export const dynamic = 'force-dynamic';
-const headers = { 'cache-control': 'private, no-store' };
 const response = (data: unknown, status = 200) =>
-  Response.json(data, { status, headers });
+  privateJsonResponse(data, { status });
 
 export async function POST(request: Request) {
   const presentedReceipt = portalConflictReceiptFromRequest(request);

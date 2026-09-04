@@ -32,6 +32,16 @@ import { readDuplicateRequestSummary } from '../lib/duplicate-request-metrics';
 import { flushWaitUntil } from './runtime-mock.mjs';
 
 const owner = 'seedy@sites.test';
+function assertPrivateAuthResponse(response: Response) {
+  assert.equal(
+    response.headers.get('cache-control'),
+    'private, no-store, max-age=0',
+  );
+  assert.equal(response.headers.get('expires'), '0');
+  assert.equal(response.headers.get('pragma'), 'no-cache');
+  assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+}
 void test('queued field updates retain captured input values after a controlled-input reset', () => {
   const input = { value: '010-0000-0000' };
   const phoneUpdate = registrationFieldUpdate('phone', input.value);
@@ -590,10 +600,11 @@ void test('partner autosave cannot change membership, permissions or revision af
 
 void test('public self registration still requires matching authenticated email and stays pending during concurrent admin creation', async () => {
   const signup = body({ email: 'self-signup@example.invalid' });
-  assert.equal(
-    (await selfRegister(request(signup, owner, '/api/register'))).status,
-    403,
+  const identityMismatch = await selfRegister(
+    request(signup, owner, '/api/register'),
   );
+  assert.equal(identityMismatch.status, 403);
+  assertPrivateAuthResponse(identityMismatch);
   const malformedIdentityHeaders: Array<Record<string, string>> = [
     { 'oai-authenticated-user-id': 'x'.repeat(257) },
     { 'oai-authenticated-user-email': 'invalid' },
@@ -616,6 +627,7 @@ void test('public self registration still requires matching authenticated email 
     results.map((result) => result.status),
     [200, 201],
   );
+  for (const result of results) assertPrivateAuthResponse(result);
   const current = await state();
   assert.equal(current.members.length, 4);
   assert.equal(

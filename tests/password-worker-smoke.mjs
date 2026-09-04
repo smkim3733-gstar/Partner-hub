@@ -99,6 +99,16 @@ async function expect(response, status, name) {
   checks.push(name);
   return response;
 }
+function assertPrivateAuthResponse(response) {
+  assert.equal(
+    response.headers.get('cache-control'),
+    'private, no-store, max-age=0',
+  );
+  assert.equal(response.headers.get('expires'), '0');
+  assert.equal(response.headers.get('pragma'), 'no-cache');
+  assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+}
 try {
   const db = await mf.getD1Database('DB');
   await db
@@ -272,6 +282,8 @@ try {
   assert.match(setCookie, /HttpOnly/);
   assert.match(setCookie, /SameSite=Strict/);
   assert.match(setCookie, /Secure/);
+  assert.doesNotMatch(setCookie, /Domain=/i);
+  assertPrivateAuthResponse(signed);
   const cookie = setCookie.split(';')[0];
   const response = await expect(
     await call('/state', undefined, { cookie }),
@@ -302,7 +314,7 @@ try {
   checks.push(
     'cookie-only partner sees own assignment and masked shared schedule',
   );
-  assert.match(response.headers.get('cache-control'), /no-store/);
+  assertPrivateAuthResponse(response);
   assert.deepEqual(
     visible.state.tasks.map((task) => task.id),
     ['runtime-own-task', 'runtime-linked-task'],

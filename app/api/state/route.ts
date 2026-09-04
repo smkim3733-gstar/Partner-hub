@@ -66,12 +66,9 @@ import {
   readPipelineDropoffSummary,
 } from '@/lib/pipeline-dropoff-metrics';
 import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
+import { privateJsonResponse } from '@/lib/private-response';
 
-const privateJson = (data: unknown, init?: ResponseInit) =>
-  Response.json(data, {
-    ...init,
-    headers: { 'cache-control': 'private, no-store' },
-  });
+const privateJson = privateJsonResponse;
 
 export const dynamic = 'force-dynamic';
 

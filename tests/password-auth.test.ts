@@ -80,6 +80,16 @@ async function expectStatus(response: Response, status: number) {
   assert.equal(response.status, status, await response.clone().text());
   return response;
 }
+function assertPrivateAuthResponse(response: Response) {
+  assert.equal(
+    response.headers.get('cache-control'),
+    'private, no-store, max-age=0',
+  );
+  assert.equal(response.headers.get('expires'), '0');
+  assert.equal(response.headers.get('pragma'), 'no-cache');
+  assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+}
 async function register(extra: Record<string, unknown> = {}) {
   return expectStatus(await signup(request(signupBody(extra))), 201);
 }
@@ -329,6 +339,8 @@ void test('approval enables cookie-only login; session cannot elevate to mocked 
     sessionCookie(request(), token),
     /^__Host-keve_session=.*HttpOnly; SameSite=Strict; Max-Age=43200; Secure$/,
   );
+  assert.doesNotMatch(sessionCookie(request(), token), /Domain=/i);
+  assertPrivateAuthResponse(response);
 });
 void test('bad and nonexistent passwords return the same generic message; login rate limits expensive checks', async () => {
   await register();
@@ -339,6 +351,7 @@ void test('bad and nonexistent passwords return the same generic message; login 
     request({ email, password: 'wrong password long enough' }),
   );
   assert.equal(absent.status, 401);
+  assertPrivateAuthResponse(absent);
   assert.deepEqual(await absent.json(), await wrong.json());
   for (let i = 0; i < 7; i++)
     assert.equal(
@@ -347,6 +360,7 @@ void test('bad and nonexistent passwords return the same generic message; login 
     );
   const limited = await login(request({ email, password }));
   assert.equal(limited.status, 429);
+  assertPrivateAuthResponse(limited);
   assert.equal(limited.headers.get('retry-after'), '900');
 });
 void test('expiry, bad cookie and duplicate cookie never fall back to admin headers', async () => {
@@ -386,6 +400,9 @@ void test('logout revokes token and clears host cookie; replay is unauthorized',
     200,
   );
   assert.match(response.headers.get('set-cookie')!, /Max-Age=0/);
+  assert.match(response.headers.get('set-cookie')!, /Secure/);
+  assert.doesNotMatch(response.headers.get('set-cookie')!, /Domain=/i);
+  assertPrivateAuthResponse(response);
   assert.equal((await getState(request(undefined, { cookie }))).status, 401);
 });
 void test('all public credential routes reject missing/cross-site Origin; oversized body and wrong content type refused', async () => {

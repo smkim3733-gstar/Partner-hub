@@ -12,6 +12,7 @@ import {
 import { portalConflictReceiptFromRequest } from '@/lib/portal-conflict-receipt';
 import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
 import { chatGPTIdentityFromRequest } from '@/lib/request-auth';
+import { privateJsonResponse } from '@/lib/private-response';
 
 const MAX_REQUEST_BYTES = 12_000;
 
@@ -75,7 +76,7 @@ export async function POST(request: Request) {
     assertSameOrigin(request);
     const identity = chatGPTIdentityFromRequest(request);
     if (!identity) {
-      return Response.json(
+      return privateJsonResponse(
         { error: 'ChatGPT 로그인 후 등록을 신청해 주세요.' },
         { status: 401 },
       );
@@ -87,9 +88,9 @@ export async function POST(request: Request) {
     const email = normalizedText(body.email).toLowerCase();
     const fieldError = registrationError(name, phone, affiliation, email);
     if (fieldError)
-      return Response.json({ error: fieldError }, { status: 400 });
+      return privateJsonResponse({ error: fieldError }, { status: 400 });
     if (email !== identity.email) {
-      return Response.json(
+      return privateJsonResponse(
         {
           error: '현재 ChatGPT 로그인 이메일과 신청 이메일이 일치해야 합니다.',
         },
@@ -152,12 +153,18 @@ export async function POST(request: Request) {
       source: 'public_registration',
       actorRole: 'unauthenticated',
     });
-    return Response.json({ ok: true, status: '승인대기' });
+    return privateJsonResponse({ ok: true, status: '승인대기' });
   } catch (error) {
     if (error instanceof JsonRequestError)
-      return Response.json({ error: error.message }, { status: error.status });
+      return privateJsonResponse(
+        { error: error.message },
+        { status: error.status },
+      );
     if (error instanceof FlowError)
-      return Response.json({ error: error.message }, { status: error.status });
+      return privateJsonResponse(
+        { error: error.message },
+        { status: error.status },
+      );
     if (error instanceof PortalStateConflict) {
       const metric = {
         source: 'public_registration',
@@ -174,7 +181,7 @@ export async function POST(request: Request) {
           return null;
         },
       );
-      return Response.json(
+      return privateJsonResponse(
         {
           error: error.message,
           ...(recoveryReceipt
@@ -189,7 +196,7 @@ export async function POST(request: Request) {
       );
     }
     console.error('Failed to submit partner registration', error);
-    return Response.json(
+    return privateJsonResponse(
       { error: '등록 신청을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.' },
       { status: 500 },
     );

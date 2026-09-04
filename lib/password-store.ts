@@ -4,6 +4,7 @@ import { tokenHash } from '@/lib/password-crypto';
 import { isCrossSiteRequest } from '@/lib/request-origin';
 import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
 import { rateLimitClientKey, readSessionCookieToken } from '@/lib/request-auth';
+import { privateJsonResponse } from '@/lib/private-response';
 
 export class PasswordError extends Error {
   constructor(
@@ -52,11 +53,9 @@ export async function passwordBody(
   }
 }
 export function passwordResponse(data: unknown, status = 200, cookie?: string) {
-  return Response.json(data, {
+  return privateJsonResponse(data, {
     status,
     headers: {
-      'cache-control': 'private, no-store',
-      'referrer-policy': 'no-referrer',
       ...(cookie ? { 'set-cookie': cookie } : {}),
       ...(status === 429 ? { 'retry-after': '900' } : {}),
     },
