@@ -4,6 +4,7 @@ import { flowErrorResponse, loadFlowAccess } from '@/lib/consulting-flow-store';
 import { readExactQueryFlag } from '@/lib/request-query';
 import { readRouteParam } from '@/lib/request-path';
 import { privateResponseHeaders } from '@/lib/private-response';
+import { attachmentContentDisposition } from '@/lib/content-disposition';
 export const dynamic = 'force-dynamic';
 export async function GET(
   request: Request,
@@ -28,7 +29,9 @@ export async function GET(
       return new Response(`${title}\n${report.body}`, {
         headers: privateResponseHeaders({
           'content-type': 'text/markdown; charset=utf-8',
-          'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`${report.createdAt.slice(0, 10).replaceAll('-', '_')}_${report.title}.md`)}`,
+          'content-disposition': attachmentContentDisposition(
+            `${report.createdAt.slice(0, 10).replaceAll('-', '_')}_${report.title}.md`,
+          ),
         }),
       });
     const nonce = crypto.randomUUID();

@@ -7,6 +7,7 @@ import {
 } from '@/lib/consulting-flow-store';
 import { readRouteParam } from '@/lib/request-path';
 import { privateResponseHeaders } from '@/lib/private-response';
+import { attachmentContentDisposition } from '@/lib/content-disposition';
 export const dynamic = 'force-dynamic';
 export async function GET(
   request: Request,
@@ -40,7 +41,7 @@ export async function GET(
     return new Response(object.body, {
       headers: privateResponseHeaders({
         'content-type': file.contentType,
-        'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+        'content-disposition': attachmentContentDisposition(file.name),
       }),
     });
   } catch (error) {

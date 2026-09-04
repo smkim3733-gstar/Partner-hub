@@ -19,6 +19,7 @@ import {
   privateJsonResponse,
   privateResponseHeaders,
 } from '@/lib/private-response';
+import { attachmentContentDisposition } from '@/lib/content-disposition';
 
 export const dynamic = 'force-dynamic';
 
@@ -98,11 +99,9 @@ export async function GET(
       await object.body.cancel().catch(() => {});
       throw error;
     }
-    const encodedName = encodeURIComponent(row.original_name);
-
     return new Response(object.body, {
       headers: privateResponseHeaders({
-        'content-disposition': `attachment; filename*=UTF-8''${encodedName}`,
+        'content-disposition': attachmentContentDisposition(row.original_name),
         'content-type': row.content_type || 'application/octet-stream',
       }),
     });

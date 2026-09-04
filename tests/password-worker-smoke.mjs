@@ -891,10 +891,14 @@ try {
     ).partner_member_id,
     memberId,
   );
-  await expect(
+  const linkedDownload = await expect(
     await call(`/files/${linkedFile.id}`, undefined, { cookie }),
     200,
     'same-name uploader downloads their new file',
+  );
+  assert.equal(
+    linkedDownload.headers.get('content-disposition'),
+    "attachment; filename*=UTF-8''synthetic.txt",
   );
   const peerHeaders = {
     'oai-authenticated-user-id': 'synthetic-peer',
