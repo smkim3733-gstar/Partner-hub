@@ -1,4 +1,5 @@
 import { unzipSync } from 'fflate';
+import { textFileContentProblem } from './text-file-content';
 
 const SIGNATURE_MISMATCH =
   '파일 확장자와 실제 파일 형식이 일치하지 않습니다. 원본 프로그램에서 다시 저장한 파일을 선택해 주세요.';
@@ -88,8 +89,11 @@ export async function uploadFileContentProblem(
   availableBytes?: ArrayBuffer,
 ) {
   const extension = file.name.split('.').at(-1)?.toLowerCase() ?? '';
-  if (extension === 'txt' || extension === 'md') return '';
   try {
+    if (extension === 'txt' || extension === 'md')
+      return textFileContentProblem(
+        new Uint8Array(availableBytes ?? (await file.arrayBuffer())),
+      );
     if (['docx', 'xlsx', 'pptx'].includes(extension)) {
       const bytes = new Uint8Array(
         availableBytes ?? (await file.arrayBuffer()),

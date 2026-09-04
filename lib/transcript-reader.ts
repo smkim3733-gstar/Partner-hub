@@ -3,31 +3,13 @@ import {
   transcriptFileProblem,
   transcriptProblem,
 } from './transcript-policy';
+import { decodeTextFileBytes } from './text-file-content';
 
 const MAX_XML_BYTES = 2 * 1024 * 1024;
 const wordNamespaces = new Set([
   'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
   'http://purl.oclc.org/ooxml/wordprocessingml/main',
 ]);
-
-function decode(bytes: Uint8Array) {
-  const encoding =
-    bytes[0] === 0xff && bytes[1] === 0xfe
-      ? 'utf-16le'
-      : bytes[0] === 0xfe && bytes[1] === 0xff
-        ? 'utf-16be'
-        : 'utf-8';
-  try {
-    return new TextDecoder(encoding, { fatal: true })
-      .decode(bytes)
-      .replace(/^\ufeff/, '')
-      .replace(/\r\n?/g, '\n');
-  } catch {
-    throw new Error(
-      '문자 인코딩을 읽지 못했습니다. UTF-8 TXT 또는 DOCX로 다시 저장해 주세요.',
-    );
-  }
-}
 
 /** Pure local extraction (browser or Worker): no fetch, uploads, HTML rendering, macros, or external relationships. */
 export async function readTranscriptFile(file: File): Promise<string> {
@@ -36,7 +18,7 @@ export async function readTranscriptFile(file: File): Promise<string> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   let text: string;
   if (/\.txt$/i.test(file.name)) {
-    text = decode(bytes);
+    text = decodeTextFileBytes(bytes);
   } else {
     const { unzipSync } = await import('fflate');
     let xml: Uint8Array | undefined;
@@ -62,7 +44,7 @@ export async function readTranscriptFile(file: File): Promise<string> {
       throw new Error(
         'DOCX 본문이 없거나 너무 큽니다. Word에서 본문을 복사해 붙여넣어 주세요.',
       );
-    text = await readWordXml(decode(xml));
+    text = await readWordXml(decodeTextFileBytes(xml));
   }
   text = text.trim();
   const invalid = transcriptProblem(text);

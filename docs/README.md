@@ -26,6 +26,7 @@
 | [다운로드 Content-Type 보안 경계](DOWNLOAD_CONTENT_TYPE_BOUNDARY_2026_09_04.md) | 기업 원본·상담 첨부 응답 MIME의 허용 확장자별 고정과 안전한 기본값 |
 | [업로드 실제 파일 형식 보안 경계](UPLOAD_FILE_SIGNATURE_BOUNDARY_2026_09_04.md) | 기업자료·상담 FLOW 첨부의 확장자와 실제 바이너리 형식 일치 검증 |
 | [업로드 실제 형식 미등록 기본 거절](UPLOAD_SIGNATURE_FAIL_CLOSED_2026_09_04.md) | 새 확장자의 실제 형식 검사 누락을 막는 fail-closed 정책 |
+| [업로드 텍스트 내용 보안 경계](UPLOAD_TEXT_CONTENT_BOUNDARY_2026_09_04.md) | TXT·Markdown의 문자 인코딩 판독과 바이너리 제어문자 저장 전 차단 |
 | [업로드 파일명 정규화 보안 경계](UPLOAD_FILENAME_NORMALIZATION_BOUNDARY_2026_09_04.md) | 기업자료·상담 FLOW 저장 파일명의 공용 Unicode·제어문자·길이 경계 |
 | [파트너 계정 설정 저장 안전성](PARTNER_ACCOUNT_SETTINGS_DRAFT_SAFETY_2026_09_03.md) | 이메일·유형·상태·권한의 저장 전 초안 격리와 취소 폐기 |
 | [진행 담당 계정 변경 확인 안전성](CASE_ASSIGNMENT_CONFIRMATION_SAFETY_2026_09_03.md) | 현재·변경 후 담당 대조, 취소 보존과 저장 직전 재검증 |

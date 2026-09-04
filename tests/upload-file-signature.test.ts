@@ -82,6 +82,27 @@ void test('text uploads stay on their existing text-validation path', async () =
   );
 });
 
+void test('text uploads reject binary controls and unreadable encodings', async () => {
+  for (const body of [
+    new Uint8Array([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10]),
+    new Uint8Array([0xff, 0xff, 0xfe]),
+    new TextEncoder().encode('visible\u0000binary'),
+  ])
+    assert.match(
+      await uploadFileContentProblem(new File([body], 'renamed.txt')),
+      /텍스트 파일/,
+    );
+  assert.equal(
+    await uploadFileContentProblem(
+      new File(
+        [new Uint8Array([0xff, 0xfe, 0x23, 0, 0x20, 0, 0x41, 0])],
+        'utf16.txt',
+      ),
+    ),
+    '',
+  );
+});
+
 void test('unregistered extensions fail closed at the content boundary', async () => {
   for (const name of ['future.bin', 'extensionless'])
     assert.match(
