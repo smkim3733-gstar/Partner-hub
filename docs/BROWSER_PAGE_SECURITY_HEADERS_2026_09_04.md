@@ -37,7 +37,9 @@
 - 버전 104 배포: `appgdep_6a9ad4b896d08191a7854d79d24ec0e7`
 - 버전 104 운영 점검: `/`, `/account`, `/account/setup` HTTP 200과 보호 API 3곳의 익명 HTTP 401 확인. 캐시 우회 화면은 새 헤더가 있었지만 기본 `/`와 `/account/setup`의 정적 자산 응답에는 헤더가 없어 보완함
 - Sites 저장 버전 105: `appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_1164854357a48191b8e1e01e8eec6fd1`, 소스 `44808687b4b98ae9b097fdabd2456e793a44af96`
-- 현재 공개 운영본: 버전 105, 배포 `appgdep_6a9ad7b533b88191bea822ed2dd10a11`
+- 버전 105 배포 기록: `appgdep_6a9ad7b533b88191bea822ed2dd10a11`
 - 버전 105 운영 점검: 캐시 우회 없이 `/`, `/account`, `/account/setup` HTTP 200과 여섯 가지 화면 보안 헤더 확인. 보호 API 3곳은 익명 HTTP 401과 `private, no-store, max-age=0`, 참조정보 차단, MIME 오인 방지 헤더 유지
 
 버전 105는 기존 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결을 유지해 배포했다. 운영 점검은 조회만 수행했고 고객 데이터·원본·메일·유료 AI를 변경하거나 실행하지 않았다.
+
+후속 빌드 스택 보안 갱신은 [빌드 스택 잔여 취약성 제거](BUILD_STACK_SECURITY_UPDATE_2026_09_04.md)에 기록했으며 현재 공개 운영본은 버전 106이다.

@@ -37,5 +37,5 @@
 - 기능 커밋: `debbef1522f041653ce2ce1ef8b9bf8d5ffb09e9` (`fix: update secure build stack`)
 - GitHub `main`과 Sites 소스 저장소: 기능 커밋 반영 완료
 - Sites 저장 버전: 106 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_27746f11d2b48191bfb8510b9c59d72b`)
-- 현재 공개 운영본: 버전 105 (`appgdep_6a9ad7b533b88191bea822ed2dd10a11`)
-- 버전 106 공개 배포: 사용자 명시 승인 대기
+- 현재 공개 운영본: 버전 106 (`appgdep_6a9adf09fff48191885654f873bcba8f`)
+- 운영 확인: 화면 3곳 HTTP 200과 여섯 가지 보안 헤더, 보호 API 3곳 익명 HTTP 401과 비공개 캐시·참조정보·MIME 경계 통과
