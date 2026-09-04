@@ -2539,6 +2539,30 @@ try {
   const peerMember = cleanMemberIdState.members.find(
     (member) => member.id === peerId,
   );
+  const protectedMemberFieldsState = structuredClone(cleanMemberIdState);
+  const protectedPasswordMember = protectedMemberFieldsState.members.find(
+    (member) => member.id === memberId,
+  );
+  protectedPasswordMember.lastLoginAt = '2000-01-01T00:00:00.000Z';
+  protectedPasswordMember.loginCount = 999999;
+  protectedMemberFieldsState.members.find(
+    (member) => member.id === peerId,
+  ).registration = {
+    method: 'self_password',
+    requestId: 'forged-runtime-registration',
+    createdAt: '2000-01-01T00:00:00.000Z',
+    createdBy: 'forged-runtime@example.invalid',
+  };
+  await expect(
+    await call('/save', { state: protectedMemberFieldsState }, ownerHeaders, 'PUT'),
+    200,
+    'generic owner state save preserves server-owned member audit fields',
+  );
+  assert.equal(
+    (await db.prepare('SELECT payload FROM portal_state').first()).payload,
+    stateBeforeAmbiguousLegacyEmail.payload,
+  );
+
   const inventedIdSaveState = structuredClone(cleanMemberIdState);
   inventedIdSaveState.members.push({
     ...passwordMember,

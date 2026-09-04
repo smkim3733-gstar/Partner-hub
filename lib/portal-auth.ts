@@ -54,6 +54,26 @@ type PortalStateRecord = {
   diagnosisAssessments?: PortalRecord[];
 };
 
+const memberServerOwnedFields = [
+  'registration',
+  'lastLoginAt',
+  'loginCount',
+] as const;
+
+function preserveMemberServerOwnedFields(
+  stored: PortalMember,
+  incoming: PortalMember,
+) {
+  const protectedMember: PortalMember = { ...incoming };
+  const protectedRecord: Record<string, unknown> = protectedMember;
+  for (const key of memberServerOwnedFields) {
+    if (Object.prototype.hasOwnProperty.call(stored, key))
+      protectedRecord[key] = stored[key];
+    else delete protectedRecord[key];
+  }
+  return protectedMember;
+}
+
 export type PortalUser = {
   id: string;
   email: string;
@@ -510,7 +530,31 @@ export function mergeStateForPortalUser(
         '이미 등록된 파트너 로그인 이메일입니다.',
         403,
       );
-    return incoming;
+    const members = current
+      ? incoming.members.map((member) => {
+          const storedMatches = current.members.filter(
+            (stored) => stored.id === member.id,
+          );
+          const emailMatches = storedMatches.filter(
+            (candidate) =>
+              candidate.email.trim().toLowerCase() ===
+              member.email.trim().toLowerCase(),
+          );
+          const stored =
+            storedMatches.length === 1
+              ? storedMatches[0]
+              : emailMatches.length === 1
+                ? emailMatches[0]
+                : undefined;
+          if (!stored)
+            throw new PortalAccessError(
+              '파트너 계정 ID가 중복되어 변경 대상을 확인할 수 없습니다. 중복 계정을 먼저 정리해 주세요.',
+              403,
+            );
+          return preserveMemberServerOwnedFields(stored, member);
+        })
+      : incoming.members;
+    return { ...incoming, members };
   }
 
   if (!current)

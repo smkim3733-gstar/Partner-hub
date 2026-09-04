@@ -618,17 +618,36 @@ void test('stale administrator autosave cannot erase a newly registered partner;
 });
 
 void test('login statistics do not increment member revision; ordinary case/task saves keep registration metadata', async () => {
-  await created();
+  const registered = await created();
   const current = await state();
   current.members[0].loginCount = 10;
   current.members[0].lastLoginAt = new Date().toISOString();
+  const registration = structuredClone(
+    current.members.find((member) => member.id === registered.member.id)
+      ?.registration,
+  );
+  current.members.find(
+    (member) => member.id === registered.member.id,
+  )!.registration = {
+    method: 'self_password',
+    requestId: 'forged-registration-request',
+    createdAt: '2000-01-01T00:00:00.000Z',
+    createdBy: 'forged@example.invalid',
+  };
   current.tasks.push({ id: 'second-task', assignee: '가상 기존파트너' });
   const result = await save(
     request({ state: current }, owner, '/api/state', 'PUT'),
   );
   assert.equal(result.status, 200);
-  assert.equal(membersRevisionOf(await state()), 1);
-  assert.equal((await state()).members[2].registration?.method, 'admin');
+  const stored = await state();
+  assert.equal(membersRevisionOf(stored), 1);
+  assert.equal(stored.members[0].loginCount, undefined);
+  assert.equal(stored.members[0].lastLoginAt, undefined);
+  assert.deepEqual(
+    stored.members.find((member) => member.id === registered.member.id)
+      ?.registration,
+    registration,
+  );
   assert.ok(
     sameMemberRecords(
       [{ email: existingEmail }],
