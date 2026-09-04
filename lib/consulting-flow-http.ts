@@ -5,38 +5,12 @@ import {
 } from '@/lib/consulting-flow';
 import { audioFileProblem, transcriptFileProblem } from './transcript-policy';
 import { JsonRequestError, readBoundedJsonObject } from './request-json';
+import {
+  isMultipartFormDataContentType,
+  MultipartRequestError,
+  readBoundedMultipartFormData,
+} from './request-multipart';
 
-export async function boundedBody(request: Request, max: number) {
-  const declaredLength = request.headers.get('content-length');
-  if (declaredLength !== null) {
-    const normalized = declaredLength.trim();
-    if (!/^\d+$/.test(normalized))
-      throw new FlowError('요청 내용의 크기를 확인해 주세요.');
-    if (Number(normalized) > max)
-      throw new FlowError('첨부 용량이 허용 범위를 초과했습니다.', 413);
-  }
-  if (!request.body) throw new FlowError('요청 내용이 없습니다.');
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  for (;;) {
-    const part = await reader.read();
-    if (part.done) break;
-    size += part.value.byteLength;
-    if (size > max) {
-      await reader.cancel();
-      throw new FlowError('첨부 용량이 허용 범위를 초과했습니다.', 413);
-    }
-    chunks.push(part.value);
-  }
-  const bytes = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return bytes;
-}
 export async function readFlowJsonObject(request: Request, maxBytes: number) {
   try {
     return await readBoundedJsonObject(request, maxBytes);
@@ -46,21 +20,34 @@ export async function readFlowJsonObject(request: Request, maxBytes: number) {
     throw error;
   }
 }
+export async function readFlowMultipartFormData(
+  request: Request,
+  maxBytes: number,
+) {
+  try {
+    return await readBoundedMultipartFormData(request, maxBytes);
+  } catch (error) {
+    if (error instanceof MultipartRequestError)
+      throw new FlowError(error.message, error.status);
+    throw error;
+  }
+}
 export async function parseFlowRequest(request: Request) {
   const contentType = request.headers.get('content-type') ?? '';
-  const multipart = /^multipart\/form-data(?:\s*;|$)/i.test(contentType);
+  const multipart = isMultipartFormDataContentType(contentType);
   let raw: unknown;
   let file: File | undefined;
   let audio: File | undefined;
   if (multipart) {
-    const body = await boundedBody(request, 31 * 1024 * 1024);
-    const form = await new Response(body, {
-      headers: { 'content-type': contentType },
-    }).formData();
+    const form = await readFlowMultipartFormData(request, 31 * 1024 * 1024);
     const json = form.get('payload');
     if (typeof json !== 'string')
       throw new FlowError('업로드 요청 내용을 확인해 주세요.');
-    raw = JSON.parse(json);
+    try {
+      raw = JSON.parse(json);
+    } catch {
+      throw new FlowError('업로드 요청 내용을 확인해 주세요.');
+    }
     const attachment = form.get('file');
     if (attachment instanceof File && attachment.size) file = attachment;
     const recording = form.get('audio');

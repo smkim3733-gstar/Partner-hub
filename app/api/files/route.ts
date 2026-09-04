@@ -18,7 +18,7 @@ import {
   COMPANY_FILE_TITLE_MAX_LENGTH,
   prepareCompanyFileMetadata,
 } from '@/lib/company-file-metadata';
-import { boundedBody } from '@/lib/consulting-flow-http';
+import { readFlowMultipartFormData } from '@/lib/consulting-flow-http';
 import { FlowError } from '@/lib/consulting-flow';
 import { uploadCaseLink } from '@/lib/company-file-case';
 import { storeCompanyUpload } from '@/lib/company-upload-store';
@@ -28,6 +28,7 @@ import {
 } from '@/lib/company-file-access';
 import { scheduleDuplicateRequestMetric } from '@/lib/duplicate-request-metrics';
 import { isCrossSiteRequest } from '@/lib/request-origin';
+import { isMultipartFormDataContentType } from '@/lib/request-multipart';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,20 +79,12 @@ export async function POST(request: Request) {
     }
 
     const contentTypeHeader = request.headers.get('content-type') || '';
-    if (!contentTypeHeader.startsWith('multipart/form-data'))
+    if (!isMultipartFormDataContentType(contentTypeHeader))
       throw new CompanyFileError('파일 업로드 형식이 올바르지 않습니다.', 400);
-    const bytes = await boundedBody(
+    const form = await readFlowMultipartFormData(
       request,
       MAX_COMPANY_FILE_BYTES + 1024 * 1024,
     );
-    let form: FormData;
-    try {
-      form = await new Response(bytes, {
-        headers: { 'content-type': contentTypeHeader },
-      }).formData();
-    } catch {
-      throw new CompanyFileError('파일 업로드 요청을 읽지 못했습니다.', 400);
-    }
     if (
       [
         'file',

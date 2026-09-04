@@ -4,6 +4,10 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { JsonRequestError, readBoundedJsonObject } from '../lib/request-json';
+import {
+  MultipartRequestError,
+  readBoundedMultipartFormData,
+} from '../lib/request-multipart';
 
 function request(
   body: BodyInit | null,
@@ -23,6 +27,16 @@ async function rejectedStatus(promise: Promise<unknown>) {
     assert.fail('request should be rejected');
   } catch (error) {
     assert.ok(error instanceof JsonRequestError);
+    return error.status;
+  }
+}
+
+async function rejectedMultipartStatus(promise: Promise<unknown>) {
+  try {
+    await promise;
+    assert.fail('multipart request should be rejected');
+  } catch (error) {
+    assert.ok(error instanceof MultipartRequestError);
     return error.status;
   }
 }
@@ -91,6 +105,60 @@ void test('bounded JSON reader enforces declared and streamed byte limits', asyn
   );
 });
 
+void test('bounded multipart reader validates media type, framing and byte limits', async () => {
+  const form = new FormData();
+  form.set('value', '가상');
+  const parsed = await readBoundedMultipartFormData(
+    new Request('http://localhost/api/test', { method: 'POST', body: form }),
+    10_000,
+  );
+  assert.equal(parsed.get('value'), '가상');
+
+  for (const contentType of [
+    'multipart/form-datax; boundary=test',
+    'text/plain; profile=multipart/form-data',
+  ])
+    assert.equal(
+      await rejectedMultipartStatus(
+        readBoundedMultipartFormData(request('--test--', contentType), 10_000),
+      ),
+      415,
+    );
+
+  assert.equal(
+    await rejectedMultipartStatus(
+      readBoundedMultipartFormData(
+        request('--test--', 'multipart/form-data'),
+        10_000,
+      ),
+    ),
+    400,
+  );
+  const invalidLength = new Request('http://localhost/api/test', {
+    method: 'POST',
+    body: new FormData(),
+  });
+  invalidLength.headers.set('content-length', 'invalid');
+  assert.equal(
+    await rejectedMultipartStatus(
+      readBoundedMultipartFormData(invalidLength, 10_000),
+    ),
+    400,
+  );
+  assert.equal(
+    await rejectedMultipartStatus(
+      readBoundedMultipartFormData(
+        new Request('http://localhost/api/test', {
+          method: 'POST',
+          body: new FormData(),
+        }),
+        10,
+      ),
+    ),
+    413,
+  );
+});
+
 async function routeFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   const nested = await Promise.all(
@@ -131,5 +199,18 @@ void test('legacy JSON consumers remain routed through the shared bounded reader
       source.includes(boundary),
       `${file}: missing shared JSON boundary`,
     );
+  }
+});
+
+void test('multipart consumers remain routed through the shared bounded reader', async () => {
+  const expected = [
+    ['app/api/files/route.ts', 'readFlowMultipartFormData('],
+    ['lib/consulting-flow-http.ts', 'readFlowMultipartFormData(request,'],
+  ] as const;
+  for (const [file, boundary] of expected) {
+    const source = await readFile(path.resolve(process.cwd(), file), 'utf8');
+    assert.ok(source.includes(boundary), `${file}: missing multipart boundary`);
+    if (file.startsWith('app/api/'))
+      assert.doesNotMatch(source, /\.formData\(/);
   }
 });

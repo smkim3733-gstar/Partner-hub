@@ -849,6 +849,27 @@ test('bounded JSON/multipart parsing retains a private attachment and rejects ba
     parseFlowRequest(invalidLength),
     (error) => error instanceof FlowError && error.status === 400,
   );
+  await assert.rejects(
+    parseFlowRequest(
+      new Request('http://localhost/api/flow', {
+        method: 'POST',
+        headers: { 'content-type': 'multipart/form-data' },
+        body: '--missing-boundary--',
+      }),
+    ),
+    (error) => error instanceof FlowError && error.status === 400,
+  );
+  const badPayload = new FormData();
+  badPayload.set('payload', '{');
+  await assert.rejects(
+    parseFlowRequest(
+      new Request('http://localhost/api/flow', {
+        method: 'POST',
+        body: badPayload,
+      }),
+    ),
+    (error) => error instanceof FlowError && error.status === 400,
+  );
 });
 
 test('source exclusion preserves the original and DOCX first report needs readable context', () => {

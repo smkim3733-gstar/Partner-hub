@@ -94,6 +94,18 @@ void test('initial call files store privately beside business files without meet
     throw new Error('External calls are forbidden in this intake test');
   };
   try {
+    const lookalike = request('/api/files', payload('call.docx'));
+    lookalike.headers.set(
+      'content-type',
+      'multipart/form-datax; boundary=not-valid',
+    );
+    assert.equal((await upload(lookalike)).status, 400);
+    const missingBoundary = request('/api/files', payload('call.docx'));
+    missingBoundary.headers.set('content-type', 'multipart/form-data');
+    assert.equal((await upload(missingBoundary)).status, 400);
+    const invalidLength = request('/api/files', payload('call.docx'));
+    invalidLength.headers.set('content-length', 'invalid');
+    assert.equal((await upload(invalidLength)).status, 400);
     assert.equal(
       (
         await upload(
@@ -170,7 +182,10 @@ void test('initial call files store privately beside business files without meet
     assert.equal((await upload(tooBig)).status, 413);
     const longCompany = payload('company.docx');
     longCompany.set('company', '가'.repeat(101));
-    assert.equal((await upload(request('/api/files', longCompany))).status, 400);
+    assert.equal(
+      (await upload(request('/api/files', longCompany))).status,
+      400,
+    );
     const longTitle = payload('title.docx');
     longTitle.set('title', '가'.repeat(151));
     assert.equal((await upload(request('/api/files', longTitle))).status, 400);
