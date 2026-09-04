@@ -29,4 +29,4 @@
 - 로컬 Workers `/` HTTP 200 확인
 - 격리검사 중 운영 쓰기, 메일, 유료 AI, 외부 요청 0건
 
-현재 공개 운영본은 Sites 버전 79이다. 이번 조건·멱등 요청 헤더 경계 변경의 GitHub 푸시와 공개 Sites 배포는 별도 운영 반영 승인 전까지 수행하지 않는다.
+2026-09-04 사용자 운영 반영 승인 후 커밋 `fe17c50`을 GitHub `main`과 공개 Sites 버전 80에 반영했다. 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결을 유지했으며 운영 `/`, `/account`, `/account/setup`의 HTTP 200 응답을 확인했다. 배포 근거는 `outputs/release/server-request-header-boundary-deployment.json`에 기록한다.
