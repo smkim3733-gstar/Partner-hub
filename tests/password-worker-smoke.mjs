@@ -2474,7 +2474,7 @@ try {
       ...ambiguousLegacyTemplate,
       id: 'ambiguous-legacy-runtime-a',
       email: ambiguousLegacyEmail,
-      status: '활성',
+      status: '승인대기',
     },
     {
       ...ambiguousLegacyTemplate,
@@ -2495,6 +2495,23 @@ try {
     }),
     403,
     'ambiguous legacy email cannot claim a ChatGPT identity binding',
+  );
+  await expect(
+    await call(
+      '/chatgpt-register',
+      {
+        name: '가상 중복가입 파트너',
+        phone: '010-0000-0097',
+        affiliation: '가상 중복가입 소속',
+        email: ambiguousLegacyEmail,
+      },
+      {
+        'oai-authenticated-user-id': ambiguousLegacyUserId,
+        'oai-authenticated-user-email': ambiguousLegacyEmail,
+      },
+    ),
+    409,
+    'ambiguous legacy email cannot choose a ChatGPT registration account',
   );
   assert.equal(
     await db

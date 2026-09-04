@@ -135,9 +135,20 @@ export async function POST(request: Request) {
           );
         }
 
-        const existingIndex = state.members.findIndex(
-          (member) => member.email.trim().toLowerCase() === email,
+        const existingIndexes = state.members.reduce<number[]>(
+          (indexes, member, index) => {
+            if (
+              typeof member.email === 'string' &&
+              member.email.trim().toLowerCase() === email
+            )
+              indexes.push(index);
+            return indexes;
+          },
+          [],
         );
+        if (existingIndexes.length > 1)
+          throw new FlowError(chatGPTIdentityConflictMessage, 409);
+        const existingIndex = existingIndexes[0] ?? -1;
         const existing =
           existingIndex >= 0 ? state.members[existingIndex] : null;
         if (existing?.status === '활성') {
