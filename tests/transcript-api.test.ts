@@ -141,6 +141,7 @@ void test('DOCX review -> private files -> one mocked fourth report; audio-only 
   const file = new File(
     [
       zipSync({
+        '[Content_Types].xml': strToU8('<Types/>'),
         'word/document.xml': strToU8(
           `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${original}</w:t></w:r></w:p></w:body></w:document>`,
         ),
@@ -150,9 +151,16 @@ void test('DOCX review -> private files -> one mocked fourth report; audio-only 
   );
   const extracted = await readTranscriptFile(file);
   const reviewed = `${extracted}\n사용자 보완: 숫자는 증빙 확인 전 확정하지 않습니다.`;
-  const audio = new File(['FAKE_AUDIO_PRIVATE_BYTES'], 'original.m4a', {
-    type: 'audio/mp4',
-  });
+  const audio = new File(
+    [
+      new Uint8Array([
+        0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41, 0x20, 0, 0, 0,
+        0, 0x4d, 0x34, 0x41, 0x20,
+      ]),
+    ],
+    'original.m4a',
+    { type: 'audio/mp4' },
+  );
   const cmd = {
     type: 'save_recording',
     meetingId: 'meeting',

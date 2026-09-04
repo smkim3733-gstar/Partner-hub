@@ -24,6 +24,7 @@
 | [서버 URL 경로 식별값 경계 통합](SERVER_PATH_REQUEST_BOUNDARY_2026_09_04.md) | 진행·파일·원본·첨부·보고서 경로 ID의 문자·길이 검증 |
 | [다운로드 파일명 Content-Disposition 보안 경계](CONTENT_DISPOSITION_DOWNLOAD_FILENAME_BOUNDARY_2026_09_04.md) | 기업 원본·상담 첨부·보고서 다운로드 이름의 제어문자 제거와 RFC 5987 인코딩 |
 | [다운로드 Content-Type 보안 경계](DOWNLOAD_CONTENT_TYPE_BOUNDARY_2026_09_04.md) | 기업 원본·상담 첨부 응답 MIME의 허용 확장자별 고정과 안전한 기본값 |
+| [업로드 실제 파일 형식 보안 경계](UPLOAD_FILE_SIGNATURE_BOUNDARY_2026_09_04.md) | 기업자료·상담 FLOW 첨부의 확장자와 실제 바이너리 형식 일치 검증 |
 | [파트너 계정 설정 저장 안전성](PARTNER_ACCOUNT_SETTINGS_DRAFT_SAFETY_2026_09_03.md) | 이메일·유형·상태·권한의 저장 전 초안 격리와 취소 폐기 |
 | [진행 담당 계정 변경 확인 안전성](CASE_ASSIGNMENT_CONFIRMATION_SAFETY_2026_09_03.md) | 현재·변경 후 담당 대조, 취소 보존과 저장 직전 재검증 |
 | [진행단계·중단 상태 변경 확인 안전성](PIPELINE_CHANGE_CONFIRMATION_SAFETY_2026_09_03.md) | 수동 단계·진행 중단·재개의 영향 확인과 stale 상태 차단 |

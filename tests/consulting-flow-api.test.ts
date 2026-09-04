@@ -1,6 +1,7 @@
 import nodeTest from 'node:test';
 import assert from 'node:assert/strict';
 import { env } from 'cloudflare:workers';
+import { strToU8, zipSync } from 'fflate';
 import { GET, POST } from '../app/api/consulting-flow/[caseId]/route';
 import { GET as download } from '../app/api/consulting-flow/[caseId]/files/[fileId]/route';
 import { GET as print } from '../app/api/consulting-flow/[caseId]/reports/[reportId]/route';
@@ -538,7 +539,15 @@ void nodeTest(
             flow,
             { type: 'save_report', stage: 3, fileConsent: true },
             'seedy@sites.test',
-            new File(['fake slides'], 'test.pptx'),
+            new File(
+              [
+                zipSync({
+                  '[Content_Types].xml': strToU8('<Types/>'),
+                  'ppt/presentation.xml': strToU8('<presentation/>'),
+                }) as Uint8Array<ArrayBuffer>,
+              ],
+              'test.pptx',
+            ),
           ),
         )
       ).flow;

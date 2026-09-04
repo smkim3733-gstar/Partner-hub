@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { strToU8, zipSync } from 'fflate';
 import { POST as upload } from '../app/api/files/route';
 import { GET as download } from '../app/api/files/[id]/route';
 import { writePortalState } from '../lib/portal-state';
@@ -16,6 +17,21 @@ const permissions = {
 };
 const partner = 'intake@example.invalid';
 const owner = 'seedy@sites.test';
+function syntheticSourceBody(name: string): string | Uint8Array<ArrayBuffer> {
+  const extension = name.split('.').at(-1)?.toLowerCase();
+  if (extension === 'pdf') return '%PDF-1.7\nLOCAL_SYNTHETIC_SOURCE';
+  if (extension === 'docx')
+    return zipSync({
+      '[Content_Types].xml': strToU8('<Types/>'),
+      'word/document.xml': strToU8('<document/>'),
+    }) as Uint8Array<ArrayBuffer>;
+  if (extension === 'm4a')
+    return new Uint8Array([
+      0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41, 0x20, 0, 0, 0,
+      0, 0x4d, 0x34, 0x41, 0x20,
+    ]);
+  return 'LOCAL_SYNTHETIC_SOURCE';
+}
 function request(
   path: string,
   form?: FormData,
@@ -43,7 +59,7 @@ function payload(name: string, category = '상담녹취', consent = true) {
   form.set('assignedTrainee', '다른 담당자');
   form.set('consent', 'confirmed');
   if (consent) form.set('recordingConsent', 'confirmed');
-  form.set('file', new File(['LOCAL_SYNTHETIC_SOURCE'], name));
+  form.set('file', new File([syntheticSourceBody(name)], name));
   return form;
 }
 
@@ -198,6 +214,16 @@ void test('initial call files store privately beside business files without meet
     const longTitle = payload('title.docx');
     longTitle.set('title', '가'.repeat(151));
     assert.equal((await upload(request('/api/files', longTitle))).status, 400);
+    const disguisedPdf = payload('renamed.pdf', '크레탑');
+    disguisedPdf.set(
+      'file',
+      new File(['<html>not a PDF</html>'], 'renamed.pdf'),
+    );
+    const disguisedResponse = await upload(
+      request('/api/files', disguisedPdf),
+    );
+    assert.equal(disguisedResponse.status, 400);
+    assert.match(await disguisedResponse.text(), /실제 파일 형식/);
 
     const ids: string[] = [];
     const documents: Record<string, unknown>[] = [];
@@ -257,7 +283,12 @@ void test('initial call files store privately beside business files without meet
           /attachment/,
         );
         assert.match(result.headers.get('cache-control') || '', /no-store/);
-        assert.equal(await result.text(), 'LOCAL_SYNTHETIC_SOURCE');
+        assert.deepEqual(
+          new Uint8Array(await result.arrayBuffer()),
+          new Uint8Array(
+            await new File([syntheticSourceBody(name)], name).arrayBuffer(),
+          ),
+        );
       }
       assert.equal(
         (

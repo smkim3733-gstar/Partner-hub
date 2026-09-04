@@ -31,6 +31,7 @@ import { isCrossSiteRequest } from '@/lib/request-origin';
 import { isMultipartFormDataContentType } from '@/lib/request-multipart';
 import { HeaderRequestError, readIdempotencyKey } from '@/lib/request-header';
 import { privateJsonResponse } from '@/lib/private-response';
+import { uploadFileContentProblem } from '@/lib/upload-file-signature';
 
 export const dynamic = 'force-dynamic';
 
@@ -137,6 +138,9 @@ export async function POST(request: Request) {
       category,
     );
     if (fileProblem) throw new CompanyFileError(fileProblem, 400);
+    const fileBytes = await fileValue.arrayBuffer();
+    const contentProblem = await uploadFileContentProblem(fileValue, fileBytes);
+    if (contentProblem) throw new CompanyFileError(contentProblem, 400);
     if (
       category === '상담녹취' &&
       field(form, 'recordingConsent', 20) !== 'confirmed'
@@ -182,7 +186,7 @@ export async function POST(request: Request) {
         contentType: fileValue.type || 'application/octet-stream',
         sizeBytes: fileValue.size,
       },
-      await fileValue.arrayBuffer(),
+      fileBytes,
       async () => {
         const access = await currentFileAccess(request, currentUser);
         if (!mayUploadCompanyFiles(access.user))

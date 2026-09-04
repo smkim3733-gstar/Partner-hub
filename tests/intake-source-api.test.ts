@@ -9,7 +9,11 @@ import {
 import { POST as run } from '../app/api/consulting-flow/[caseId]/run/route';
 import { GET as download } from '../app/api/consulting-flow/[caseId]/files/[fileId]/route';
 import { POST as upload } from '../app/api/files/route';
-import { companyFileBucket, findCompanyFile } from '../lib/company-files';
+import {
+  companyFileBucket,
+  companyFileDatabase,
+  findCompanyFile,
+} from '../lib/company-files';
 import { flowEnvironment, readFlow } from '../lib/consulting-flow-store';
 import { writePortalState } from '../lib/portal-state';
 import type { ConsultingFlow, FlowCommand } from '../lib/consulting-flow';
@@ -180,7 +184,15 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
       '가상 대표의 초기 전화상담입니다. 연락처 [마스킹]이며 현재자본금과 증자 목표는 증빙을 확인해야 합니다.';
     const xml = `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>${originalText}</w:t></w:r></w:p></w:body></w:document>`;
     const docId = await add(
-      new File([zipSync({ 'word/document.xml': strToU8(xml) })], 'notes.docx'),
+      new File(
+        [
+          zipSync({
+            '[Content_Types].xml': strToU8('<Types/>'),
+            'word/document.xml': strToU8(xml),
+          }),
+        ],
+        'notes.docx',
+      ),
     );
     const txtId = await add(
       new File(
@@ -194,7 +206,17 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
       new File(['%PDF-1.7\nSYNTHETIC_CERTIFICATE_ONLY'], '사업자등록증.pdf'),
       '사업자등록증',
     );
-    const audioId = await add(new File(['AUDIO_TEST_ONLY'], 'phone.m4a'));
+    const audioId = await add(
+      new File(
+        [
+          new Uint8Array([
+            0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41, 0x20, 0,
+            0, 0, 0, 0x4d, 0x34, 0x41, 0x20,
+          ]),
+        ],
+        'phone.m4a',
+      ),
+    );
     const otherCompany = await add(
       new File(['%PDF-1.7\nOTHER_COMPANY'], 'other.pdf'),
       '크레탑',
@@ -206,10 +228,50 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
       '가상 신청기업',
       '다른 담당자',
     );
-    const corrupt = await add(new File(['not a zip archive'], 'corrupt.docx'));
-    const badPdf = await add(new File(['not a pdf'], 'wrong.pdf'), '크레탑');
+    const corrupt = await add(
+      new File(
+        [
+          zipSync({
+            '[Content_Types].xml': strToU8('<Types/>'),
+            'word/document.xml': strToU8('<document/>'),
+          }),
+        ],
+        'corrupt.docx',
+      ),
+    );
+    const corruptRow = await findCompanyFile(corrupt);
+    assert.ok(corruptRow);
+    const corruptBytes = new TextEncoder().encode('not a zip archive');
+    await companyFileBucket().put(corruptRow.storage_key, corruptBytes);
+    await companyFileDatabase()
+      .prepare('UPDATE company_file_objects SET size_bytes = ?1 WHERE id = ?2')
+      .bind(corruptBytes.byteLength, corrupt)
+      .run();
+    const badPdf = await add(
+      new File(['%PDF-1.7\nVALID_AT_UPLOAD'], 'wrong.pdf'),
+      '크레탑',
+    );
+    const badPdfRow = await findCompanyFile(badPdf);
+    assert.ok(badPdfRow);
+    const badPdfBytes = new TextEncoder().encode('not a pdf');
+    await companyFileBucket().put(badPdfRow.storage_key, badPdfBytes);
+    await companyFileDatabase()
+      .prepare('UPDATE company_file_objects SET size_bytes = ?1 WHERE id = ?2')
+      .bind(badPdfBytes.byteLength, badPdf)
+      .run();
     const oversized = await add(
-      new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'large.docx'),
+      new File(
+        [
+          zipSync(
+            {
+              '[Content_Types].xml': strToU8('<Types/>'),
+              'word/document.xml': new Uint8Array(5 * 1024 * 1024 + 1),
+            },
+            { level: 0 },
+          ),
+        ],
+        'large.docx',
+      ),
     );
     const listResponse = await intake(
       request(`${endpoint}/intake-files`),

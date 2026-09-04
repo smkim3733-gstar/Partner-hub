@@ -20,6 +20,7 @@ import {
   recheckFlowAccess,
 } from '@/lib/consulting-flow-store';
 import { privateJsonResponse } from '@/lib/private-response';
+import { uploadFileContentProblem } from '@/lib/upload-file-signature';
 
 export const dynamic = 'force-dynamic';
 type Context = { params: Promise<{ caseId: string }> };
@@ -113,6 +114,11 @@ export async function POST(request: Request, context: Context) {
       throw new FlowError(
         '신청자료 불러오기에는 새 파일을 첨부할 수 없습니다.',
       );
+    for (const file of [input.file, input.audio]) {
+      if (!file) continue;
+      const contentProblem = await uploadFileContentProblem(file);
+      if (contentProblem) throw new FlowError(contentProblem, 400);
+    }
     const imported =
       input.command.type === 'import_intake_source'
         ? await prepareIntakeImport(flow, user, input.command, now)
