@@ -14,11 +14,11 @@
 ## 검증 결과
 
 - `pnpm install --frozen-lockfile --offline`: 통과
-- Node 자동 검사: 462개 통과
+- Node 자동 검사: 463개 통과
 - 격리 `workerd`/D1/R2 검사: 135개 통과
 - 타입검사, 전체 lint, 변경 파일 형식검사, 프로덕션 빌드: 통과
 - 격리 검사 중 운영 쓰기·메일·유료 AI·외부 요청: 0건
-- 패치 후 `pnpm audit --prod`: 중요도 높은 항목이 4건에서 2건으로 감소. 전체 잔여는 높음 2건, 보통 2건, 낮음 1건이다.
+- 후속 의존성 분류 뒤 `pnpm audit --prod`: 중요도 높은 항목은 2건으로 유지되고 보통 위험 2건은 제거됐다. 전체 잔여는 높음 2건, 낮음 1건이다.
 
 ## 잔여 항목과 실제 노출 경계
 
@@ -30,7 +30,7 @@
 
 ### `qs@6.15.3`
 
-보통 위험 2건은 `shadcn` CLI가 포함한 MCP/Express 경로에서 나온다. 애플리케이션 런타임 소스는 이 CLI·MCP 경로를 import하지 않으며 Sites 배포 아카이브에도 `node_modules`, `shadcn`, MCP SDK, `qs`가 들어가지 않는다. 다만 `app/globals.css`의 `shadcn/tailwind.css`를 빌드할 때 `shadcn` 패키지가 필요하므로, 다음 개발에서는 런타임 의존성이 아닌 빌드 의존성으로 분류한 뒤 전체 빌드를 재검증한다.
+보통 위험 2건은 `shadcn` CLI가 포함한 MCP/Express 경로에서 나왔다. 애플리케이션 런타임 소스는 이 CLI·MCP 경로를 import하지 않으므로 `shadcn@4.18.0`을 `devDependencies`로 이동했다. `app/globals.css`의 `shadcn/tailwind.css` 빌드와 `@shadcn/react` 런타임 의존성은 유지했고 전체 설치·검사·빌드를 재검증했다. 이 변경 뒤 `pnpm audit --prod`에서 해당 `qs` 항목이 제거됐다. 자세한 내용은 [빌드 도구와 운영 의존성 경계](BUILD_TOOL_RUNTIME_DEPENDENCY_BOUNDARY_2026_09_04.md)에 기록한다.
 
 ### `esbuild@0.27.3`
 
@@ -38,12 +38,12 @@
 
 ## 저장소와 Sites 상태
 
-- 기능 커밋: `6dccafa584394873592e92981b4aa9d7afc141bd` (`fix: patch React and Vite advisories`)
+- 최신 기능 커밋: `8dfe8388dfaee4194d8087a51167ad73746655ab` (`fix: keep build tooling out of runtime deps`)
 - GitHub `main`: 기능 커밋 반영 완료
-- Sites 저장 버전: 102 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_2bf9f54343488191b8890117033162ac`)
+- Sites 저장 버전: 103 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_06a652e1fb74819184a0db6151cbf295`)
 - Sites 소스: 기능 커밋과 동일한 SHA
 - 배포 상태: 사용자의 명시적 승인 후 2026-09-04 공개 운영 배포 완료
-- 운영 배포 ID: `appgdep_6a9ac77c42288191b96c2264f7c29e04`
-- 현재 공개 운영본: 버전 102
+- 운영 배포 ID: `appgdep_6a9acbb1e88881918b6798729a462a71`
+- 현재 공개 운영본: 버전 103
 
-운영 `/`, `/account`, `/account/setup`은 HTTP 200을 반환했다. `/api/state`, `/api/admin/file-inventory`, `/api/consulting-flow/test-case`는 익명 요청에 HTTP 401을 반환하고 `Cache-Control: no-store, max-age=0, private`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`를 유지했다. 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결은 변경하지 않았다. 다음 개발은 `shadcn` 의존성 분류 정비부터 이어간다.
+운영 `/`, `/account`, `/account/setup`은 HTTP 200을 반환했다. `/api/state`, `/api/admin/file-inventory`, `/api/consulting-flow/test-case`는 익명 요청에 HTTP 401을 반환하고 `Cache-Control: no-store, max-age=0, private`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`를 유지했다. 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결은 변경하지 않았다. 다음 개발은 남은 운영 의존성 위험과 실제 입력 도달 경계를 계속 감사한다.
