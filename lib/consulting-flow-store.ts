@@ -14,6 +14,7 @@ import {
 import { readPortalStateSnapshot } from '@/lib/portal-state';
 import { projectFlowState } from '@/lib/consulting-flow-projection';
 import { isPipelineDiscontinued } from '@/lib/pipeline-dropoff-metrics';
+import { isCrossSiteRequest } from '@/lib/request-origin';
 
 export function flowEnvironment() {
   return env as unknown as {
@@ -173,11 +174,7 @@ export async function recheckFlowAccess(
   return access;
 }
 export function assertSameOrigin(request: Request) {
-  const origin = request.headers.get('origin');
-  if (
-    (origin && origin !== new URL(request.url).origin) ||
-    request.headers.get('sec-fetch-site') === 'cross-site'
-  )
+  if (isCrossSiteRequest(request))
     throw new FlowError(
       '다른 사이트에서 보낸 변경 요청은 허용하지 않습니다.',
       403,

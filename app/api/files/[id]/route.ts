@@ -13,6 +13,7 @@ import {
   fileStateConflict,
   fileStateGuard,
 } from '@/lib/company-file-access';
+import { isCrossSiteRequest } from '@/lib/request-origin';
 
 export const dynamic = 'force-dynamic';
 
@@ -116,8 +117,7 @@ export async function DELETE(
   context: { params: Promise<{ id: string }> },
 ) {
   try {
-    const origin = request.headers.get('origin');
-    if (origin && origin !== new URL(request.url).origin) {
+    if (isCrossSiteRequest(request)) {
       throw new CompanyFileError('허용되지 않은 삭제 요청입니다.', 403);
     }
     const state = await readPortalState();

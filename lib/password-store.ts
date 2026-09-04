@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { portalPasswordSchemaSql } from '@/db/schema';
 import { tokenHash } from '@/lib/password-crypto';
+import { isCrossSiteRequest } from '@/lib/request-origin';
 
 export class PasswordError extends Error {
   constructor(
@@ -25,7 +26,7 @@ export function assertPasswordOrigin(request: Request) {
     throw new PasswordError('보안 연결(HTTPS)에서 로그인해 주세요.', 403);
   if (
     request.headers.get('origin') !== url.origin ||
-    request.headers.get('sec-fetch-site') === 'cross-site'
+    isCrossSiteRequest(request)
   )
     throw new PasswordError('현재 사이트에서 다시 요청해 주세요.', 403);
 }

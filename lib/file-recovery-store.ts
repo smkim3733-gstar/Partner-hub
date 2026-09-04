@@ -12,7 +12,7 @@ import {
   type PortalUser,
 } from './portal-auth';
 import { portalRevision } from './portal-revision';
-import { flowDatabase, assertSameOrigin } from './consulting-flow-store';
+import { flowDatabase } from './consulting-flow-store';
 import { boundedBody } from './consulting-flow-http';
 import { FlowError } from './consulting-flow';
 import { portalStateId } from '@/db/schema';
@@ -205,7 +205,6 @@ function parseBody(value: unknown): RecoveryBody {
 export async function recoverFile(request: Request, id: string) {
   const raw = await readPortalState();
   const user = await actor(request, raw);
-  assertSameOrigin(request);
   if (!request.headers.get('content-type')?.startsWith('application/json'))
     throw new CompanyFileError('JSON 요청이 필요합니다.', 400);
   const body = parseBody(

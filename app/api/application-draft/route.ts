@@ -32,6 +32,7 @@ const json = (data: unknown, status = 200) =>
 
 async function handle(request: Request) {
   try {
+    if (request.method !== 'GET') assertSameOrigin(request);
     const state = await readPortalState();
     const user = await requirePortalUser(request, state);
     if (user.role !== 'admin' && !user.permissions?.collaborationApply)
@@ -62,7 +63,6 @@ async function handle(request: Request) {
       updatedAt: row?.updated_at ?? null,
     });
     if (request.method === 'GET') return json(envelope());
-    assertSameOrigin(request);
     if (!request.headers.get('content-type')?.startsWith('application/json'))
       throw new FlowError('JSON 요청이 필요합니다.');
     const body = JSON.parse(

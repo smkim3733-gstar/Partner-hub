@@ -226,12 +226,12 @@ export async function PUT(request: Request) {
   let conflictActorRole: PortalConflictActorRole = 'unauthenticated';
   const presentedReceipt = request.headers.get(PORTAL_CONFLICT_RECEIPT_HEADER);
   try {
+    assertSameOrigin(request);
     const currentUser = await requirePortalUser(
       request,
       await readPortalState(),
     );
     conflictActorRole = currentUser.role === 'admin' ? 'admin' : 'partner';
-    assertSameOrigin(request);
     const body = (await readBoundedJsonObject(
       request,
       PORTAL_STATE_LIMIT_BYTES,

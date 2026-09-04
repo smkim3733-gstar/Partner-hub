@@ -22,6 +22,7 @@ import {
   readAnthropicMessageResponse,
 } from '@/lib/anthropic-message-response';
 import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
+import { isCrossSiteRequest } from '@/lib/request-origin';
 
 export const dynamic = 'force-dynamic';
 
@@ -133,8 +134,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const origin = request.headers.get('origin');
-    if (origin && origin !== new URL(request.url).origin) {
+    if (isCrossSiteRequest(request)) {
       return Response.json(
         { error: '허용되지 않은 생성 요청입니다.' },
         { status: 403 },

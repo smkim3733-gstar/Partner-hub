@@ -71,6 +71,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   const presentedReceipt = request.headers.get(PORTAL_CONFLICT_RECEIPT_HEADER);
   try {
+    assertSameOrigin(request);
     const authenticatedId = request.headers
       .get('oai-authenticated-user-id')
       ?.trim();
@@ -84,8 +85,6 @@ export async function POST(request: Request) {
         { status: 401 },
       );
     }
-    assertSameOrigin(request);
-
     const body = await readBoundedJsonObject(request, MAX_REQUEST_BYTES);
     const name = normalizedText(body.name);
     const phone = normalizedText(body.phone);

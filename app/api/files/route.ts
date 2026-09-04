@@ -27,6 +27,7 @@ import {
   fileStateConflict,
 } from '@/lib/company-file-access';
 import { scheduleDuplicateRequestMetric } from '@/lib/duplicate-request-metrics';
+import { isCrossSiteRequest } from '@/lib/request-origin';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,8 +54,7 @@ function errorResponse(error: unknown) {
 }
 
 function checkSameOrigin(request: Request) {
-  const origin = request.headers.get('origin');
-  if (origin && origin !== new URL(request.url).origin) {
+  if (isCrossSiteRequest(request)) {
     throw new CompanyFileError('허용되지 않은 업로드 요청입니다.', 403);
   }
 }

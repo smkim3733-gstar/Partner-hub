@@ -42,13 +42,13 @@ export async function POST(request: Request) {
     duplicateOutcome = null;
   };
   try {
+    assertSameOrigin(request);
     const actor = await requirePortalUser(request, await readPortalState());
     if (actor.role !== 'admin')
       throw new PortalAccessError(
         '파트너 직접등록은 대표 관리자만 할 수 있습니다.',
         403,
       );
-    assertSameOrigin(request);
     const body = await readBoundedJsonObject(request, 12_000);
     const { value, errors } = validatePartnerRegistration(body);
     if (Object.keys(errors).length)
