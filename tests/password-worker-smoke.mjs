@@ -241,6 +241,22 @@ try {
     ownerHeaders['oai-authenticated-user-id'],
   );
   checks.push('owner access stores only a hashed stable ChatGPT identity');
+  const originBaseline = await (
+    await call('/state', undefined, ownerHeaders)
+  ).json();
+  await expect(
+    await mf.dispatchFetch(`${origin}/save`, {
+      method: 'PUT',
+      headers: {
+        ...ownerHeaders,
+        'content-type': 'application/json',
+        'if-match': `"${originBaseline.stateRevision}"`,
+      },
+      body: JSON.stringify({ state: originBaseline.state }),
+    }),
+    403,
+    'missing Origin cannot mutate state through ChatGPT authentication',
+  );
   await expect(
     await call('/state', undefined, {
       'oai-authenticated-user-id': 'synthetic-recycled-owner',

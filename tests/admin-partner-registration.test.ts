@@ -311,6 +311,7 @@ void test('malformed JSON, non-object requests, oversized and non-JSON payloads 
     method: 'POST',
     headers: {
       'content-type': 'application/json',
+      origin: 'http://localhost',
       'oai-authenticated-user-id': owner,
       'oai-authenticated-user-email': owner,
     },

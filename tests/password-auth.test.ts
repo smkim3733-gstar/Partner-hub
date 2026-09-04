@@ -1030,8 +1030,36 @@ void test('all public credential routes reject missing/cross-site Origin; oversi
     400,
   );
 });
-void test('cookie-authenticated legacy state and multipart writes enforce Origin, including missing Origin', async () => {
+void test('ChatGPT and cookie-authenticated state and multipart writes require Origin', async () => {
+  const ownerState = await state();
+  assert.equal(
+    (
+      await saveState(
+        new Request(`${origin}/test`, {
+          method: 'PUT',
+          headers: {
+            ...ownerHeaders,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ state: ownerState }),
+        }),
+      )
+    ).status,
+    403,
+  );
   const cookie = await loggedIn();
+  assert.equal(
+    (
+      await saveState(
+        new Request(`${origin}/test`, {
+          method: 'PUT',
+          headers: { cookie, 'content-type': 'application/json' },
+          body: JSON.stringify({ state: await state() }),
+        }),
+      )
+    ).status,
+    403,
+  );
   assert.equal(
     (
       await saveState(

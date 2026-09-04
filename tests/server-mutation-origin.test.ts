@@ -15,8 +15,12 @@ function request(headers: Record<string, string> = {}) {
   });
 }
 
-void test('cross-site mutation detection covers Origin and Sec-Fetch-Site independently', () => {
-  assert.equal(isCrossSiteRequest(request()), false);
+void test('mutation detection requires an exact Origin and rejects cross-site fetch metadata independently', () => {
+  assert.equal(isCrossSiteRequest(request()), true);
+  assert.equal(
+    isCrossSiteRequest(request({ 'sec-fetch-site': 'same-origin' })),
+    true,
+  );
   assert.equal(
     isCrossSiteRequest(request({ origin: 'https://partner.example' })),
     false,
@@ -41,6 +45,10 @@ void test('cross-site mutation detection covers Origin and Sec-Fetch-Site indepe
 });
 
 void test('shared and password mutation guards reject cross-site browser requests', () => {
+  assert.throws(
+    () => assertSameOrigin(request()),
+    (error) => error instanceof FlowError && error.status === 403,
+  );
   assert.throws(
     () => assertSameOrigin(request({ 'sec-fetch-site': 'cross-site' })),
     (error) => error instanceof FlowError && error.status === 403,

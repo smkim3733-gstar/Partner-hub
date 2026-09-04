@@ -193,6 +193,7 @@ void test('initial call files store privately beside business files without meet
         await upload(
           new Request('http://localhost/api/files', {
             method: 'POST',
+            headers: { origin: 'http://localhost' },
             body: payload('call.docx'),
           }),
         )

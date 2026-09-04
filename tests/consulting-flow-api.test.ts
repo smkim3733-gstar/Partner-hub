@@ -386,6 +386,7 @@ void nodeTest(
         'oai-authenticated-user-id': 'owner',
         'oai-authenticated-user-email': 'seedy@sites.test',
         'content-type': 'application/json',
+        origin: 'http://localhost',
       },
       body: JSON.stringify({ state }),
     });
