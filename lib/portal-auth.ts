@@ -217,7 +217,9 @@ function isPortalRecordArray(value: unknown): value is PortalRecord[] {
   return Array.isArray(value) && value.every(isPortalRecord);
 }
 
-export function hasPortalStateStructure(value: unknown) {
+function hasPortalRecordStructure(
+  value: unknown,
+): value is PortalStateRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const state = value as Partial<PortalStateRecord>;
   return (
@@ -230,8 +232,34 @@ export function hasPortalStateStructure(value: unknown) {
   );
 }
 
+function hasStableCaseIds(cases: PortalRecord[]) {
+  const caseIds = new Set<string>();
+  return cases.every((record) => {
+    const id = record.id;
+    if (
+      typeof id !== 'string' ||
+      !id ||
+      id !== id.trim() ||
+      caseIds.has(id)
+    )
+      return false;
+    caseIds.add(id);
+    return true;
+  });
+}
+
+export function hasPortalStateStructure(value: unknown) {
+  return hasPortalRecordStructure(value) && hasStableCaseIds(value.cases);
+}
+
 function asPortalState(value: unknown): PortalStateRecord | null {
   return hasPortalStateStructure(value) ? (value as PortalStateRecord) : null;
+}
+
+function invalidPortalStateMessage(value: unknown) {
+  return hasPortalRecordStructure(value) && !hasStableCaseIds(value.cases)
+    ? '사건 ID가 없거나 중복되었습니다.'
+    : '저장 데이터 형식이 올바르지 않습니다.';
 }
 
 export function normalizedMemberName(name: unknown) {
@@ -558,8 +586,10 @@ export function stateForPortalUser(
   rawState: unknown,
   user: PortalUser,
 ): unknown {
+  if (user.role === 'admin') return rawState;
   const state = asPortalState(rawState);
-  if (!state || user.role === 'admin') return rawState;
+  if (!state)
+    throw new PortalAccessError(invalidPortalStateMessage(rawState), 403);
 
   const ownCases = state.cases.filter((record) =>
     ownsRecord(state, record, 'trainee', user),
@@ -680,7 +710,7 @@ export function mergeStateForPortalUser(
 ): unknown {
   const incoming = asPortalState(incomingRaw);
   if (!incoming)
-    throw new PortalAccessError('저장 데이터 형식이 올바르지 않습니다.', 403);
+    throw new PortalAccessError(invalidPortalStateMessage(incomingRaw), 403);
   const current = asPortalState(currentRaw);
 
   if (user.role === 'admin') {

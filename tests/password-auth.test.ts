@@ -484,6 +484,66 @@ void test('administrator state save rejects non-object entries across every port
   );
   assert.deepEqual(await state(), before);
 });
+void test('administrator state save rejects blank or duplicate case IDs', async () => {
+  const before = await state();
+  const blank = structuredClone(before);
+  blank.cases[0].id = ' ';
+  const duplicate = structuredClone(before);
+  duplicate.cases.push({
+    ...duplicate.cases[0],
+    company: '가상 사건ID 충돌기업',
+  });
+
+  for (const changed of [blank, duplicate]) {
+    const response = await saveState(
+      request({ state: changed }, ownerHeaders, 'PUT'),
+    );
+    assert.equal(response.status, 403, await response.clone().text());
+    assert.deepEqual(await state(), before);
+  }
+});
+void test('stored duplicate case IDs block partner projection, administrator reads and generic repair writes', async () => {
+  const cookie = await loggedIn();
+  const valid = await state();
+  const partner = valid.members.find((member) => member.email === email)!;
+  const existing = valid.members.find((member) => member.id === 'existing')!;
+  const corrupted = structuredClone(valid);
+  corrupted.cases = [
+    {
+      ...valid.cases[0],
+      id: 'collision-case',
+      company: '가상 본인기업',
+      trainee: partner.name,
+      partnerMemberId: partner.id,
+    },
+    {
+      ...valid.cases[0],
+      id: 'collision-case',
+      company: '가상 타인기업',
+      trainee: existing.name,
+      partnerMemberId: existing.id,
+    },
+  ];
+  corrupted.timeline = [
+    {
+      caseId: 'collision-case',
+      date: '2026-09-05',
+      title: '타인 비공개 진행',
+      detail: '사건 ID 충돌로 노출되면 안 되는 기록',
+    },
+  ];
+  await writePortalState(corrupted);
+
+  const partnerRead = await getState(request(undefined, { cookie }));
+  assert.equal(partnerRead.status, 403, await partnerRead.clone().text());
+  const ownerRead = await getState(request(undefined, ownerHeaders));
+  assert.equal(ownerRead.status, 503, await ownerRead.clone().text());
+  const repairWrite = await saveState(
+    request({ state: valid }, ownerHeaders, 'PUT'),
+  );
+  assert.equal(repairWrite.status, 503, await repairWrite.clone().text());
+  assert.deepEqual((await state()).cases, corrupted.cases);
+});
 void test('stored non-object records block partner access, administrator reads and generic repair writes', async () => {
   const cookie = await loggedIn();
   const valid = await state();

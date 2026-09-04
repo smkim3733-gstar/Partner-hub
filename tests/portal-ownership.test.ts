@@ -117,6 +117,30 @@ void test('same-name partners only see ID-assigned cases; ambiguous legacy data 
   );
 });
 
+void test('duplicate or blank case IDs fail closed before partner projection can mix records', () => {
+  const duplicate = fixture();
+  duplicate.cases[1].id = duplicate.cases[0].id;
+  duplicate.timeline = [
+    {
+      caseId: duplicate.cases[0].id,
+      date: '2026-09-05',
+      title: '충돌 진행기록',
+      detail: '다른 파트너 비공개 기록',
+    },
+  ];
+  assert.throws(
+    () => stateForPortalUser(duplicate, user),
+    /사건 ID가 없거나 중복되었습니다/,
+  );
+
+  const blank = fixture();
+  blank.cases[0].id = ' ';
+  assert.throws(
+    () => stateForPortalUser(blank, user),
+    /사건 ID가 없거나 중복되었습니다/,
+  );
+});
+
 void test('forged incoming assignee and ID cannot rewrite another account case, timeline or ambiguous legacy records', () => {
   const current = fixture();
   const incoming = structuredClone(current);

@@ -2555,6 +2555,23 @@ try {
       `generic owner state save rejects a non-object ${field} entry`,
     );
   }
+  const blankCaseIdState = structuredClone(cleanMemberIdState);
+  blankCaseIdState.cases[0].id = ' ';
+  await expect(
+    await call('/save', { state: blankCaseIdState }, ownerHeaders, 'PUT'),
+    403,
+    'generic owner state save rejects a blank case ID',
+  );
+  const duplicateCaseIdState = structuredClone(cleanMemberIdState);
+  duplicateCaseIdState.cases.push({
+    ...duplicateCaseIdState.cases[0],
+    company: '가상 사건ID 충돌기업',
+  });
+  await expect(
+    await call('/save', { state: duplicateCaseIdState }, ownerHeaders, 'PUT'),
+    403,
+    'generic owner state save rejects a duplicate case ID',
+  );
   const structuralLogin = await expect(
     await call('/login', { email, password: `${password} new` }),
     200,
@@ -2583,6 +2600,57 @@ try {
     await call('/save', { state: cleanMemberIdState }, ownerHeaders, 'PUT'),
     503,
     'stored non-object record blocks generic repair writes',
+  );
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(
+      stateBeforeAmbiguousLegacyEmail.payload,
+      stateBeforeAmbiguousLegacyEmail.updated_at,
+    )
+    .run();
+  const duplicateCaseStoredState = structuredClone(cleanMemberIdState);
+  duplicateCaseStoredState.cases = [
+    {
+      ...cleanMemberIdState.cases[0],
+      id: 'collision-case-runtime',
+      company: '가상 본인기업',
+      trainee: passwordMember.name,
+      partnerMemberId: memberId,
+    },
+    {
+      ...cleanMemberIdState.cases[0],
+      id: 'collision-case-runtime',
+      company: '가상 타인기업',
+      trainee: peerMember.name,
+      partnerMemberId: peerId,
+    },
+  ];
+  duplicateCaseStoredState.timeline = [
+    {
+      caseId: 'collision-case-runtime',
+      date: '2026-09-05',
+      title: '타인 비공개 진행',
+      detail: '사건 ID 충돌로 노출되면 안 되는 기록',
+    },
+  ];
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(JSON.stringify(duplicateCaseStoredState), new Date().toISOString())
+    .run();
+  await expect(
+    await call('/state', undefined, { cookie: structuralCookie }),
+    403,
+    'stored duplicate case ID blocks password partner projection',
+  );
+  await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'stored duplicate case ID blocks administrator reads',
+  );
+  await expect(
+    await call('/save', { state: cleanMemberIdState }, ownerHeaders, 'PUT'),
+    503,
+    'stored duplicate case ID blocks generic repair writes',
   );
   await db
     .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
