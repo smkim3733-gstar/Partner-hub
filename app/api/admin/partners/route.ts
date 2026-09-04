@@ -23,6 +23,7 @@ import {
   scheduleDuplicateRequestMetric,
   type DuplicateRequestOutcome,
 } from '@/lib/duplicate-request-metrics';
+import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
 
 export const dynamic = 'force-dynamic';
 const headers = { 'cache-control': 'private, no-store' };
@@ -48,14 +49,7 @@ export async function POST(request: Request) {
         403,
       );
     assertSameOrigin(request);
-    if (!request.headers.get('content-type')?.startsWith('application/json'))
-      return response({ error: 'JSON 형식으로 요청해 주세요.' }, 415);
-    const text = await request.text();
-    if (!text || new TextEncoder().encode(text).length > 12_000)
-      return response({ error: '등록 요청 크기를 확인해 주세요.' }, 413);
-    const body = JSON.parse(text);
-    if (!body || typeof body !== 'object' || Array.isArray(body))
-      return response({ error: '등록정보 형식을 확인해 주세요.' }, 400);
+    const body = await readBoundedJsonObject(request, 12_000);
     const { value, errors } = validatePartnerRegistration(body);
     if (Object.keys(errors).length)
       return response({ error: '입력 항목을 확인해 주세요.', errors }, 400);
@@ -72,6 +66,7 @@ export async function POST(request: Request) {
       !/^[a-zA-Z0-9_-]{16,100}$/.test(body.requestId)
     )
       return response({ error: '등록 요청번호를 확인해 주세요.' }, 400);
+    const requestId = body.requestId;
     const id = `partner-${crypto.randomUUID()}`;
     const createdAt = new Date().toISOString();
     let registered: PartnerAccount;
@@ -88,7 +83,7 @@ export async function POST(request: Request) {
       if (!state || !Array.isArray(state.members))
         throw new FlowError('운영정보를 먼저 불러온 후 등록해 주세요.', 503);
       const prior = state.members.find(
-        (m) => m.registration?.requestId === body.requestId,
+        (m) => m.registration?.requestId === requestId,
       );
       if (prior) {
         if (
@@ -127,7 +122,7 @@ export async function POST(request: Request) {
         permissions: { ...defaultPartnerPermissions },
         registration: {
           method: 'admin',
-          requestId: body.requestId,
+          requestId,
           createdAt,
           createdBy: actor.id,
         },
@@ -189,8 +184,8 @@ export async function POST(request: Request) {
         409,
       );
     }
-    if (error instanceof SyntaxError)
-      return response({ error: '등록 요청 형식이 올바르지 않습니다.' }, 400);
+    if (error instanceof JsonRequestError)
+      return response({ error: error.message }, error.status);
     console.error(
       'Partner registration failed',
       error instanceof Error ? error.name : 'unknown',

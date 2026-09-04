@@ -609,6 +609,33 @@ void test('public self registration still requires matching authenticated email 
   );
 });
 
+void test('public self registration rejects non-JSON and oversized bodies before writing', async () => {
+  const signup = body({ email: 'bounded-signup@example.invalid' });
+  assert.equal(
+    (
+      await selfRegister(
+        request(signup, signup.email, '/api/register', 'POST', {
+          'content-type': 'text/plain',
+        }),
+      )
+    ).status,
+    415,
+  );
+  assert.equal(
+    (
+      await selfRegister(
+        request(
+          { ...signup, extra: 'x'.repeat(12_000) },
+          signup.email,
+          '/api/register',
+        ),
+      )
+    ).status,
+    413,
+  );
+  assert.equal((await state()).members.length, 2);
+});
+
 void test('compare-and-swap retries against a concurrently modified non-member field', async () => {
   let attempts = 0;
   await mutatePortalState(async (raw) => {

@@ -63,6 +63,7 @@ import {
   protectPipelineLifecycle,
   readPipelineDropoffSummary,
 } from '@/lib/pipeline-dropoff-metrics';
+import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
 
 const privateJson = (data: unknown, init?: ResponseInit) =>
   Response.json(data, {
@@ -231,18 +232,10 @@ export async function PUT(request: Request) {
     );
     conflictActorRole = currentUser.role === 'admin' ? 'admin' : 'partner';
     assertSameOrigin(request);
-    const bodyText = await request.text();
-    if (
-      !bodyText ||
-      new TextEncoder().encode(bodyText).byteLength > PORTAL_STATE_LIMIT_BYTES
-    ) {
-      return privateJson(
-        { error: '저장 데이터의 크기가 허용 범위를 초과했습니다.' },
-        { status: 413 },
-      );
-    }
-
-    const body = JSON.parse(bodyText) as {
+    const body = (await readBoundedJsonObject(
+      request,
+      PORTAL_STATE_LIMIT_BYTES,
+    )) as {
       state?: unknown;
       expectedUserId?: unknown;
     } | null;
@@ -270,7 +263,8 @@ export async function PUT(request: Request) {
             '로그인 계정이 변경되었습니다. 작성하던 계정으로 다시 로그인한 후 저장해 주세요.',
             403,
           );
-        const currentProjectedState = await stateWithConsultingFlows(currentState);
+        const currentProjectedState =
+          await stateWithConsultingFlows(currentState);
         const merged = preserveApplicationDetails(
           currentState,
           mergeStateForPortalUser(
@@ -393,6 +387,8 @@ export async function PUT(request: Request) {
       return privateJson({ error: error.message }, { status: 400 });
     if (error instanceof PipelineLifecycleError)
       return privateJson({ error: error.message }, { status: 400 });
+    if (error instanceof JsonRequestError)
+      return privateJson({ error: error.message }, { status: error.status });
     if (error instanceof FlowError)
       return privateJson({ error: error.message }, { status: error.status });
     if (error instanceof SyntaxError)

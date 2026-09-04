@@ -21,6 +21,7 @@ import {
   AnthropicMessageResponseError,
   readAnthropicMessageResponse,
 } from '@/lib/anthropic-message-response';
+import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
 
 export const dynamic = 'force-dynamic';
 
@@ -46,7 +47,9 @@ function accessErrorResponse(error: unknown) {
 }
 
 function asText(value: unknown, maxLength: number) {
-  return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+  if (typeof value !== 'string') return '';
+  const text = value.trim();
+  return text.length <= maxLength ? text : '';
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -105,16 +108,26 @@ export async function GET(request: Request) {
     const state = await readPortalState();
     const currentUser = await requirePortalUser(request, state);
     if (currentUser.role !== 'admin') {
-      return Response.json({ error: 'Step 0 결과는 대표 관리자만 확인할 수 있습니다.' }, { status: 403 });
+      return Response.json(
+        { error: 'Step 0 결과는 대표 관리자만 확인할 수 있습니다.' },
+        { status: 403 },
+      );
     }
     const caseId = asText(new URL(request.url).searchParams.get('caseId'), 120);
-    if (!caseId) return Response.json({ error: '진행 식별값이 필요합니다.' }, { status: 400 });
+    if (!caseId)
+      return Response.json(
+        { error: '진행 식별값이 필요합니다.' },
+        { status: 400 },
+      );
     return Response.json({ run: await readLatestStepZeroRun(caseId) });
   } catch (error) {
     const accessResponse = accessErrorResponse(error);
     if (accessResponse) return accessResponse;
     console.error('Failed to read Step 0 run', error);
-    return Response.json({ error: 'Step 0 결과를 불러오지 못했습니다.' }, { status: 500 });
+    return Response.json(
+      { error: 'Step 0 결과를 불러오지 못했습니다.' },
+      { status: 500 },
+    );
   }
 }
 
@@ -122,29 +135,48 @@ export async function POST(request: Request) {
   try {
     const origin = request.headers.get('origin');
     if (origin && origin !== new URL(request.url).origin) {
-      return Response.json({ error: '허용되지 않은 생성 요청입니다.' }, { status: 403 });
+      return Response.json(
+        { error: '허용되지 않은 생성 요청입니다.' },
+        { status: 403 },
+      );
     }
     const state = await readPortalState();
     const currentUser = await requirePortalUser(request, state);
     if (currentUser.role !== 'admin') {
-      return Response.json({ error: 'Step 0 생성은 김성민 대표만 실행할 수 있습니다.' }, { status: 403 });
+      return Response.json(
+        { error: 'Step 0 생성은 김성민 대표만 실행할 수 있습니다.' },
+        { status: 403 },
+      );
     }
 
-    const rawBody: unknown = await request.json();
+    const rawBody: unknown = await readBoundedJsonObject(request, 40_000);
     if (!isObject(rawBody)) {
-      return Response.json({ error: '생성 요청 형식이 올바르지 않습니다.' }, { status: 400 });
+      return Response.json(
+        { error: '생성 요청 형식이 올바르지 않습니다.' },
+        { status: 400 },
+      );
     }
     const body: StepZeroRequest = rawBody;
     const requestId = asText(body.requestId, 100);
     const caseId = asText(body.caseId, 120);
     const company = asText(body.company, 100);
     if (body.pilotMode !== true || !company.includes('(가상)')) {
-      return Response.json({ error: '현재 단계에서는 가상기업 시험만 실행할 수 있습니다.' }, { status: 403 });
+      return Response.json(
+        { error: '현재 단계에서는 가상기업 시험만 실행할 수 있습니다.' },
+        { status: 403 },
+      );
     }
     if (!/^[a-zA-Z0-9_-]{16,100}$/.test(requestId)) {
-      return Response.json({ error: '안전한 생성 요청 식별값이 필요합니다.' }, { status: 400 });
+      return Response.json(
+        { error: '안전한 생성 요청 식별값이 필요합니다.' },
+        { status: 400 },
+      );
     }
-    if (!caseId) return Response.json({ error: '진행 식별값이 필요합니다.' }, { status: 400 });
+    if (!caseId)
+      return Response.json(
+        { error: '진행 식별값이 필요합니다.' },
+        { status: 400 },
+      );
     const preparedInput = prepareStepZeroPilotInput(
       body.pilotContext,
       body.consentConfirmed,
@@ -168,7 +200,10 @@ export async function POST(request: Request) {
     const apiKey = runtime.ANTHROPIC_API_KEY?.trim();
     const model = runtime.ANTHROPIC_MODEL?.trim();
     if (!apiKey || !model) {
-      return Response.json({ error: 'Anthropic API 키와 사용 모델 연결이 필요합니다.' }, { status: 503 });
+      return Response.json(
+        { error: 'Anthropic API 키와 사용 모델 연결이 필요합니다.' },
+        { status: 503 },
+      );
     }
 
     const fingerprint = await requestFingerprint(
@@ -191,13 +226,25 @@ export async function POST(request: Request) {
       return Response.json({ run: claim.run, reused: true });
     }
     if (claim.state === 'conflict') {
-      return Response.json({ error: '같은 요청 식별값의 내용이 달라 생성할 수 없습니다.' }, { status: 409 });
+      return Response.json(
+        { error: '같은 요청 식별값의 내용이 달라 생성할 수 없습니다.' },
+        { status: 409 },
+      );
     }
     if (claim.state === 'pending') {
-      return Response.json({ error: '이 진행의 Step 0 생성이 이미 처리 중입니다.' }, { status: 409 });
+      return Response.json(
+        { error: '이 진행의 Step 0 생성이 이미 처리 중입니다.' },
+        { status: 409 },
+      );
     }
     if (claim.state === 'failed') {
-      return Response.json({ error: '이 생성 요청은 완료되지 않았습니다. 입력을 다시 확인해 새 요청으로 실행해 주세요.' }, { status: 409 });
+      return Response.json(
+        {
+          error:
+            '이 생성 요청은 완료되지 않았습니다. 입력을 다시 확인해 새 요청으로 실행해 주세요.',
+        },
+        { status: 409 },
+      );
     }
 
     try {
@@ -212,7 +259,9 @@ export async function POST(request: Request) {
           model,
           max_tokens: 4_000,
           system: CLAUDE_FLOW_PROJECT_INSTRUCTION,
-          messages: [{ role: 'user', content: stepZeroPrompt(company, pilotContext) }],
+          messages: [
+            { role: 'user', content: stepZeroPrompt(company, pilotContext) },
+          ],
         }),
       });
       const payload = await readAnthropicMessageResponse(response);
@@ -292,6 +341,8 @@ export async function POST(request: Request) {
   } catch (error) {
     const accessResponse = accessErrorResponse(error);
     if (accessResponse) return accessResponse;
+    if (error instanceof JsonRequestError)
+      return Response.json({ error: error.message }, { status: error.status });
     if (error instanceof AnthropicMessageResponseError) {
       console.error('Invalid Anthropic Step 0 response', error.message);
       return Response.json(
@@ -303,6 +354,9 @@ export async function POST(request: Request) {
       );
     }
     console.error('Failed to create Step 0 run', error);
-    return Response.json({ error: 'Step 0 결과를 생성하거나 저장하지 못했습니다.' }, { status: 500 });
+    return Response.json(
+      { error: 'Step 0 결과를 생성하거나 저장하지 못했습니다.' },
+      { status: 500 },
+    );
   }
 }

@@ -88,9 +88,9 @@ function state(overrides: Record<string, unknown> = {}) {
 
 function request(
   requestId = 'step-zero-request-0001',
-  pilotContext =
-    '업종: 가상 제조업\n요청사항: 가상 정책자금 가능성 확인\n모든 수치는 확인 필요',
+  pilotContext = '업종: 가상 제조업\n요청사항: 가상 정책자금 가능성 확인\n모든 수치는 확인 필요',
   consentConfirmed = true,
+  extraHeaders: Record<string, string> = {},
 ) {
   return new Request('http://localhost/api/ai-diagnosis/step-zero', {
     method: 'POST',
@@ -99,6 +99,7 @@ function request(
       'content-type': 'application/json',
       'oai-authenticated-user-id': 'seedy@sites.test',
       'oai-authenticated-user-email': 'seedy@sites.test',
+      ...extraHeaders,
     },
     body: JSON.stringify({
       requestId,
@@ -111,11 +112,7 @@ function request(
   });
 }
 
-async function insertFile(
-  id: string,
-  category: string,
-  linkedCaseId: string,
-) {
+async function insertFile(id: string, category: string, linkedCaseId: string) {
   const db = companyFileDatabase();
   await db
     .prepare(`INSERT INTO company_file_objects (id, storage_key, original_name, company, category, title,
@@ -166,25 +163,26 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
   const oldModel = runtime.ANTHROPIC_MODEL;
   const oldFetch = globalThis.fetch;
   let externalCalls = 0;
-  const modelResponse = () => Response.json({
-    stop_reason: 'end_turn',
-    content: [
-      {
-        type: 'text',
-        text: JSON.stringify({
-          companyOverview: '가상 기업 현황은 추가 확인이 필요합니다.',
-          confirmedStrengths: [],
-          mainRisks: ['확인 필요'],
-          solutionCandidates: [],
-          verificationQuestions: ['가상 현황을 확인했습니까?'],
-          missingDocuments: [],
-          complianceNotes: ['대표 검토 전 내부 초안'],
-          nextAction: '가상 입력을 검토합니다.',
-        }),
-      },
-    ],
-    usage: { input_tokens: 10, output_tokens: 20 },
-  });
+  const modelResponse = () =>
+    Response.json({
+      stop_reason: 'end_turn',
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            companyOverview: '가상 기업 현황은 추가 확인이 필요합니다.',
+            confirmedStrengths: [],
+            mainRisks: ['확인 필요'],
+            solutionCandidates: [],
+            verificationQuestions: ['가상 현황을 확인했습니까?'],
+            missingDocuments: [],
+            complianceNotes: ['대표 검토 전 내부 초안'],
+            nextAction: '가상 입력을 검토합니다.',
+          }),
+        },
+      ],
+      usage: { input_tokens: 10, output_tokens: 20 },
+    });
   runtime.ANTHROPIC_API_KEY = 'synthetic-step-zero-key';
   runtime.ANTHROPIC_MODEL = 'synthetic-step-zero-model';
   globalThis.fetch = async () => {
@@ -193,14 +191,57 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
   };
 
   try {
-    assert.equal((await POST(request('step-zero-short-input', '짧은 설명'))).status, 400);
-    assert.equal((await POST(request('step-zero-long-input', '가'.repeat(8_001)))).status, 400);
-    assert.equal((await POST(request('step-zero-identifier-input', '가상기업 설명에 test@example.com 식별정보 포함'))).status, 400);
-    assert.equal((await POST(request('step-zero-no-consent', undefined, false))).status, 400);
-    assert.equal(externalCalls, 0, 'invalid or unconfirmed input must fail before fetch');
+    assert.equal(
+      (await POST(request('step-zero-short-input', '짧은 설명'))).status,
+      400,
+    );
+    assert.equal(
+      (await POST(request('step-zero-long-input', '가'.repeat(8_001)))).status,
+      400,
+    );
+    assert.equal(
+      (await POST(request('step-zero-oversized-input', '가'.repeat(14_000))))
+        .status,
+      413,
+    );
+    assert.equal(
+      (
+        await POST(
+          request('step-zero-wrong-media', undefined, true, {
+            'content-type': 'text/plain',
+          }),
+        )
+      ).status,
+      415,
+    );
+    assert.equal((await POST(request('x'.repeat(101)))).status, 400);
+    assert.equal(
+      (
+        await POST(
+          request(
+            'step-zero-identifier-input',
+            '가상기업 설명에 test@example.com 식별정보 포함',
+          ),
+        )
+      ).status,
+      400,
+    );
+    assert.equal(
+      (await POST(request('step-zero-no-consent', undefined, false))).status,
+      400,
+    );
+    assert.equal(
+      externalCalls,
+      0,
+      'invalid or unconfirmed input must fail before fetch',
+    );
 
     assert.equal((await POST(request())).status, 403);
-    assert.equal(externalCalls, 0, 'metadata-less cards must fail before fetch');
+    assert.equal(
+      externalCalls,
+      0,
+      'metadata-less cards must fail before fetch',
+    );
 
     await insertFile('step-zero-business', '사업자등록증', caseId);
     await insertFile('step-zero-finance', '재무제표', otherCaseId);
@@ -223,7 +264,11 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
       .run();
     await companyFileBucket().delete('company-source/step-zero-finance');
     assert.equal((await POST(request())).status, 403);
-    assert.equal(externalCalls, 0, 'missing R2 evidence must fail before fetch');
+    assert.equal(
+      externalCalls,
+      0,
+      'missing R2 evidence must fail before fetch',
+    );
 
     await companyFileBucket().put(
       'company-source/step-zero-finance',
@@ -235,7 +280,11 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
       }),
     );
     assert.equal((await POST(request())).status, 403);
-    assert.equal(externalCalls, 0, 'revoked transcript consent must fail before fetch');
+    assert.equal(
+      externalCalls,
+      0,
+      'revoked transcript consent must fail before fetch',
+    );
 
     await writePortalState(state());
     const generated = await POST(request());
@@ -244,13 +293,21 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
 
     const reused = await POST(request());
     assert.equal(reused.status, 200);
-    assert.equal((await reused.json() as { reused?: boolean }).reused, true);
-    assert.equal(externalCalls, 1, 'lost response retry must reuse the saved run');
+    assert.equal(((await reused.json()) as { reused?: boolean }).reused, true);
     assert.equal(
-      (await POST(request(
-        'step-zero-request-0001',
-        '업종: 다른 가상 제조업\n요청사항: 변경된 시험 내용을 검토합니다.',
-      ))).status,
+      externalCalls,
+      1,
+      'lost response retry must reuse the saved run',
+    );
+    assert.equal(
+      (
+        await POST(
+          request(
+            'step-zero-request-0001',
+            '업종: 다른 가상 제조업\n요청사항: 변경된 시험 내용을 검토합니다.',
+          ),
+        )
+      ).status,
       409,
     );
     assert.equal(externalCalls, 1, 'changed content cannot reuse a request ID');
@@ -281,7 +338,11 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
       request('step-zero-concurrent-0002', concurrentContext),
     );
     assert.equal(otherRequestWhilePending.status, 409);
-    assert.equal(externalCalls, 2, 'concurrent duplicate must not call the model');
+    assert.equal(
+      externalCalls,
+      2,
+      'concurrent duplicate must not call the model',
+    );
     releaseFetch();
     assert.equal((await first).status, 201);
     const counts = await db
@@ -308,14 +369,22 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
       /synthetic provider failure/,
     );
     assert.equal(externalCalls, 3);
-    assert.equal((await POST(request(failedId, concurrentContext))).status, 409);
-    assert.equal(externalCalls, 3, 'an uncertain failed request is not replayed');
+    assert.equal(
+      (await POST(request(failedId, concurrentContext))).status,
+      409,
+    );
+    assert.equal(
+      externalCalls,
+      3,
+      'an uncertain failed request is not replayed',
+    );
     globalThis.fetch = async () => {
       externalCalls++;
       return modelResponse();
     };
     assert.equal(
-      (await POST(request('step-zero-after-failure-0001', concurrentContext))).status,
+      (await POST(request('step-zero-after-failure-0001', concurrentContext)))
+        .status,
       201,
     );
     assert.equal(externalCalls, 4, 'a distinct deliberate retry can proceed');
@@ -363,10 +432,12 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
     );
     assert.equal(externalCalls, 6);
     assert.equal(
-      (await db
-        .prepare('SELECT status FROM ai_diagnosis_runs WHERE id = ?1')
-        .bind(removedDuringRunId)
-        .first<{ status: string }>())?.status,
+      (
+        await db
+          .prepare('SELECT status FROM ai_diagnosis_runs WHERE id = ?1')
+          .bind(removedDuringRunId)
+          .first<{ status: string }>()
+      )?.status,
       '생성실패',
     );
     await companyFileBucket().put(

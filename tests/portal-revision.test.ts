@@ -92,6 +92,33 @@ async function snapshot() {
   };
 }
 
+void test('state writes reject non-JSON and oversized bodies before mutation', async () => {
+  await writePortalState(seed());
+  const baseline = await snapshot();
+  assert.equal(
+    (
+      await PUT(
+        request(baseline.state, baseline.stateRevision, {
+          'content-type': 'text/plain',
+        }),
+      )
+    ).status,
+    415,
+  );
+  assert.equal(
+    (
+      await PUT(
+        request(
+          { ...baseline.state, oversized: 'x'.repeat(900_000) },
+          baseline.stateRevision,
+        ),
+      )
+    ).status,
+    413,
+  );
+  assert.deepEqual(await readPortalState(), baseline.state);
+});
+
 void test('state capacity telemetry is exact, top-level, and administrator-only', async () => {
   const state = seed();
   state.members.push({

@@ -10,6 +10,7 @@ import {
   schedulePortalConflictRecovery,
   schedulePortalSaveConflict,
 } from '@/lib/portal-conflict-metrics';
+import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
 
 const MAX_REQUEST_BYTES = 12_000;
 
@@ -85,34 +86,7 @@ export async function POST(request: Request) {
     }
     assertSameOrigin(request);
 
-    const bodyText = await request.text();
-    if (!bodyText) {
-      return Response.json(
-        { error: '등록 신청 내용을 입력해 주세요.' },
-        { status: 400 },
-      );
-    }
-    if (new TextEncoder().encode(bodyText).byteLength > MAX_REQUEST_BYTES) {
-      return Response.json(
-        { error: '등록 신청 데이터의 크기가 허용 범위를 초과했습니다.' },
-        { status: 413 },
-      );
-    }
-
-    let body: Record<string, unknown>;
-    try {
-      body = JSON.parse(bodyText) as Record<string, unknown>;
-    } catch {
-      return Response.json(
-        { error: '등록 신청 형식이 올바르지 않습니다.' },
-        { status: 400 },
-      );
-    }
-    if (!body || typeof body !== 'object' || Array.isArray(body))
-      return Response.json(
-        { error: '등록 신청 형식이 올바르지 않습니다.' },
-        { status: 400 },
-      );
+    const body = await readBoundedJsonObject(request, MAX_REQUEST_BYTES);
     const name = normalizedText(body.name);
     const phone = normalizedText(body.phone);
     const affiliation = normalizedText(body.affiliation);
@@ -186,6 +160,8 @@ export async function POST(request: Request) {
     });
     return Response.json({ ok: true, status: '승인대기' });
   } catch (error) {
+    if (error instanceof JsonRequestError)
+      return Response.json({ error: error.message }, { status: error.status });
     if (error instanceof FlowError)
       return Response.json({ error: error.message }, { status: error.status });
     if (error instanceof PortalStateConflict) {
