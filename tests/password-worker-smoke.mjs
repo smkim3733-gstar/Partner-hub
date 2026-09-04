@@ -90,6 +90,21 @@ async function call(
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
 }
+async function callFlowFile(route, payload, file, headers = {}) {
+  const form = new FormData();
+  form.set('payload', JSON.stringify(payload));
+  form.set('file', file);
+  const multipart = new Response(form);
+  return mf.dispatchFetch(`${origin}${route}`, {
+    method: 'POST',
+    headers: {
+      origin,
+      ...headers,
+      'content-type': multipart.headers.get('content-type'),
+    },
+    body: await multipart.arrayBuffer(),
+  });
+}
 async function expect(response, status, name) {
   assert.equal(
     response.status,
@@ -1483,12 +1498,69 @@ try {
     403,
     'partner cannot reuse an administrator FLOW receipt',
   );
+  const beforeMimeFlow = (
+    await (await call('/flow/runtime-own', undefined, ownerHeaders)).json()
+  ).flow;
+  const mimeCommand = {
+    revision: beforeMimeFlow.revision,
+    commandId: 'native-flow-mime-retry',
+    command: {
+      type: 'save_report',
+      stage: 1,
+      body: nativeCommand.command.body,
+      fileConsent: true,
+    },
+  };
+  const mimeSaved = await expect(
+    await callFlowFile(
+      '/flow/runtime-own',
+      mimeCommand,
+      new File(['SYNTHETIC_FLOW_MIME'], 'flow-report.txt', {
+        type: 'text/html',
+      }),
+      ownerHeaders,
+    ),
+    200,
+    'FLOW receipt normalizes browser MIME in native D1',
+  );
+  const mimeSavedFlow = (await mimeSaved.json()).flow;
+  assert.equal(mimeSavedFlow.files.at(-1).contentType, 'text/plain');
+  const privateMimeFlow = JSON.parse(
+    (
+      await db
+        .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+        .bind('runtime-own')
+        .first()
+    ).payload,
+  );
+  const privateMimeFile = privateMimeFlow.files.at(-1);
+  assert.equal(
+    (await bucket.head(privateMimeFile.key)).httpMetadata.contentType,
+    'text/plain',
+  );
+  assert.deepEqual(
+    Object.keys(privateMimeFlow.commandReceipts[mimeCommand.commandId]).sort(),
+    ['actorKey', 'fingerprint'],
+  );
+  const mimeRetry = await expect(
+    await callFlowFile(
+      '/flow/runtime-own',
+      mimeCommand,
+      new File(['SYNTHETIC_FLOW_MIME'], 'flow-report.txt', {
+        type: 'application/x-alternate-text',
+      }),
+      ownerHeaders,
+    ),
+    200,
+    'FLOW retry ignores changed browser MIME for identical native content',
+  );
+  assert.equal((await mimeRetry.json()).duplicate, true);
   const nativeAnalysis = {
-    revision: nativeSavedFlow.revision,
+    revision: mimeSavedFlow.revision,
     commandId: 'native-flow-partner-analysis',
     command: {
       type: 'confirm_analysis',
-      reportId: nativeSavedFlow.reports.at(-1).id,
+      reportId: mimeSavedFlow.reports.at(-1).id,
     },
   };
   await expect(

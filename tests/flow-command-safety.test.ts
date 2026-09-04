@@ -18,6 +18,11 @@ import {
 import { readPortalState, writePortalState } from '../lib/portal-state';
 import { readDuplicateRequestSummary } from '../lib/duplicate-request-metrics';
 import { flushWaitUntil } from './runtime-mock.mjs';
+import {
+  flowCommandReceipt,
+  isFlowCommandRetry,
+} from '../lib/flow-command-receipt';
+import type { PortalUser } from '../lib/portal-auth';
 
 const partner = {
   id: 'safety-partner',
@@ -307,7 +312,9 @@ void test('FLOW commit rejects a suspension immediately before D1 writes', async
 
 void test('FLOW duplicate keys reject changed command contents and another actor', async () => {
   await readDuplicateRequestSummary();
-  await (await flowDatabase())
+  await (
+    await flowDatabase()
+  )
     .prepare('DELETE FROM portal_duplicate_request_stats')
     .run();
   const flow = await fixture(),
@@ -366,8 +373,8 @@ void test('FLOW report retry validates file bytes and body but accepts an identi
   const flow = await fixture(),
     commandId = `flow-safety-${++sequence}`;
   const command = { type: 'save_report', stage: 1, body, fileConsent: true };
-  const file = () =>
-    new File(['SYNTHETIC_REPORT'], 'report.txt', { type: 'text/plain' });
+  const file = (type = 'text/html') =>
+    new File(['SYNTHETIC_REPORT'], 'report.txt', { type });
   assert.equal(
     (
       await POST(
@@ -385,6 +392,11 @@ void test('FLOW report retry validates file bytes and body but accepts an identi
     200,
   );
   const saved = await readFlow(flow.caseId);
+  assert.equal(saved?.files[0].contentType, 'text/plain');
+  assert.deepEqual(
+    Object.keys(saved?.commandReceipts?.[commandId] ?? {}).sort(),
+    ['actorKey', 'fingerprint'],
+  );
   assert.equal(
     (
       await POST(
@@ -418,7 +430,14 @@ void test('FLOW report retry validates file bytes and body but accepts an identi
     409,
   );
   const retry = await POST(
-    request(flow.caseId, command, flow.revision, commandId, adminEmail, file()),
+    request(
+      flow.caseId,
+      command,
+      flow.revision,
+      commandId,
+      adminEmail,
+      file('application/x-alternate-text'),
+    ),
     context(flow.caseId),
   );
   assert.equal(retry.status, 200);
@@ -427,6 +446,44 @@ void test('FLOW report retry validates file bytes and body but accepts an identi
     true,
   );
   assert.deepEqual(await readFlow(flow.caseId), saved);
+});
+
+void test('FLOW retry accepts a matching receipt saved before MIME normalization', async () => {
+  const flow = await fixture();
+  const commandId = `flow-safety-${++sequence}`;
+  const command = {
+    type: 'save_report',
+    stage: 1,
+    body,
+    fileConsent: true,
+  } as const;
+  const file = new File(['SYNTHETIC_LEGACY_RECEIPT'], 'legacy.txt', {
+    type: 'text/html',
+  });
+  const user: PortalUser = {
+    id: adminEmail,
+    email: adminEmail,
+    displayName: '가상 대표',
+    role: 'admin',
+    memberId: null,
+    memberName: null,
+    permissions: null,
+  };
+  const receipt = await flowCommandReceipt(user, { command, file });
+  assert.ok(receipt.legacyFingerprint);
+  const previousReleaseFlow = structuredClone(flow);
+  previousReleaseFlow.commandIds.push(commandId);
+  previousReleaseFlow.commandReceipts = {
+    ...previousReleaseFlow.commandReceipts,
+    [commandId]: {
+      actorKey: receipt.actorKey,
+      fingerprint: receipt.legacyFingerprint,
+    },
+  };
+  assert.equal(
+    isFlowCommandRetry(previousReleaseFlow, commandId, receipt),
+    true,
+  );
 });
 
 void test('FLOW attachment download rechecks suspension after R2 resolves', async () => {

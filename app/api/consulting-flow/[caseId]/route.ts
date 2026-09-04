@@ -150,7 +150,10 @@ export async function POST(request: Request, context: Context) {
     );
     next.commandReceipts = {
       ...flow.commandReceipts,
-      [input.commandId]: receipt,
+      [input.commandId]: {
+        actorKey: receipt.actorKey,
+        fingerprint: receipt.fingerprint,
+      },
     };
     if (imported) {
       await flowBucket().put(imported.file.key, imported.bytes, {

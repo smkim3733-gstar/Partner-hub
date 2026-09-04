@@ -5,6 +5,7 @@ import {
 } from './consulting-flow';
 import type { PortalUser } from './portal-auth';
 import { fileDigest } from './file-upload-key';
+import { downloadContentType } from './download-content-type';
 
 export type FlowCommandReceiptErrorReason =
   | 'legacy_unknown'
@@ -37,32 +38,70 @@ async function attachment(file?: File) {
   return file
     ? {
         name: file.name,
-        type: file.type,
+        contentType: downloadContentType(file.name),
+        legacyContentType: file.type,
         size: file.size,
         digest: await fileDigest(await file.arrayBuffer()),
       }
     : null;
 }
+type ReceiptAttachment = Awaited<ReturnType<typeof attachment>>;
+
+function receiptAttachment(
+  value: ReceiptAttachment,
+  useLegacyContentType: boolean,
+) {
+  return value
+    ? {
+        name: value.name,
+        type: useLegacyContentType
+          ? value.legacyContentType
+          : value.contentType,
+        size: value.size,
+        digest: value.digest,
+      }
+    : null;
+}
+
+export type ComputedFlowCommandReceipt = {
+  actorKey: string;
+  fingerprint: string;
+  /** Used only to resume a matching command saved before MIME normalization. */
+  legacyFingerprint?: string;
+};
+
 export async function flowCommandReceipt(
   user: PortalUser,
   input: { command: FlowCommand; file?: File; audio?: File },
-) {
+): Promise<ComputedFlowCommandReceipt> {
+  const command = canonical(input.command);
+  const file = await attachment(input.file);
+  const audio = await attachment(input.audio);
+  const fingerprintFor = (useLegacyContentType: boolean) =>
+    fileDigest(
+      JSON.stringify({
+        command,
+        file: receiptAttachment(file, useLegacyContentType),
+        audio: receiptAttachment(audio, useLegacyContentType),
+      }),
+    );
+  const fingerprint = await fingerprintFor(false);
+  const needsLegacyFingerprint = [file, audio].some(
+    (value) => value && value.contentType !== value.legacyContentType,
+  );
   return {
     actorKey:
       user.role === 'admin' ? `admin:${user.email}` : `member:${user.memberId}`,
-    fingerprint: await fileDigest(
-      JSON.stringify({
-        command: canonical(input.command),
-        file: await attachment(input.file),
-        audio: await attachment(input.audio),
-      }),
-    ),
+    fingerprint,
+    ...(needsLegacyFingerprint
+      ? { legacyFingerprint: await fingerprintFor(true) }
+      : {}),
   };
 }
 export function isFlowCommandRetry(
   flow: ConsultingFlow,
   commandId: string,
-  receipt: { actorKey: string; fingerprint: string },
+  receipt: ComputedFlowCommandReceipt,
 ) {
   if (!flow.commandIds.includes(commandId)) return false;
   const saved =
@@ -81,7 +120,10 @@ export function isFlowCommandRetry(
       403,
       'different_actor',
     );
-  if (saved.fingerprint !== receipt.fingerprint)
+  if (
+    saved.fingerprint !== receipt.fingerprint &&
+    saved.fingerprint !== receipt.legacyFingerprint
+  )
     throw new FlowCommandReceiptError(
       '같은 요청 번호의 내용 또는 첨부가 변경되었습니다. 저장 결과를 확인해 주세요.',
       409,
