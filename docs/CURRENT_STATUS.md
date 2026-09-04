@@ -136,9 +136,13 @@
 
 [ChatGPT 등록 비밀번호 자격 소유자 결속 무결성](CHATGPT_CREDENTIAL_EMAIL_OWNERSHIP_INTEGRITY_2026_09_05.md)에서는 ChatGPT 자가등록 이메일의 기존 회원 ID와 비밀번호 자격 소유자 ID가 다른 불완전 계정 생성을 차단했다. 승인대기 회원 본인의 자격은 허용해 동일 신청 재시도를 무기록으로 유지하고, 다른·삭제 회원의 자격은 자동 삭제·이전하지 않은 채 등록을 거절한다.
 
-검증된 기능 커밋 `999b3bad184d6787eff4560f34e22de3ffc0837b`은 GitHub `main`과 Sites 소스 저장소에 반영했고 Sites 버전 114 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_6c94677c71cc81919bded1ebfe7c3167`)로 저장했다. 현재 공개 운영본은 버전 107이며 버전 114는 사용자 명시 승인 전까지 공개 배포하지 않는다.
+검증된 기능 커밋 `999b3bad184d6787eff4560f34e22de3ffc0837b`은 GitHub `main`과 Sites 소스 저장소에 반영했고 Sites 버전 114 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_6c94677c71cc81919bded1ebfe7c3167`)로 저장했다. 현재 공개 운영본은 버전 107이며 버전 114는 이후 저장된 버전 115로 대체해 배포하지 않는다.
 
-현재 소스는 자동 테스트 478개와 격리 workerd/D1/R2 검증 163개를 기준으로 확인한다. 타입검사·전체 lint·프로덕션 빌드와 로컬 운영 응답도 통과했다. 최신 검증·운영 경계 문서는 [개발 문서 목록](README.md)에 구분해 남긴다. 기존 DB/R2 연결과 추가형 DB 마이그레이션을 유지한다.
+[ChatGPT 안정 ID-회원 결속 무결성](CHATGPT_STABLE_IDENTITY_BINDING_INTEGRITY_2026_09_05.md)에서는 이메일만 같으면 다른 ChatGPT 계정도 기존 활성 회원으로 접근할 수 있던 경계를 안정 사용자 ID의 단방향 해시 결속으로 교체했다. 신규 ChatGPT 가입은 회원 상태와 결속을 원자적으로 저장하고, 기존 활성 회원은 첫 정상 접속에서 한 번만 결속한다. 이후 같은 이메일의 다른 ID는 거절하며 같은 안정 ID는 공급자 이메일 변경 뒤에도 기존 회원을 유지한다. 회원 이메일 변경·삭제는 결속을 상태와 함께 폐기하고 단순 정지는 보존한다.
+
+검증된 기능 커밋 `2fb858f4f020eaee298e863ae2440aaf0ef9be9a`는 GitHub `main`과 Sites 소스 저장소에 반영했고 Sites 버전 115 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_829edf6ab8288191ac057a1e14d508f8`)로 저장했다. 현재 공개 운영본은 버전 107이며 버전 108~114는 버전 115로 대체해 배포하지 않는다. 버전 115는 사용자 명시 승인 전까지 공개 배포하지 않는다.
+
+현재 소스는 자동 테스트 482개와 격리 workerd/D1/R2 검증 170개를 기준으로 확인한다. 타입검사·전체 lint·프로덕션 빌드와 로컬 운영 응답도 통과했다. 최신 검증·운영 경계 문서는 [개발 문서 목록](README.md)에 구분해 남긴다. 기존 DB/R2 연결과 추가형 DB 마이그레이션을 유지한다.
 
 2026-09-04 사용자 운영 반영 승인 후 커밋 `8fa3091`까지 GitHub `main`과 기존 공개 Sites 버전 73에 반영했다. 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결을 유지했으며 `/`, `/account`, `/account/setup`의 HTTP 200 응답을 확인했다. 결과는 `outputs/release/client-response-boundary-deployment.json`에 기록한다.
 
