@@ -70,6 +70,15 @@ const ownerHeaders = {
   'oai-authenticated-user-email': 'smkim3733@gmail.com',
 };
 const checks = [];
+async function sha256(value) {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    typeof value === 'string' ? new TextEncoder().encode(value) : value,
+  );
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('');
+}
 async function call(
   route,
   body,
@@ -799,6 +808,92 @@ try {
     'text/plain',
   );
   checks.push('registry MIME is identical across response, native D1 and R2');
+  const bridgeCaseId = 'runtime-upload-key-migration';
+  const bridgeText = 'SYNTHETIC_UPLOAD_KEY_MIGRATION';
+  const bridgeBytes = new TextEncoder().encode(bridgeText);
+  const bridgeBytesDigest = await sha256(bridgeBytes);
+  const bridgeKeyFor = (contentType) =>
+    sha256(
+      JSON.stringify([
+        'company-upload-v1',
+        bridgeCaseId,
+        'synthetic.txt',
+        contentType,
+        bridgeBytes.byteLength,
+        '가상 본인기업',
+        '새 담당계정 자료',
+        '기타자료',
+        memberId,
+        '',
+        bridgeBytesDigest,
+      ]),
+    );
+  const bridgeLegacyKey = await bridgeKeyFor('text/html');
+  const bridgeCurrentKey = await bridgeKeyFor('text/plain');
+  const bridgeLegacyFingerprint = await sha256(
+    JSON.stringify({
+      originalName: 'synthetic.txt',
+      company: '가상 본인기업',
+      title: '새 담당계정 자료',
+      category: '기타자료',
+      assignedTrainee: '가상 런타임파트너',
+      partnerMemberId: memberId,
+      caseId: bridgeCaseId,
+      contentType: 'text/html',
+      sizeBytes: bridgeBytes.byteLength,
+    }) + bridgeBytesDigest,
+  );
+  await db
+    .prepare(`INSERT INTO company_file_upload_requests
+      (owner_key, request_key, fingerprint, file_id, created_at, status)
+      VALUES (?1, ?2, ?3, ?4, ?5, 'pending')`)
+    .bind(
+      `member:${memberId}`,
+      bridgeLegacyKey,
+      bridgeLegacyFingerprint,
+      'runtime-upload-key-migration-file',
+      new Date().toISOString(),
+    )
+    .run();
+  const bridgedFile = (
+    await (
+      await expect(
+        await uploadSource(
+          { cookie, 'idempotency-key': bridgeCurrentKey },
+          memberId,
+          bridgeCaseId,
+          bridgeText,
+          'text/html',
+        ),
+        201,
+        'normalized application key resumes previous native D1 ledger',
+      )
+    ).json()
+  ).file;
+  assert.equal(bridgedFile.id, 'runtime-upload-key-migration-file');
+  assert.equal(
+    await db
+      .prepare(
+        'SELECT request_key FROM company_file_upload_requests WHERE owner_key = ?1 AND request_key = ?2',
+      )
+      .bind(`member:${memberId}`, bridgeLegacyKey)
+      .first(),
+    null,
+  );
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT status FROM company_file_upload_requests WHERE owner_key = ?1 AND request_key = ?2',
+        )
+        .bind(`member:${memberId}`, bridgeCurrentKey)
+        .first()
+    ).status,
+    'ready',
+  );
+  checks.push(
+    'application upload key migration preserves one native R2 object',
+  );
   const retryHeaders = {
     cookie,
     'idempotency-key': 'worker-upload-response-retry',

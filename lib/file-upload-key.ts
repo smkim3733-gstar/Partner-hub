@@ -1,4 +1,5 @@
 import type { CompanyFileCategory } from './company-file-policy';
+import { downloadContentType } from './download-content-type';
 
 export async function fileDigest(value: ArrayBuffer | string) {
   const digest = await crypto.subtle.digest(
@@ -23,9 +24,10 @@ export type CompanyUploadInput = {
 };
 const fileAttempts = new WeakMap<File, string>();
 
-/** Draft-linked uploads can be recovered by reselecting the same file after reload.
- * Standalone uploads reuse a key only while the same File remains selected. */
-export async function companyUploadKey(input: CompanyUploadInput) {
+export async function companyUploadKeyVariants(
+  input: CompanyUploadInput,
+  availableBytes?: ArrayBuffer,
+) {
   const { file } = input;
   let scope = input.caseId;
   if (!scope) {
@@ -35,19 +37,34 @@ export async function companyUploadKey(input: CompanyUploadInput) {
       fileAttempts.set(file, scope);
     }
   }
-  return fileDigest(
-    JSON.stringify([
-      'company-upload-v1',
-      scope,
-      file.name,
-      file.type,
-      file.size,
-      input.company.trim(),
-      input.title.trim(),
-      input.category,
-      input.partnerMemberId ?? '',
-      input.partnerMemberId ? '' : input.assignedTrainee.trim(),
-      await fileDigest(await file.arrayBuffer()),
-    ]),
+  const bytesDigest = await fileDigest(
+    availableBytes ?? (await file.arrayBuffer()),
   );
+  const keyFor = (contentType: string) =>
+    fileDigest(
+      JSON.stringify([
+        'company-upload-v1',
+        scope,
+        file.name,
+        contentType,
+        file.size,
+        input.company.trim(),
+        input.title.trim(),
+        input.category,
+        input.partnerMemberId ?? '',
+        input.partnerMemberId ? '' : input.assignedTrainee.trim(),
+        bytesDigest,
+      ]),
+    );
+  const legacy = await keyFor(file.type);
+  const current = input.caseId
+    ? await keyFor(downloadContentType(file.name))
+    : legacy;
+  return { current, legacy };
+}
+
+/** Draft-linked uploads can be recovered by reselecting the same file after reload.
+ * Standalone uploads reuse a key only while the same File remains selected. */
+export async function companyUploadKey(input: CompanyUploadInput) {
+  return (await companyUploadKeyVariants(input)).current;
 }

@@ -12,6 +12,7 @@ import {
 import { uploadCompanyFile } from '../lib/company-file-upload';
 import {
   companyUploadKey,
+  companyUploadKeyVariants,
   fileDigest,
   type CompanyUploadInput,
 } from '../lib/file-upload-key';
@@ -116,6 +117,15 @@ void test('application upload keys survive file reselection; standalone keys kee
     await companyUploadKey(input()),
     await companyUploadKey({ ...input(), partnerMemberId: peer.id }),
   );
+  assert.equal(
+    await companyUploadKey({
+      ...input(),
+      file: new File(['SYNTHETIC_DOCUMENT'], 'synthetic.txt', {
+        type: 'text/html',
+      }),
+    }),
+    await companyUploadKey(input()),
+  );
   const standalone = { ...input(), caseId: undefined };
   assert.equal(
     await companyUploadKey(standalone),
@@ -183,7 +193,7 @@ void test('company upload stores registry MIME instead of browser MIME', async (
   }
 });
 
-void test('MIME normalization resumes a pending request reserved by the previous release', async () => {
+void test('normalized application key migrates previous pending, ready and deleted ledgers', async () => {
   await seed();
   const db = companyFileDatabase();
   await ensureCompanyFileTables(db);
@@ -192,7 +202,12 @@ void test('MIME normalization resumes a pending request reserved by the previous
     type: 'text/html',
   });
   data.set('file', legacyFile);
+  const keyInput = { ...input('legacy-mime-key-case'), file: legacyFile };
+  data.set('caseId', keyInput.caseId!);
+  data.set('partnerMemberId', member.id);
   const bytes = await legacyFile.arrayBuffer();
+  const keys = await companyUploadKeyVariants(keyInput, bytes);
+  assert.notEqual(keys.current, keys.legacy);
   const legacyMetadata = {
     originalName: legacyFile.name,
     company: '가상기업',
@@ -200,14 +215,13 @@ void test('MIME normalization resumes a pending request reserved by the previous
     category: '기타자료',
     assignedTrainee: member.name,
     partnerMemberId: member.id,
-    caseId: null,
+    caseId: keyInput.caseId!,
     contentType: legacyFile.type,
     sizeBytes: legacyFile.size,
   };
   const legacyFingerprint = await fileDigest(
     JSON.stringify(legacyMetadata) + (await fileDigest(bytes)),
   );
-  const key = 'legacy-mime-retry-request';
   const id = 'legacy-mime-retry-file';
   await db
     .prepare(`INSERT INTO company_file_upload_requests
@@ -215,14 +229,14 @@ void test('MIME normalization resumes a pending request reserved by the previous
       VALUES (?1, ?2, ?3, ?4, ?5, 'pending')`)
     .bind(
       `member:${member.id}`,
-      key,
+      keys.legacy,
       legacyFingerprint,
       id,
       '2026-09-04T00:00:00.000Z',
     )
     .run();
 
-  const response = await upload(request(key, data));
+  const response = await upload(request(keys.current, data));
   assert.equal(response.status, 201, await response.clone().text());
   assert.equal(
     ((await response.json()) as { file: { contentType: string } }).file
@@ -230,7 +244,49 @@ void test('MIME normalization resumes a pending request reserved by the previous
     'text/plain',
   );
   assert.equal((await findCompanyFile(id))?.content_type, 'text/plain');
-  assert.equal((await rowFor(key))?.status, 'ready');
+  assert.equal(await rowFor(keys.legacy), null);
+  assert.equal((await rowFor(keys.current))?.status, 'ready');
+
+  await db
+    .prepare(`UPDATE company_file_upload_requests
+      SET request_key = ?1, fingerprint = ?2
+      WHERE owner_key = ?3 AND request_key = ?4`)
+    .bind(keys.legacy, legacyFingerprint, `member:${member.id}`, keys.current)
+    .run();
+  const bucket = companyFileBucket();
+  const originalPut = bucket.put.bind(bucket);
+  bucket.put = async () => {
+    throw new Error('A ready legacy request must reuse its stored original');
+  };
+  try {
+    assert.equal(
+      (await stored(await upload(request(keys.current, data)))).id,
+      id,
+    );
+  } finally {
+    bucket.put = originalPut;
+  }
+  assert.equal(await rowFor(keys.legacy), null);
+  assert.equal((await rowFor(keys.current))?.status, 'ready');
+
+  assert.equal(
+    (
+      await remove(request('normalized-key-delete', form(), member, 'DELETE'), {
+        params: Promise.resolve({ id }),
+      })
+    ).status,
+    204,
+  );
+  await db
+    .prepare(`UPDATE company_file_upload_requests
+      SET request_key = ?1, fingerprint = ?2
+      WHERE owner_key = ?3 AND request_key = ?4`)
+    .bind(keys.legacy, legacyFingerprint, `member:${member.id}`, keys.current)
+    .run();
+  assert.equal((await upload(request(keys.current, data))).status, 409);
+  assert.equal(await rowFor(keys.legacy), null);
+  assert.equal((await rowFor(keys.current))?.status, 'deleted');
+  assert.equal(await bucket.get(`company-source/${id}`), null);
 });
 
 void test('accepted upload without a request key records only the coverage warning', async () => {

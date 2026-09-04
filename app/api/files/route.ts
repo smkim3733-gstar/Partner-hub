@@ -34,6 +34,7 @@ import { HeaderRequestError, readIdempotencyKey } from '@/lib/request-header';
 import { privateJsonResponse } from '@/lib/private-response';
 import { uploadFileContentProblem } from '@/lib/upload-file-signature';
 import { downloadContentType } from '@/lib/download-content-type';
+import { companyUploadKeyVariants } from '@/lib/file-upload-key';
 
 export const dynamic = 'force-dynamic';
 
@@ -170,13 +171,33 @@ export async function POST(request: Request) {
       company,
       partnerMemberId,
     );
+    let requestKey = suppliedKey ?? `legacy-${crypto.randomUUID()}`;
+    let legacyRequestKey: string | undefined;
+    if (suppliedKey && caseId) {
+      const keys = await companyUploadKeyVariants(
+        {
+          file: fileValue,
+          company,
+          title,
+          category,
+          assignedTrainee,
+          partnerMemberId,
+          caseId,
+        },
+        fileBytes,
+      );
+      if (suppliedKey === keys.current || suppliedKey === keys.legacy) {
+        requestKey = keys.current;
+        if (keys.legacy !== keys.current) legacyRequestKey = keys.legacy;
+      }
+    }
     const db = companyFileDatabase();
     await ensureCompanyFileTables(db);
     const stored = await storeCompanyUpload(
       db,
       companyFileBucket(),
       currentUser,
-      suppliedKey ?? `legacy-${crypto.randomUUID()}`,
+      requestKey,
       {
         originalName,
         company,
@@ -190,6 +211,7 @@ export async function POST(request: Request) {
         sizeBytes: fileValue.size,
       },
       fileBytes,
+      legacyRequestKey,
       async () => {
         const access = await currentFileAccess(request, currentUser);
         if (!mayUploadCompanyFiles(access.user))

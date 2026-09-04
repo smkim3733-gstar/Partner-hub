@@ -52,6 +52,7 @@ export async function storeCompanyUpload(
   requestKey: string,
   metadata: UploadMetadata,
   bytes: ArrayBuffer,
+  legacyRequestKey: string | undefined,
   authorize: () => Promise<string | null>,
   onDuplicateObserved?: (outcome: UploadDuplicateOutcome) => void,
 ) {
@@ -72,6 +73,48 @@ export async function storeCompanyUpload(
         )
       : fingerprint;
   const initialPayload = await authorize();
+  if (legacyRequestKey && legacyRequestKey !== requestKey) {
+    const currentRecord = await db
+      .prepare(
+        'SELECT file_id, fingerprint, created_at, status FROM company_file_upload_requests WHERE owner_key = ?1 AND request_key = ?2',
+      )
+      .bind(owner, requestKey)
+      .first<UploadRecord>();
+    if (!currentRecord) {
+      const legacyRecord = await db
+        .prepare(
+          'SELECT file_id, fingerprint, created_at, status FROM company_file_upload_requests WHERE owner_key = ?1 AND request_key = ?2',
+        )
+        .bind(owner, legacyRequestKey)
+        .first<UploadRecord>();
+      if (
+        legacyRecord &&
+        legacyRecord.fingerprint !== fingerprint &&
+        legacyRecord.fingerprint !== legacyFingerprint
+      )
+        throw new CompanyFileError(
+          '같은 업로드 요청의 파일 또는 자료정보가 변경되었습니다.',
+          409,
+        );
+      if (legacyRecord)
+        await db
+          .prepare(`UPDATE company_file_upload_requests
+            SET request_key = ?1, fingerprint = ?2
+            WHERE owner_key = ?3 AND request_key = ?4
+            AND NOT EXISTS (
+              SELECT 1 FROM company_file_upload_requests
+              WHERE owner_key = ?3 AND request_key = ?1
+            ) AND ${fileStateGuard('?5')}`)
+          .bind(
+            requestKey,
+            fingerprint,
+            owner,
+            legacyRequestKey,
+            initialPayload,
+          )
+          .run();
+    }
+  }
   const candidateFileId = crypto.randomUUID();
   await db
     .prepare(`INSERT INTO company_file_upload_requests
