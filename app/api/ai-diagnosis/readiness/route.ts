@@ -66,7 +66,10 @@ export async function GET(request: Request) {
   } catch (error) {
     const accessResponse = accessErrorResponse(error);
     if (accessResponse) return accessResponse;
-    console.error('Failed to read AI diagnosis readiness', error);
+    console.error(
+      'Failed to read AI diagnosis readiness',
+      error instanceof Error ? error.name : 'unknown',
+    );
     return privateJsonResponse(
       { error: 'AI 연동 준비상태를 확인하지 못했습니다.' },
       { status: 500 },

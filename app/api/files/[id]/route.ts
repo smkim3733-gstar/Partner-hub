@@ -109,7 +109,10 @@ export async function GET(
   } catch (error) {
     const response = errorResponse(error);
     if (response) return response;
-    console.error('Failed to download company file', error);
+    console.error(
+      'Failed to download company file',
+      error instanceof Error ? error.name : 'unknown',
+    );
     return privateJsonResponse(
       { error: '기업자료를 내려받지 못했습니다.' },
       { status: 500 },
@@ -208,7 +211,10 @@ export async function DELETE(
   } catch (error) {
     const response = errorResponse(error);
     if (response) return response;
-    console.error('Failed to delete company file', error);
+    console.error(
+      'Failed to delete company file',
+      error instanceof Error ? error.name : 'unknown',
+    );
     return privateJsonResponse(
       { error: '기업자료를 삭제하지 못했습니다.' },
       { status: 500 },

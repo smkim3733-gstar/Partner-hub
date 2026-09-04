@@ -103,3 +103,27 @@ void test('API stream, document and empty responses use the same private headers
       );
   }
 });
+
+void test('server error logs never receive raw exceptions or exception details', async () => {
+  const root = process.cwd();
+  const files = [
+    ...(await sourceFiles(path.resolve(root, 'app/api'))),
+    ...(await sourceFiles(path.resolve(root, 'lib'))),
+  ];
+  for (const file of files) {
+    const source = await readFile(file, 'utf8');
+    for (const match of source.matchAll(/console\.error\(([\s\S]*?)\);/g)) {
+      const argumentsSource = match[1];
+      assert.doesNotMatch(
+        argumentsSource,
+        /\b(?:error|[A-Za-z]+Error)\.(?:message|stack|cause)\b/,
+        `${path.relative(root, file)}: exception detail in server log`,
+      );
+      assert.doesNotMatch(
+        argumentsSource,
+        /,\s*(?:error|[A-Za-z]+Error)\s*$/,
+        `${path.relative(root, file)}: raw exception in server log`,
+      );
+    }
+  }
+});

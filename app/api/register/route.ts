@@ -195,7 +195,10 @@ export async function POST(request: Request) {
         { status: 409 },
       );
     }
-    console.error('Failed to submit partner registration', error);
+    console.error(
+      'Failed to submit partner registration',
+      error instanceof Error ? error.name : 'unknown',
+    );
     return privateJsonResponse(
       { error: '등록 신청을 저장하지 못했습니다. 잠시 후 다시 시도해 주세요.' },
       { status: 500 },

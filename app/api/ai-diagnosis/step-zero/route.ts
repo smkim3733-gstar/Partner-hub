@@ -138,7 +138,10 @@ export async function GET(request: Request) {
   } catch (error) {
     const accessResponse = accessErrorResponse(error);
     if (accessResponse) return accessResponse;
-    console.error('Failed to read Step 0 run', error);
+    console.error(
+      'Failed to read Step 0 run',
+      error instanceof Error ? error.name : 'unknown',
+    );
     return privateJsonResponse(
       { error: 'Step 0 결과를 불러오지 못했습니다.' },
       { status: 500 },
@@ -364,7 +367,7 @@ export async function POST(request: Request) {
         { status: error.status },
       );
     if (error instanceof AnthropicMessageResponseError) {
-      console.error('Invalid Anthropic Step 0 response', error.message);
+      console.error('Invalid Anthropic Step 0 response', error.name);
       return privateJsonResponse(
         {
           error:
@@ -373,7 +376,10 @@ export async function POST(request: Request) {
         { status: 502 },
       );
     }
-    console.error('Failed to create Step 0 run', error);
+    console.error(
+      'Failed to create Step 0 run',
+      error instanceof Error ? error.name : 'unknown',
+    );
     return privateJsonResponse(
       { error: 'Step 0 결과를 생성하거나 저장하지 못했습니다.' },
       { status: 500 },

@@ -253,7 +253,10 @@ export async function POST(request: Request) {
   } catch (error) {
     const response = errorResponse(error);
     if (response) return response;
-    console.error('Failed to upload company file', error);
+    console.error(
+      'Failed to upload company file',
+      error instanceof Error ? error.name : 'unknown',
+    );
     return privateJsonResponse(
       { error: '기업자료를 보안 저장소에 등록하지 못했습니다.' },
       { status: 500 },

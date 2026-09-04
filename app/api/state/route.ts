@@ -210,7 +210,10 @@ export async function GET(request: Request) {
   } catch (error) {
     const accessResponse = accessErrorResponse(error, request);
     if (accessResponse) return accessResponse;
-    console.error('Failed to read portal state', error);
+    console.error(
+      'Failed to read portal state',
+      error instanceof Error ? error.name : 'unknown',
+    );
     return privateJson(
       { error: '저장된 운영 데이터를 불러오지 못했습니다.' },
       { status: 500 },
@@ -394,7 +397,10 @@ export async function PUT(request: Request) {
         { error: '저장 요청 형식이 올바르지 않습니다.' },
         { status: 400 },
       );
-    console.error('Failed to write portal state', error);
+    console.error(
+      'Failed to write portal state',
+      error instanceof Error ? error.name : 'unknown',
+    );
     return privateJson(
       { error: '운영 데이터를 저장하지 못했습니다.' },
       { status: 500 },
