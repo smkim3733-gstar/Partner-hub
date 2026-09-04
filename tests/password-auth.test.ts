@@ -502,6 +502,45 @@ void test('administrator state save rejects blank or duplicate case IDs', async 
     assert.deepEqual(await state(), before);
   }
 });
+void test('administrator state save rejects blank or duplicate task, document and schedule IDs', async () => {
+  const before = await state();
+  const fields = ['tasks', 'companyDocuments', 'schedule'] as const;
+  for (const field of fields) {
+    for (const records of [
+      [{ id: ' ' }],
+      [{ id: 'collision-record' }, { id: 'collision-record' }],
+    ]) {
+      const changed = { ...structuredClone(before), [field]: records };
+      const response = await saveState(
+        request({ state: changed }, ownerHeaders, 'PUT'),
+      );
+      assert.equal(response.status, 403, await response.clone().text());
+      assert.deepEqual(await state(), before);
+    }
+  }
+});
+void test('stored duplicate task, document or schedule IDs block partner and administrator access', async () => {
+  const cookie = await loggedIn();
+  const valid = await state();
+  const fields = ['tasks', 'companyDocuments', 'schedule'] as const;
+  for (const field of fields) {
+    const corrupted = structuredClone(valid);
+    (corrupted as Record<string, unknown>)[field] = [
+      { id: 'collision-record' },
+      { id: 'collision-record' },
+    ];
+    await writePortalState(corrupted);
+    const partnerRead = await getState(request(undefined, { cookie }));
+    assert.equal(partnerRead.status, 403, await partnerRead.clone().text());
+    const ownerRead = await getState(request(undefined, ownerHeaders));
+    assert.equal(ownerRead.status, 503, await ownerRead.clone().text());
+    const repairWrite = await saveState(
+      request({ state: valid }, ownerHeaders, 'PUT'),
+    );
+    assert.equal(repairWrite.status, 503, await repairWrite.clone().text());
+    await writePortalState(valid);
+  }
+});
 void test('stored duplicate case IDs block partner projection, administrator reads and generic repair writes', async () => {
   const cookie = await loggedIn();
   const valid = await state();

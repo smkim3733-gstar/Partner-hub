@@ -141,6 +141,48 @@ void test('duplicate or blank case IDs fail closed before partner projection can
   );
 });
 
+void test('duplicate or blank task, document and schedule IDs fail closed before ownership merging', () => {
+  const fixtures = [
+    {
+      key: 'tasks',
+      label: '업무',
+      records: [
+        { id: 'collision-record', assignee: user.memberName, partnerMemberId: user.memberId, title: '첫 업무' },
+        { id: 'collision-record', assignee: user.memberName, partnerMemberId: user.memberId, title: '둘째 업무' },
+      ],
+    },
+    {
+      key: 'companyDocuments',
+      label: '기업자료',
+      records: [
+        { id: 'collision-record', assignedTrainee: user.memberName, partnerMemberId: user.memberId, title: '첫 자료' },
+        { id: 'collision-record', assignedTrainee: user.memberName, partnerMemberId: user.memberId, title: '둘째 자료' },
+      ],
+    },
+    {
+      key: 'schedule',
+      label: '일정',
+      records: [
+        { id: 'collision-record', assignedTrainee: user.memberName, partnerMemberId: user.memberId, title: '첫 일정' },
+        { id: 'collision-record', assignedTrainee: user.memberName, partnerMemberId: user.memberId, title: '둘째 일정' },
+      ],
+    },
+  ] as const;
+
+  for (const { key, label, records } of fixtures) {
+    const duplicate = { ...fixture(), [key]: records };
+    assert.throws(
+      () => stateForPortalUser(duplicate, user),
+      new RegExp(`${label} ID가 없거나 중복되었습니다`),
+    );
+    const blank = { ...fixture(), [key]: [{ ...records[0], id: ' ' }] };
+    assert.throws(
+      () => stateForPortalUser(blank, user),
+      new RegExp(`${label} ID가 없거나 중복되었습니다`),
+    );
+  }
+});
+
 void test('forged incoming assignee and ID cannot rewrite another account case, timeline or ambiguous legacy records', () => {
   const current = fixture();
   const incoming = structuredClone(current);
@@ -216,7 +258,7 @@ void test('new partner records bind to the authenticated ID without changing an 
   );
 });
 
-void test('duplicate new partner records collapse to the last submitted ID', () => {
+void test('duplicate new partner record IDs are rejected instead of collapsing data', () => {
   const current = fixture();
   const incoming = {
     ...structuredClone(current),
@@ -226,22 +268,9 @@ void test('duplicate new partner records collapse to the last submitted ID', () 
       { id: 'new-task', assignee: user.memberName, title: '마지막 업무' },
     ],
   };
-  const saved = mergeStateForPortalUser(current, incoming, user) as {
-    tasks: Array<{
-      id: string;
-      title?: string;
-      partnerMemberId?: string;
-    }>;
-  };
-
-  assert.equal(saved.tasks.filter((item) => item.id === 'new-task').length, 1);
-  assert.equal(
-    saved.tasks.find((item) => item.id === 'new-task')?.title,
-    '마지막 업무',
-  );
-  assert.equal(
-    saved.tasks.find((item) => item.id === 'new-task')?.partnerMemberId,
-    user.memberId,
+  assert.throws(
+    () => mergeStateForPortalUser(current, incoming, user),
+    /업무 ID가 없거나 중복되었습니다/,
   );
 });
 

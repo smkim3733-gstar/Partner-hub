@@ -232,24 +232,33 @@ function hasPortalRecordStructure(
   );
 }
 
-function hasStableCaseIds(cases: PortalRecord[]) {
-  const caseIds = new Set<string>();
-  return cases.every((record) => {
-    const id = record.id;
-    if (
-      typeof id !== 'string' ||
-      !id ||
-      id !== id.trim() ||
-      caseIds.has(id)
-    )
-      return false;
-    caseIds.add(id);
-    return true;
-  });
+const stableRecordIdCollections = [
+  ['cases', '사건'],
+  ['tasks', '업무'],
+  ['companyDocuments', '기업자료'],
+  ['schedule', '일정'],
+] as const;
+
+function portalRecordIdError(state: PortalStateRecord): string | null {
+  for (const [key, label] of stableRecordIdCollections) {
+    const ids = new Set<string>();
+    for (const record of state[key]) {
+      const id = record.id;
+      if (
+        typeof id !== 'string' ||
+        !id ||
+        id !== id.trim() ||
+        ids.has(id)
+      )
+        return `${label} ID가 없거나 중복되었습니다.`;
+      ids.add(id);
+    }
+  }
+  return null;
 }
 
 export function hasPortalStateStructure(value: unknown) {
-  return hasPortalRecordStructure(value) && hasStableCaseIds(value.cases);
+  return hasPortalRecordStructure(value) && portalRecordIdError(value) === null;
 }
 
 function asPortalState(value: unknown): PortalStateRecord | null {
@@ -257,8 +266,8 @@ function asPortalState(value: unknown): PortalStateRecord | null {
 }
 
 function invalidPortalStateMessage(value: unknown) {
-  return hasPortalRecordStructure(value) && !hasStableCaseIds(value.cases)
-    ? '사건 ID가 없거나 중복되었습니다.'
+  return hasPortalRecordStructure(value)
+    ? portalRecordIdError(value) ?? '저장 데이터 형식이 올바르지 않습니다.'
     : '저장 데이터 형식이 올바르지 않습니다.';
 }
 

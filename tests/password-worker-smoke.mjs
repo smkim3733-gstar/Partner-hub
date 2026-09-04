@@ -2572,6 +2572,34 @@ try {
     403,
     'generic owner state save rejects a duplicate case ID',
   );
+  for (const [field, label] of [
+    ['tasks', 'task'],
+    ['companyDocuments', 'document'],
+    ['schedule', 'schedule'],
+  ]) {
+    const blankRecordIdState = structuredClone(cleanMemberIdState);
+    blankRecordIdState[field] = [{ id: ' ' }];
+    await expect(
+      await call('/save', { state: blankRecordIdState }, ownerHeaders, 'PUT'),
+      403,
+      `generic owner state save rejects a blank ${label} ID`,
+    );
+    const duplicateRecordIdState = structuredClone(cleanMemberIdState);
+    duplicateRecordIdState[field] = [
+      { id: 'collision-record-runtime' },
+      { id: 'collision-record-runtime' },
+    ];
+    await expect(
+      await call(
+        '/save',
+        { state: duplicateRecordIdState },
+        ownerHeaders,
+        'PUT',
+      ),
+      403,
+      `generic owner state save rejects a duplicate ${label} ID`,
+    );
+  }
   const structuralLogin = await expect(
     await call('/login', { email, password: `${password} new` }),
     200,
@@ -2652,6 +2680,39 @@ try {
     503,
     'stored duplicate case ID blocks generic repair writes',
   );
+  for (const [field, label] of [
+    ['tasks', 'task'],
+    ['companyDocuments', 'document'],
+    ['schedule', 'schedule'],
+  ]) {
+    const duplicateStoredRecordState = structuredClone(cleanMemberIdState);
+    duplicateStoredRecordState[field] = [
+      { id: 'collision-record-runtime' },
+      { id: 'collision-record-runtime' },
+    ];
+    await db
+      .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+      .bind(
+        JSON.stringify(duplicateStoredRecordState),
+        new Date().toISOString(),
+      )
+      .run();
+    await expect(
+      await call('/state', undefined, { cookie: structuralCookie }),
+      403,
+      `stored duplicate ${label} ID blocks password partner access`,
+    );
+    await expect(
+      await call('/state', undefined, ownerHeaders),
+      503,
+      `stored duplicate ${label} ID blocks administrator reads`,
+    );
+    await expect(
+      await call('/save', { state: cleanMemberIdState }, ownerHeaders, 'PUT'),
+      503,
+      `stored duplicate ${label} ID blocks generic repair writes`,
+    );
+  }
   await db
     .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
     .bind(
