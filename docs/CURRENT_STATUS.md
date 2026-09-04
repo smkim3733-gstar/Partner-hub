@@ -111,6 +111,8 @@
 
 검증된 [ChatGPT 가입 계정 상태 무결성 경계](CHATGPT_REGISTRATION_INTEGRITY_BOUNDARY_2026_09_05.md)는 정지 계정의 대표 결정 보존, 동일 승인대기 재시도의 무기록 처리, 접속 IP·ChatGPT 사용자 ID 기반 15분 반복 가입 제한을 추가했다. 실제 운영 데이터와 기존 계정은 수정하지 않았다.
 
+검증된 기능 커밋 `ef1c68db31b1277de4d4b581a4d90c8d3bf3c549`는 GitHub `main`과 Sites 소스 저장소에 반영했고 Sites 버전 109 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_fad67ebf1ad0819193504c6e9aa91757`)로 저장했다. 현재 공개 운영본은 버전 107이다. 버전 108은 버전 109로 대체해 배포하지 않으며, 버전 109는 사용자 명시 승인 전까지 공개 배포하지 않는다.
+
 현재 소스는 자동 테스트 467개와 격리 workerd/D1/R2 검증 142개를 기준으로 확인한다. 최신 검증·운영 경계 문서는 [개발 문서 목록](README.md)에 구분해 남긴다. 기존 DB/R2 연결과 추가형 DB 마이그레이션을 유지한다.
 
 2026-09-04 사용자 운영 반영 승인 후 커밋 `8fa3091`까지 GitHub `main`과 기존 공개 Sites 버전 73에 반영했다. 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결을 유지했으며 `/`, `/account`, `/account/setup`의 HTTP 200 응답을 확인했다. 결과는 `outputs/release/client-response-boundary-deployment.json`에 기록한다.
