@@ -254,6 +254,15 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
       ).status,
       401,
     );
+    for (const query of [
+      '?fileId=first&fileId=second',
+      `?fileId=${'x'.repeat(121)}`,
+    ])
+      assert.equal(
+        (await intake(request(`${endpoint}/intake-files${query}`), context))
+          .status,
+        400,
+      );
     for (const id of [otherCompany, otherOwner, 'not-found'])
       assert.equal(
         (

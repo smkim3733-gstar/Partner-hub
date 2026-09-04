@@ -8,6 +8,11 @@ import {
   MultipartRequestError,
   readBoundedMultipartFormData,
 } from '../lib/request-multipart';
+import {
+  QueryRequestError,
+  readExactQueryFlag,
+  readSingleQueryParam,
+} from '../lib/request-query';
 
 function request(
   body: BodyInit | null,
@@ -159,6 +164,45 @@ void test('bounded multipart reader validates media type, framing and byte limit
   );
 });
 
+void test('query reader accepts one bounded value and rejects ambiguous flags', () => {
+  assert.equal(
+    readSingleQueryParam(new URL('http://localhost/api/test'), 'caseId', 10),
+    null,
+  );
+  assert.equal(
+    readSingleQueryParam(
+      new URL('http://localhost/api/test?caseId=case-1'),
+      'caseId',
+      10,
+    ),
+    'case-1',
+  );
+  for (const url of [
+    new URL('http://localhost/api/test?caseId=first&caseId=second'),
+    new URL('http://localhost/api/test?caseId=too-long-value'),
+  ])
+    assert.throws(
+      () => readSingleQueryParam(url, 'caseId', 10),
+      QueryRequestError,
+    );
+  assert.equal(
+    readExactQueryFlag(new URL('http://localhost/api/test'), 'download'),
+    false,
+  );
+  assert.equal(
+    readExactQueryFlag(
+      new URL('http://localhost/api/test?download=1'),
+      'download',
+    ),
+    true,
+  );
+  for (const url of [
+    new URL('http://localhost/api/test?download=false'),
+    new URL('http://localhost/api/test?download=1&download=1'),
+  ])
+    assert.throws(() => readExactQueryFlag(url, 'download'), QueryRequestError);
+});
+
 async function routeFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   const nested = await Promise.all(
@@ -212,5 +256,31 @@ void test('multipart consumers remain routed through the shared bounded reader',
     assert.ok(source.includes(boundary), `${file}: missing multipart boundary`);
     if (file.startsWith('app/api/'))
       assert.doesNotMatch(source, /\.formData\(/);
+  }
+});
+
+void test('API query consumers remain routed through the shared bounded reader', async () => {
+  const expected = [
+    ['lib/file-inventory-store.ts', "readSingleQueryParam(url, 'status', 20)"],
+    [
+      'app/api/ai-diagnosis/step-zero/route.ts',
+      "readSingleQueryParam(new URL(request.url), 'caseId', 120)",
+    ],
+    [
+      'app/api/consulting-flow/[caseId]/intake-files/route.ts',
+      "readSingleQueryParam(new URL(request.url), 'fileId', 120)",
+    ],
+    [
+      'app/api/consulting-flow/[caseId]/reports/[reportId]/route.ts',
+      "readExactQueryFlag(new URL(request.url), 'download')",
+    ],
+  ] as const;
+  for (const [file, boundary] of expected) {
+    const source = await readFile(path.resolve(process.cwd(), file), 'utf8');
+    assert.ok(source.includes(boundary), `${file}: missing query boundary`);
+  }
+  for (const file of await routeFiles(path.resolve(process.cwd(), 'app/api'))) {
+    const source = await readFile(file, 'utf8');
+    assert.doesNotMatch(source, /searchParams\.(?:get|has|getAll)\s*\(/);
   }
 });

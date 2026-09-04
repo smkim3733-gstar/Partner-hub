@@ -1,6 +1,7 @@
 import { FlowError } from '@/lib/consulting-flow';
 import { escapeHtml } from '@/lib/consulting-flow-http';
 import { flowErrorResponse, loadFlowAccess } from '@/lib/consulting-flow-store';
+import { readExactQueryFlag } from '@/lib/request-query';
 export const dynamic = 'force-dynamic';
 export async function GET(
   request: Request,
@@ -16,7 +17,7 @@ export async function GET(
         404,
       );
     const title = `${flow.company} · ${report.title} V${report.version}`;
-    if (new URL(request.url).searchParams.has('download'))
+    if (readExactQueryFlag(new URL(request.url), 'download'))
       return new Response(`${title}\n${report.body}`, {
         headers: {
           'content-type': 'text/markdown; charset=utf-8',

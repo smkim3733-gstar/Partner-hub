@@ -215,7 +215,10 @@ void test('keyset pagination has no duplicates or missing same-time rows; cursor
   for (const query of [
     '?status=__proto__',
     '?status=invalid',
+    `?status=${'x'.repeat(21)}`,
+    '?status=all&status=unlinked',
     '?cursor=!!!',
+    '?cursor=one&cursor=two',
     `?cursor=${'A'.repeat(601)}`,
   ])
     assert.equal((await list(request(query))).status, 400);

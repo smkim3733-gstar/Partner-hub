@@ -15,6 +15,7 @@ import { readPortalStateSnapshot } from '@/lib/portal-state';
 import { projectFlowState } from '@/lib/consulting-flow-projection';
 import { isPipelineDiscontinued } from '@/lib/pipeline-dropoff-metrics';
 import { isCrossSiteRequest } from '@/lib/request-origin';
+import { QueryRequestError } from '@/lib/request-query';
 
 export function flowEnvironment() {
   return env as unknown as {
@@ -181,7 +182,11 @@ export function assertSameOrigin(request: Request) {
     );
 }
 export function flowErrorResponse(error: unknown) {
-  if (error instanceof FlowError || error instanceof PortalAccessError)
+  if (
+    error instanceof FlowError ||
+    error instanceof PortalAccessError ||
+    error instanceof QueryRequestError
+  )
     return Response.json(
       { error: error.message },
       { status: error.status, headers: { 'cache-control': 'no-store' } },

@@ -23,6 +23,7 @@ import {
 } from '@/lib/anthropic-message-response';
 import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
 import { isCrossSiteRequest } from '@/lib/request-origin';
+import { QueryRequestError, readSingleQueryParam } from '@/lib/request-query';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,7 +42,11 @@ type StepZeroRequest = {
 };
 
 function accessErrorResponse(error: unknown) {
-  if (error instanceof PortalAccessError || error instanceof CompanyFileError) {
+  if (
+    error instanceof PortalAccessError ||
+    error instanceof CompanyFileError ||
+    error instanceof QueryRequestError
+  ) {
     return Response.json({ error: error.message }, { status: error.status });
   }
   return null;
@@ -114,7 +119,10 @@ export async function GET(request: Request) {
         { status: 403 },
       );
     }
-    const caseId = asText(new URL(request.url).searchParams.get('caseId'), 120);
+    const caseId = asText(
+      readSingleQueryParam(new URL(request.url), 'caseId', 120),
+      120,
+    );
     if (!caseId)
       return Response.json(
         { error: '진행 식별값이 필요합니다.' },

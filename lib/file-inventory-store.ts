@@ -15,6 +15,7 @@ import {
   type InventoryPage,
   type InventoryPresence,
 } from './file-inventory';
+import { QueryRequestError, readSingleQueryParam } from './request-query';
 
 const pageSize = 25;
 type Row = {
@@ -53,15 +54,14 @@ async function inventoryDatabase() {
   return db;
 }
 function parseQuery(url: URL) {
-  const filter = url.searchParams.get('status') ?? 'unlinked';
+  const filter = readSingleQueryParam(url, 'status', 20) ?? 'unlinked';
   if (filter !== 'all' && !Object.hasOwn(inventoryStates, filter))
     throw new CompanyFileError('보관 상태 필터를 확인해 주세요.', 400);
   let cursor: Cursor | null = null;
-  const encoded = url.searchParams.get('cursor');
+  const encoded = readSingleQueryParam(url, 'cursor', 600);
   if (encoded) {
     try {
-      if (encoded.length > 600 || !/^[A-Za-z0-9_-]+$/.test(encoded))
-        throw new Error();
+      if (!/^[A-Za-z0-9_-]+$/.test(encoded)) throw new Error();
       const value = JSON.parse(
         Buffer.from(encoded, 'base64url').toString('utf8'),
       );
@@ -230,7 +230,11 @@ export const inventoryJson = (value: unknown, status = 200) =>
     headers: { 'cache-control': 'private, no-store' },
   });
 export function inventoryError(error: unknown) {
-  if (error instanceof PortalAccessError || error instanceof CompanyFileError)
+  if (
+    error instanceof PortalAccessError ||
+    error instanceof CompanyFileError ||
+    error instanceof QueryRequestError
+  )
     return inventoryJson({ error: error.message }, error.status);
   return inventoryJson(
     {

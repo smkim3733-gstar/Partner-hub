@@ -68,6 +68,20 @@ void test('real readiness and latest-run routes pass client response guards', as
 
   assert.equal(typeof readinessResult.generationEnabled, 'boolean');
   assert.equal(runResult.run, null);
+  for (const query of [
+    '?caseId=first&caseId=second',
+    `?caseId=${'x'.repeat(121)}`,
+  ])
+    assert.equal(
+      (
+        await latestRun(
+          new Request(`http://localhost/api/ai-diagnosis/step-zero${query}`, {
+            headers: ownerHeaders,
+          }),
+        )
+      ).status,
+      400,
+    );
 });
 
 void test('readiness response returns only validated public fields', async () => {
@@ -136,7 +150,10 @@ void test('mismatched or malformed Step 0 results never reach the screen', async
 void test('AI response failures retain HTTP status and safe recovery text', async () => {
   await assert.rejects(
     readStepZeroRunResponse(
-      Response.json({ error: '생성 입력을 다시 확인해 주세요.' }, { status: 409 }),
+      Response.json(
+        { error: '생성 입력을 다시 확인해 주세요.' },
+        { status: 409 },
+      ),
       { caseId: run.caseId },
     ),
     (error: unknown) =>

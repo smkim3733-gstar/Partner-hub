@@ -250,6 +250,33 @@ void nodeTest(
     const html = await printable.text();
     assert.ok(html.includes('&lt;script&gt;window.bad=true&lt;/script&gt;'));
     assert.ok(!html.includes('<script>window.bad=true'));
+    const reportDownload = await print(
+      request(
+        `/api/consulting-flow/api-case/reports/${reportId}?download=1`,
+        undefined,
+        partnerEmail,
+      ),
+      reportContext,
+    );
+    assert.equal(reportDownload.status, 200);
+    assert.match(
+      reportDownload.headers.get('content-type') || '',
+      /text\/markdown/,
+    );
+    for (const query of ['?download=false', '?download=1&download=1'])
+      assert.equal(
+        (
+          await print(
+            request(
+              `/api/consulting-flow/api-case/reports/${reportId}${query}`,
+              undefined,
+              partnerEmail,
+            ),
+            reportContext,
+          )
+        ).status,
+        400,
+      );
     const forbidden = await command(
       'api-case',
       flow,
@@ -523,7 +550,10 @@ void nodeTest(
       globalThis.fetch = originalFetch;
       delete runtime.ANTHROPIC_API_KEY;
     }
-    const closedState = (await readPortalState()) as Omit<typeof source, 'cases'> & {
+    const closedState = (await readPortalState()) as Omit<
+      typeof source,
+      'cases'
+    > & {
       cases: Array<Record<string, unknown>>;
     };
     closedState.cases[0] = {
@@ -556,12 +586,8 @@ void nodeTest(
       409,
     );
     assert.equal(
-      (
-        await GET(
-          request('/api/consulting-flow/api-case'),
-          context('api-case'),
-        )
-      ).status,
+      (await GET(request('/api/consulting-flow/api-case'), context('api-case')))
+        .status,
       200,
     );
   },
