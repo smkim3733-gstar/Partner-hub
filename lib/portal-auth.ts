@@ -1,9 +1,16 @@
-import { hasDuplicateLoginEmail, isValidLoginEmail } from '@/lib/member-email';
+import {
+  hasDuplicateLoginEmail,
+  isValidLoginEmail,
+  LOCAL_PORTAL_OWNER_EMAIL,
+  PORTAL_OWNER_EMAIL,
+} from '@/lib/member-email';
 import type { PortalLoginStat } from '@/lib/portal-state';
 import {
-  chatGPTBoundMemberId,
+  chatGPTIdentityBinding,
   chatGPTIdentityConflictMessage,
+  chatGPTOwnerIdentityConflictMessage,
   claimChatGPTMemberBinding,
+  claimChatGPTOwnerBinding,
   passwordIdentity,
   PasswordError,
 } from '@/lib/password-store';
@@ -56,9 +63,6 @@ export type PortalUser = {
   permissions: PortalPermissions | null;
   authMethod?: 'password' | 'chatgpt';
 };
-
-const OWNER_EMAIL = 'smkim3733@gmail.com';
-const LOCAL_OWNER_EMAIL = 'seedy@sites.test';
 
 export class PortalAccessError extends Error {
   public readonly status: 401 | 403;
@@ -133,12 +137,33 @@ export async function requirePortalUser(
 
   const isLocalOwner =
     new URL(request.url).hostname === 'localhost' &&
-    email === LOCAL_OWNER_EMAIL;
-  if (email === OWNER_EMAIL || isLocalOwner) {
+    email === LOCAL_PORTAL_OWNER_EMAIL;
+  if (isLocalOwner) {
     return {
       id,
       email,
-      displayName: isLocalOwner ? '김성민 대표(로컬)' : '김성민 대표',
+      displayName: '김성민 대표(로컬)',
+      role: 'admin',
+      memberId: null,
+      memberName: null,
+      permissions: null,
+      authMethod: 'chatgpt',
+    };
+  }
+
+  const identityBinding = await chatGPTIdentityBinding(id);
+  if (identityBinding?.kind === 'invalid')
+    throw new PortalAccessError(chatGPTIdentityConflictMessage, 403);
+  if (identityBinding?.kind === 'owner' || email === PORTAL_OWNER_EMAIL) {
+    if (
+      identityBinding?.kind === 'member' ||
+      (!identityBinding && !(await claimChatGPTOwnerBinding(id)))
+    )
+      throw new PortalAccessError(chatGPTOwnerIdentityConflictMessage, 403);
+    return {
+      id,
+      email,
+      displayName: '김성민 대표',
       role: 'admin',
       memberId: null,
       memberName: null,
@@ -148,7 +173,8 @@ export async function requirePortalUser(
   }
 
   const state = asPortalState(rawState);
-  const boundMemberId = await chatGPTBoundMemberId(id);
+  const boundMemberId =
+    identityBinding?.kind === 'member' ? identityBinding.memberId : null;
   const member = boundMemberId
     ? state?.members.find((item) => item.id === boundMemberId)
     : state?.members.find((item) => item.email.trim().toLowerCase() === email);

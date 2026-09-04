@@ -7,7 +7,11 @@ import {
   validatePartnerRegistration,
   type PartnerAccount,
 } from '@/lib/partner-registration';
-import { normalizeLoginEmail, isValidLoginEmail } from '@/lib/member-email';
+import {
+  isReservedPortalOwnerEmail,
+  normalizeLoginEmail,
+  isValidLoginEmail,
+} from '@/lib/member-email';
 import { passwordProblem } from '@/lib/password-policy';
 import { PORTAL_STATE_LIMIT_BYTES } from '@/lib/pilot-readiness';
 import { schedulePasswordLinkMetric } from '@/lib/password-link-metrics';
@@ -39,7 +43,6 @@ type Account = {
 const genericLoginError = '이메일 또는 비밀번호를 확인해 주세요.';
 const existingAccountMessage =
   '이미 사용 중이거나 가입할 수 없는 이메일입니다. 기존 파트너는 대표님께 비밀번호 설정 링크를 요청해 주세요.';
-const reservedEmails = new Set(['smkim3733@gmail.com', 'seedy@sites.test']);
 function stateWithMembers(raw: unknown): State {
   if (!raw || !Array.isArray((raw as State).members))
     throw new PasswordError(
@@ -88,7 +91,7 @@ export const registerPassword = passwordHandler(async (request) => {
   if (Object.keys(errors).length)
     throw new PasswordError(Object.values(errors)[0]!);
   const password = checkedPassword(body.password);
-  if (reservedEmails.has(value.email))
+  if (isReservedPortalOwnerEmail(value.email))
     throw new PasswordError(existingAccountMessage, 409);
   await readPortalState();
   const db = await passwordDatabase();
@@ -270,7 +273,7 @@ export const createPasswordLink = passwordHandler(async (request) => {
   if (
     !member ||
     !isValidLoginEmail(member.email) ||
-    reservedEmails.has(normalizeLoginEmail(member.email))
+    isReservedPortalOwnerEmail(member.email)
   )
     throw new PasswordError('설정 가능한 파트너를 확인해 주세요.');
   await limitAuthenticationAttempts(request, 'setup-link');

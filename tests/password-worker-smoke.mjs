@@ -227,6 +227,88 @@ try {
     'owner directly registers a distinct same-name partner',
   );
   const peerId = (await peerResponse.json()).member.id;
+  const ownerBinding = await db
+    .prepare(`SELECT subject_id, user_key
+      FROM portal_chatgpt_identity_bindings WHERE subject_type = 'owner'`)
+    .first();
+  assert.equal(ownerBinding.subject_id, 'primary');
+  assert.equal(
+    ownerBinding.user_key,
+    await sha256(`chatgpt-user:${ownerHeaders['oai-authenticated-user-id']}`),
+  );
+  assert.notEqual(
+    ownerBinding.user_key,
+    ownerHeaders['oai-authenticated-user-id'],
+  );
+  checks.push('owner access stores only a hashed stable ChatGPT identity');
+  await expect(
+    await call('/state', undefined, {
+      'oai-authenticated-user-id': 'synthetic-recycled-owner',
+      'oai-authenticated-user-email':
+        ownerHeaders['oai-authenticated-user-email'],
+    }),
+    403,
+    'recycled owner email cannot inherit administrator access',
+  );
+  await expect(
+    await call('/state', undefined, {
+      ...ownerHeaders,
+      'oai-authenticated-user-email': 'changed-owner@example.invalid',
+    }),
+    200,
+    'stable owner identity survives a provider email change',
+  );
+  await expect(
+    await call(
+      '/chatgpt-register',
+      {
+        name: '가상 대표 중복가입',
+        phone: '010-0000-0002',
+        affiliation: '가상 대표소속',
+        email: 'changed-owner@example.invalid',
+      },
+      {
+        ...ownerHeaders,
+        'oai-authenticated-user-email': 'changed-owner@example.invalid',
+      },
+    ),
+    409,
+    'owner stable identity cannot also bind to a partner account',
+  );
+  await db
+    .prepare(
+      "DELETE FROM portal_chatgpt_identity_bindings WHERE subject_type = 'owner'",
+    )
+    .run();
+  const ownerRaceResponses = await Promise.all([
+    call('/state', undefined, {
+      'oai-authenticated-user-id': 'synthetic-owner-race-a',
+      'oai-authenticated-user-email':
+        ownerHeaders['oai-authenticated-user-email'],
+    }),
+    call('/state', undefined, {
+      'oai-authenticated-user-id': 'synthetic-owner-race-b',
+      'oai-authenticated-user-email':
+        ownerHeaders['oai-authenticated-user-email'],
+    }),
+  ]);
+  assert.deepEqual(
+    ownerRaceResponses.map((response) => response.status).sort(),
+    [200, 403],
+  );
+  checks.push(
+    'concurrent first owner claims authorize exactly one stable identity',
+  );
+  await db
+    .prepare(
+      "DELETE FROM portal_chatgpt_identity_bindings WHERE subject_type = 'owner'",
+    )
+    .run();
+  await expect(
+    await call('/state', undefined, ownerHeaders),
+    200,
+    'original owner identity is restored after the synthetic claim race',
+  );
   const peerRetry = await expect(
     await call('/partners', peerRegistration, ownerHeaders),
     200,
@@ -1328,6 +1410,15 @@ try {
     403,
     'upload cannot link a new private source to another account case',
   );
+  const legacyV115UserKey = await sha256(
+    'chatgpt-user:legacy-v115-migration-user',
+  );
+  await db
+    .prepare(`INSERT INTO portal_chatgpt_member_bindings
+      (member_id, user_key, created_at, updated_at)
+      VALUES ('legacy-v115-member', ?1, ?2, ?2)`)
+    .bind(legacyV115UserKey, new Date().toISOString())
+    .run();
   // Reapply every migration with existing legacy, account and case-linked rows in place.
   for (const name of migrations) {
     const migration = await readFile(
@@ -1379,6 +1470,16 @@ try {
       .bind('runtime-private-file')
       .first(),
     null,
+  );
+  const migratedV115Binding = await db
+    .prepare(`SELECT subject_type, subject_id, user_key
+      FROM portal_chatgpt_identity_bindings WHERE user_key = ?1`)
+    .bind(legacyV115UserKey)
+    .first();
+  assert.equal(migratedV115Binding.subject_type, 'member');
+  assert.equal(migratedV115Binding.subject_id, 'legacy-v115-member');
+  checks.push(
+    'version 115 member bindings migrate into the unified identity table',
   );
   checks.push(
     'migration replay preserves ID assignment and leaves legacy file ownership untouched',
@@ -2257,11 +2358,12 @@ try {
     (member) => member.email === chatGPTSignup.email,
   );
   const chatGPTBinding = await db
-    .prepare(`SELECT member_id, user_key
-      FROM portal_chatgpt_member_bindings WHERE member_id = ?1`)
+    .prepare(`SELECT subject_id, user_key
+      FROM portal_chatgpt_identity_bindings
+      WHERE subject_type = 'member' AND subject_id = ?1`)
     .bind(chatGPTOwnedMember.id)
     .first();
-  assert.equal(chatGPTBinding.member_id, chatGPTOwnedMember.id);
+  assert.equal(chatGPTBinding.subject_id, chatGPTOwnedMember.id);
   assert.equal(
     chatGPTBinding.user_key,
     await sha256(`chatgpt-user:${chatGPTHeaders['oai-authenticated-user-id']}`),
@@ -2392,7 +2494,7 @@ try {
   assert.ok(
     await db
       .prepare(
-        'SELECT member_id FROM portal_chatgpt_member_bindings WHERE member_id = ?1',
+        "SELECT subject_id FROM portal_chatgpt_identity_bindings WHERE subject_type = 'member' AND subject_id = ?1",
       )
       .bind(disposableMember.id)
       .first(),
@@ -2422,7 +2524,7 @@ try {
   assert.equal(
     await db
       .prepare(
-        'SELECT member_id FROM portal_chatgpt_member_bindings WHERE member_id = ?1',
+        "SELECT subject_id FROM portal_chatgpt_identity_bindings WHERE subject_type = 'member' AND subject_id = ?1",
       )
       .bind(disposableMember.id)
       .first(),

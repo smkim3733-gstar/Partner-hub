@@ -1,4 +1,7 @@
-import { isValidLoginEmail } from '@/lib/member-email';
+import {
+  isReservedPortalOwnerEmail,
+  isValidLoginEmail,
+} from '@/lib/member-email';
 import { mutatePortalState, PortalStateConflict } from '@/lib/portal-state';
 import { membersRevisionOf } from '@/lib/partner-registration';
 import { assertSameOrigin } from '@/lib/consulting-flow-store';
@@ -108,6 +111,12 @@ export async function POST(request: Request) {
           error: '현재 ChatGPT 로그인 이메일과 신청 이메일이 일치해야 합니다.',
         },
         { status: 403 },
+      );
+    }
+    if (isReservedPortalOwnerEmail(email)) {
+      return privateJsonResponse(
+        { error: '대표 관리자 이메일은 파트너 등록에 사용할 수 없습니다.' },
+        { status: 409 },
       );
     }
 

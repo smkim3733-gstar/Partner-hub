@@ -25,6 +25,7 @@ import {
 } from '@/lib/duplicate-request-metrics';
 import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
 import { privateJsonResponse } from '@/lib/private-response';
+import { isReservedPortalOwnerEmail } from '@/lib/member-email';
 import {
   passwordCredentialEmailConflictMessage,
   passwordCredentialEmailReserved,
@@ -57,7 +58,7 @@ export async function POST(request: Request) {
     const { value, errors } = validatePartnerRegistration(body);
     if (Object.keys(errors).length)
       return response({ error: '입력 항목을 확인해 주세요.', errors }, 400);
-    if (value.email === actor.email)
+    if (isReservedPortalOwnerEmail(value.email) || value.email === actor.email)
       return response(
         {
           error: '대표 관리자 이메일은 파트너로 중복 등록할 수 없습니다.',

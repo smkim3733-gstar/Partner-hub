@@ -117,7 +117,7 @@ beforeEach(async () => {
   const passwordDb = await passwordDatabase();
   await passwordDb.batch([
     passwordDb.prepare('DELETE FROM portal_password_accounts'),
-    passwordDb.prepare('DELETE FROM portal_chatgpt_member_bindings'),
+    passwordDb.prepare('DELETE FROM portal_chatgpt_identity_bindings'),
     passwordDb.prepare('DELETE FROM portal_auth_limits'),
   ]);
   await writePortalState({
@@ -339,6 +339,7 @@ void test('case-insensitive duplicate, suspended account and owner address are r
     existingEmail.toUpperCase(),
     'suspended@example.invalid',
     owner,
+    'smkim3733@gmail.com',
   ])
     assert.equal((await create(request(body({ email })))).status, 409);
   const current = await state();
@@ -675,6 +676,14 @@ void test('public self registration still requires matching authenticated email 
       401,
     );
   assert.equal((await state()).members.length, 2);
+  for (const reservedOwnerEmail of [owner, 'smkim3733@gmail.com']) {
+    const reserved = body({ email: reservedOwnerEmail });
+    const response = await selfRegister(
+      request(reserved, reservedOwnerEmail, '/api/register'),
+    );
+    assert.equal(response.status, 409, await response.clone().text());
+  }
+  assert.equal((await state()).members.length, 2);
   const results = await Promise.all([
     selfRegister(request(signup, signup.email, '/api/register')),
     create(request(body())),
@@ -765,11 +774,12 @@ void test('public ChatGPT registration rejects detached credentials but permits 
     (member) => member.email === signup.email,
   )!;
   const binding = await db
-    .prepare(`SELECT member_id, user_key
-      FROM portal_chatgpt_member_bindings WHERE member_id = ?1`)
+    .prepare(`SELECT subject_id, user_key
+      FROM portal_chatgpt_identity_bindings
+      WHERE subject_type = 'member' AND subject_id = ?1`)
     .bind(pending.id)
-    .first<{ member_id: string; user_key: string }>();
-  assert.equal(binding?.member_id, pending.id);
+    .first<{ subject_id: string; user_key: string }>();
+  assert.equal(binding?.subject_id, pending.id);
   assert.equal(binding?.user_key, tokenHash(`chatgpt-user:${signup.email}`));
   const recycledIdentity = await selfRegister(
     request(signup, signup.email, '/api/register', 'POST', {
@@ -808,7 +818,7 @@ void test('public ChatGPT registration rejects detached credentials but permits 
 void test('ChatGPT registration rolls back the pending member when identity binding storage fails', async () => {
   const signup = body({ email: 'binding-rollback@example.invalid' });
   const before = await state();
-  failNextDatabaseStatement('INSERT INTO portal_chatgpt_member_bindings');
+  failNextDatabaseStatement('INSERT INTO portal_chatgpt_identity_bindings');
   const response = await selfRegister(
     request(signup, signup.email, '/api/register'),
   );

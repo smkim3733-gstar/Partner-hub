@@ -200,9 +200,13 @@ export const portalPasswordSchemaSql = [
     password_hash TEXT NOT NULL, credential_version TEXT NOT NULL,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL
   )`,
-  `CREATE TABLE IF NOT EXISTS portal_chatgpt_member_bindings (
-    member_id TEXT PRIMARY KEY NOT NULL, user_key TEXT UNIQUE NOT NULL,
-    created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+  `CREATE TABLE IF NOT EXISTS portal_chatgpt_identity_bindings (
+    subject_type TEXT NOT NULL CHECK (subject_type IN ('owner', 'member')),
+    subject_id TEXT NOT NULL, user_key TEXT UNIQUE NOT NULL,
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+    PRIMARY KEY (subject_type, subject_id),
+    CHECK ((subject_type = 'owner' AND subject_id = 'primary') OR
+      (subject_type = 'member' AND length(subject_id) > 0))
   )`,
   `CREATE TABLE IF NOT EXISTS portal_password_sessions (
     token_hash TEXT PRIMARY KEY NOT NULL, member_id TEXT NOT NULL,

@@ -127,7 +127,7 @@ beforeEach(async () => {
   await db.batch(
     [
       'portal_password_accounts',
-      'portal_chatgpt_member_bindings',
+      'portal_chatgpt_identity_bindings',
       'portal_password_sessions',
       'portal_password_links',
       'portal_auth_limits',
@@ -346,6 +346,62 @@ void test('approval enables cookie-only login; session cannot elevate to mocked 
   assert.doesNotMatch(sessionCookie(request(), token), /Domain=/i);
   assertPrivateAuthResponse(response);
 });
+void test('administrator access binds the stable ChatGPT identity, rejects a recycled owner email and survives a provider email change', async () => {
+  const initial = await getState(request(undefined, ownerHeaders));
+  assert.equal(initial.status, 200, await initial.clone().text());
+  const ownerBinding = await (
+    await passwordDatabase()
+  )
+    .prepare(`SELECT subject_type, subject_id, user_key
+      FROM portal_chatgpt_identity_bindings WHERE subject_type = 'owner'`)
+    .first<{ subject_type: string; subject_id: string; user_key: string }>();
+  assert.equal(ownerBinding?.subject_type, 'owner');
+  assert.equal(ownerBinding?.subject_id, 'primary');
+  assert.equal(
+    ownerBinding?.user_key,
+    tokenHash(`chatgpt-user:${ownerHeaders['oai-authenticated-user-id']}`),
+  );
+  assert.notEqual(
+    ownerBinding?.user_key,
+    ownerHeaders['oai-authenticated-user-id'],
+  );
+
+  const recycled = await getState(
+    request(undefined, {
+      'oai-authenticated-user-id': 'recycled-owner-user',
+      'oai-authenticated-user-email': 'smkim3733@gmail.com',
+    }),
+  );
+  assert.equal(recycled.status, 403, await recycled.clone().text());
+
+  const changedEmail = await getState(
+    request(undefined, {
+      'oai-authenticated-user-id': ownerHeaders['oai-authenticated-user-id'],
+      'oai-authenticated-user-email': 'changed-owner@example.invalid',
+    }),
+  );
+  assert.equal(changedEmail.status, 200, await changedEmail.clone().text());
+  assert.equal(
+    ((await changedEmail.json()) as { currentUser: { role: string } })
+      .currentUser.role,
+    'admin',
+  );
+});
+void test('administrator identity claim fails closed when binding storage fails', async () => {
+  failNextDatabaseStatement('INSERT INTO portal_chatgpt_identity_bindings');
+  const response = await getState(request(undefined, ownerHeaders));
+  assert.equal(response.status, 500, await response.clone().text());
+  assert.equal(
+    await (
+      await passwordDatabase()
+    )
+      .prepare(
+        "SELECT subject_id FROM portal_chatgpt_identity_bindings WHERE subject_type = 'owner'",
+      )
+      .first(),
+    null,
+  );
+});
 void test('ChatGPT stable identity binding claims a legacy member, rejects a recycled email and accepts the bound user after an email change', async () => {
   const db = await passwordDatabase();
   const initial = await getState(
@@ -356,15 +412,13 @@ void test('ChatGPT stable identity binding claims a legacy member, rejects a rec
   );
   assert.equal(initial.status, 200, await initial.clone().text());
   const binding = await db
-    .prepare(`SELECT member_id, user_key
-      FROM portal_chatgpt_member_bindings WHERE member_id = ?1`)
+    .prepare(`SELECT subject_id, user_key
+      FROM portal_chatgpt_identity_bindings
+      WHERE subject_type = 'member' AND subject_id = ?1`)
     .bind('existing')
-    .first<{ member_id: string; user_key: string }>();
-  assert.equal(binding?.member_id, 'existing');
-  assert.equal(
-    binding?.user_key,
-    tokenHash('chatgpt-user:test-bound-user'),
-  );
+    .first<{ subject_id: string; user_key: string }>();
+  assert.equal(binding?.subject_id, 'existing');
+  assert.equal(binding?.user_key, tokenHash('chatgpt-user:test-bound-user'));
 
   const recycled = await getState(
     request(undefined, {
@@ -403,7 +457,7 @@ void test('ChatGPT identity binding survives suspension but is removed by an adm
   assert.ok(
     await db
       .prepare(
-        'SELECT member_id FROM portal_chatgpt_member_bindings WHERE member_id = ?1',
+        "SELECT subject_id FROM portal_chatgpt_identity_bindings WHERE subject_type = 'member' AND subject_id = ?1",
       )
       .bind('existing')
       .first(),
@@ -424,7 +478,7 @@ void test('ChatGPT identity binding survives suspension but is removed by an adm
   assert.equal(
     await db
       .prepare(
-        'SELECT member_id FROM portal_chatgpt_member_bindings WHERE member_id = ?1',
+        "SELECT subject_id FROM portal_chatgpt_identity_bindings WHERE subject_type = 'member' AND subject_id = ?1",
       )
       .bind('existing')
       .first(),
@@ -445,7 +499,7 @@ void test('member email change rolls back when ChatGPT identity binding revocati
   const before = await state();
   const changed = structuredClone(before);
   changed.members[0].email = 'rollback-binding@example.invalid';
-  failNextDatabaseStatement('DELETE FROM portal_chatgpt_member_bindings');
+  failNextDatabaseStatement('DELETE FROM portal_chatgpt_identity_bindings');
   assert.equal(
     (await saveState(request({ state: changed }, ownerHeaders, 'PUT'))).status,
     500,
@@ -456,7 +510,7 @@ void test('member email change rolls back when ChatGPT identity binding revocati
   assert.ok(
     await db
       .prepare(
-        'SELECT member_id FROM portal_chatgpt_member_bindings WHERE member_id = ?1',
+        "SELECT subject_id FROM portal_chatgpt_identity_bindings WHERE subject_type = 'member' AND subject_id = ?1",
       )
       .bind('existing')
       .first(),

@@ -122,8 +122,63 @@ export const passwordCredentialEmailConflictMessage =
   '이 이메일에는 다른 사이트 비밀번호 자격이 남아 있습니다. 이메일을 확인하거나 기존 자격을 정리한 뒤 다시 시도해 주세요.';
 export const chatGPTIdentityConflictMessage =
   '이 ChatGPT 로그인 정보는 다른 파트너 계정과 연결되어 있습니다. 대표님께 계정 확인을 요청해 주세요.';
+export const chatGPTOwnerIdentityConflictMessage =
+  '대표 관리자 ChatGPT 계정이 일치하지 않습니다. 기존 대표 계정으로 다시 로그인해 주세요.';
 
 const chatGPTUserKey = (userId: string) => tokenHash(`chatgpt-user:${userId}`);
+
+type ChatGPTIdentityBindingRow = {
+  subject_type: string;
+  subject_id: string;
+  user_key: string;
+};
+
+export type ChatGPTIdentityBinding =
+  | { kind: 'owner' }
+  | { kind: 'member'; memberId: string }
+  | { kind: 'invalid' };
+
+function parsedChatGPTIdentityBinding(
+  row: ChatGPTIdentityBindingRow | null,
+): ChatGPTIdentityBinding | null {
+  if (!row) return null;
+  if (row.subject_type === 'owner' && row.subject_id === 'primary')
+    return { kind: 'owner' };
+  if (row.subject_type === 'member' && row.subject_id)
+    return { kind: 'member', memberId: row.subject_id };
+  return { kind: 'invalid' };
+}
+
+async function chatGPTIdentityBindingFromDatabase(
+  db: D1Database,
+  userId: string,
+) {
+  const row = await db
+    .prepare(`SELECT subject_type, subject_id, user_key
+      FROM portal_chatgpt_identity_bindings WHERE user_key = ?1`)
+    .bind(chatGPTUserKey(userId))
+    .first<ChatGPTIdentityBindingRow>();
+  return parsedChatGPTIdentityBinding(row);
+}
+
+export async function chatGPTIdentityBinding(userId: string) {
+  return chatGPTIdentityBindingFromDatabase(await passwordDatabase(), userId);
+}
+
+export async function claimChatGPTOwnerBinding(userId: string) {
+  const db = await passwordDatabase();
+  const now = new Date().toISOString();
+  await db
+    .prepare(`INSERT INTO portal_chatgpt_identity_bindings
+      (subject_type, subject_id, user_key, created_at, updated_at)
+      VALUES ('owner', 'primary', ?1, ?2, ?2)
+      ON CONFLICT DO NOTHING`)
+    .bind(chatGPTUserKey(userId), now)
+    .run();
+  return (
+    (await chatGPTIdentityBindingFromDatabase(db, userId))?.kind === 'owner'
+  );
+}
 
 async function chatGPTBindingRows(
   db: D1Database,
@@ -132,10 +187,11 @@ async function chatGPTBindingRows(
 ) {
   return (
     await db
-      .prepare(`SELECT member_id, user_key FROM portal_chatgpt_member_bindings
-        WHERE member_id = ?1 OR user_key = ?2`)
+      .prepare(`SELECT subject_type, subject_id, user_key
+        FROM portal_chatgpt_identity_bindings
+        WHERE (subject_type = 'member' AND subject_id = ?1) OR user_key = ?2`)
       .bind(memberId, chatGPTUserKey(userId))
-      .all<{ member_id: string; user_key: string }>()
+      .all<ChatGPTIdentityBindingRow>()
   ).results;
 }
 
@@ -150,7 +206,8 @@ export async function chatGPTMemberBindingStatus(
   );
   if (rows.length === 0) return 'available';
   return rows.length === 1 &&
-    rows[0].member_id === memberId &&
+    rows[0].subject_type === 'member' &&
+    rows[0].subject_id === memberId &&
     rows[0].user_key === chatGPTUserKey(userId)
     ? 'owned'
     : 'conflict';
@@ -166,9 +223,9 @@ export function chatGPTMemberBindingStatements(
   return [
     ...portalPasswordSchemaSql.map((sql) => db.prepare(sql)),
     db
-      .prepare(`INSERT INTO portal_chatgpt_member_bindings
-        (member_id, user_key, created_at, updated_at)
-        SELECT ?1, ?2, ?3, ?3
+      .prepare(`INSERT INTO portal_chatgpt_identity_bindings
+        (subject_type, subject_id, user_key, created_at, updated_at)
+        SELECT 'member', ?1, ?2, ?3, ?3
         WHERE EXISTS (SELECT 1 FROM portal_state WHERE id = ?4 AND payload = ?5)`)
       .bind(
         memberId,
@@ -180,18 +237,6 @@ export function chatGPTMemberBindingStatements(
   ];
 }
 
-export async function chatGPTBoundMemberId(userId: string) {
-  const row = await (
-    await passwordDatabase()
-  )
-    .prepare(
-      'SELECT member_id FROM portal_chatgpt_member_bindings WHERE user_key = ?1',
-    )
-    .bind(chatGPTUserKey(userId))
-    .first<{ member_id: string }>();
-  return row?.member_id ?? null;
-}
-
 export async function claimChatGPTMemberBinding(
   userId: string,
   memberId: string,
@@ -201,9 +246,9 @@ export async function claimChatGPTMemberBinding(
   const key = chatGPTUserKey(userId);
   const now = new Date().toISOString();
   await db
-    .prepare(`INSERT INTO portal_chatgpt_member_bindings
-      (member_id, user_key, created_at, updated_at)
-      SELECT ?1, ?2, ?3, ?3
+    .prepare(`INSERT INTO portal_chatgpt_identity_bindings
+      (subject_type, subject_id, user_key, created_at, updated_at)
+      SELECT 'member', ?1, ?2, ?3, ?3
       WHERE EXISTS (SELECT 1 FROM portal_state s, json_each(s.payload, '$.members') m
         WHERE s.id = ?4 AND json_extract(m.value, '$.id') = ?1
         AND lower(trim(json_extract(m.value, '$.email'))) = ?5
@@ -214,7 +259,8 @@ export async function claimChatGPTMemberBinding(
   const rows = await chatGPTBindingRows(db, userId, memberId);
   return (
     rows.length === 1 &&
-    rows[0].member_id === memberId &&
+    rows[0].subject_type === 'member' &&
+    rows[0].subject_id === memberId &&
     rows[0].user_key === key
   );
 }
@@ -363,7 +409,7 @@ export function passwordAccessRevocationStatements(
     ...chatGPTBindingMemberIds.map((memberId) =>
       db
         .prepare(
-          `DELETE FROM portal_chatgpt_member_bindings WHERE member_id = ?1 AND ${committed}`,
+          `DELETE FROM portal_chatgpt_identity_bindings WHERE subject_type = 'member' AND subject_id = ?1 AND ${committed}`,
         )
         .bind(memberId, portalStateId, committedPortalPayload),
     ),
