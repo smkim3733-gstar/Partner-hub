@@ -35,15 +35,26 @@ const recordingExtensions = new Set([
 const audioExtensions = new Set(['mp3', 'm4a', 'wav']);
 const extension = (name: string) => name.split('.').at(-1)?.toLowerCase() || '';
 export function safeFileName(value: string) {
-  return Array.from(value, (character) => {
-    const code = character.charCodeAt(0);
-    return character === '\\' || character === '/' || code < 32 || code === 127
+  const filename = Array.from(value.normalize('NFC'), (character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return character === '\\' ||
+      character === '/' ||
+      codePoint < 32 ||
+      codePoint === 127 ||
+      (codePoint >= 0xd800 && codePoint <= 0xdfff)
       ? '_'
       : character;
   })
     .join('')
-    .trim()
-    .slice(0, 180);
+    .trim();
+  const characters = Array.from(filename);
+  if (characters.length <= 180) return filename;
+  const suffix = filename.match(/\.[a-z0-9]{1,15}$/i)?.[0] ?? '';
+  if (!suffix) return characters.slice(0, 180).join('').trim();
+  return `${Array.from(filename.slice(0, -suffix.length))
+    .slice(0, 180 - suffix.length)
+    .join('')
+    .trimEnd()}${suffix}`;
 }
 export const isAudioFile = (name: string) =>
   audioExtensions.has(extension(name));

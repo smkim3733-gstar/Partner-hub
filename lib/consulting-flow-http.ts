@@ -3,6 +3,7 @@ import {
   type FlowCommand,
   type FlowFile,
 } from '@/lib/consulting-flow';
+import { safeFileName } from './company-file-policy';
 import { audioFileProblem, transcriptFileProblem } from './transcript-policy';
 import { JsonRequestError, readBoundedJsonObject } from './request-json';
 import {
@@ -150,13 +151,7 @@ export function describeUpload(
   const id = crypto.randomUUID();
   return {
     id,
-    name: Array.from(file.name, (c) =>
-      c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127 || c === '/' || c === '\\'
-        ? '_'
-        : c,
-    )
-      .join('')
-      .slice(0, 180),
+    name: safeFileName(file.name),
     contentType: mime[ext],
     size: file.size,
     key: `consulting-flow/${id}`,

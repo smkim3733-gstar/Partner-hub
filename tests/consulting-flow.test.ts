@@ -791,6 +791,14 @@ test('upload extensions, purposes and consent validated; HTML output escapes inj
       .purpose,
     'signed_contract',
   );
+  assert.equal(
+    describeUpload(
+      new File(['%PDF-1.7'], ` e\u0301/\u0000report.pdf`),
+      { type: 'record_contract', fileConsent: true },
+      now,
+    ).name,
+    'é__report.pdf',
+  );
   assert.throws(
     () =>
       describeUpload(

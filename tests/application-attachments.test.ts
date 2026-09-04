@@ -10,11 +10,20 @@ import {
   companyFileProblem,
   documentCategoryFromFileName,
   MAX_COMPANY_FILE_BYTES,
+  safeFileName,
   type ApplicationAttachment,
 } from '../lib/company-file-policy';
 
 const makeFile = (name: string, body = '가상 파일 본문') =>
   new File([body], name, { lastModified: 12345 });
+
+void test('stored upload names share one Unicode-safe boundary', () => {
+  assert.equal(safeFileName(` e\u0301/\u0000\ud800.pdf `), 'é___.pdf');
+  const longName = safeFileName(`${'😀'.repeat(181)}.pdf`);
+  assert.equal(Array.from(longName).length, 180);
+  assert.equal(Array.from(longName).at(-5), '😀');
+  assert.equal(longName.endsWith('.pdf'), true);
+});
 
 void test('intake UI exposes separate labeled recording and company inputs with safe file names', () => {
   const file = makeFile('<script>.txt');
