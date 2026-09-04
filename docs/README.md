@@ -2,101 +2,102 @@
 
 고객별 자료를 제외하고 이번 프로젝트의 기획과 구현 기준을 모았습니다. 날짜가 붙은 기획서는 당시의 설계 기록으로, 모든 항목이 구현 완료되었다는 뜻은 아닙니다.
 
-| 문서                                                                                                             | 내용                                                                                     |
-| ---------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                     | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
-| [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
-| [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                  | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
-| [파트너 유형 명시 선택 안전성](PARTNER_TYPE_SELECTION_SAFETY_2026_09_03.md)                                      | 직접등록·승인대기 유형 자동선택 제거와 허용 유형 검증                                    |
-| [대표 직접등록 응답 검증 안전성](PARTNER_REGISTRATION_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                  | 등록 입력·최소 권한·명단 일관성 검증과 손상 응답 재시도 보호                             |
-| [원본 보관 현황 응답 검증 안전성](FILE_INVENTORY_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                       | 목록·필터·커서·파일 ID·원본 존재와 크기 관계 검증                                        |
-| [신청자료 검토 응답 검증 안전성](INTAKE_SOURCE_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                         | 목록 메타데이터·선택 파일·원본 해시·본문 구조 검증                                       |
-| [사이트 인증 응답 검증 안전성](PASSWORD_AUTH_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                           | 가입·로그인·설정·로그아웃별 성공 계약과 안전한 오류 검증                                 |
-| [비밀번호 설정 링크 응답 검증 안전성](PASSWORD_LINK_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                    | 동일 출처 fragment 경로·토큰·만료시각 검증                                               |
-| [원본 회수 미리보기 응답 검증 안전성](FILE_RECOVERY_PREVIEW_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)            | 요청 원본·진행·담당·크기·revision 검증                                                   |
-| [1차 보고서 사전점검 응답 검증 안전성](REPORT_PREFLIGHT_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                | 현재 진행·자료 합계·필수 검사·유료 생성 가능값 교차검증                                  |
-| [클라이언트 API 응답 경계 최종 감사](CLIENT_API_RESPONSE_BOUNDARY_AUDIT_2026_09_04.md)                           | 전체 fetch 경로·전용 검증기·멱등 무시 응답과 재발 방지 검사                              |
-| [서버 API 요청 경계 최종 감사](SERVER_API_REQUEST_BOUNDARY_AUDIT_2026_09_04.md)                                  | 스트림 크기·JSON 형식·객체 구조 검증과 직접 본문 파싱 재발 방지 검사                     |
-| [서버 변경 요청 출처 경계 감사](SERVER_MUTATION_ORIGIN_BOUNDARY_2026_09_04.md)                                   | 교차 사이트 신호 통합 판별과 인증·저장소 접근 전 조기 차단                               |
-| [서버 JSON 요청 파서 통합](SERVER_JSON_REQUEST_PARSER_CONSOLIDATION_2026_09_04.md)                               | 신청 임시저장·원본 회수·상담 FLOW·비밀번호 요청의 공용 형식·크기 경계                    |
-| [서버 멀티파트 요청 경계 통합](SERVER_MULTIPART_REQUEST_BOUNDARY_2026_09_04.md)                                  | 기업자료·상담 FLOW 업로드의 미디어 유형·크기·framing·payload 검증                        |
-| [서버 URL 쿼리 요청 경계 통합](SERVER_QUERY_REQUEST_BOUNDARY_2026_09_04.md)                                      | 목록·Step 0·신청자료·보고서 쿼리의 중복·길이·명시 플래그 검증                            |
-| [서버 URL 경로 식별값 경계 통합](SERVER_PATH_REQUEST_BOUNDARY_2026_09_04.md)                                     | 진행·파일·원본·첨부·보고서 경로 ID의 문자·길이 검증                                      |
-| [다운로드 파일명 Content-Disposition 보안 경계](CONTENT_DISPOSITION_DOWNLOAD_FILENAME_BOUNDARY_2026_09_04.md)    | 기업 원본·상담 첨부·보고서 다운로드 이름의 제어문자 제거와 RFC 5987 인코딩               |
-| [다운로드 Content-Type 보안 경계](DOWNLOAD_CONTENT_TYPE_BOUNDARY_2026_09_04.md)                                  | 기업 원본·상담 첨부 응답 MIME의 허용 확장자별 고정과 안전한 기본값                       |
-| [업로드 실제 파일 형식 보안 경계](UPLOAD_FILE_SIGNATURE_BOUNDARY_2026_09_04.md)                                  | 기업자료·상담 FLOW 첨부의 확장자와 실제 바이너리 형식 일치 검증                          |
-| [업로드 실제 형식 미등록 기본 거절](UPLOAD_SIGNATURE_FAIL_CLOSED_2026_09_04.md)                                  | 새 확장자의 실제 형식 검사 누락을 막는 fail-closed 정책                                  |
-| [업로드 텍스트 내용 보안 경계](UPLOAD_TEXT_CONTENT_BOUNDARY_2026_09_04.md)                                       | TXT·Markdown의 문자 인코딩 판독과 바이너리 제어문자 저장 전 차단                         |
-| [업로드 파일 형식 공용 등록표](UPLOAD_FORMAT_REGISTRY_2026_09_04.md)                                             | 확장자·고정 MIME·실제 내용 판정·파일 선택값의 단일 정책 원천                             |
-| [상담 FLOW 목적별 업로드 형식 정책](CONSULTING_FLOW_UPLOAD_POLICY_2026_09_04.md)                                 | 보고서 차수·AI 근거·녹취·추가서류·계약서의 화면·서버 허용 형식 일치                      |
-| [상담 FLOW 목적별 업로드 크기 정책](CONSULTING_FLOW_UPLOAD_SIZE_POLICY_2026_09_04.md)                            | AI 근거·전사문·음성·일반 첨부의 화면·서버 크기 일치와 내용 판독 전 조기 거절             |
-| [상담 FLOW 명령 영수증 Content-Type 정책](FLOW_COMMAND_RECEIPT_CONTENT_TYPE_POLICY_2026_09_04.md)                | 브라우저 MIME과 무관한 첨부 멱등 지문, 이전 영수증 호환과 변경 내용 충돌 유지            |
-| [업로드 제한 안내 공용화](UPLOAD_LIMIT_LABEL_REGISTRY_2026_09_04.md)                                             | 기업자료·AI 근거·전사문·음성의 실제 크기·개수 정책과 화면·서버 안내 일치                 |
-| [기업자료 업로드 Content-Type 저장 정책](COMPANY_UPLOAD_CONTENT_TYPE_POLICY_2026_09_04.md)                       | 브라우저 MIME 불신, 응답·D1·R2 고정 MIME과 배포 전후 재시도 호환                         |
-| [신청 첨부 업로드 멱등키 Content-Type 정책](APPLICATION_UPLOAD_KEY_CONTENT_TYPE_POLICY_2026_09_04.md)            | 브라우저 MIME과 무관한 신청 첨부 키, 이전 원장 이동과 파일·삭제 상태 보존                |
-| [업로드 멱등키·영수증 파일명 정규화 정책](UPLOAD_RECEIPT_FILENAME_NORMALIZATION_POLICY_2026_09_04.md)            | NFC/NFD 파일명과 무관한 신청 첨부 키·FLOW 영수증, 이전 기록 호환과 중복 원장 보존        |
-| [상담 FLOW 화면 재시도 지문 정책](FLOW_CLIENT_RETRY_FINGERPRINT_POLICY_2026_09_04.md)                            | 첨부 실제 바이트·정규 파일명 기반 명령 ID 유지와 파일 수정시각 의존 제거                 |
-| [협업신청 첨부 실제 내용 중복 판정 정책](APPLICATION_ATTACHMENT_CONTENT_DEDUPLICATION_POLICY_2026_09_04.md)      | 메타정보 충돌 파일 누락 방지, 정규 파일명·실제 바이트 기반 재선택 중복 판정              |
-| [협업신청 첨부 내용 확인 중 제출 잠금 정책](APPLICATION_ATTACHMENT_HASHING_SUBMISSION_LOCK_POLICY_2026_09_04.md) | 바이트 지문 계산 중 제출·임시저장·화면이동 경합과 방금 고른 파일 누락 차단               |
-| [빌드 도구와 운영 의존성 경계](BUILD_TOOL_RUNTIME_DEPENDENCY_BOUNDARY_2026_09_04.md)                             | shadcn CLI의 빌드 전용 분류, qs 운영 감사 경로 제거와 Sites 버전 103 운영 반영           |
-| [운영 의존성 보안 패치와 잔여 위험](DEPENDENCY_SECURITY_PATCH_AND_RESIDUAL_RISK_2026_09_04.md)                   | React/RSC·Vite 패치, 미배포 image-size 수정본과 실제 입력 경계, Sites 버전 102 운영 반영 |
-| [업로드 파일명 정규화 보안 경계](UPLOAD_FILENAME_NORMALIZATION_BOUNDARY_2026_09_04.md)                           | 기업자료·상담 FLOW 저장 파일명의 공용 Unicode·제어문자·길이 경계                         |
-| [파트너 계정 설정 저장 안전성](PARTNER_ACCOUNT_SETTINGS_DRAFT_SAFETY_2026_09_03.md)                              | 이메일·유형·상태·권한의 저장 전 초안 격리와 취소 폐기                                    |
-| [진행 담당 계정 변경 확인 안전성](CASE_ASSIGNMENT_CONFIRMATION_SAFETY_2026_09_03.md)                             | 현재·변경 후 담당 대조, 취소 보존과 저장 직전 재검증                                     |
-| [진행단계·중단 상태 변경 확인 안전성](PIPELINE_CHANGE_CONFIRMATION_SAFETY_2026_09_03.md)                         | 수동 단계·진행 중단·재개의 영향 확인과 stale 상태 차단                                   |
-| [기업자료 상태 변경 확인 안전성](DOCUMENT_STATUS_CONFIRMATION_SAFETY_2026_09_03.md)                              | 현재·변경 후 상태 영향 확인, 취소 보존과 저장 직전 원본 연결 재검증                      |
-| [기업자료 업로드 응답 멱등 반영 안전성](COMPANY_DOCUMENT_UPLOAD_IDEMPOTENCY_2026_09_03.md)                       | 서버 확정 원본 ID 기준 단일 카드 반영, 검토 상태 보존과 중복 저장 ID 병합                |
-| [기업자료 업로드 응답 검증 안전성](COMPANY_FILE_UPLOAD_RESPONSE_VALIDATION_SAFETY_2026_09_03.md)                 | 파일·담당·진행 메타데이터 요청 일치 검증과 미확인 필드 제거                              |
-| [업무·지원요청 상태 변경 확인 안전성](WORK_TASK_STATUS_CONFIRMATION_SAFETY_2026_09_03.md)                        | 완료·재개·처리 시작 확인과 담당·마감·지원 주기 재검증                                    |
-| [가상 진단 검토대기 등록 확인 안전성](DIAGNOSIS_REVIEW_QUEUE_CONFIRMATION_SAFETY_2026_09_03.md)                  | 가상 A 판정 확인, 최신 근거 재검증과 파생 업무의 운영 알림·지표 제외                     |
-| [Step 0 가상시험 입력 안전성](STEP_ZERO_PILOT_INPUT_SAFETY_2026_09_03.md)                                        | 빈 가상 입력, 변경 후 재동의, 초과·식별정보의 외부 호출 전 차단                          |
-| [AI 진단 준비·Step 0 응답 검증 안전성](AI_DIAGNOSIS_RESPONSE_VALIDATION_SAFETY_2026_09_03.md)                    | 생성 준비 논리와 현재 진행·기업·요청별 결과 구조 검증                                    |
-| [외부 AI 공급자 응답 검증 안전성](AI_PROVIDER_RESPONSE_VALIDATION_SAFETY_2026_09_03.md)                          | Anthropic 응답 블록·완료·토큰 구조 검증과 오류 원문 격리                                 |
-| [원본 회수 응답 검증 안전성](FILE_RECOVERY_RESPONSE_VALIDATION_SAFETY_2026_09_03.md)                             | 회수 성공 구조 검증, 안전한 오류와 동일 요청 재시도 안내                                 |
-| [서류요청 제출기한 알림 안전성](DOCUMENT_REQUEST_DEADLINE_ALERT_SAFETY_2026_09_03.md)                            | 한국시간 기준 기한 상태와 후속 업무 알림·우선순위 동기화                                 |
-| [누락 요청서류 제출기한 변경 확인 안전성](DOCUMENT_REQUEST_DUE_DATE_CONFIRMATION_SAFETY_2026_09_03.md)           | 자료·연결 업무·타임라인 변경 전 영향 확인과 최신 상태 재검증                             |
-| [서류요청 등록 입력 안전성](DOCUMENT_REQUEST_ENTRY_SAFETY_2026_09_03.md)                                         | 추천 서류 명시 추가, 실제 저장 계약 정리, 서류명·중복 검증                               |
-| [새 서류요청 원자적 저장 안전성](DOCUMENT_REQUEST_COMMIT_SAFETY_2026_09_03.md)                                   | 요청별 고정 UUID, 중복 생성 차단과 자료·업무·타임라인·진행의 일괄 반영                   |
-| [새 상담 원자적 저장 안전성](CONSULTATION_COMMIT_SAFETY_2026_09_03.md)                                           | 요청별 고정 UUID, 중복·단계 역행 차단과 타임라인·일정·업무·진행의 일괄 반영              |
-| [상담 제목·일정 공개범위 입력 안전성](CONSULTATION_TITLE_SHARING_SAFETY_2026_09_03.md)                           | 빈 상담 제목, 일정 추가 시 공개범위 명시 선택과 내부 전용 정규화                         |
-| [상담 등록 입력 안전성](CONSULTATION_ENTRY_SAFETY_2026_09_03.md)                                                 | 상담방식·상태·일정·후속조치 명시 선택과 저장 경계 검증                                   |
-| [협업신청 핵심 입력 안전성](APPLICATION_ENTRY_SAFETY_2026_09_03.md)                                              | 요청서비스 명시 선택, 신청 핵심 필드 공통 검증과 동의 재확인                             |
-| [협업신청 신청자 유형 안전성](APPLICATION_APPLICANT_TYPE_SAFETY_2026_09_03.md)                                   | 대표 대리접수의 빈 유형 시작, 공유 계정 유형 고정과 제출 전 재검증                       |
-| [상담 FLOW 선택 입력 안전성](FLOW_EXPLICIT_ENTRY_SAFETY_2026_09_03.md)                                           | 검토·추가서류·전달·필수 여부의 빈 시작과 사후관리 담당자 직접 입력                       |
-| [상담 FLOW 예약 입력 안전성](FLOW_MEETING_ENTRY_SAFETY_2026_09_03.md)                                            | 초회상담 고정 규칙 표시와 추가·계약상담 종류·참석 방식 명시 선택                         |
-| [상담 FLOW 진행판 새로고침 안전성](FLOW_PROJECTION_REFRESH_SAFETY_2026_09_03.md)                                 | 비정상 응답 표시와 최신 요청만 적용하는 역순 응답 차단                                   |
-| [상담 FLOW 응답 검증 안전성](FLOW_RESPONSE_VALIDATION_SAFETY_2026_09_03.md)                                      | 조회·저장·AI 실행 성공 응답 구조 검증과 안전한 복구 안내                                 |
-| [상담 FLOW 상태 새로고침 순서 안전성](FLOW_STATE_REFRESH_ORDERING_SAFETY_2026_09_03.md)                          | 초기·수동·409 재조회 중 최신 검증 응답만 적용                                            |
-| [협업신청 첨부 자료종류 확인 안전성](APPLICATION_ATTACHMENT_CATEGORY_CONFIRMATION_2026_09_03.md)                 | 파일명 분류 제안, 첨부별 종류 선택·명시 확인과 제출 차단                                 |
-| [기업자료 종류 명시 선택 안전성](PORTAL_DOCUMENT_CATEGORY_SAFETY_2026_09_03.md)                                  | 단일 기업자료 등록의 빈 종류 시작, 파일명 자동확정 제거와 공용 검증                      |
-| [기업자료 등록 입력 안전성](PORTAL_DOCUMENT_ENTRY_SAFETY_2026_09_03.md)                                          | 가상·이전 기본값 제거, 메타정보 검증, 변경 후 동의 재확인과 폼 초기화                    |
-| [새 업무 분류 명시 선택 안전성](PORTAL_TASK_CLASSIFICATION_SAFETY_2026_09_03.md)                                 | 빈 업무유형·지원분류, 공용 허용 목록 검증과 검증 결과 저장                               |
-| [새 업무 입력 안전성](PORTAL_TASK_ENTRY_SAFETY_2026_09_03.md)                                                    | 가상 기본값 제거, 필수 입력·길이 검증과 성공 후 초기화                                   |
-| [직접 업무 원자적 등록 안전성](PORTAL_TASK_COMMIT_SAFETY_2026_09_03.md)                                          | 폼별 고정 UUID, 중복 차단과 현재 담당 계정 재검증                                        |
-| [운영 업무 사이트 알림](PORTAL_TASK_NOTIFICATIONS_2026_09_03.md)                                                 | 운영 업무만 세는 알림 숫자와 데스크톱·모바일 메뉴 표시                                   |
-| [연속 사이트 알림 표시 순서 안전성](TRANSIENT_NOTIFICATION_ORDERING_SAFETY_2026_09_03.md)                        | 이전 숨김 타이머가 최신 알림을 조기 삭제하지 않도록 차단                                 |
-| [포털 최초 상태 응답 검증 안전성](PORTAL_STATE_RESPONSE_VALIDATION_SAFETY_2026_09_03.md)                         | 핵심 상태·사용자·저장 버전 검증과 손상된 부가 지표 격리                                  |
-| [포털 자동저장 응답 검증 안전성](PORTAL_SAVE_RESPONSE_VALIDATION_SAFETY_2026_09_03.md)                           | 저장 확인·revision·저장용량 구조와 충돌 복구 영수증 검증                                 |
-| [협업신청 임시저장 응답 검증 안전성](APPLICATION_DRAFT_RESPONSE_VALIDATION_SAFETY_2026_09_03.md)                 | 조회·저장·비우기 응답 구조와 초안·접수 식별 관계 검증                                    |
-| [모바일 기업·신청번호 검색](MOBILE_CASE_SEARCH_2026_09_03.md)                                                    | 공용 검색 폼, 모바일 메뉴 검색과 고유 입력·자동완성 ID                                   |
-| [진행현황 CSV 내보내기](PIPELINE_CSV_EXPORT_2026_09_03.md)                                                       | 대표용 필터 결과 CSV, 가상 예시·민감 필드 제외와 수식 주입 차단                          |
-| [권한 내 기업·신청번호 검색](GLOBAL_CASE_SEARCH_2026_09_03.md)                                                   | 현재 계정 진행만 대상으로 하는 검색, 반복 신청 모호성 처리와 검증 경계                   |
-| [모바일 메뉴 접근성 보완](MOBILE_NAVIGATION_ACCESSIBILITY_2026_09_03.md)                                         | 공통 Sheet 기반 모바일 메뉴, 초점·Escape·현재 화면 전달 경계                             |
-| [진행 단계별 명시적 중단 지표](PIPELINE_DROPOFF_METRICS_2026_09_01.md)                                           | 신규 추적 신청의 명시적 중단·재개, FLOW/수동 단계 분리 집계와 보존 경계                  |
-| [회수 확인 기록 보호](RECOVERY_PROOF_2026_08_31.md)                                                              | 일반 저장에서 증빙 위조·누락·중복 차단, 정상 검토 상태 변경 유지                         |
-| [기존 신청으로 원본 회수](FILE_RECOVERY_2026_08_31.md)                                                           | 대표 확인, 동일 계정·기업·진행 대조, 원본 보존과 중복·충돌 차단                          |
-| [대표 전용 원본 보관 현황](FILE_INVENTORY_2026_08_31.md)                                                         | 미연결·업로드 대기·삭제 기록과 원본 존재의 읽기 전용 확인                                |
-| [첨부 업로드 재시도·원본 보존](UPLOAD_RETRY_2026_08_31.md)                                                       | 응답 유실 복구, 부분 실패 보존, 제외한 첨부의 검토 차단                                  |
-| [신청서 임시저장·복구와 저장 충돌](DRAFT_RECOVERY_2026_08_31.md)                                                 | 계정별 텍스트 복구, 동시 저장 보호, 첨부·자동 병합 제한                                  |
-| [초기 개발 현황 기록](DEVELOPMENT_STATUS_2026_08_31.md)                                                          | 인증·권한 정비 당시 기능과 운영 경계                                                     |
-| [초기 검증 기록](VALIDATION_2026_08_31.md)                                                                       | 선행 테스트, 서버 검증과 미확인 사항                                                     |
-| [운영 반영 준비](../RELEASE_READINESS.md)                                                                        | 권한 보완, 공개 사이트 반영 전 확인사항과 실사용 제한                                    |
-| [현재 상담 FLOW](../CONSULTING_WORKFLOW.md)                                                                      | 실제 업무 순서, 자료 등록, 생성 전 확인, 진행 단계                                       |
-| [화면별 초기 기획서](planning/MVP_SCREEN_SPEC_2026_08_29.md)                                                     | 관리자·파트너 화면과 MVP 구조                                                            |
-| [Claude 프로젝트 지침 확인본](planning/CLAUDE_FLOW_INSTRUCTIONS_2026_08_30.md)                                   | 읽기 전용으로 확인했던 지침. 개인 프로젝트 URL은 공개본에서 제외                         |
-| [Step 0–6 통합기준서](planning/CONSULTING_FLOW_STANDARD_2026_08_30.md)                                           | 산출물 흐름과 승인·수동 처리 기준                                                        |
-| [AI 자동진단 입출력 명세](specs/AI_DIAGNOSIS_IO_SPEC_2026_08_30.md)                                              | 초기 요청·결과·자료 연결 설계                                                            |
-| [1차 요청 JSON Schema](specs/partner-hub-step1-request.schema.v1.json)                                           | 설계 단계의 입력 데이터 계약                                                             |
-| [1차 결과 JSON Schema](specs/partner-hub-step1-response.schema.v1.json)                                          | 설계 단계의 출력 데이터 계약                                                             |
+| 문서                                                                                                             | 내용                                                                                        |
+| ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                     | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                             |
+| [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                               |
+| [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                  | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                     |
+| [파트너 유형 명시 선택 안전성](PARTNER_TYPE_SELECTION_SAFETY_2026_09_03.md)                                      | 직접등록·승인대기 유형 자동선택 제거와 허용 유형 검증                                       |
+| [대표 직접등록 응답 검증 안전성](PARTNER_REGISTRATION_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                  | 등록 입력·최소 권한·명단 일관성 검증과 손상 응답 재시도 보호                                |
+| [원본 보관 현황 응답 검증 안전성](FILE_INVENTORY_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                       | 목록·필터·커서·파일 ID·원본 존재와 크기 관계 검증                                           |
+| [신청자료 검토 응답 검증 안전성](INTAKE_SOURCE_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                         | 목록 메타데이터·선택 파일·원본 해시·본문 구조 검증                                          |
+| [사이트 인증 응답 검증 안전성](PASSWORD_AUTH_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                           | 가입·로그인·설정·로그아웃별 성공 계약과 안전한 오류 검증                                    |
+| [비밀번호 설정 링크 응답 검증 안전성](PASSWORD_LINK_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                    | 동일 출처 fragment 경로·토큰·만료시각 검증                                                  |
+| [원본 회수 미리보기 응답 검증 안전성](FILE_RECOVERY_PREVIEW_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)            | 요청 원본·진행·담당·크기·revision 검증                                                      |
+| [1차 보고서 사전점검 응답 검증 안전성](REPORT_PREFLIGHT_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                | 현재 진행·자료 합계·필수 검사·유료 생성 가능값 교차검증                                     |
+| [클라이언트 API 응답 경계 최종 감사](CLIENT_API_RESPONSE_BOUNDARY_AUDIT_2026_09_04.md)                           | 전체 fetch 경로·전용 검증기·멱등 무시 응답과 재발 방지 검사                                 |
+| [서버 API 요청 경계 최종 감사](SERVER_API_REQUEST_BOUNDARY_AUDIT_2026_09_04.md)                                  | 스트림 크기·JSON 형식·객체 구조 검증과 직접 본문 파싱 재발 방지 검사                        |
+| [서버 변경 요청 출처 경계 감사](SERVER_MUTATION_ORIGIN_BOUNDARY_2026_09_04.md)                                   | 교차 사이트 신호 통합 판별과 인증·저장소 접근 전 조기 차단                                  |
+| [서버 JSON 요청 파서 통합](SERVER_JSON_REQUEST_PARSER_CONSOLIDATION_2026_09_04.md)                               | 신청 임시저장·원본 회수·상담 FLOW·비밀번호 요청의 공용 형식·크기 경계                       |
+| [서버 멀티파트 요청 경계 통합](SERVER_MULTIPART_REQUEST_BOUNDARY_2026_09_04.md)                                  | 기업자료·상담 FLOW 업로드의 미디어 유형·크기·framing·payload 검증                           |
+| [서버 URL 쿼리 요청 경계 통합](SERVER_QUERY_REQUEST_BOUNDARY_2026_09_04.md)                                      | 목록·Step 0·신청자료·보고서 쿼리의 중복·길이·명시 플래그 검증                               |
+| [서버 URL 경로 식별값 경계 통합](SERVER_PATH_REQUEST_BOUNDARY_2026_09_04.md)                                     | 진행·파일·원본·첨부·보고서 경로 ID의 문자·길이 검증                                         |
+| [다운로드 파일명 Content-Disposition 보안 경계](CONTENT_DISPOSITION_DOWNLOAD_FILENAME_BOUNDARY_2026_09_04.md)    | 기업 원본·상담 첨부·보고서 다운로드 이름의 제어문자 제거와 RFC 5987 인코딩                  |
+| [다운로드 Content-Type 보안 경계](DOWNLOAD_CONTENT_TYPE_BOUNDARY_2026_09_04.md)                                  | 기업 원본·상담 첨부 응답 MIME의 허용 확장자별 고정과 안전한 기본값                          |
+| [업로드 실제 파일 형식 보안 경계](UPLOAD_FILE_SIGNATURE_BOUNDARY_2026_09_04.md)                                  | 기업자료·상담 FLOW 첨부의 확장자와 실제 바이너리 형식 일치 검증                             |
+| [업로드 실제 형식 미등록 기본 거절](UPLOAD_SIGNATURE_FAIL_CLOSED_2026_09_04.md)                                  | 새 확장자의 실제 형식 검사 누락을 막는 fail-closed 정책                                     |
+| [업로드 텍스트 내용 보안 경계](UPLOAD_TEXT_CONTENT_BOUNDARY_2026_09_04.md)                                       | TXT·Markdown의 문자 인코딩 판독과 바이너리 제어문자 저장 전 차단                            |
+| [업로드 파일 형식 공용 등록표](UPLOAD_FORMAT_REGISTRY_2026_09_04.md)                                             | 확장자·고정 MIME·실제 내용 판정·파일 선택값의 단일 정책 원천                                |
+| [상담 FLOW 목적별 업로드 형식 정책](CONSULTING_FLOW_UPLOAD_POLICY_2026_09_04.md)                                 | 보고서 차수·AI 근거·녹취·추가서류·계약서의 화면·서버 허용 형식 일치                         |
+| [상담 FLOW 목적별 업로드 크기 정책](CONSULTING_FLOW_UPLOAD_SIZE_POLICY_2026_09_04.md)                            | AI 근거·전사문·음성·일반 첨부의 화면·서버 크기 일치와 내용 판독 전 조기 거절                |
+| [상담 FLOW 명령 영수증 Content-Type 정책](FLOW_COMMAND_RECEIPT_CONTENT_TYPE_POLICY_2026_09_04.md)                | 브라우저 MIME과 무관한 첨부 멱등 지문, 이전 영수증 호환과 변경 내용 충돌 유지               |
+| [업로드 제한 안내 공용화](UPLOAD_LIMIT_LABEL_REGISTRY_2026_09_04.md)                                             | 기업자료·AI 근거·전사문·음성의 실제 크기·개수 정책과 화면·서버 안내 일치                    |
+| [기업자료 업로드 Content-Type 저장 정책](COMPANY_UPLOAD_CONTENT_TYPE_POLICY_2026_09_04.md)                       | 브라우저 MIME 불신, 응답·D1·R2 고정 MIME과 배포 전후 재시도 호환                            |
+| [신청 첨부 업로드 멱등키 Content-Type 정책](APPLICATION_UPLOAD_KEY_CONTENT_TYPE_POLICY_2026_09_04.md)            | 브라우저 MIME과 무관한 신청 첨부 키, 이전 원장 이동과 파일·삭제 상태 보존                   |
+| [업로드 멱등키·영수증 파일명 정규화 정책](UPLOAD_RECEIPT_FILENAME_NORMALIZATION_POLICY_2026_09_04.md)            | NFC/NFD 파일명과 무관한 신청 첨부 키·FLOW 영수증, 이전 기록 호환과 중복 원장 보존           |
+| [상담 FLOW 화면 재시도 지문 정책](FLOW_CLIENT_RETRY_FINGERPRINT_POLICY_2026_09_04.md)                            | 첨부 실제 바이트·정규 파일명 기반 명령 ID 유지와 파일 수정시각 의존 제거                    |
+| [협업신청 첨부 실제 내용 중복 판정 정책](APPLICATION_ATTACHMENT_CONTENT_DEDUPLICATION_POLICY_2026_09_04.md)      | 메타정보 충돌 파일 누락 방지, 정규 파일명·실제 바이트 기반 재선택 중복 판정                 |
+| [협업신청 첨부 내용 확인 중 제출 잠금 정책](APPLICATION_ATTACHMENT_HASHING_SUBMISSION_LOCK_POLICY_2026_09_04.md) | 바이트 지문 계산 중 제출·임시저장·화면이동 경합과 방금 고른 파일 누락 차단                  |
+| [브라우저 화면 보안 헤더 경계](BROWSER_PAGE_SECURITY_HEADERS_2026_09_04.md)                                      | SSR 로그인·계정·포털 화면의 클릭재킹·기본 CSP·브라우저 권한 방어와 Sites 버전 104 저장 상태 |
+| [빌드 도구와 운영 의존성 경계](BUILD_TOOL_RUNTIME_DEPENDENCY_BOUNDARY_2026_09_04.md)                             | shadcn CLI의 빌드 전용 분류, qs 운영 감사 경로 제거와 Sites 버전 103 운영 반영              |
+| [운영 의존성 보안 패치와 잔여 위험](DEPENDENCY_SECURITY_PATCH_AND_RESIDUAL_RISK_2026_09_04.md)                   | React/RSC·Vite 패치, 미배포 image-size 수정본과 실제 입력 경계, Sites 버전 102 운영 반영    |
+| [업로드 파일명 정규화 보안 경계](UPLOAD_FILENAME_NORMALIZATION_BOUNDARY_2026_09_04.md)                           | 기업자료·상담 FLOW 저장 파일명의 공용 Unicode·제어문자·길이 경계                            |
+| [파트너 계정 설정 저장 안전성](PARTNER_ACCOUNT_SETTINGS_DRAFT_SAFETY_2026_09_03.md)                              | 이메일·유형·상태·권한의 저장 전 초안 격리와 취소 폐기                                       |
+| [진행 담당 계정 변경 확인 안전성](CASE_ASSIGNMENT_CONFIRMATION_SAFETY_2026_09_03.md)                             | 현재·변경 후 담당 대조, 취소 보존과 저장 직전 재검증                                        |
+| [진행단계·중단 상태 변경 확인 안전성](PIPELINE_CHANGE_CONFIRMATION_SAFETY_2026_09_03.md)                         | 수동 단계·진행 중단·재개의 영향 확인과 stale 상태 차단                                      |
+| [기업자료 상태 변경 확인 안전성](DOCUMENT_STATUS_CONFIRMATION_SAFETY_2026_09_03.md)                              | 현재·변경 후 상태 영향 확인, 취소 보존과 저장 직전 원본 연결 재검증                         |
+| [기업자료 업로드 응답 멱등 반영 안전성](COMPANY_DOCUMENT_UPLOAD_IDEMPOTENCY_2026_09_03.md)                       | 서버 확정 원본 ID 기준 단일 카드 반영, 검토 상태 보존과 중복 저장 ID 병합                   |
+| [기업자료 업로드 응답 검증 안전성](COMPANY_FILE_UPLOAD_RESPONSE_VALIDATION_SAFETY_2026_09_03.md)                 | 파일·담당·진행 메타데이터 요청 일치 검증과 미확인 필드 제거                                 |
+| [업무·지원요청 상태 변경 확인 안전성](WORK_TASK_STATUS_CONFIRMATION_SAFETY_2026_09_03.md)                        | 완료·재개·처리 시작 확인과 담당·마감·지원 주기 재검증                                       |
+| [가상 진단 검토대기 등록 확인 안전성](DIAGNOSIS_REVIEW_QUEUE_CONFIRMATION_SAFETY_2026_09_03.md)                  | 가상 A 판정 확인, 최신 근거 재검증과 파생 업무의 운영 알림·지표 제외                        |
+| [Step 0 가상시험 입력 안전성](STEP_ZERO_PILOT_INPUT_SAFETY_2026_09_03.md)                                        | 빈 가상 입력, 변경 후 재동의, 초과·식별정보의 외부 호출 전 차단                             |
+| [AI 진단 준비·Step 0 응답 검증 안전성](AI_DIAGNOSIS_RESPONSE_VALIDATION_SAFETY_2026_09_03.md)                    | 생성 준비 논리와 현재 진행·기업·요청별 결과 구조 검증                                       |
+| [외부 AI 공급자 응답 검증 안전성](AI_PROVIDER_RESPONSE_VALIDATION_SAFETY_2026_09_03.md)                          | Anthropic 응답 블록·완료·토큰 구조 검증과 오류 원문 격리                                    |
+| [원본 회수 응답 검증 안전성](FILE_RECOVERY_RESPONSE_VALIDATION_SAFETY_2026_09_03.md)                             | 회수 성공 구조 검증, 안전한 오류와 동일 요청 재시도 안내                                    |
+| [서류요청 제출기한 알림 안전성](DOCUMENT_REQUEST_DEADLINE_ALERT_SAFETY_2026_09_03.md)                            | 한국시간 기준 기한 상태와 후속 업무 알림·우선순위 동기화                                    |
+| [누락 요청서류 제출기한 변경 확인 안전성](DOCUMENT_REQUEST_DUE_DATE_CONFIRMATION_SAFETY_2026_09_03.md)           | 자료·연결 업무·타임라인 변경 전 영향 확인과 최신 상태 재검증                                |
+| [서류요청 등록 입력 안전성](DOCUMENT_REQUEST_ENTRY_SAFETY_2026_09_03.md)                                         | 추천 서류 명시 추가, 실제 저장 계약 정리, 서류명·중복 검증                                  |
+| [새 서류요청 원자적 저장 안전성](DOCUMENT_REQUEST_COMMIT_SAFETY_2026_09_03.md)                                   | 요청별 고정 UUID, 중복 생성 차단과 자료·업무·타임라인·진행의 일괄 반영                      |
+| [새 상담 원자적 저장 안전성](CONSULTATION_COMMIT_SAFETY_2026_09_03.md)                                           | 요청별 고정 UUID, 중복·단계 역행 차단과 타임라인·일정·업무·진행의 일괄 반영                 |
+| [상담 제목·일정 공개범위 입력 안전성](CONSULTATION_TITLE_SHARING_SAFETY_2026_09_03.md)                           | 빈 상담 제목, 일정 추가 시 공개범위 명시 선택과 내부 전용 정규화                            |
+| [상담 등록 입력 안전성](CONSULTATION_ENTRY_SAFETY_2026_09_03.md)                                                 | 상담방식·상태·일정·후속조치 명시 선택과 저장 경계 검증                                      |
+| [협업신청 핵심 입력 안전성](APPLICATION_ENTRY_SAFETY_2026_09_03.md)                                              | 요청서비스 명시 선택, 신청 핵심 필드 공통 검증과 동의 재확인                                |
+| [협업신청 신청자 유형 안전성](APPLICATION_APPLICANT_TYPE_SAFETY_2026_09_03.md)                                   | 대표 대리접수의 빈 유형 시작, 공유 계정 유형 고정과 제출 전 재검증                          |
+| [상담 FLOW 선택 입력 안전성](FLOW_EXPLICIT_ENTRY_SAFETY_2026_09_03.md)                                           | 검토·추가서류·전달·필수 여부의 빈 시작과 사후관리 담당자 직접 입력                          |
+| [상담 FLOW 예약 입력 안전성](FLOW_MEETING_ENTRY_SAFETY_2026_09_03.md)                                            | 초회상담 고정 규칙 표시와 추가·계약상담 종류·참석 방식 명시 선택                            |
+| [상담 FLOW 진행판 새로고침 안전성](FLOW_PROJECTION_REFRESH_SAFETY_2026_09_03.md)                                 | 비정상 응답 표시와 최신 요청만 적용하는 역순 응답 차단                                      |
+| [상담 FLOW 응답 검증 안전성](FLOW_RESPONSE_VALIDATION_SAFETY_2026_09_03.md)                                      | 조회·저장·AI 실행 성공 응답 구조 검증과 안전한 복구 안내                                    |
+| [상담 FLOW 상태 새로고침 순서 안전성](FLOW_STATE_REFRESH_ORDERING_SAFETY_2026_09_03.md)                          | 초기·수동·409 재조회 중 최신 검증 응답만 적용                                               |
+| [협업신청 첨부 자료종류 확인 안전성](APPLICATION_ATTACHMENT_CATEGORY_CONFIRMATION_2026_09_03.md)                 | 파일명 분류 제안, 첨부별 종류 선택·명시 확인과 제출 차단                                    |
+| [기업자료 종류 명시 선택 안전성](PORTAL_DOCUMENT_CATEGORY_SAFETY_2026_09_03.md)                                  | 단일 기업자료 등록의 빈 종류 시작, 파일명 자동확정 제거와 공용 검증                         |
+| [기업자료 등록 입력 안전성](PORTAL_DOCUMENT_ENTRY_SAFETY_2026_09_03.md)                                          | 가상·이전 기본값 제거, 메타정보 검증, 변경 후 동의 재확인과 폼 초기화                       |
+| [새 업무 분류 명시 선택 안전성](PORTAL_TASK_CLASSIFICATION_SAFETY_2026_09_03.md)                                 | 빈 업무유형·지원분류, 공용 허용 목록 검증과 검증 결과 저장                                  |
+| [새 업무 입력 안전성](PORTAL_TASK_ENTRY_SAFETY_2026_09_03.md)                                                    | 가상 기본값 제거, 필수 입력·길이 검증과 성공 후 초기화                                      |
+| [직접 업무 원자적 등록 안전성](PORTAL_TASK_COMMIT_SAFETY_2026_09_03.md)                                          | 폼별 고정 UUID, 중복 차단과 현재 담당 계정 재검증                                           |
+| [운영 업무 사이트 알림](PORTAL_TASK_NOTIFICATIONS_2026_09_03.md)                                                 | 운영 업무만 세는 알림 숫자와 데스크톱·모바일 메뉴 표시                                      |
+| [연속 사이트 알림 표시 순서 안전성](TRANSIENT_NOTIFICATION_ORDERING_SAFETY_2026_09_03.md)                        | 이전 숨김 타이머가 최신 알림을 조기 삭제하지 않도록 차단                                    |
+| [포털 최초 상태 응답 검증 안전성](PORTAL_STATE_RESPONSE_VALIDATION_SAFETY_2026_09_03.md)                         | 핵심 상태·사용자·저장 버전 검증과 손상된 부가 지표 격리                                     |
+| [포털 자동저장 응답 검증 안전성](PORTAL_SAVE_RESPONSE_VALIDATION_SAFETY_2026_09_03.md)                           | 저장 확인·revision·저장용량 구조와 충돌 복구 영수증 검증                                    |
+| [협업신청 임시저장 응답 검증 안전성](APPLICATION_DRAFT_RESPONSE_VALIDATION_SAFETY_2026_09_03.md)                 | 조회·저장·비우기 응답 구조와 초안·접수 식별 관계 검증                                       |
+| [모바일 기업·신청번호 검색](MOBILE_CASE_SEARCH_2026_09_03.md)                                                    | 공용 검색 폼, 모바일 메뉴 검색과 고유 입력·자동완성 ID                                      |
+| [진행현황 CSV 내보내기](PIPELINE_CSV_EXPORT_2026_09_03.md)                                                       | 대표용 필터 결과 CSV, 가상 예시·민감 필드 제외와 수식 주입 차단                             |
+| [권한 내 기업·신청번호 검색](GLOBAL_CASE_SEARCH_2026_09_03.md)                                                   | 현재 계정 진행만 대상으로 하는 검색, 반복 신청 모호성 처리와 검증 경계                      |
+| [모바일 메뉴 접근성 보완](MOBILE_NAVIGATION_ACCESSIBILITY_2026_09_03.md)                                         | 공통 Sheet 기반 모바일 메뉴, 초점·Escape·현재 화면 전달 경계                                |
+| [진행 단계별 명시적 중단 지표](PIPELINE_DROPOFF_METRICS_2026_09_01.md)                                           | 신규 추적 신청의 명시적 중단·재개, FLOW/수동 단계 분리 집계와 보존 경계                     |
+| [회수 확인 기록 보호](RECOVERY_PROOF_2026_08_31.md)                                                              | 일반 저장에서 증빙 위조·누락·중복 차단, 정상 검토 상태 변경 유지                            |
+| [기존 신청으로 원본 회수](FILE_RECOVERY_2026_08_31.md)                                                           | 대표 확인, 동일 계정·기업·진행 대조, 원본 보존과 중복·충돌 차단                             |
+| [대표 전용 원본 보관 현황](FILE_INVENTORY_2026_08_31.md)                                                         | 미연결·업로드 대기·삭제 기록과 원본 존재의 읽기 전용 확인                                   |
+| [첨부 업로드 재시도·원본 보존](UPLOAD_RETRY_2026_08_31.md)                                                       | 응답 유실 복구, 부분 실패 보존, 제외한 첨부의 검토 차단                                     |
+| [신청서 임시저장·복구와 저장 충돌](DRAFT_RECOVERY_2026_08_31.md)                                                 | 계정별 텍스트 복구, 동시 저장 보호, 첨부·자동 병합 제한                                     |
+| [초기 개발 현황 기록](DEVELOPMENT_STATUS_2026_08_31.md)                                                          | 인증·권한 정비 당시 기능과 운영 경계                                                        |
+| [초기 검증 기록](VALIDATION_2026_08_31.md)                                                                       | 선행 테스트, 서버 검증과 미확인 사항                                                        |
+| [운영 반영 준비](../RELEASE_READINESS.md)                                                                        | 권한 보완, 공개 사이트 반영 전 확인사항과 실사용 제한                                       |
+| [현재 상담 FLOW](../CONSULTING_WORKFLOW.md)                                                                      | 실제 업무 순서, 자료 등록, 생성 전 확인, 진행 단계                                          |
+| [화면별 초기 기획서](planning/MVP_SCREEN_SPEC_2026_08_29.md)                                                     | 관리자·파트너 화면과 MVP 구조                                                               |
+| [Claude 프로젝트 지침 확인본](planning/CLAUDE_FLOW_INSTRUCTIONS_2026_08_30.md)                                   | 읽기 전용으로 확인했던 지침. 개인 프로젝트 URL은 공개본에서 제외                            |
+| [Step 0–6 통합기준서](planning/CONSULTING_FLOW_STANDARD_2026_08_30.md)                                           | 산출물 흐름과 승인·수동 처리 기준                                                           |
+| [AI 자동진단 입출력 명세](specs/AI_DIAGNOSIS_IO_SPEC_2026_08_30.md)                                              | 초기 요청·결과·자료 연결 설계                                                               |
+| [1차 요청 JSON Schema](specs/partner-hub-step1-request.schema.v1.json)                                           | 설계 단계의 입력 데이터 계약                                                                |
+| [1차 결과 JSON Schema](specs/partner-hub-step1-response.schema.v1.json)                                          | 설계 단계의 출력 데이터 계약                                                                |
 
 개인 Claude 프로젝트 원본 주소를 제외한 기획 문서 사본이며, 로컬 원본 파일은 변경하지 않았습니다. 실제 고객 전사문·진단보고서·사업자등록증·크레탑·원음·회원 명단은 포함하지 않았습니다. 공개 저장소의 기능 코드와 운영 시스템의 개인정보는 별개입니다.

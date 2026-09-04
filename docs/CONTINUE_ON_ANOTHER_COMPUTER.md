@@ -6,14 +6,14 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `8dfe838` (`fix: keep build tooling out of runtime deps`)
-- 최신 기능: `shadcn` CLI를 빌드 전용 의존성으로 분류해 운영 감사의 `qs` 보통 위험 2건을 제거하고, Windows CRLF 체크아웃에서도 서버 경로 경계 검사가 동작하도록 보완
-- 검증: Node 회귀 검사 463개, 격리 workerd/D1/R2 검사 135개, 타입검사, 전체 lint, 변경 파일 형식검사, 프로덕션 빌드 통과
+- 최신 기능 커밋: `3b41b21` (`fix: protect browser pages with security headers`)
+- 최신 기능: 로그인·계정 설정·포털 SSR 화면에 클릭재킹 차단, 기본 CSP, 브라우저 권한·참조정보·MIME 보안 헤더 적용
+- 검증: Node 회귀 검사 464개, 격리 workerd/D1/R2 검사 135개, 타입검사, 전체 lint, 변경 파일 형식검사, 프로덕션 빌드와 로컬 운영 Worker 응답 확인 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
-- Sites 저장 버전: 103 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_06a652e1fb74819184a0db6151cbf295`), 소스 `8dfe8388dfaee4194d8087a51167ad73746655ab`
-- 운영 상태: 버전 103을 기존 공개 사이트에 배포했다. 공개 화면 3곳의 HTTP 200, 보호 API 3곳의 익명 HTTP 401과 비공개 보안 헤더를 확인했으며 공개 범위와 D1/R2 연결은 변경하지 않았다.
+- Sites 저장 버전: 104 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_3e903f7857dc81919346322305667979`), 소스 `3b41b21b485eecf771eebeb119a5a8bb5654e9be`
+- 운영 상태: 현재 공개 운영본은 버전 103이다. 버전 104는 플랫폼 안전 심사가 이번 변경의 명시적 승인을 요구해 저장만 완료하고 배포하지 않았다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
 ## 새 컴퓨터 준비
@@ -44,14 +44,15 @@ node tests/password-worker-smoke.mjs
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [제품 기획 검수](PRODUCT_PLANNING_REVIEW.md)
-3. [빌드 도구와 운영 의존성 경계](BUILD_TOOL_RUNTIME_DEPENDENCY_BOUNDARY_2026_09_04.md)
-4. [운영 의존성 보안 패치와 잔여 위험](DEPENDENCY_SECURITY_PATCH_AND_RESIDUAL_RISK_2026_09_04.md)
-5. [협업신청 첨부 내용 확인 중 제출 잠금 정책](APPLICATION_ATTACHMENT_HASHING_SUBMISSION_LOCK_POLICY_2026_09_04.md)
-6. [협업신청 첨부 실제 내용 중복 판정 정책](APPLICATION_ATTACHMENT_CONTENT_DEDUPLICATION_POLICY_2026_09_04.md)
-7. [상담 FLOW 화면 재시도 지문 정책](FLOW_CLIENT_RETRY_FINGERPRINT_POLICY_2026_09_04.md)
-8. [업로드 멱등키·영수증 파일명 정규화 정책](UPLOAD_RECEIPT_FILENAME_NORMALIZATION_POLICY_2026_09_04.md)
-9. [신청 첨부 업로드 멱등키 Content-Type 정책](APPLICATION_UPLOAD_KEY_CONTENT_TYPE_POLICY_2026_09_04.md)
-10. [문서 전체 목록](README.md)
+3. [브라우저 화면 보안 헤더 경계](BROWSER_PAGE_SECURITY_HEADERS_2026_09_04.md)
+4. [빌드 도구와 운영 의존성 경계](BUILD_TOOL_RUNTIME_DEPENDENCY_BOUNDARY_2026_09_04.md)
+5. [운영 의존성 보안 패치와 잔여 위험](DEPENDENCY_SECURITY_PATCH_AND_RESIDUAL_RISK_2026_09_04.md)
+6. [협업신청 첨부 내용 확인 중 제출 잠금 정책](APPLICATION_ATTACHMENT_HASHING_SUBMISSION_LOCK_POLICY_2026_09_04.md)
+7. [협업신청 첨부 실제 내용 중복 판정 정책](APPLICATION_ATTACHMENT_CONTENT_DEDUPLICATION_POLICY_2026_09_04.md)
+8. [상담 FLOW 화면 재시도 지문 정책](FLOW_CLIENT_RETRY_FINGERPRINT_POLICY_2026_09_04.md)
+9. [업로드 멱등키·영수증 파일명 정규화 정책](UPLOAD_RECEIPT_FILENAME_NORMALIZATION_POLICY_2026_09_04.md)
+10. [신청 첨부 업로드 멱등키 Content-Type 정책](APPLICATION_UPLOAD_KEY_CONTENT_TYPE_POLICY_2026_09_04.md)
+11. [문서 전체 목록](README.md)
 
 ## Git에 넣지 않는 것
 
@@ -64,4 +65,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 버전 103의 공개 배포와 실서버 화면·보호 API 확인을 완료했다. 다음으로 남은 운영 의존성 위험과 서버·파일·인증 경계를 다시 감사해 실제 도달 가능한 높은 우선순위 문제만 수정한다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
+Sites 버전 104 저장과 소스 동기화를 완료했다. 플랫폼이 요구한 버전 104 명시 승인 뒤 배포하고 공개 화면의 새 보안 헤더와 보호 API 경계를 확인한다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
