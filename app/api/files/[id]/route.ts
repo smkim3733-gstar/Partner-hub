@@ -14,11 +14,16 @@ import {
   fileStateGuard,
 } from '@/lib/company-file-access';
 import { isCrossSiteRequest } from '@/lib/request-origin';
+import { readRouteParam, RouteParamError } from '@/lib/request-path';
 
 export const dynamic = 'force-dynamic';
 
 function errorResponse(error: unknown) {
-  if (error instanceof PortalAccessError || error instanceof CompanyFileError) {
+  if (
+    error instanceof PortalAccessError ||
+    error instanceof CompanyFileError ||
+    error instanceof RouteParamError
+  ) {
     return Response.json(
       { error: error.message },
       {
@@ -37,7 +42,8 @@ export async function GET(
   try {
     const state = await readPortalState();
     const currentUser = await requirePortalUser(request, state);
-    const { id } = await context.params;
+    const { id: rawId } = await context.params;
+    const id = readRouteParam(rawId, 120, '기업자료 식별값을 확인해 주세요.');
     const row = await findCompanyFile(id);
     if (!row)
       throw new CompanyFileError('요청한 기업자료를 찾을 수 없습니다.', 404);
@@ -122,7 +128,8 @@ export async function DELETE(
     }
     const state = await readPortalState();
     const currentUser = await requirePortalUser(request, state);
-    const { id } = await context.params;
+    const { id: rawId } = await context.params;
+    const id = readRouteParam(rawId, 120, '기업자료 식별값을 확인해 주세요.');
     const db = companyFileDatabase();
     await ensureCompanyFileTables(db);
     const row = await findCompanyFile(id);

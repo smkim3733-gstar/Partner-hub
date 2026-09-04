@@ -13,6 +13,7 @@ import {
   readExactQueryFlag,
   readSingleQueryParam,
 } from '../lib/request-query';
+import { readRouteParam, RouteParamError } from '../lib/request-path';
 
 function request(
   body: BodyInit | null,
@@ -203,6 +204,12 @@ void test('query reader accepts one bounded value and rejects ambiguous flags', 
     assert.throws(() => readExactQueryFlag(url, 'download'), QueryRequestError);
 });
 
+void test('route parameter reader accepts bounded opaque IDs and rejects unsafe values', () => {
+  assert.equal(readRouteParam('case_1-report'), 'case_1-report');
+  for (const value of ['', '../private', '한글', 'x'.repeat(121), null])
+    assert.throws(() => readRouteParam(value), RouteParamError);
+});
+
 async function routeFiles(directory: string): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   const nested = await Promise.all(
@@ -282,5 +289,26 @@ void test('API query consumers remain routed through the shared bounded reader',
   for (const file of await routeFiles(path.resolve(process.cwd(), 'app/api'))) {
     const source = await readFile(file, 'utf8');
     assert.doesNotMatch(source, /searchParams\.(?:get|has|getAll)\s*\(/);
+  }
+});
+
+void test('dynamic route IDs remain routed through the shared path boundary', async () => {
+  const expected = [
+    ['lib/consulting-flow-store.ts', 'readRouteParam(\n    caseId,'],
+    ['lib/file-inventory-store.ts', 'readRouteParam(id, 120,'],
+    ['lib/file-recovery-store.ts', 'readRouteParam(id, 120,'],
+    ['app/api/files/[id]/route.ts', 'readRouteParam(rawId, 120,'],
+    [
+      'app/api/consulting-flow/[caseId]/files/[fileId]/route.ts',
+      'readRouteParam(\n      rawFileId,',
+    ],
+    [
+      'app/api/consulting-flow/[caseId]/reports/[reportId]/route.ts',
+      'readRouteParam(\n      rawReportId,',
+    ],
+  ] as const;
+  for (const [file, boundary] of expected) {
+    const source = await readFile(path.resolve(process.cwd(), file), 'utf8');
+    assert.ok(source.includes(boundary), `${file}: missing path boundary`);
   }
 });

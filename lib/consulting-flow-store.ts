@@ -16,6 +16,7 @@ import { projectFlowState } from '@/lib/consulting-flow-projection';
 import { isPipelineDiscontinued } from '@/lib/pipeline-dropoff-metrics';
 import { isCrossSiteRequest } from '@/lib/request-origin';
 import { QueryRequestError } from '@/lib/request-query';
+import { readRouteParam, RouteParamError } from '@/lib/request-path';
 
 export function flowEnvironment() {
   return env as unknown as {
@@ -119,14 +120,22 @@ export async function commitFlow(
     );
 }
 export async function loadFlowAccess(request: Request, caseId: string) {
-  if (!/^[a-zA-Z0-9_-]{1,120}$/.test(caseId))
-    throw new FlowError('진행번호를 확인해 주세요.');
+  const validatedCaseId = readRouteParam(
+    caseId,
+    120,
+    '진행번호를 확인해 주세요.',
+  );
   const initial = await readPortalStateSnapshot();
   await requirePortalUser(request, initial.state);
-  const stored = await readFlow(caseId);
+  const stored = await readFlow(validatedCaseId);
   const { state, payload } = await readPortalStateSnapshot();
   const user = await requirePortalUser(request, state);
-  const assignment = resolveFlowAssignment(state, caseId, user, stored);
+  const assignment = resolveFlowAssignment(
+    state,
+    validatedCaseId,
+    user,
+    stored,
+  );
   return {
     user,
     state,
@@ -134,7 +143,7 @@ export async function loadFlowAccess(request: Request, caseId: string) {
     flow:
       stored ??
       newConsultingFlow(
-        caseId,
+        validatedCaseId,
         assignment.company,
         assignment.partnerId,
         assignment.partnerName,
@@ -185,7 +194,8 @@ export function flowErrorResponse(error: unknown) {
   if (
     error instanceof FlowError ||
     error instanceof PortalAccessError ||
-    error instanceof QueryRequestError
+    error instanceof QueryRequestError ||
+    error instanceof RouteParamError
   )
     return Response.json(
       { error: error.message },

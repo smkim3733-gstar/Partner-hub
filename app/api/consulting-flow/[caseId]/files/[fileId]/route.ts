@@ -5,14 +5,20 @@ import {
   loadFlowAccess,
   recheckFlowAccess,
 } from '@/lib/consulting-flow-store';
+import { readRouteParam } from '@/lib/request-path';
 export const dynamic = 'force-dynamic';
 export async function GET(
   request: Request,
   context: { params: Promise<{ caseId: string; fileId: string }> },
 ) {
   try {
-    const { caseId, fileId } = await context.params;
+    const { caseId, fileId: rawFileId } = await context.params;
     const { flow, user } = await loadFlowAccess(request, caseId);
+    const fileId = readRouteParam(
+      rawFileId,
+      120,
+      '첨부파일 식별값을 확인해 주세요.',
+    );
     const file = flow.files.find((f) => f.id === fileId);
     if (!file) throw new FlowError('첨부파일을 찾을 수 없습니다.', 404);
     const object = await flowBucket().get(file.key);

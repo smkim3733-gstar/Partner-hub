@@ -131,6 +131,12 @@ void nodeTest(
     );
     let flow = (await responseData(initialResponse)).flow;
     assert.equal(flow.revision, 0);
+    for (const caseId of ['bad.case', 'x'.repeat(121)])
+      assert.equal(
+        (await GET(request(`/api/consulting-flow/${caseId}`), context(caseId)))
+          .status,
+        400,
+      );
     assert.equal(
       (
         await GET(
@@ -230,6 +236,20 @@ void nodeTest(
       ).status,
       403,
     );
+    assert.equal(
+      (
+        await download(
+          request('/api/consulting-flow/api-case/files/bad.file'),
+          {
+            params: Promise.resolve({
+              caseId: 'api-case',
+              fileId: 'bad.file',
+            }),
+          },
+        )
+      ).status,
+      400,
+    );
     const reportId = flow.reports[0].id;
     const reportContext = {
       params: Promise.resolve({ caseId: 'api-case', reportId }),
@@ -277,6 +297,20 @@ void nodeTest(
         ).status,
         400,
       );
+    assert.equal(
+      (
+        await print(
+          request(`/api/consulting-flow/api-case/reports/${'x'.repeat(121)}`),
+          {
+            params: Promise.resolve({
+              caseId: 'api-case',
+              reportId: 'x'.repeat(121),
+            }),
+          },
+        )
+      ).status,
+      400,
+    );
     const forbidden = await command(
       'api-case',
       flow,

@@ -2,14 +2,20 @@ import { FlowError } from '@/lib/consulting-flow';
 import { escapeHtml } from '@/lib/consulting-flow-http';
 import { flowErrorResponse, loadFlowAccess } from '@/lib/consulting-flow-store';
 import { readExactQueryFlag } from '@/lib/request-query';
+import { readRouteParam } from '@/lib/request-path';
 export const dynamic = 'force-dynamic';
 export async function GET(
   request: Request,
   context: { params: Promise<{ caseId: string; reportId: string }> },
 ) {
   try {
-    const { caseId, reportId } = await context.params;
+    const { caseId, reportId: rawReportId } = await context.params;
     const { flow } = await loadFlowAccess(request, caseId);
+    const reportId = readRouteParam(
+      rawReportId,
+      120,
+      '보고서 식별값을 확인해 주세요.',
+    );
     const report = flow.reports.find((r) => r.id === reportId);
     if (!report || !report.body)
       throw new FlowError(

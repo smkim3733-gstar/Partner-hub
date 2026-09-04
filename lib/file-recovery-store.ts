@@ -18,6 +18,7 @@ import { FlowError } from './consulting-flow';
 import { portalStateId } from '@/db/schema';
 import type { RecoveryPreview } from './file-recovery';
 import { PORTAL_STATE_LIMIT_BYTES } from './pilot-readiness';
+import { readRouteParam, RouteParamError } from './request-path';
 
 type RecordValue = Record<string, unknown>;
 type RecoveryState = {
@@ -63,8 +64,7 @@ function checkedState(state: unknown): RecoveryState {
   return value;
 }
 async function inspect(id: string, state: RecoveryState) {
-  if (!idPattern.test(id))
-    throw new CompanyFileError('파일 식별값을 확인해 주세요.', 400);
+  id = readRouteParam(id, 120, '파일 식별값을 확인해 주세요.');
   const file = await findCompanyFile(id);
   if (!file)
     throw new CompanyFileError(
@@ -351,7 +351,8 @@ export function recoveryError(error: unknown) {
   const status =
     error instanceof PortalAccessError ||
     error instanceof CompanyFileError ||
-    error instanceof FlowError
+    error instanceof FlowError ||
+    error instanceof RouteParamError
       ? error.status
       : error instanceof PortalStateConflict
         ? 409

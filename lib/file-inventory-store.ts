@@ -16,6 +16,7 @@ import {
   type InventoryPresence,
 } from './file-inventory';
 import { QueryRequestError, readSingleQueryParam } from './request-query';
+import { readRouteParam, RouteParamError } from './request-path';
 
 const pageSize = 25;
 type Row = {
@@ -195,8 +196,7 @@ export async function listFileInventory(
 export async function checkInventoryPresence(
   id: string,
 ): Promise<InventoryPresence> {
-  if (!/^[A-Za-z0-9_-]{1,120}$/.test(id))
-    throw new CompanyFileError('파일 식별값을 확인해 주세요.', 400);
+  id = readRouteParam(id, 120, '파일 식별값을 확인해 주세요.');
   const db = await inventoryDatabase();
   const row = await db
     .prepare(`SELECT f.storage_key, f.size_bytes, u.file_id
@@ -233,7 +233,8 @@ export function inventoryError(error: unknown) {
   if (
     error instanceof PortalAccessError ||
     error instanceof CompanyFileError ||
-    error instanceof QueryRequestError
+    error instanceof QueryRequestError ||
+    error instanceof RouteParamError
   )
     return inventoryJson({ error: error.message }, error.status);
   return inventoryJson(

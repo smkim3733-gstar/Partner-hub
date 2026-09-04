@@ -94,6 +94,15 @@ void test('initial call files store privately beside business files without meet
     throw new Error('External calls are forbidden in this intake test');
   };
   try {
+    for (const id of ['bad.id', 'x'.repeat(121)])
+      assert.equal(
+        (
+          await download(request(`/api/files/${id}`), {
+            params: Promise.resolve({ id }),
+          })
+        ).status,
+        400,
+      );
     const lookalike = request('/api/files', payload('call.docx'));
     lookalike.headers.set(
       'content-type',
