@@ -477,7 +477,9 @@ void test('dynamic route IDs remain routed through the shared path boundary', as
     ],
   ] as const;
   for (const [file, boundary] of expected) {
-    const source = await readFile(path.resolve(process.cwd(), file), 'utf8');
+    const source = (
+      await readFile(path.resolve(process.cwd(), file), 'utf8')
+    ).replaceAll('\r\n', '\n');
     assert.ok(source.includes(boundary), `${file}: missing path boundary`);
   }
 });
