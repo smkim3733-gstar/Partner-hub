@@ -445,6 +445,33 @@ void test('administrator cannot save missing or duplicate stable member IDs', as
     assert.deepEqual(await state(), before);
   }
 });
+void test('generic administrator state save cannot invent a partner account ID', async () => {
+  const before = await state();
+  const changed = structuredClone(before);
+  changed.members.push({
+    ...changed.members[0],
+    id: 'forged-state-member',
+    email: 'forged-state-member@example.invalid',
+    name: '가상 위조 파트너',
+  });
+
+  const response = await saveState(
+    request({ state: changed }, ownerHeaders, 'PUT'),
+  );
+  assert.equal(response.status, 403, await response.clone().text());
+  assert.deepEqual(await state(), before);
+});
+void test('generic administrator state save cannot replace an existing stable member ID', async () => {
+  const before = await state();
+  const changed = structuredClone(before);
+  changed.members[0].id = 'replaced-existing-member';
+
+  const response = await saveState(
+    request({ state: changed }, ownerHeaders, 'PUT'),
+  );
+  assert.equal(response.status, 403, await response.clone().text());
+  assert.deepEqual(await state(), before);
+});
 void test('ChatGPT stable identity binding claims a legacy member, rejects a recycled email and accepts the bound user after an email change', async () => {
   const db = await passwordDatabase();
   const initial = await getState(
@@ -1029,7 +1056,7 @@ void test('member email changes reject credentials reserved by a detached accoun
   assert.equal(
     (await saveState(request({ state: resurrected }, ownerHeaders, 'PUT')))
       .status,
-    409,
+    403,
   );
   assert.equal((await state()).members.length, 1);
   assert.equal(

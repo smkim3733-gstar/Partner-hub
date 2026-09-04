@@ -449,6 +449,7 @@ export function mergeStateForPortalUser(
   const incoming = asPortalState(incomingRaw);
   if (!incoming)
     throw new PortalAccessError('저장 데이터 형식이 올바르지 않습니다.', 403);
+  const current = asPortalState(currentRaw);
 
   if (user.role === 'admin') {
     const memberIds = new Set<string>();
@@ -468,6 +469,20 @@ export function mergeStateForPortalUser(
         '파트너 계정 ID가 없거나 중복되었습니다.',
         403,
       );
+
+    if (current) {
+      const currentMemberIds = new Set(
+        current.members.map((member) => member.id),
+      );
+      const inventedMemberId = incoming.members.find(
+        (member) => !currentMemberIds.has(member.id),
+      );
+      if (inventedMemberId)
+        throw new PortalAccessError(
+          '새 파트너 계정은 자가가입 또는 관리자 직접등록으로 만들어 주세요. 기존 계정 ID는 변경할 수 없습니다.',
+          403,
+        );
+    }
 
     const invalidEmail = incoming.members.find(
       (member) => !isValidLoginEmail(member.email),
@@ -498,7 +513,6 @@ export function mergeStateForPortalUser(
     return incoming;
   }
 
-  const current = asPortalState(currentRaw);
   if (!current)
     throw new PortalAccessError('저장 데이터 형식이 올바르지 않습니다.', 403);
 

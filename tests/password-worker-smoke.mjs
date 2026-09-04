@@ -2539,6 +2539,35 @@ try {
   const peerMember = cleanMemberIdState.members.find(
     (member) => member.id === peerId,
   );
+  const inventedIdSaveState = structuredClone(cleanMemberIdState);
+  inventedIdSaveState.members.push({
+    ...passwordMember,
+    id: 'invented-state-runtime',
+    email: 'invented-state-runtime@example.invalid',
+  });
+  await expect(
+    await call('/save', { state: inventedIdSaveState }, ownerHeaders, 'PUT'),
+    403,
+    'generic owner state save cannot invent a partner account ID',
+  );
+  assert.equal(
+    (await db.prepare('SELECT payload FROM portal_state').first()).payload,
+    stateBeforeAmbiguousLegacyEmail.payload,
+  );
+
+  const replacedIdSaveState = structuredClone(cleanMemberIdState);
+  replacedIdSaveState.members.find((member) => member.id === memberId).id =
+    'replaced-state-runtime';
+  await expect(
+    await call('/save', { state: replacedIdSaveState }, ownerHeaders, 'PUT'),
+    403,
+    'generic owner state save cannot replace a stable member ID',
+  );
+  assert.equal(
+    (await db.prepare('SELECT payload FROM portal_state').first()).payload,
+    stateBeforeAmbiguousLegacyEmail.payload,
+  );
+
   const duplicateIdSaveState = structuredClone(cleanMemberIdState);
   duplicateIdSaveState.members.push({
     ...passwordMember,
