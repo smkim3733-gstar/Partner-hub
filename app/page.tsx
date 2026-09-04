@@ -20,6 +20,7 @@ import { applyDocumentRequestDueDateDraft, createDocumentRequestDueDateDraft, ty
 import { commitDocumentRequest, documentRequestCaseFingerprint, type DocumentRequestCommitInput } from '@/lib/document-request-commit';
 import { diagnosisDocumentsForCase } from '@/lib/diagnosis-preflight';
 import { applyDiagnosisReviewQueueDraft, createDiagnosisReviewQueueDraft, type DiagnosisReviewQueueDraft } from '@/lib/diagnosis-review-queue';
+import { diagnosisAssessmentStateError } from '@/lib/diagnosis-assessment';
 import { applyCompanyDocumentStatusDraft, COMPANY_DOCUMENT_STATUSES, COMPANY_DOCUMENT_STATUS_IMPACTS, createCompanyDocumentStatusDraft, type CompanyDocumentStatusDraft } from '@/lib/company-document-review';
 import { applyWorkTaskStatusDraft, createSupportAcknowledgementDraft, createWorkTaskCompletionDraft, workTaskStatusImpact, type WorkTaskStatusDraft } from '@/lib/work-task-status';
 import {
@@ -393,18 +394,9 @@ type PortalState = {
 function isPortalState(value: unknown): value is PortalState {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const state = value as Partial<PortalState>;
-  const diagnosisIds = new Set<string>();
-  const diagnosisAssessmentsValid = state.diagnosisAssessments === undefined || (
-    Array.isArray(state.diagnosisAssessments) &&
-    state.diagnosisAssessments.every((item) => {
-      if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
-      const id = (item as { id?: unknown }).id;
-      if (typeof id !== 'string' || !id || id !== id.trim() || diagnosisIds.has(id))
-        return false;
-      diagnosisIds.add(id);
-      return true;
-    })
-  );
+  const diagnosisAssessmentsValid =
+    diagnosisAssessmentStateError(state.diagnosisAssessments, state.cases) ===
+    null;
   return state.version === 1
     && Number.isSafeInteger(state.consultationNumber)
     && Number(state.consultationNumber) >= 0

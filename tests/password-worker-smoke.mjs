@@ -2620,6 +2620,43 @@ try {
       `generic owner state save rejects ${String(label)}`,
     );
   }
+  const validDiagnosisAssessment = {
+    id: 'diagnosis-integrity-runtime',
+    caseId: cleanMemberIdState.cases[0].id,
+    company: cleanMemberIdState.cases[0].company,
+    identityStatus: '일치',
+    hasConsultationEvidence: true,
+    privacyMasked: true,
+    personalDataConsent: true,
+    thirdPartyAiConsent: true,
+    transcriptConsent: true,
+    level: 'A',
+    decision: '1차 초안 생성 가능',
+    status: '사전점검 완료',
+    updatedAt: '가상 판정 완료',
+  };
+  for (const { assessment, label } of [
+    {
+      assessment: { ...validDiagnosisAssessment, thirdPartyAiConsent: 'true' },
+      label: 'non-boolean diagnosis consent',
+    },
+    {
+      assessment: { ...validDiagnosisAssessment, decision: 'AI 처리 중단' },
+      label: 'inconsistent diagnosis decision',
+    },
+    {
+      assessment: { ...validDiagnosisAssessment, caseId: 'unknown-case-runtime' },
+      label: 'unlinked diagnosis case',
+    },
+  ]) {
+    const invalidDiagnosisState = structuredClone(cleanMemberIdState);
+    invalidDiagnosisState.diagnosisAssessments = [assessment];
+    await expect(
+      await call('/save', { state: invalidDiagnosisState }, ownerHeaders, 'PUT'),
+      403,
+      `generic owner state save rejects ${label}`,
+    );
+  }
   const structuralLogin = await expect(
     await call('/login', { email, password: `${password} new` }),
     200,
@@ -2660,6 +2697,41 @@ try {
       await call('/save', { state: cleanMemberIdState }, ownerHeaders, 'PUT'),
       503,
       `stored ${String(label)} blocks generic repair writes`,
+    );
+  }
+  for (const { assessment, label } of [
+    {
+      assessment: { ...validDiagnosisAssessment, personalDataConsent: 1 },
+      label: 'non-boolean diagnosis consent',
+    },
+    {
+      assessment: { ...validDiagnosisAssessment, caseId: 'unknown-case-runtime' },
+      label: 'unlinked diagnosis case',
+    },
+  ]) {
+    const invalidStoredDiagnosisState = structuredClone(cleanMemberIdState);
+    invalidStoredDiagnosisState.diagnosisAssessments = [assessment];
+    await db
+      .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+      .bind(
+        JSON.stringify(invalidStoredDiagnosisState),
+        new Date().toISOString(),
+      )
+      .run();
+    await expect(
+      await call('/state', undefined, { cookie: structuralCookie }),
+      403,
+      `stored ${label} blocks password partner access`,
+    );
+    await expect(
+      await call('/state', undefined, ownerHeaders),
+      503,
+      `stored ${label} blocks administrator reads`,
+    );
+    await expect(
+      await call('/save', { state: cleanMemberIdState }, ownerHeaders, 'PUT'),
+      503,
+      `stored ${label} blocks generic repair writes`,
     );
   }
   await db

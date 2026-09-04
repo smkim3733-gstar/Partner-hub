@@ -486,6 +486,21 @@ void test('administrator state save rejects non-object entries across every port
 });
 void test('administrator state save rejects invalid root counters and diagnosis records', async () => {
   const before = await state();
+  const diagnosis = {
+    id: 'diagnosis-integrity',
+    caseId: String(before.cases[0].id),
+    company: String(before.cases[0].company),
+    identityStatus: '일치',
+    hasConsultationEvidence: true,
+    privacyMasked: true,
+    personalDataConsent: true,
+    thirdPartyAiConsent: true,
+    transcriptConsent: true,
+    level: 'A',
+    decision: '1차 초안 생성 가능',
+    status: '사전점검 완료',
+    updatedAt: '가상 판정 완료',
+  };
   const invalidStates = [
     { ...structuredClone(before), version: 2 },
     { ...structuredClone(before), consultationNumber: -1 },
@@ -501,6 +516,36 @@ void test('administrator state save rejects invalid root counters and diagnosis 
         { id: 'diagnosis-collision' },
       ],
     },
+    {
+      ...structuredClone(before),
+      diagnosisAssessments: [
+        { ...diagnosis, thirdPartyAiConsent: 'true' },
+      ],
+    },
+    {
+      ...structuredClone(before),
+      diagnosisAssessments: [
+        { ...diagnosis, identityStatus: '확인됨' },
+      ],
+    },
+    {
+      ...structuredClone(before),
+      diagnosisAssessments: [
+        { ...diagnosis, decision: 'AI 처리 중단' },
+      ],
+    },
+    {
+      ...structuredClone(before),
+      diagnosisAssessments: [
+        { ...diagnosis, caseId: 'unknown-case' },
+      ],
+    },
+    {
+      ...structuredClone(before),
+      diagnosisAssessments: [
+        { ...diagnosis, company: '다른 기업(가상)' },
+      ],
+    },
   ];
 
   for (const changed of invalidStates) {
@@ -514,6 +559,21 @@ void test('administrator state save rejects invalid root counters and diagnosis 
 void test('stored invalid root counters and diagnosis records block access and generic repair', async () => {
   const cookie = await loggedIn();
   const valid = await state();
+  const diagnosis = {
+    id: 'diagnosis-integrity',
+    caseId: String(valid.cases[0].id),
+    company: String(valid.cases[0].company),
+    identityStatus: '일치',
+    hasConsultationEvidence: true,
+    privacyMasked: true,
+    personalDataConsent: true,
+    thirdPartyAiConsent: true,
+    transcriptConsent: true,
+    level: 'A',
+    decision: '1차 초안 생성 가능',
+    status: '사전점검 완료',
+    updatedAt: '가상 판정 완료',
+  };
   const corruptions = [
     { ...structuredClone(valid), version: 2 },
     { ...structuredClone(valid), consultationNumber: -1 },
@@ -524,6 +584,18 @@ void test('stored invalid root counters and diagnosis records block access and g
       diagnosisAssessments: [
         { id: 'diagnosis-collision' },
         { id: 'diagnosis-collision' },
+      ],
+    },
+    {
+      ...structuredClone(valid),
+      diagnosisAssessments: [
+        { ...diagnosis, personalDataConsent: 1 },
+      ],
+    },
+    {
+      ...structuredClone(valid),
+      diagnosisAssessments: [
+        { ...diagnosis, caseId: 'unknown-case' },
       ],
     },
   ];

@@ -25,6 +25,7 @@ import {
   membersRevisionOf,
   partnerTypes,
 } from '@/lib/partner-registration';
+import { diagnosisAssessmentStateError } from '@/lib/diagnosis-assessment';
 
 type PortalPermissions = {
   sharedSchedule: boolean;
@@ -276,20 +277,6 @@ function portalRecordIdError(state: PortalStateRecord): string | null {
       ids.add(id);
     }
   }
-  if (state.diagnosisAssessments) {
-    const ids = new Set<string>();
-    for (const record of state.diagnosisAssessments) {
-      const id = record.id;
-      if (
-        typeof id !== 'string' ||
-        !id ||
-        id !== id.trim() ||
-        ids.has(id)
-      )
-        return '사전점검 ID가 없거나 중복되었습니다.';
-      ids.add(id);
-    }
-  }
   return null;
 }
 
@@ -297,7 +284,9 @@ export function hasPortalStateStructure(value: unknown) {
   return (
     hasPortalRecordStructure(value) &&
     portalStateMetadataError(value) === null &&
-    portalRecordIdError(value) === null
+    portalRecordIdError(value) === null &&
+    diagnosisAssessmentStateError(value.diagnosisAssessments, value.cases) ===
+      null
   );
 }
 
@@ -309,6 +298,7 @@ function invalidPortalStateMessage(value: unknown) {
   return hasPortalRecordStructure(value)
     ? portalStateMetadataError(value) ??
         portalRecordIdError(value) ??
+        diagnosisAssessmentStateError(value.diagnosisAssessments, value.cases) ??
         '저장 데이터 형식이 올바르지 않습니다.'
     : '저장 데이터 형식이 올바르지 않습니다.';
 }
