@@ -34,7 +34,18 @@ const seed = () => ({
       stage: '접수',
     },
   ],
-  tasks: [{ id: 'revision-task', status: '대기' }],
+  tasks: [{
+    id: 'revision-task',
+    company: '가상기업',
+    title: 'revision 업무',
+    kind: '내부업무',
+    assignee: '대표',
+    due: '기한 확인',
+    dueState: 'upcoming',
+    status: '대기',
+    priority: '보통',
+    related: 'revision 검사',
+  }],
   timeline: [],
   companyDocuments: [],
   members: [],
@@ -472,7 +483,7 @@ void test('concurrent writers with the same baseline cannot silently overwrite o
   const a = structuredClone(baseline.state);
   const b = structuredClone(baseline.state);
   a.tasks[0].status = '완료';
-  b.tasks[0].status = '진행중';
+  b.tasks[0].status = '진행';
   const responses = await Promise.all([
     PUT(request(a, baseline.stateRevision)),
     PUT(request(b, baseline.stateRevision)),
@@ -496,7 +507,7 @@ void test('uncertain acknowledgement can be retried with the original revision o
     ack.stateRevision,
   );
   const latest = await snapshot();
-  latest.state.tasks[0].status = '보류';
+  latest.state.tasks[0].status = '진행';
   assert.equal(
     (await PUT(request(latest.state, latest.stateRevision))).status,
     200,
@@ -507,7 +518,7 @@ void test('uncertain acknowledgement can be retried with the original revision o
   );
   assert.equal(
     ((await readPortalState()) as ReturnType<typeof seed>).tasks[0].status,
-    '보류',
+    '진행',
   );
 });
 

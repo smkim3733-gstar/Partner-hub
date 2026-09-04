@@ -262,6 +262,9 @@ void test('initial call files store privately beside business files without meet
         status: '제출완료',
         assignedTrainee: file.assignedTrainee,
         submittedBy: '가상 담당자',
+        updatedAt: '방금 전',
+        version: 'V1',
+        sensitive: true,
       });
       assert.equal(
         file.assignedTrainee,

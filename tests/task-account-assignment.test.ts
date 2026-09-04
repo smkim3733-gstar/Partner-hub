@@ -61,11 +61,17 @@ type TestState = {
   }>;
   tasks: Array<{
     id: string;
+    company: string;
     title: string;
+    kind: string;
     assignee?: string;
+    due: string;
+    dueState: string;
     partnerMemberId?: string;
     caseId?: string;
     status?: string;
+    priority: string;
+    related: string;
   }>;
 };
 async function stateFor(email: string) {
@@ -207,20 +213,53 @@ void test('real state handlers preserve account-assigned tasks and cases across 
   current.tasks = [
     {
       id: 'own-task',
+      company: '가상 본인기업',
       title: '본인 직접업무',
+      kind: '내부업무',
+      due: '기한 확인',
+      dueState: 'upcoming',
+      status: '대기',
+      priority: '보통',
+      related: '직접 등록',
       ...newTaskAssignment('task-one', members, true),
     },
     {
       id: 'peer-task',
+      company: '가상 타인기업',
       title: '타인 비공개업무',
+      kind: '내부업무',
+      due: '기한 확인',
+      dueState: 'upcoming',
+      status: '대기',
+      priority: '보통',
+      related: '직접 등록',
       ...newTaskAssignment('task-two', members, true),
     },
     {
       id: 'admin-task',
+      company: '내부업무',
       title: '대표 비공개업무',
+      kind: '내부업무',
+      due: '기한 확인',
+      dueState: 'upcoming',
+      status: '대기',
+      priority: '보통',
+      related: '직접 등록',
       ...newTaskAssignment('', members, true),
     },
-    { id: 'linked-task', title: '상담 후속업무', caseId: 'task-case' },
+    {
+      id: 'linked-task',
+      company: '가상 본인기업',
+      title: '상담 후속업무',
+      kind: '상담',
+      assignee: members[0].name,
+      caseId: 'task-case',
+      due: '기한 확인',
+      dueState: 'upcoming',
+      status: '대기',
+      priority: '보통',
+      related: '상담 #1',
+    },
   ];
   assert.equal((await PUT(request('seedy@sites.test', current))).status, 200);
   const renamed = await stateFor('seedy@sites.test');

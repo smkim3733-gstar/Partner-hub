@@ -29,6 +29,7 @@ import { diagnosisAssessmentStateError } from '@/lib/diagnosis-assessment';
 import { caseRecordStateError } from '@/lib/case-record-integrity';
 import { relatedRecordStateError } from '@/lib/related-record-integrity';
 import { timelineRecordStateError } from '@/lib/timeline-record-integrity';
+import { operationalRecordStateError } from '@/lib/operational-record-integrity';
 
 type PortalPermissions = {
   sharedSchedule: boolean;
@@ -290,6 +291,11 @@ export function hasPortalStateStructure(value: unknown) {
     portalRecordIdError(value) === null &&
     caseRecordStateError(value.cases, value.members) === null &&
     timelineRecordStateError(value.timeline, value.cases) === null &&
+    operationalRecordStateError(
+      value.tasks,
+      value.companyDocuments,
+      value.schedule,
+    ) === null &&
     relatedRecordStateError(
       value.tasks,
       value.companyDocuments,
@@ -312,6 +318,11 @@ function invalidPortalStateMessage(value: unknown) {
         portalRecordIdError(value) ??
         caseRecordStateError(value.cases, value.members) ??
         timelineRecordStateError(value.timeline, value.cases) ??
+        operationalRecordStateError(
+          value.tasks,
+          value.companyDocuments,
+          value.schedule,
+        ) ??
         relatedRecordStateError(
           value.tasks,
           value.companyDocuments,

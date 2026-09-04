@@ -172,6 +172,13 @@ void test('two same-company applications retain both timelines and each private 
       partnerMemberId: member.id,
       assignedTrainee: member.name,
       storageFileId: file.id,
+      title: '협업신청 접수자료',
+      category: '기타자료',
+      status: '제출완료',
+      submittedBy: member.name,
+      updatedAt: '방금 전',
+      version: 'V1',
+      sensitive: true,
     })),
   };
   const saved = await saveState(request({ state: incoming }, 'PUT'));

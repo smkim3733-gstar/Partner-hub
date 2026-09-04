@@ -371,37 +371,73 @@ try {
   state.tasks = [
     {
       id: 'runtime-own-task',
+      company: '가상 본인기업',
       title: '본인 업무',
+      kind: '내부업무',
       assignee: '가상 런타임파트너',
+      due: '오늘',
+      dueState: 'today',
+      status: '대기',
+      priority: '보통',
+      related: '격리 검사',
       partnerMemberId: memberId,
     },
     {
       id: 'runtime-peer-task',
+      company: '가상 타인기업',
       title: '타인 업무',
+      kind: '내부업무',
       assignee: '가상 런타임파트너',
+      due: '오늘',
+      dueState: 'today',
+      status: '대기',
+      priority: '보통',
+      related: '격리 검사',
       partnerMemberId: peerId,
     },
     {
       id: 'runtime-owner-task',
+      company: '내부 운영',
       title: '대표 업무',
+      kind: '내부업무',
       assignee: '김성민 대표',
+      due: '오늘',
+      dueState: 'today',
+      status: '대기',
+      priority: '보통',
+      related: '격리 검사',
       partnerMemberId: '',
     },
     {
       id: 'runtime-linked-task',
+      company: '가상 본인기업',
       title: '진행 연결 업무',
+      kind: '내부업무',
+      assignee: '가상 런타임파트너',
+      due: '오늘',
+      dueState: 'today',
+      status: '진행',
+      priority: '보통',
+      related: '격리 검사',
       caseId: 'runtime-own',
     },
   ];
   state.schedule = [
     {
       id: 'runtime-schedule',
+      date: '09.05',
+      weekday: '토',
       company: '가상 타인기업',
       assignedTrainee: '가상 런타임파트너',
       partnerMemberId: peerId,
       shareMode: 'all_with_assignee',
       source: 'partner',
       time: '10:00',
+      end: '11:00',
+      service: '가상 런타임상담',
+      method: '화상',
+      status: '확정',
+      tone: 'green',
       description: 'CONFIDENTIAL_PEER_MEETING',
     },
   ];
@@ -741,7 +777,11 @@ try {
     'first browser window saves against its current revision',
   );
   const staleWindow = structuredClone(staleBaseline.state);
-  staleWindow.tasks.push({ id: 'stale-window-task', status: '대기' });
+  staleWindow.tasks.push({
+    ...staleWindow.tasks[2],
+    id: 'stale-window-task',
+    title: '오래된 창 업무',
+  });
   const staleResponse = await expect(
     await call(
       '/save',
@@ -778,8 +818,9 @@ try {
   ).json();
   const receiptRecoveredState = structuredClone(conflictRecoveryBaseline.state);
   receiptRecoveredState.tasks.push({
+    ...receiptRecoveredState.tasks[2],
     id: 'recovered-window-task',
-    status: '대기',
+    title: '복구된 창 업무',
   });
   await expect(
     await call(
@@ -1326,7 +1367,14 @@ try {
     repeatState.companyDocuments.push({
       id: `doc-${file.id}`,
       company: '가상 본인기업',
+      title: `가상 반복 신청자료 ${file.id}`,
+      category: '기타자료',
+      status: '제출완료',
       assignedTrainee: file.assignedTrainee,
+      submittedBy: file.assignedTrainee,
+      updatedAt: '방금 전',
+      version: '-',
+      sensitive: false,
       partnerMemberId: memberId,
       caseId: file.caseId,
       storageFileId: file.id,
@@ -1721,11 +1769,11 @@ try {
   );
   assert.equal(
     taskSaved.tasks.find((task) => task.id === 'runtime-peer-task').status,
-    undefined,
+    '대기',
   );
   assert.equal(
     taskSaved.tasks.find((task) => task.id === 'runtime-owner-task').status,
-    undefined,
+    '대기',
   );
 
   const nativeFlow = (
@@ -2546,6 +2594,46 @@ try {
   const peerMember = cleanMemberIdState.members.find(
     (member) => member.id === peerId,
   );
+  const validOperationalRecords = {
+    tasks: {
+      id: 'operational-task-runtime',
+      company: '가상 런타임기업',
+      title: '가상 런타임업무',
+      kind: '내부업무',
+      assignee: passwordMember.name,
+      due: '기한 확인',
+      dueState: 'upcoming',
+      status: '대기',
+      priority: '보통',
+      related: '격리 검사',
+    },
+    companyDocuments: {
+      id: 'operational-document-runtime',
+      company: '가상 런타임기업',
+      title: '가상 런타임자료',
+      category: '기타자료',
+      status: '요청중',
+      assignedTrainee: passwordMember.name,
+      submittedBy: passwordMember.name,
+      updatedAt: '방금 전',
+      version: '-',
+      sensitive: false,
+    },
+    schedule: {
+      id: 'operational-schedule-runtime',
+      date: '09.05',
+      weekday: '토',
+      time: '10:00',
+      end: '11:00',
+      company: '가상 런타임기업',
+      service: '가상 런타임상담',
+      method: '화상',
+      status: '확정',
+      tone: 'green',
+      source: 'partner',
+      shareMode: 'all_with_assignee',
+    },
+  };
   for (const field of ['members', 'cases']) {
     const nonObjectIncomingState = structuredClone(cleanMemberIdState);
     nonObjectIncomingState[field] = [null];
@@ -2619,15 +2707,56 @@ try {
       `generic owner state save rejects a duplicate ${label} ID`,
     );
   }
+  for (const { field, record, label } of [
+    {
+      field: 'tasks',
+      record: { ...validOperationalRecords.tasks, title: ' ' },
+      label: 'blank task title',
+    },
+    {
+      field: 'tasks',
+      record: { ...validOperationalRecords.tasks, status: '보류' },
+      label: 'unsupported task status',
+    },
+    {
+      field: 'companyDocuments',
+      record: { ...validOperationalRecords.companyDocuments, version: '' },
+      label: 'blank document version',
+    },
+    {
+      field: 'companyDocuments',
+      record: { ...validOperationalRecords.companyDocuments, category: '미분류' },
+      label: 'unsupported document category',
+    },
+    {
+      field: 'schedule',
+      record: { ...validOperationalRecords.schedule, service: '' },
+      label: 'blank schedule service',
+    },
+    {
+      field: 'schedule',
+      record: { ...validOperationalRecords.schedule, shareMode: 'public' },
+      label: 'unsupported schedule share mode',
+    },
+  ]) {
+    const invalidOperationalState = structuredClone(cleanMemberIdState);
+    invalidOperationalState[field] = [record];
+    await expect(
+      await call('/save', { state: invalidOperationalState }, ownerHeaders, 'PUT'),
+      403,
+      `generic owner state save rejects ${label}`,
+    );
+  }
   for (const [field, label] of [
     ['tasks', 'task'],
     ['companyDocuments', 'document'],
     ['schedule', 'schedule'],
   ]) {
     for (const { record, reason } of [
-      { record: { id: `invalid-${label}-case-runtime`, caseId: 'missing-runtime-case' }, reason: 'unresolved case link' },
-      { record: { id: `invalid-${label}-member-runtime`, partnerMemberId: 'missing-runtime-member' }, reason: 'unresolved member link' },
+      { record: { ...validOperationalRecords[field], id: `invalid-${label}-case-runtime`, caseId: 'missing-runtime-case' }, reason: 'unresolved case link' },
+      { record: { ...validOperationalRecords[field], id: `invalid-${label}-member-runtime`, partnerMemberId: 'missing-runtime-member' }, reason: 'unresolved member link' },
       { record: {
+        ...validOperationalRecords[field],
         id: `invalid-${label}-conflict-runtime`,
         caseId: cleanMemberIdState.cases[0].id,
         partnerMemberId: peerId,
@@ -2730,6 +2859,48 @@ try {
   const structuralCookie = structuralLogin.headers
     .get('set-cookie')
     .split(';')[0];
+  for (const { field, record, label } of [
+    {
+      field: 'tasks',
+      record: { ...validOperationalRecords.tasks, dueState: 'later' },
+      label: 'unsupported task due state',
+    },
+    {
+      field: 'companyDocuments',
+      record: { ...validOperationalRecords.companyDocuments, sensitive: 'true' },
+      label: 'non-boolean document sensitivity',
+    },
+    {
+      field: 'schedule',
+      record: { ...validOperationalRecords.schedule, source: 'external' },
+      label: 'unsupported schedule source',
+    },
+  ]) {
+    const invalidStoredOperationalState = structuredClone(cleanMemberIdState);
+    invalidStoredOperationalState[field] = [record];
+    await db
+      .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+      .bind(
+        JSON.stringify(invalidStoredOperationalState),
+        new Date().toISOString(),
+      )
+      .run();
+    await expect(
+      await call('/state', undefined, { cookie: structuralCookie }),
+      403,
+      `stored ${label} blocks password partner access`,
+    );
+    await expect(
+      await call('/state', undefined, ownerHeaders),
+      503,
+      `stored ${label} blocks administrator reads`,
+    );
+    await expect(
+      await call('/save', { state: cleanMemberIdState }, ownerHeaders, 'PUT'),
+      503,
+      `stored ${label} blocks generic repair writes`,
+    );
+  }
   for (const [mutate, label] of [
     [(state) => { state.version = 2; }, 'unsupported state version'],
     [(state) => { state.consultationNumber = -1; }, 'negative consultation counter'],
@@ -2835,6 +3006,7 @@ try {
   ]) {
     const invalidStoredRelatedState = structuredClone(cleanMemberIdState);
     invalidStoredRelatedState[field] = [{
+      ...validOperationalRecords[field],
       id: `stored-${label}-conflict-runtime`,
       caseId: cleanMemberIdState.cases[0].id,
       partnerMemberId: peerId,
@@ -3402,8 +3574,15 @@ try {
   disposableMember.status = '활성';
   disposableState.tasks.push({
     id: 'disposable-linked-task-runtime',
+    company: '가상 삭제검증 소속',
     title: '가상 삭제 연결 검증업무',
+    kind: '내부업무',
     assignee: disposableMember.name,
+    due: '오늘',
+    dueState: 'today',
+    status: '대기',
+    priority: '보통',
+    related: '격리 검사',
     partnerMemberId: disposableMember.id,
   });
   await expect(

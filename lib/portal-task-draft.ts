@@ -17,8 +17,13 @@ export const PORTAL_TASK_KINDS = [
   '내부업무',
   '지원요청',
 ] as const;
+export const PORTAL_TASK_DUE_STATES = [
+  'upcoming',
+  'today',
+  'overdue',
+] as const;
 
-export type PortalTaskDueState = 'upcoming' | 'today' | 'overdue';
+export type PortalTaskDueState = (typeof PORTAL_TASK_DUE_STATES)[number];
 export type PortalTaskKind = (typeof PORTAL_TASK_KINDS)[number];
 
 export type PortalTaskDraftInput = {
@@ -78,7 +83,7 @@ export function preparePortalTaskDraft(
   if (due.length > PORTAL_TASK_DUE_MAX_LENGTH)
     return { ok: false, error: `마감일은 ${PORTAL_TASK_DUE_MAX_LENGTH}자 이하로 입력해 주세요.` };
 
-  const dueState = ['upcoming', 'today', 'overdue'].find(
+  const dueState = PORTAL_TASK_DUE_STATES.find(
     (candidate): candidate is PortalTaskDueState => candidate === input.dueState,
   );
   if (!dueState)

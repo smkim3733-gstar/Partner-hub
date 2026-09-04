@@ -61,6 +61,66 @@ const truthyMalformedPartnerPermissions = () =>
     fileUpload: {},
     quoteContract: 'allowed',
   }) as unknown as PartnerAccount['permissions'];
+function withOperationalRecords<T extends object>(base: T) {
+  return {
+    ...base,
+    tasks: [{
+      id: 'integrity-task',
+      company: '가상 비공개기업',
+      title: '가상 업무',
+      kind: '서류요청',
+      assignee: '가상 기존파트너',
+      due: '오늘 16:00',
+      dueState: 'today',
+      status: '진행',
+      priority: '긴급',
+      related: '서류요청 #1',
+    }],
+    companyDocuments: [{
+      id: 'integrity-document',
+      company: '가상 비공개기업',
+      title: '사업자등록증',
+      category: '사업자등록증',
+      status: '요청중',
+      assignedTrainee: '가상 기존파트너',
+      submittedBy: '가상 기존파트너',
+      updatedAt: '방금 전',
+      version: '-',
+      sensitive: true,
+    }],
+    schedule: [{
+      id: 'integrity-schedule',
+      date: '09.05',
+      weekday: '토',
+      time: '10:00',
+      end: '11:00',
+      company: '가상 비공개기업',
+      service: '가상 상담',
+      method: '화상',
+      status: '확정',
+      tone: 'green',
+      source: 'partner',
+      shareMode: 'all_with_assignee',
+    }],
+  };
+}
+function corruptedOperationalStates<T extends object>(base: T) {
+  const valid = withOperationalRecords(base);
+  return [
+    { ...valid, tasks: [{ ...valid.tasks[0], title: ' ' }] },
+    { ...valid, tasks: [{ ...valid.tasks[0], status: '보류' }] },
+    { ...valid, tasks: [{ ...valid.tasks[0], dueState: 'later' }] },
+    { ...valid, companyDocuments: [{ ...valid.companyDocuments[0], updatedAt: '' }] },
+    { ...valid, companyDocuments: [{ ...valid.companyDocuments[0], category: '임의자료' }] },
+    { ...valid, companyDocuments: [{ ...valid.companyDocuments[0], status: '삭제됨' }] },
+    { ...valid, companyDocuments: [{ ...valid.companyDocuments[0], sensitive: 'true' }] },
+    { ...valid, schedule: [{ ...valid.schedule[0], service: '' }] },
+    { ...valid, schedule: [{ ...valid.schedule[0], source: 'external' }] },
+    { ...valid, schedule: [{ ...valid.schedule[0], status: '취소됨' }] },
+    { ...valid, schedule: [{ ...valid.schedule[0], shareMode: 'everyone' }] },
+    { ...valid, schedule: [{ ...valid.schedule[0], private: 'yes' }] },
+  ];
+}
 function request(
   data?: unknown,
   headers: Record<string, string> = {},
@@ -577,6 +637,16 @@ void test('administrator state save rejects invalid case display fields and acco
     assert.deepEqual(await state(), before);
   }
 });
+void test('administrator state save rejects invalid operational display and enum fields', async () => {
+  const before = await state();
+  for (const changed of corruptedOperationalStates(before)) {
+    const response = await saveState(
+      request({ state: changed }, ownerHeaders, 'PUT'),
+    );
+    assert.equal(response.status, 403, await response.clone().text());
+    assert.deepEqual(await state(), before);
+  }
+});
 void test('stored invalid root counters and diagnosis records block access and generic repair', async () => {
   const cookie = await loggedIn();
   const valid = await state();
@@ -644,6 +714,21 @@ void test('stored invalid case fields and account links block access and generic
   for (const mutate of corruptions) {
     const corrupted = structuredClone(valid);
     mutate(corrupted);
+    await writePortalState(corrupted);
+    const partnerRead = await getState(request(undefined, { cookie }));
+    assert.equal(partnerRead.status, 403, await partnerRead.clone().text());
+    const ownerRead = await getState(request(undefined, ownerHeaders));
+    assert.equal(ownerRead.status, 503, await ownerRead.clone().text());
+    const repairWrite = await saveState(
+      request({ state: valid }, ownerHeaders, 'PUT'),
+    );
+    assert.equal(repairWrite.status, 503, await repairWrite.clone().text());
+  }
+});
+void test('stored invalid operational records block partner and administrator access', async () => {
+  const cookie = await loggedIn();
+  const valid = withOperationalRecords(await state());
+  for (const corrupted of corruptedOperationalStates(valid)) {
     await writePortalState(corrupted);
     const partnerRead = await getState(request(undefined, { cookie }));
     assert.equal(partnerRead.status, 403, await partnerRead.clone().text());

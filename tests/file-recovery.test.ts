@@ -217,6 +217,13 @@ void test('generic state saves cannot create fake recovery facts for either role
     company: '가상기업',
     partnerMemberId: member.id,
     assignedTrainee: member.name,
+    title: '가상 회수자료',
+    category: '기타자료',
+    status: '제출완료',
+    submittedBy: member.name,
+    updatedAt: '방금 전',
+    version: 'V1',
+    sensitive: true,
     recovery: {
       by: email,
       reason: '위조한 대표 확인',
@@ -543,7 +550,18 @@ void test('stale state, wrong target case and changed file metadata are rejected
     409,
   );
   const changed = await state();
-  changed.tasks = [{ id: 'new-other-task' }];
+  changed.tasks = [{
+    id: 'new-other-task',
+    company: '가상기업',
+    title: '다른 업무',
+    kind: '내부업무',
+    assignee: '김성민 대표',
+    due: '기한 확인',
+    dueState: 'upcoming',
+    status: '대기',
+    priority: '보통',
+    related: '복구 경합 검사',
+  }];
   await writePortalState(changed);
   assert.equal((await recover(request(value), context)).status, 409);
   assert.deepEqual(await state(), changed);

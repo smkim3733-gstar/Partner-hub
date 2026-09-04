@@ -24,6 +24,53 @@ const user: PortalUser = {
   permissions,
   authMethod: 'password',
 };
+function taskRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'valid-task',
+    company: '가상기업',
+    title: '가상 업무',
+    kind: '내부업무',
+    assignee: user.memberName,
+    due: '기한 확인',
+    dueState: 'upcoming',
+    status: '대기',
+    priority: '보통',
+    related: '검사 기록',
+    ...overrides,
+  };
+}
+function documentRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'valid-document',
+    company: '가상기업',
+    title: '가상 자료',
+    category: '기타자료',
+    status: '요청중',
+    assignedTrainee: user.memberName,
+    submittedBy: user.memberName,
+    updatedAt: '방금 전',
+    version: '-',
+    sensitive: false,
+    ...overrides,
+  };
+}
+function scheduleRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'valid-schedule',
+    date: '09.05',
+    weekday: '토',
+    time: '10:00',
+    end: '11:00',
+    company: '가상기업',
+    service: '가상 상담',
+    method: '화상',
+    status: '확정',
+    tone: 'green',
+    source: 'partner',
+    shareMode: 'all_with_assignee',
+    ...overrides,
+  };
+}
 function fixture() {
   return {
     version: 1,
@@ -64,30 +111,22 @@ function fixture() {
         trainee: user.memberName,
       },
     ],
-    tasks: [
-      { id: 'ambiguous-task', assignee: user.memberName, title: '미확정 업무' },
-    ],
-    companyDocuments: [
-      {
+    tasks: [taskRecord({
+      id: 'ambiguous-task',
+      title: '미확정 업무',
+    })],
+    companyDocuments: [documentRecord({
         id: 'ambiguous-doc',
-        assignedTrainee: user.memberName,
         title: '미확정 자료',
-      },
-    ],
-    schedule: [
-      {
+      })],
+    schedule: [scheduleRecord({
         id: 'ambiguous-meeting',
         assignedTrainee: user.memberName,
         company: '가상 타인기업',
-        shareMode: 'all_with_assignee',
-        source: 'partner',
-        time: '10:00',
-        end: '11:00',
         description: '비공개 상담내용',
         meetingUrl: 'https://private.example.invalid',
         caseId: 'other-case',
-      },
-    ],
+      })],
     timeline: [
       {
         caseId: 'other-case',
@@ -167,24 +206,24 @@ void test('duplicate or blank task, document and schedule IDs fail closed before
       key: 'tasks',
       label: '업무',
       records: [
-        { id: 'collision-record', assignee: user.memberName, partnerMemberId: user.memberId, title: '첫 업무' },
-        { id: 'collision-record', assignee: user.memberName, partnerMemberId: user.memberId, title: '둘째 업무' },
+        taskRecord({ id: 'collision-record', partnerMemberId: user.memberId, title: '첫 업무' }),
+        taskRecord({ id: 'collision-record', partnerMemberId: user.memberId, title: '둘째 업무' }),
       ],
     },
     {
       key: 'companyDocuments',
       label: '기업자료',
       records: [
-        { id: 'collision-record', assignedTrainee: user.memberName, partnerMemberId: user.memberId, title: '첫 자료' },
-        { id: 'collision-record', assignedTrainee: user.memberName, partnerMemberId: user.memberId, title: '둘째 자료' },
+        documentRecord({ id: 'collision-record', partnerMemberId: user.memberId, title: '첫 자료' }),
+        documentRecord({ id: 'collision-record', partnerMemberId: user.memberId, title: '둘째 자료' }),
       ],
     },
     {
       key: 'schedule',
       label: '일정',
       records: [
-        { id: 'collision-record', assignedTrainee: user.memberName, partnerMemberId: user.memberId, title: '첫 일정' },
-        { id: 'collision-record', assignedTrainee: user.memberName, partnerMemberId: user.memberId, title: '둘째 일정' },
+        scheduleRecord({ id: 'collision-record', assignedTrainee: user.memberName, partnerMemberId: user.memberId }),
+        scheduleRecord({ id: 'collision-record', assignedTrainee: user.memberName, partnerMemberId: user.memberId }),
       ],
     },
   ] as const;
@@ -310,8 +349,8 @@ void test('duplicate new partner record IDs are rejected instead of collapsing d
     ...structuredClone(current),
     tasks: [
       ...structuredClone(current.tasks),
-      { id: 'new-task', assignee: user.memberName, title: '첫 번째 업무' },
-      { id: 'new-task', assignee: user.memberName, title: '마지막 업무' },
+      taskRecord({ id: 'new-task', title: '첫 번째 업무' }),
+      taskRecord({ id: 'new-task', title: '마지막 업무' }),
     ],
   };
   assert.throws(
@@ -342,12 +381,11 @@ void test('partner cannot create an operational record with a reserved seed ID',
     ...structuredClone(current),
     tasks: [
       ...structuredClone(current.tasks),
-      {
+      taskRecord({
         id: 'task-diagnosis-review-1',
         title: '가상 파생업무 위장 시도',
-        assignee: user.memberName,
         partnerMemberId: user.memberId,
-      },
+      }),
     ],
   };
   assert.throws(
@@ -380,12 +418,12 @@ void test('ID-linked and case-inherited related records survive duplicate names'
   const raw = {
     ...current,
     tasks: [
-      {
+      taskRecord({
         id: 'own-task',
         assignee: '이전 표시이름',
         partnerMemberId: user.memberId,
-      },
-      { id: 'linked-task', caseId: 'own-case' },
+      }),
+      taskRecord({ id: 'linked-task', caseId: 'own-case' }),
       ...current.tasks,
     ],
   };
@@ -405,11 +443,11 @@ void test('conflicting and unresolved related case links fail closed', () => {
   const conflicting = {
     ...current,
     tasks: [
-      {
+      taskRecord({
         id: 'conflicting-task',
         caseId: 'other-case',
         partnerMemberId: user.memberId,
-      },
+      }),
     ],
   };
   assert.throws(
@@ -420,7 +458,7 @@ void test('conflicting and unresolved related case links fail closed', () => {
   const unresolved = {
     ...current,
     tasks: [
-      { id: 'unknown-task', caseId: 'missing-case', assignee: user.memberName },
+      taskRecord({ id: 'unknown-task', caseId: 'missing-case' }),
     ],
   };
   assert.throws(

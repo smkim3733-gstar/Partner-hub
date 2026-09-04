@@ -125,7 +125,18 @@ beforeEach(async () => {
     consultationNumber: 0,
     timeline: [],
     schedule: [],
-    tasks: [{ id: 'preserved-task', assignee: '가상 기존파트너' }],
+    tasks: [{
+      id: 'preserved-task',
+      company: '가상 기존기업',
+      title: '기존 업무',
+      kind: '내부업무',
+      assignee: '가상 기존파트너',
+      due: '기한 확인',
+      dueState: 'upcoming',
+      status: '대기',
+      priority: '보통',
+      related: '기존 기록',
+    }],
     companyDocuments: [],
     cases: [
       {
@@ -634,7 +645,18 @@ void test('login statistics do not increment member revision; ordinary case/task
     createdAt: '2000-01-01T00:00:00.000Z',
     createdBy: 'forged@example.invalid',
   };
-  current.tasks.push({ id: 'second-task', assignee: '가상 기존파트너' });
+  current.tasks.push({
+    id: 'second-task',
+    company: '가상 기존기업',
+    title: '일반 저장 업무',
+    kind: '내부업무',
+    assignee: '가상 기존파트너',
+    due: '기한 확인',
+    dueState: 'upcoming',
+    status: '대기',
+    priority: '보통',
+    related: '일반 저장',
+  });
   const result = await save(
     request({ state: current }, owner, '/api/state', 'PUT'),
   );
@@ -675,7 +697,18 @@ void test('generic administrator state save accepts a valid display name but pre
     companies: 999999,
     forgedMemberField: '가상 위조필드',
   });
-  changed.tasks.push({ id: 'profile-boundary-task', assignee: '김성민 대표' });
+  changed.tasks.push({
+    id: 'profile-boundary-task',
+    company: '내부업무',
+    title: '프로필 경계 검사',
+    kind: '내부업무',
+    assignee: '김성민 대표',
+    due: '기한 확인',
+    dueState: 'upcoming',
+    status: '대기',
+    priority: '보통',
+    related: '계정 설정',
+  });
 
   const response = await save(
     request({ state: changed }, owner, '/api/state', 'PUT'),
@@ -761,14 +794,51 @@ void test('generic administrator state save cannot delete a suspended partner wi
       trainee: '가상 기존파트너',
       partnerMemberId: 'existing-id',
     }],
-    ['tasks', { id: 'linked-task', assignee: '가상 기존파트너' }],
+    ['tasks', {
+      id: 'linked-task',
+      company: '가상 연결기업',
+      title: '연결 업무',
+      kind: '내부업무',
+      assignee: '가상 기존파트너',
+      due: '기한 확인',
+      dueState: 'upcoming',
+      status: '대기',
+      priority: '보통',
+      related: '계정 삭제 검사',
+    }],
     [
       'companyDocuments',
-      { id: 'linked-document', partnerMemberId: 'existing-id' },
+      {
+        id: 'linked-document',
+        company: '가상 연결기업',
+        title: '연결 자료',
+        category: '기타자료',
+        status: '요청중',
+        assignedTrainee: '가상 기존파트너',
+        partnerMemberId: 'existing-id',
+        submittedBy: '가상 기존파트너',
+        updatedAt: '방금 전',
+        version: '-',
+        sensitive: false,
+      },
     ],
     [
       'schedule',
-      { id: 'linked-schedule', assignedTrainee: '가상 기존파트너' },
+      {
+        id: 'linked-schedule',
+        date: '09.05',
+        weekday: '토',
+        time: '10:00',
+        end: '11:00',
+        company: '가상 연결기업',
+        service: '가상 상담',
+        method: '화상',
+        status: '확정',
+        tone: 'green',
+        source: 'partner',
+        shareMode: 'all_with_assignee',
+        assignedTrainee: '가상 기존파트너',
+      },
     ],
   ] as const;
 
