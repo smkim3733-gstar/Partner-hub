@@ -484,6 +484,62 @@ void test('administrator state save rejects non-object entries across every port
   );
   assert.deepEqual(await state(), before);
 });
+void test('administrator state save rejects invalid root counters and diagnosis records', async () => {
+  const before = await state();
+  const invalidStates = [
+    { ...structuredClone(before), version: 2 },
+    { ...structuredClone(before), consultationNumber: -1 },
+    { ...structuredClone(before), consultationNumber: 1.5 },
+    { ...structuredClone(before), membersRevision: -1 },
+    { ...structuredClone(before), membersRevision: 1.5 },
+    { ...structuredClone(before), diagnosisAssessments: [null] },
+    { ...structuredClone(before), diagnosisAssessments: [{ id: ' ' }] },
+    {
+      ...structuredClone(before),
+      diagnosisAssessments: [
+        { id: 'diagnosis-collision' },
+        { id: 'diagnosis-collision' },
+      ],
+    },
+  ];
+
+  for (const changed of invalidStates) {
+    const response = await saveState(
+      request({ state: changed }, ownerHeaders, 'PUT'),
+    );
+    assert.equal(response.status, 403, await response.clone().text());
+    assert.deepEqual(await state(), before);
+  }
+});
+void test('stored invalid root counters and diagnosis records block access and generic repair', async () => {
+  const cookie = await loggedIn();
+  const valid = await state();
+  const corruptions = [
+    { ...structuredClone(valid), version: 2 },
+    { ...structuredClone(valid), consultationNumber: -1 },
+    { ...structuredClone(valid), membersRevision: 1.5 },
+    { ...structuredClone(valid), diagnosisAssessments: [null] },
+    {
+      ...structuredClone(valid),
+      diagnosisAssessments: [
+        { id: 'diagnosis-collision' },
+        { id: 'diagnosis-collision' },
+      ],
+    },
+  ];
+
+  for (const corrupted of corruptions) {
+    await writePortalState(corrupted);
+    const partnerRead = await getState(request(undefined, { cookie }));
+    assert.equal(partnerRead.status, 403, await partnerRead.clone().text());
+    const ownerRead = await getState(request(undefined, ownerHeaders));
+    assert.equal(ownerRead.status, 503, await ownerRead.clone().text());
+    const repairWrite = await saveState(
+      request({ state: valid }, ownerHeaders, 'PUT'),
+    );
+    assert.equal(repairWrite.status, 503, await repairWrite.clone().text());
+  }
+});
 void test('administrator state save rejects blank or duplicate case IDs', async () => {
   const before = await state();
   const blank = structuredClone(before);

@@ -393,8 +393,25 @@ type PortalState = {
 function isPortalState(value: unknown): value is PortalState {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const state = value as Partial<PortalState>;
+  const diagnosisIds = new Set<string>();
+  const diagnosisAssessmentsValid = state.diagnosisAssessments === undefined || (
+    Array.isArray(state.diagnosisAssessments) &&
+    state.diagnosisAssessments.every((item) => {
+      if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+      const id = (item as { id?: unknown }).id;
+      if (typeof id !== 'string' || !id || id !== id.trim() || diagnosisIds.has(id))
+        return false;
+      diagnosisIds.add(id);
+      return true;
+    })
+  );
   return state.version === 1
-    && typeof state.consultationNumber === 'number'
+    && Number.isSafeInteger(state.consultationNumber)
+    && Number(state.consultationNumber) >= 0
+    && (state.membersRevision === undefined || (
+      Number.isSafeInteger(state.membersRevision) && Number(state.membersRevision) >= 0
+    ))
+    && diagnosisAssessmentsValid
     && Array.isArray(state.timeline)
     && Array.isArray(state.schedule)
     && Array.isArray(state.tasks)

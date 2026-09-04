@@ -40,6 +40,7 @@ const peer = {
 async function seed() {
   await writePortalState({
     version: 1,
+    consultationNumber: 0,
     members: [member, peer],
     cases: [],
     companyDocuments: [],

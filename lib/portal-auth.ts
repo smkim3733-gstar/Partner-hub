@@ -56,6 +56,7 @@ type PortalStateRecord = {
   companyDocuments: PortalRecord[];
   cases: PortalRecord[];
   members: PortalMember[];
+  membersRevision?: number;
   diagnosisAssessments?: PortalRecord[];
 };
 
@@ -232,6 +233,27 @@ function hasPortalRecordStructure(
   );
 }
 
+function portalStateMetadataError(state: PortalStateRecord): string | null {
+  if (state.version !== 1)
+    return '저장 데이터 버전을 확인할 수 없습니다.';
+  if (
+    !Number.isSafeInteger(state.consultationNumber) ||
+    state.consultationNumber < 0
+  )
+    return '상담 번호가 올바르지 않습니다.';
+  if (
+    state.membersRevision !== undefined &&
+    (!Number.isSafeInteger(state.membersRevision) || state.membersRevision < 0)
+  )
+    return '파트너 명단 버전이 올바르지 않습니다.';
+  if (
+    state.diagnosisAssessments !== undefined &&
+    !isPortalRecordArray(state.diagnosisAssessments)
+  )
+    return '사전점검 데이터 형식이 올바르지 않습니다.';
+  return null;
+}
+
 const stableRecordIdCollections = [
   ['cases', '사건'],
   ['tasks', '업무'],
@@ -254,11 +276,29 @@ function portalRecordIdError(state: PortalStateRecord): string | null {
       ids.add(id);
     }
   }
+  if (state.diagnosisAssessments) {
+    const ids = new Set<string>();
+    for (const record of state.diagnosisAssessments) {
+      const id = record.id;
+      if (
+        typeof id !== 'string' ||
+        !id ||
+        id !== id.trim() ||
+        ids.has(id)
+      )
+        return '사전점검 ID가 없거나 중복되었습니다.';
+      ids.add(id);
+    }
+  }
   return null;
 }
 
 export function hasPortalStateStructure(value: unknown) {
-  return hasPortalRecordStructure(value) && portalRecordIdError(value) === null;
+  return (
+    hasPortalRecordStructure(value) &&
+    portalStateMetadataError(value) === null &&
+    portalRecordIdError(value) === null
+  );
 }
 
 function asPortalState(value: unknown): PortalStateRecord | null {
@@ -267,7 +307,9 @@ function asPortalState(value: unknown): PortalStateRecord | null {
 
 function invalidPortalStateMessage(value: unknown) {
   return hasPortalRecordStructure(value)
-    ? portalRecordIdError(value) ?? '저장 데이터 형식이 올바르지 않습니다.'
+    ? portalStateMetadataError(value) ??
+        portalRecordIdError(value) ??
+        '저장 데이터 형식이 올바르지 않습니다.'
     : '저장 데이터 형식이 올바르지 않습니다.';
 }
 

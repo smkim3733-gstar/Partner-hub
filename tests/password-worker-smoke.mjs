@@ -2600,6 +2600,26 @@ try {
       `generic owner state save rejects a duplicate ${label} ID`,
     );
   }
+  for (const [mutate, label] of [
+    [(state) => { state.version = 2; }, 'unsupported state version'],
+    [(state) => { state.consultationNumber = -1; }, 'negative consultation counter'],
+    [(state) => { state.membersRevision = 1.5; }, 'fractional member revision'],
+    [(state) => { state.diagnosisAssessments = [null]; }, 'non-object diagnosis record'],
+    [(state) => {
+      state.diagnosisAssessments = [
+        { id: 'diagnosis-collision-runtime' },
+        { id: 'diagnosis-collision-runtime' },
+      ];
+    }, 'duplicate diagnosis ID'],
+  ]) {
+    const invalidMetadataState = structuredClone(cleanMemberIdState);
+    mutate(invalidMetadataState);
+    await expect(
+      await call('/save', { state: invalidMetadataState }, ownerHeaders, 'PUT'),
+      403,
+      `generic owner state save rejects ${String(label)}`,
+    );
+  }
   const structuralLogin = await expect(
     await call('/login', { email, password: `${password} new` }),
     200,
@@ -2608,6 +2628,47 @@ try {
   const structuralCookie = structuralLogin.headers
     .get('set-cookie')
     .split(';')[0];
+  for (const [mutate, label] of [
+    [(state) => { state.version = 2; }, 'unsupported state version'],
+    [(state) => { state.consultationNumber = -1; }, 'negative consultation counter'],
+    [(state) => { state.membersRevision = 1.5; }, 'fractional member revision'],
+    [(state) => { state.diagnosisAssessments = [null]; }, 'non-object diagnosis record'],
+    [(state) => {
+      state.diagnosisAssessments = [
+        { id: 'diagnosis-collision-runtime' },
+        { id: 'diagnosis-collision-runtime' },
+      ];
+    }, 'duplicate diagnosis ID'],
+  ]) {
+    const invalidStoredState = structuredClone(cleanMemberIdState);
+    mutate(invalidStoredState);
+    await db
+      .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+      .bind(JSON.stringify(invalidStoredState), new Date().toISOString())
+      .run();
+    await expect(
+      await call('/state', undefined, { cookie: structuralCookie }),
+      403,
+      `stored ${String(label)} blocks password partner access`,
+    );
+    await expect(
+      await call('/state', undefined, ownerHeaders),
+      503,
+      `stored ${String(label)} blocks administrator reads`,
+    );
+    await expect(
+      await call('/save', { state: cleanMemberIdState }, ownerHeaders, 'PUT'),
+      503,
+      `stored ${String(label)} blocks generic repair writes`,
+    );
+  }
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(
+      stateBeforeAmbiguousLegacyEmail.payload,
+      stateBeforeAmbiguousLegacyEmail.updated_at,
+    )
+    .run();
   const nonObjectStoredState = structuredClone(cleanMemberIdState);
   nonObjectStoredState.cases = [null];
   await db
