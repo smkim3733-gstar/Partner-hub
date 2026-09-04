@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `debbef1` (`fix: update secure build stack`)
-- 최신 기능: `image-size`와 취약 `esbuild`를 의존성 트리에서 제거하고 Vite·Cloudflare 빌드 스택 및 격리 Miniflare 하네스 갱신
-- 검증: Node 회귀 검사 465개, 격리 workerd/D1/R2 검사 135개, 운영 의존성 감사·peer 검사, 타입검사, 전체 lint, 변경 파일 형식검사, 프로덕션 빌드와 로컬 운영 Worker 응답 확인 통과
+- 최신 기능 커밋: `462746d` (`fix: sanitize server error logs`)
+- 최신 기능: AI·기업자료·가입·포털 상태의 실패 로그에서 원본 예외 객체와 상세 메시지를 제거하고 오류 종류만 기록
+- 검증: Node 회귀 검사 466개, 격리 workerd/D1/R2 검사 135개, 타입검사, 전체 lint, 변경 파일 형식검사, 프로덕션 빌드와 로컬 운영 Worker 응답 확인 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 106, 배포 `appgdep_6a9adf09fff48191885654f873bcba8f`
-- 최신 Sites 저장 버전: 106 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_27746f11d2b48191bfb8510b9c59d72b`), 소스 `debbef1522f041653ce2ce1ef8b9bf8d5ffb09e9`
-- 운영 상태: 빌드 스택 보안 갱신본 버전 106을 공개 배포했다. 화면 3곳의 HTTP 200과 여섯 가지 보안 헤더, 보호 API 3곳의 익명 HTTP 401·비공개 캐시·참조정보·MIME 경계를 확인했다.
+- 최신 Sites 저장 버전: 107 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_54a665e340e08191bf2326f1f24bc122`), 소스 `462746ddb6c2b8f81338d0f8605dc722826b4dcd`
+- 운영 상태: 빌드 스택 보안 갱신본 버전 106을 공개 배포해 화면·보호 API를 확인했다. 서버 오류 로그 개인정보 보완본 버전 107은 저장 완료·공개 배포 승인 대기다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
 ## 새 컴퓨터 준비
@@ -66,4 +66,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 버전 106 운영 배포와 실서비스 점검까지 완료했다. 다음은 현재 인증·저장·업로드·응답 경계를 유지하면서 고우선순위 운영 감사를 이어간다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
+Sites 버전 107 저장까지 완료했다. 다음은 사용자 명시 승인 후 버전 107을 공개 배포하고 운영 화면·보호 API를 확인한 뒤 현재 인증·저장·업로드·응답 경계를 유지하면서 고우선순위 운영 감사를 이어간다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
