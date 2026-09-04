@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `b029af366ac5220534e23410e0a6d3eaebc4fd36` (`fix: restrict stable member ID creation`)
-- 최신 기능: 운영 상태 초기화 뒤 새 파트너 안정 ID는 자가가입·관리자 직접등록 전용 경로에서만 생성하며 일반 상태 저장의 신규 ID 삽입·기존 ID 교체·삭제 ID 부활을 실패 차단
-- 검증: Node 회귀 검사 495개, 격리 workerd/D1/R2 검사 189개, 타입검사, 전체 lint, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200 통과
+- 최신 기능 커밋: `978d208d01b3ae00086fc1180c7e679a9b016cb9` (`fix: protect member audit fields`)
+- 최신 기능: 관리자 일반 상태 저장이 기존 회원의 가입 출처·로그인 횟수·최근 접속시각을 위조하지 못하게 서버 저장값을 보존하고, 레거시 중복 ID로 대상을 확정할 수 없으면 실패 차단
+- 검증: Node 회귀 검사 495개, 격리 workerd/D1/R2 검사 190개, 타입검사, 전체 lint, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107, 배포 `appgdep_6a9ae289003c8191a503a7bf7599021e`
-- 최신 Sites 저장 버전: 122 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_9f58bf6597588191b2d907dbbb5d9b59`), 소스 `b029af366ac5220534e23410e0a6d3eaebc4fd36`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108~121은 버전 122로 대체해 배포하지 않으며, 파트너 안정 ID 생성 경계 보완본 버전 122가 정확한 버전 운영 배포 승인 대기 중이다.
+- 최신 Sites 저장 버전: 123 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_72c491a7e3d88191bd44e159edd71d68`), 소스 `978d208d01b3ae00086fc1180c7e679a9b016cb9`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108~122는 버전 123으로 대체해 배포하지 않으며, 파트너 감사 필드 무결성 보완본 버전 123이 정확한 버전 운영 배포 승인 대기 중이다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -45,22 +45,23 @@ node tests/password-worker-smoke.mjs
 ## 이어서 읽을 문서
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
-2. [파트너 안정 ID 생성 경계](STABLE_MEMBER_ID_CREATION_BOUNDARY_2026_09_05.md)
-3. [파트너 안정 ID 무결성](DUPLICATE_MEMBER_ID_INTEGRITY_2026_09_05.md)
-4. [ChatGPT 자가등록 중복 이메일 무결성](CHATGPT_REGISTRATION_AMBIGUOUS_EMAIL_INTEGRITY_2026_09_05.md)
-5. [ChatGPT 중복 이메일 결속 무결성](CHATGPT_AMBIGUOUS_EMAIL_BINDING_INTEGRITY_2026_09_05.md)
-6. [변경 요청 Origin 필수 보안 경계](MUTATION_ORIGIN_REQUIRED_BOUNDARY_2026_09_05.md)
-7. [ChatGPT 관리자 안정 ID 결속 무결성](CHATGPT_OWNER_STABLE_IDENTITY_INTEGRITY_2026_09_05.md)
-8. [제품 기획 검수](PRODUCT_PLANNING_REVIEW.md)
-9. [브라우저 화면 보안 헤더 경계](BROWSER_PAGE_SECURITY_HEADERS_2026_09_04.md)
-10. [빌드 도구와 운영 의존성 경계](BUILD_TOOL_RUNTIME_DEPENDENCY_BOUNDARY_2026_09_04.md)
-11. [운영 의존성 보안 패치와 잔여 위험](DEPENDENCY_SECURITY_PATCH_AND_RESIDUAL_RISK_2026_09_04.md)
-12. [협업신청 첨부 내용 확인 중 제출 잠금 정책](APPLICATION_ATTACHMENT_HASHING_SUBMISSION_LOCK_POLICY_2026_09_04.md)
-13. [협업신청 첨부 실제 내용 중복 판정 정책](APPLICATION_ATTACHMENT_CONTENT_DEDUPLICATION_POLICY_2026_09_04.md)
-14. [상담 FLOW 화면 재시도 지문 정책](FLOW_CLIENT_RETRY_FINGERPRINT_POLICY_2026_09_04.md)
-15. [업로드 멱등키·영수증 파일명 정규화 정책](UPLOAD_RECEIPT_FILENAME_NORMALIZATION_POLICY_2026_09_04.md)
-16. [신청 첨부 업로드 멱등키 Content-Type 정책](APPLICATION_UPLOAD_KEY_CONTENT_TYPE_POLICY_2026_09_04.md)
-17. [문서 전체 목록](README.md)
+2. [파트너 감사 필드 무결성 경계](MEMBER_AUDIT_FIELD_INTEGRITY_2026_09_05.md)
+3. [파트너 안정 ID 생성 경계](STABLE_MEMBER_ID_CREATION_BOUNDARY_2026_09_05.md)
+4. [파트너 안정 ID 무결성](DUPLICATE_MEMBER_ID_INTEGRITY_2026_09_05.md)
+5. [ChatGPT 자가등록 중복 이메일 무결성](CHATGPT_REGISTRATION_AMBIGUOUS_EMAIL_INTEGRITY_2026_09_05.md)
+6. [ChatGPT 중복 이메일 결속 무결성](CHATGPT_AMBIGUOUS_EMAIL_BINDING_INTEGRITY_2026_09_05.md)
+7. [변경 요청 Origin 필수 보안 경계](MUTATION_ORIGIN_REQUIRED_BOUNDARY_2026_09_05.md)
+8. [ChatGPT 관리자 안정 ID 결속 무결성](CHATGPT_OWNER_STABLE_IDENTITY_INTEGRITY_2026_09_05.md)
+9. [제품 기획 검수](PRODUCT_PLANNING_REVIEW.md)
+10. [브라우저 화면 보안 헤더 경계](BROWSER_PAGE_SECURITY_HEADERS_2026_09_04.md)
+11. [빌드 도구와 운영 의존성 경계](BUILD_TOOL_RUNTIME_DEPENDENCY_BOUNDARY_2026_09_04.md)
+12. [운영 의존성 보안 패치와 잔여 위험](DEPENDENCY_SECURITY_PATCH_AND_RESIDUAL_RISK_2026_09_04.md)
+13. [협업신청 첨부 내용 확인 중 제출 잠금 정책](APPLICATION_ATTACHMENT_HASHING_SUBMISSION_LOCK_POLICY_2026_09_04.md)
+14. [협업신청 첨부 실제 내용 중복 판정 정책](APPLICATION_ATTACHMENT_CONTENT_DEDUPLICATION_POLICY_2026_09_04.md)
+15. [상담 FLOW 화면 재시도 지문 정책](FLOW_CLIENT_RETRY_FINGERPRINT_POLICY_2026_09_04.md)
+16. [업로드 멱등키·영수증 파일명 정규화 정책](UPLOAD_RECEIPT_FILENAME_NORMALIZATION_POLICY_2026_09_04.md)
+17. [신청 첨부 업로드 멱등키 Content-Type 정책](APPLICATION_UPLOAD_KEY_CONTENT_TYPE_POLICY_2026_09_04.md)
+18. [문서 전체 목록](README.md)
 
 ## Git에 넣지 않는 것
 
@@ -73,4 +74,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 버전 122 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108~121은 버전 122로 대체해 배포하지 않는다. 버전 122 공개 배포에는 정확히 `버전 122 운영 배포 승인`이라는 사용자 명시 승인이 필요하다. 승인·배포 점검 여부와 관계없이 30분 간격 자동 개발이 다음 고우선순위 운영 감사를 이어간다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
+Sites 버전 123 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108~122는 버전 123으로 대체해 배포하지 않는다. 버전 123 공개 배포에는 정확히 `버전 123 운영 배포 승인`이라는 사용자 명시 승인이 필요하다. 승인·배포 점검 여부와 관계없이 30분 간격 자동 개발이 다음 고우선순위 운영 감사를 이어간다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
