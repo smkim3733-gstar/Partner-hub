@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -28,10 +28,14 @@ export function ApplicationAttachments({
   const id = useId();
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  function add(files: File[], recording: boolean) {
-    if (!files.length || disabled) return;
+  const [checking, setChecking] = useState(false);
+  const checkingRef = useRef(false);
+  async function add(files: File[], recording: boolean) {
+    if (!files.length || disabled || checkingRef.current) return;
+    checkingRef.current = true;
+    setChecking(true);
     try {
-      const result = appendApplicationFiles(value, files, recording);
+      const result = await appendApplicationFiles(value, files, recording);
       onChange(result.files);
       setError('');
       setNotice(
@@ -44,10 +48,13 @@ export function ApplicationAttachments({
         issue instanceof Error ? issue.message : '첨부파일을 확인해 주세요.',
       );
       setNotice('');
+    } finally {
+      checkingRef.current = false;
+      setChecking(false);
     }
   }
   return (
-    <fieldset disabled={disabled} className="space-y-5">
+    <fieldset disabled={disabled || checking} className="space-y-5">
       <legend className="mb-2 text-base font-bold">자료 첨부</legend>
       <p className="text-sm leading-6 text-muted-foreground">
         사업자등록증·크레탑과 대표 전화통화 녹취자료를 함께 제출할 수 있습니다.
@@ -66,8 +73,9 @@ export function ApplicationAttachments({
           className="min-h-11 py-2"
           aria-describedby={`${id}-company-help`}
           onChange={(event) => {
-            add(Array.from(event.target.files || []), false);
+            const files = Array.from(event.target.files || []);
             event.target.value = '';
+            void add(files, false);
           }}
         />
         <p
@@ -89,8 +97,9 @@ export function ApplicationAttachments({
           className="min-h-11 py-2"
           aria-describedby={`${id}-recording-help`}
           onChange={(event) => {
-            add(Array.from(event.target.files || []), true);
+            const files = Array.from(event.target.files || []);
             event.target.value = '';
+            void add(files, true);
           }}
         />
         <p
@@ -119,13 +128,13 @@ export function ApplicationAttachments({
         aria-live="polite"
         className="block text-sm text-muted-foreground"
       >
-        {notice}
+        {checking ? '선택한 파일의 내용을 확인하고 있습니다.' : notice}
       </output>
       {value.length > 0 && (
         <ul aria-label="신청에 첨부할 자료" className="space-y-2">
           {value.map((item) => (
             <li
-              key={attachmentKey(item.file)}
+              key={attachmentKey(item)}
               className="flex flex-wrap items-center gap-3 rounded-lg border bg-background p-3"
             >
               <div className="min-w-0 flex-1 text-sm">
@@ -146,17 +155,30 @@ export function ApplicationAttachments({
                   <select
                     value={item.category}
                     onChange={(event) => {
-                      onChange(value.map((other) => other === item
-                        ? { ...other, category: event.target.value as ApplicationAttachment['category'], categoryConfirmed: false }
-                        : other));
+                      onChange(
+                        value.map((other) =>
+                          other === item
+                            ? {
+                                ...other,
+                                category: event.target
+                                  .value as ApplicationAttachment['category'],
+                                categoryConfirmed: false,
+                              }
+                            : other,
+                        ),
+                      );
                       setError('');
-                      setNotice('자료종류를 바꿨습니다. 현재 선택을 확인해 주세요.');
+                      setNotice(
+                        '자료종류를 바꿨습니다. 현재 선택을 확인해 주세요.',
+                      );
                     }}
                     className="min-h-11 rounded-md border bg-background px-3"
                     aria-label={`${item.file.name} 자료종류`}
                   >
                     {companyFileCategories.map((category) => (
-                      <option key={category} value={category}>{companyCategoryLabel(category)}</option>
+                      <option key={category} value={category}>
+                        {companyCategoryLabel(category)}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -165,18 +187,31 @@ export function ApplicationAttachments({
                     type="checkbox"
                     checked={item.categoryConfirmed}
                     onChange={(event) => {
-                      onChange(value.map((other) => other === item
-                        ? { ...other, categoryConfirmed: event.target.checked }
-                        : other));
+                      onChange(
+                        value.map((other) =>
+                          other === item
+                            ? {
+                                ...other,
+                                categoryConfirmed: event.target.checked,
+                              }
+                            : other,
+                        ),
+                      );
                       setError('');
-                      setNotice(event.target.checked ? '자료종류를 확인했습니다.' : '자료종류 확인을 해제했습니다.');
+                      setNotice(
+                        event.target.checked
+                          ? '자료종류를 확인했습니다.'
+                          : '자료종류 확인을 해제했습니다.',
+                      );
                     }}
                     className="size-4 accent-primary"
                   />
                   현재 파일의 자료종류 확인
                 </label>
                 {!item.categoryConfirmed && (
-                  <p className="mt-1 font-semibold text-amber-700">파일명 기준 제안입니다. 제출 전에 직접 확인해 주세요.</p>
+                  <p className="mt-1 font-semibold text-amber-700">
+                    파일명 기준 제안입니다. 제출 전에 직접 확인해 주세요.
+                  </p>
                 )}
               </div>
               <Button

@@ -4,6 +4,8 @@ import {
   uploadFileExtension,
   type UploadFileExtension,
 } from './upload-file-formats';
+import { downloadContentType } from './download-content-type';
+import { fileDigest } from './file-digest';
 
 export const companyFileCategories = [
   '사업자등록증',
@@ -116,6 +118,7 @@ export type ApplicationAttachment = {
   file: File;
   category: CompanyFileCategory;
   categoryConfirmed: boolean;
+  fingerprint: string;
 };
 export function applicationAttachmentCategoryProblem(
   items: ApplicationAttachment[],
@@ -132,9 +135,23 @@ export function applicationAttachmentTitle(item: ApplicationAttachment) {
       ? item.file.name
       : item.category;
 }
-export const attachmentKey = (file: File) =>
-  `${file.name}:${file.size}:${file.lastModified}`;
-export function appendApplicationFiles(
+export const attachmentKey = (item: ApplicationAttachment) => item.fingerprint;
+
+export async function applicationAttachmentFingerprint(file: File) {
+  const name = safeFileName(file.name);
+  const bytesDigest = await fileDigest(await file.arrayBuffer());
+  return fileDigest(
+    JSON.stringify([
+      'application-attachment-v1',
+      name,
+      downloadContentType(name),
+      file.size,
+      bytesDigest,
+    ]),
+  );
+}
+
+export async function appendApplicationFiles(
   current: ApplicationAttachment[],
   files: File[],
   recording: boolean,
@@ -142,16 +159,17 @@ export function appendApplicationFiles(
   const next = [...current];
   let duplicates = 0;
   for (const file of files) {
-    if (next.some((item) => attachmentKey(item.file) === attachmentKey(file))) {
-      duplicates++;
-      continue;
-    }
     const category = recording
       ? '상담녹취'
       : documentCategoryFromFileName(file.name);
     const issue = companyFileProblem(file, category);
     if (issue) throw new Error(`${file.name}: ${issue}`);
-    next.push({ file, category, categoryConfirmed: recording });
+    const fingerprint = await applicationAttachmentFingerprint(file);
+    if (next.some((item) => attachmentKey(item) === fingerprint)) {
+      duplicates++;
+      continue;
+    }
+    next.push({ file, category, categoryConfirmed: recording, fingerprint });
   }
   if (next.length > MAX_APPLICATION_FILES)
     throw new Error(

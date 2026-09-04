@@ -17,6 +17,16 @@ import {
 const makeFile = (name: string, body = '가상 파일 본문') =>
   new File([body], name, { lastModified: 12345 });
 
+async function attachment(
+  name: string,
+  category: ApplicationAttachment['category'],
+  categoryConfirmed = true,
+) {
+  return (
+    await appendApplicationFiles([], [makeFile(name)], category === '상담녹취')
+  ).files.map((item) => ({ ...item, category, categoryConfirmed }))[0];
+}
+
 void test('stored upload names share one Unicode-safe boundary', () => {
   assert.equal(safeFileName(` e\u0301/\u0000\ud800.pdf `), 'é___.pdf');
   const longName = safeFileName(`${'😀'.repeat(181)}.pdf`);
@@ -25,11 +35,12 @@ void test('stored upload names share one Unicode-safe boundary', () => {
   assert.equal(longName.endsWith('.pdf'), true);
 });
 
-void test('intake UI exposes separate labeled recording and company inputs with safe file names', () => {
+void test('intake UI exposes separate labeled recording and company inputs with safe file names', async () => {
   const file = makeFile('<script>.txt');
+  const item = await attachment('<script>.txt', '상담녹취', false);
   const html = renderToStaticMarkup(
     createElement(ApplicationAttachments, {
-      value: [{ file, category: '상담녹취', categoryConfirmed: false }],
+      value: [{ ...item, file }],
       onChange: () => {},
       disabled: false,
     }),
@@ -45,16 +56,20 @@ void test('intake UI exposes separate labeled recording and company inputs with 
   assert.match(html, /파일명 기준 제안/);
 });
 
-void test('initial application combines business sources with explicit call documents and audio', () => {
-  const basics = appendApplicationFiles(
-    [],
-    [makeFile('사업자등록증.pdf'), makeFile('크레탑.pdf')],
-    false,
+void test('initial application combines business sources with explicit call documents and audio', async () => {
+  const basics = (
+    await appendApplicationFiles(
+      [],
+      [makeFile('사업자등록증.pdf'), makeFile('크레탑.pdf')],
+      false,
+    )
   ).files;
-  const all = appendApplicationFiles(
-    basics,
-    [makeFile('notes.docx'), makeFile('voice.m4a')],
-    true,
+  const all = (
+    await appendApplicationFiles(
+      basics,
+      [makeFile('notes.docx'), makeFile('voice.m4a')],
+      true,
+    )
   ).files;
   assert.deepEqual(
     all.map((item) => item.category),
@@ -80,9 +95,12 @@ void test('initial application combines business sources with explicit call docu
     2,
     'adding recordings preserves existing business files without mutating input',
   );
-  assert.equal(appendApplicationFiles(all, [all[2].file], true).duplicates, 1);
   assert.equal(
-    appendApplicationFiles(all, [all[2].file], true).files.length,
+    (await appendApplicationFiles(all, [all[2].file], true)).duplicates,
+    1,
+  );
+  assert.equal(
+    (await appendApplicationFiles(all, [all[2].file], true)).files.length,
     4,
   );
   assert.equal(
@@ -93,31 +111,29 @@ void test('initial application combines business sources with explicit call docu
   assert.equal(documentCategoryFromFileName('상담전사문.txt'), '상담녹취');
 });
 
-void test('unsupported, empty, oversized and excess attachments retain the current selection', () => {
+void test('unsupported, empty, oversized and excess attachments retain the current selection', async () => {
   const existing: ApplicationAttachment[] = [
-    { file: makeFile('크레탑.pdf'), category: '크레탑', categoryConfirmed: true },
+    await attachment('크레탑.pdf', '크레탑'),
   ];
-  assert.throws(
-    () =>
-      appendApplicationFiles(
-        existing,
-        [makeFile('okay.txt'), makeFile('bad.exe')],
-        true,
-      ),
+  await assert.rejects(
+    appendApplicationFiles(
+      existing,
+      [makeFile('okay.txt'), makeFile('bad.exe')],
+      true,
+    ),
     /녹취자료/,
   );
   assert.equal(existing.length, 1);
-  assert.throws(
-    () => appendApplicationFiles(existing, [makeFile('empty.txt', '')], true),
+  await assert.rejects(
+    appendApplicationFiles(existing, [makeFile('empty.txt', '')], true),
     /비어/,
   );
-  assert.throws(
-    () =>
-      appendApplicationFiles(
-        [],
-        Array.from({ length: 11 }, (_, i) => makeFile(`voice-${i}.txt`)),
-        true,
-      ),
+  await assert.rejects(
+    appendApplicationFiles(
+      [],
+      Array.from({ length: 11 }, (_, i) => makeFile(`voice-${i}.txt`)),
+      true,
+    ),
     /10개/,
   );
   assert.match(
@@ -135,4 +151,28 @@ void test('unsupported, empty, oversized and excess attachments retain the curre
     companyFileProblem({ name: 'call.pdf', size: 1 }, '상담녹취'),
     '',
   );
+});
+
+void test('attachment deduplication follows normalized names and actual bytes', async () => {
+  const name = '신청자료.txt';
+  const first = new File(['AAAA'], name.normalize('NFD'), {
+    type: 'text/html',
+    lastModified: 100,
+  });
+  const same = new File(['AAAA'], name.normalize('NFC'), {
+    type: 'application/x-alternate-text',
+    lastModified: 200,
+  });
+  const changed = new File(['BBBB'], name.normalize('NFC'), {
+    type: 'text/plain',
+    lastModified: 100,
+  });
+  const selected = (await appendApplicationFiles([], [first], false)).files;
+  const duplicate = await appendApplicationFiles(selected, [same], false);
+  const distinct = await appendApplicationFiles(selected, [changed], false);
+  assert.equal(duplicate.duplicates, 1);
+  assert.equal(duplicate.files.length, 1);
+  assert.equal(distinct.duplicates, 0);
+  assert.equal(distinct.files.length, 2);
+  assert.notEqual(distinct.files[0].fingerprint, distinct.files[1].fingerprint);
 });

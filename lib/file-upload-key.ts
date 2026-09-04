@@ -1,15 +1,8 @@
 import { safeFileName, type CompanyFileCategory } from './company-file-policy';
 import { downloadContentType } from './download-content-type';
+import { fileDigest } from './file-digest';
 
-export async function fileDigest(value: ArrayBuffer | string) {
-  const digest = await crypto.subtle.digest(
-    'SHA-256',
-    typeof value === 'string' ? new TextEncoder().encode(value) : value,
-  );
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, '0'),
-  ).join('');
-}
+export { fileDigest } from './file-digest';
 
 export type CompanyUploadInput = {
   file: File;
