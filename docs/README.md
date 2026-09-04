@@ -31,6 +31,7 @@
 | [상담 FLOW 목적별 업로드 형식 정책](CONSULTING_FLOW_UPLOAD_POLICY_2026_09_04.md) | 보고서 차수·AI 근거·녹취·추가서류·계약서의 화면·서버 허용 형식 일치 |
 | [상담 FLOW 목적별 업로드 크기 정책](CONSULTING_FLOW_UPLOAD_SIZE_POLICY_2026_09_04.md) | AI 근거·전사문·음성·일반 첨부의 화면·서버 크기 일치와 내용 판독 전 조기 거절 |
 | [업로드 제한 안내 공용화](UPLOAD_LIMIT_LABEL_REGISTRY_2026_09_04.md) | 기업자료·AI 근거·전사문·음성의 실제 크기·개수 정책과 화면·서버 안내 일치 |
+| [기업자료 업로드 Content-Type 저장 정책](COMPANY_UPLOAD_CONTENT_TYPE_POLICY_2026_09_04.md) | 브라우저 MIME 불신, 응답·D1·R2 고정 MIME과 배포 전후 재시도 호환 |
 | [업로드 파일명 정규화 보안 경계](UPLOAD_FILENAME_NORMALIZATION_BOUNDARY_2026_09_04.md) | 기업자료·상담 FLOW 저장 파일명의 공용 Unicode·제어문자·길이 경계 |
 | [파트너 계정 설정 저장 안전성](PARTNER_ACCOUNT_SETTINGS_DRAFT_SAFETY_2026_09_03.md) | 이메일·유형·상태·권한의 저장 전 초안 격리와 취소 폐기 |
 | [진행 담당 계정 변경 확인 안전성](CASE_ASSIGNMENT_CONFIRMATION_SAFETY_2026_09_03.md) | 현재·변경 후 담당 대조, 취소 보존과 저장 직전 재검증 |
