@@ -31,3 +31,11 @@
 ## 운영 경계
 
 기능, D1/R2 스키마, 인증·권한, 파일 보관·삭제 정책은 변경하지 않았다. 새 패키지는 기존 Sites 프로젝트와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결로만 검증한다. 공개 운영본은 별도 명시 승인 전까지 버전 105를 유지한다.
+
+## 저장소와 Sites 상태
+
+- 기능 커밋: `debbef1522f041653ce2ce1ef8b9bf8d5ffb09e9` (`fix: update secure build stack`)
+- GitHub `main`과 Sites 소스 저장소: 기능 커밋 반영 완료
+- Sites 저장 버전: 106 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_27746f11d2b48191bfb8510b9c59d72b`)
+- 현재 공개 운영본: 버전 105 (`appgdep_6a9ad7b533b88191bea822ed2dd10a11`)
+- 버전 106 공개 배포: 사용자 명시 승인 대기
