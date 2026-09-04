@@ -24,6 +24,7 @@ import {
 import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
 import { isCrossSiteRequest } from '@/lib/request-origin';
 import { QueryRequestError, readSingleQueryParam } from '@/lib/request-query';
+import { privateJsonResponse } from '@/lib/private-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,7 +48,10 @@ function accessErrorResponse(error: unknown) {
     error instanceof CompanyFileError ||
     error instanceof QueryRequestError
   ) {
-    return Response.json({ error: error.message }, { status: error.status });
+    return privateJsonResponse(
+      { error: error.message },
+      { status: error.status },
+    );
   }
   return null;
 }
@@ -114,7 +118,7 @@ export async function GET(request: Request) {
     const state = await readPortalState();
     const currentUser = await requirePortalUser(request, state);
     if (currentUser.role !== 'admin') {
-      return Response.json(
+      return privateJsonResponse(
         { error: 'Step 0 결과는 대표 관리자만 확인할 수 있습니다.' },
         { status: 403 },
       );
@@ -124,16 +128,18 @@ export async function GET(request: Request) {
       120,
     );
     if (!caseId)
-      return Response.json(
+      return privateJsonResponse(
         { error: '진행 식별값이 필요합니다.' },
         { status: 400 },
       );
-    return Response.json({ run: await readLatestStepZeroRun(caseId) });
+    return privateJsonResponse({
+      run: await readLatestStepZeroRun(caseId),
+    });
   } catch (error) {
     const accessResponse = accessErrorResponse(error);
     if (accessResponse) return accessResponse;
     console.error('Failed to read Step 0 run', error);
-    return Response.json(
+    return privateJsonResponse(
       { error: 'Step 0 결과를 불러오지 못했습니다.' },
       { status: 500 },
     );
@@ -143,7 +149,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     if (isCrossSiteRequest(request)) {
-      return Response.json(
+      return privateJsonResponse(
         { error: '허용되지 않은 생성 요청입니다.' },
         { status: 403 },
       );
@@ -151,7 +157,7 @@ export async function POST(request: Request) {
     const state = await readPortalState();
     const currentUser = await requirePortalUser(request, state);
     if (currentUser.role !== 'admin') {
-      return Response.json(
+      return privateJsonResponse(
         { error: 'Step 0 생성은 김성민 대표만 실행할 수 있습니다.' },
         { status: 403 },
       );
@@ -159,7 +165,7 @@ export async function POST(request: Request) {
 
     const rawBody: unknown = await readBoundedJsonObject(request, 40_000);
     if (!isObject(rawBody)) {
-      return Response.json(
+      return privateJsonResponse(
         { error: '생성 요청 형식이 올바르지 않습니다.' },
         { status: 400 },
       );
@@ -169,19 +175,19 @@ export async function POST(request: Request) {
     const caseId = asText(body.caseId, 120);
     const company = asText(body.company, 100);
     if (body.pilotMode !== true || !company.includes('(가상)')) {
-      return Response.json(
+      return privateJsonResponse(
         { error: '현재 단계에서는 가상기업 시험만 실행할 수 있습니다.' },
         { status: 403 },
       );
     }
     if (!/^[a-zA-Z0-9_-]{16,100}$/.test(requestId)) {
-      return Response.json(
+      return privateJsonResponse(
         { error: '안전한 생성 요청 식별값이 필요합니다.' },
         { status: 400 },
       );
     }
     if (!caseId)
-      return Response.json(
+      return privateJsonResponse(
         { error: '진행 식별값이 필요합니다.' },
         { status: 400 },
       );
@@ -190,7 +196,10 @@ export async function POST(request: Request) {
       body.consentConfirmed,
     );
     if (!preparedInput.ok)
-      return Response.json({ error: preparedInput.error }, { status: 400 });
+      return privateJsonResponse(
+        { error: preparedInput.error },
+        { status: 400 },
+      );
     const { pilotContext } = preparedInput;
 
     // Consent or evidence can change while this screen is open. Read it again and
@@ -201,14 +210,14 @@ export async function POST(request: Request) {
       company,
     );
     if (!preflight.eligible) {
-      return Response.json({ error: preflight.reason }, { status: 403 });
+      return privateJsonResponse({ error: preflight.reason }, { status: 403 });
     }
 
     const runtime = env as unknown as AiRuntimeEnvironment;
     const apiKey = runtime.ANTHROPIC_API_KEY?.trim();
     const model = runtime.ANTHROPIC_MODEL?.trim();
     if (!apiKey || !model) {
-      return Response.json(
+      return privateJsonResponse(
         { error: 'Anthropic API 키와 사용 모델 연결이 필요합니다.' },
         { status: 503 },
       );
@@ -231,22 +240,22 @@ export async function POST(request: Request) {
       createdAt: new Date().toISOString(),
     });
     if (claim.state === 'completed') {
-      return Response.json({ run: claim.run, reused: true });
+      return privateJsonResponse({ run: claim.run, reused: true });
     }
     if (claim.state === 'conflict') {
-      return Response.json(
+      return privateJsonResponse(
         { error: '같은 요청 식별값의 내용이 달라 생성할 수 없습니다.' },
         { status: 409 },
       );
     }
     if (claim.state === 'pending') {
-      return Response.json(
+      return privateJsonResponse(
         { error: '이 진행의 Step 0 생성이 이미 처리 중입니다.' },
         { status: 409 },
       );
     }
     if (claim.state === 'failed') {
-      return Response.json(
+      return privateJsonResponse(
         {
           error:
             '이 생성 요청은 완료되지 않았습니다. 입력을 다시 확인해 새 요청으로 실행해 주세요.',
@@ -279,7 +288,7 @@ export async function POST(request: Request) {
           requestId: payload.requestId,
         });
         await failStepZeroRequest(requestId, currentUser.id, fingerprint);
-        return Response.json(
+        return privateJsonResponse(
           {
             error:
               response.status === 429
@@ -317,7 +326,7 @@ export async function POST(request: Request) {
         !finalPreflight.eligible
       ) {
         await failStepZeroRequest(requestId, currentUser.id, fingerprint);
-        return Response.json(
+        return privateJsonResponse(
           {
             error:
               finalPreflight.reason ??
@@ -341,7 +350,7 @@ export async function POST(request: Request) {
       if (!(await completeStepZeroRequest(run, currentUser.id, fingerprint))) {
         throw new Error('Step 0 생성 결과의 실행 잠금을 확인하지 못했습니다.');
       }
-      return Response.json({ run }, { status: 201 });
+      return privateJsonResponse({ run }, { status: 201 });
     } catch (error) {
       await failStepZeroRequest(requestId, currentUser.id, fingerprint);
       throw error;
@@ -350,10 +359,13 @@ export async function POST(request: Request) {
     const accessResponse = accessErrorResponse(error);
     if (accessResponse) return accessResponse;
     if (error instanceof JsonRequestError)
-      return Response.json({ error: error.message }, { status: error.status });
+      return privateJsonResponse(
+        { error: error.message },
+        { status: error.status },
+      );
     if (error instanceof AnthropicMessageResponseError) {
       console.error('Invalid Anthropic Step 0 response', error.message);
-      return Response.json(
+      return privateJsonResponse(
         {
           error:
             'Claude 응답을 완전한 결과로 확인하지 못했습니다. 처리·과금 상태를 확인한 뒤 새 요청으로 실행해 주세요.',
@@ -362,7 +374,7 @@ export async function POST(request: Request) {
       );
     }
     console.error('Failed to create Step 0 run', error);
-    return Response.json(
+    return privateJsonResponse(
       { error: 'Step 0 결과를 생성하거나 저장하지 못했습니다.' },
       { status: 500 },
     );

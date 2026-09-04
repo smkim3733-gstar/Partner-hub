@@ -4,9 +4,9 @@ import {
   recoveryError,
 } from '@/lib/file-recovery-store';
 import { assertSameOrigin } from '@/lib/consulting-flow-store';
+import { privateJsonResponse } from '@/lib/private-response';
 export const dynamic = 'force-dynamic';
-const json = (value: unknown) =>
-  Response.json(value, { headers: { 'cache-control': 'private, no-store' } });
+const json = (value: unknown) => privateJsonResponse(value);
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> },

@@ -17,6 +17,7 @@ import { isPipelineDiscontinued } from '@/lib/pipeline-dropoff-metrics';
 import { isCrossSiteRequest } from '@/lib/request-origin';
 import { QueryRequestError } from '@/lib/request-query';
 import { readRouteParam, RouteParamError } from '@/lib/request-path';
+import { privateJsonResponse } from '@/lib/private-response';
 
 export function flowEnvironment() {
   return env as unknown as {
@@ -197,12 +198,12 @@ export function flowErrorResponse(error: unknown) {
     error instanceof QueryRequestError ||
     error instanceof RouteParamError
   )
-    return Response.json(
+    return privateJsonResponse(
       { error: error.message },
-      { status: error.status, headers: { 'cache-control': 'no-store' } },
+      { status: error.status },
     );
   if (error instanceof SyntaxError)
-    return Response.json(
+    return privateJsonResponse(
       { error: '요청 형식을 확인해 주세요.' },
       { status: 400 },
     );
@@ -210,7 +211,7 @@ export function flowErrorResponse(error: unknown) {
     'Consulting workflow operation failed',
     error instanceof Error ? error.name : 'unknown',
   );
-  return Response.json(
+  return privateJsonResponse(
     {
       error:
         '저장 여부를 새로고침으로 확인해 주세요. 해결되지 않으면 관리자에게 문의해 주세요.',

@@ -139,7 +139,10 @@ void test('private draft persists across requests and duplicate saves reuse its 
   assert.equal(saved.draft?.partnerMemberId, member.id);
   assert.equal(saved.draft?.details.registrationNumber, '123-');
   assert.equal(saved.draft?.hasLocalAttachments, true);
-  assert.equal(response.headers.get('cache-control'), 'private, no-store');
+  assert.equal(
+    response.headers.get('cache-control'),
+    'private, no-store, max-age=0',
+  );
   assert.equal(
     ((await (await PUT(request(body()))).json()) as DraftEnvelope).revision,
     1,

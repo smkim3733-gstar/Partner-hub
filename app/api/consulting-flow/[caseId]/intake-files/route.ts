@@ -5,6 +5,7 @@ import {
 } from '@/lib/consulting-intake-sources';
 import { loadFlowAccess, flowErrorResponse } from '@/lib/consulting-flow-store';
 import { readSingleQueryParam } from '@/lib/request-query';
+import { privateJsonResponse } from '@/lib/private-response';
 
 export const dynamic = 'force-dynamic';
 type Context = { params: Promise<{ caseId: string }> };
@@ -20,9 +21,7 @@ export async function GET(request: Request, context: Context) {
       fileId !== null
         ? await previewIntakeSource(flow, fileId)
         : await listIntakeSources(flow);
-    return Response.json(result, {
-      headers: { 'cache-control': 'private, no-store' },
-    });
+    return privateJsonResponse(result);
   } catch (error) {
     return flowErrorResponse(error);
   }

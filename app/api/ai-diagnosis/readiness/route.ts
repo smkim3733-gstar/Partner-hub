@@ -1,8 +1,12 @@
 import { env } from 'cloudflare:workers';
 
-import { CLAUDE_FLOW_INSTRUCTION_VERSION, CLAUDE_FLOW_MIGRATION_SUMMARY } from '@/lib/claude-flow';
+import {
+  CLAUDE_FLOW_INSTRUCTION_VERSION,
+  CLAUDE_FLOW_MIGRATION_SUMMARY,
+} from '@/lib/claude-flow';
 import { PortalAccessError, requirePortalUser } from '@/lib/portal-auth';
 import { readPortalState } from '@/lib/portal-state';
+import { privateJsonResponse } from '@/lib/private-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,7 +18,10 @@ type AiRuntimeEnvironment = {
 
 function accessErrorResponse(error: unknown) {
   if (error instanceof PortalAccessError) {
-    return Response.json({ error: error.message }, { status: error.status });
+    return privateJsonResponse(
+      { error: error.message },
+      { status: error.status },
+    );
   }
   return null;
 }
@@ -24,16 +31,20 @@ export async function GET(request: Request) {
     const state = await readPortalState();
     const currentUser = await requirePortalUser(request, state);
     if (currentUser.role !== 'admin') {
-      return Response.json({ error: 'AI 연동 설정은 대표 관리자만 확인할 수 있습니다.' }, { status: 403 });
+      return privateJsonResponse(
+        { error: 'AI 연동 설정은 대표 관리자만 확인할 수 있습니다.' },
+        { status: 403 },
+      );
     }
 
     const runtime = env as unknown as AiRuntimeEnvironment;
     const apiKeyConfigured = Boolean(runtime.ANTHROPIC_API_KEY?.trim());
     const modelConfigured = Boolean(runtime.ANTHROPIC_MODEL?.trim());
     const sourceStorageConfigured = Boolean(runtime.AI_SOURCE_FILES);
-    const generationEnabled = apiKeyConfigured && modelConfigured && sourceStorageConfigured;
+    const generationEnabled =
+      apiKeyConfigured && modelConfigured && sourceStorageConfigured;
 
-    return Response.json({
+    return privateJsonResponse({
       provider: 'Anthropic Claude API',
       directProjectConnection: false,
       instructionImported: true,
@@ -56,6 +67,9 @@ export async function GET(request: Request) {
     const accessResponse = accessErrorResponse(error);
     if (accessResponse) return accessResponse;
     console.error('Failed to read AI diagnosis readiness', error);
-    return Response.json({ error: 'AI 연동 준비상태를 확인하지 못했습니다.' }, { status: 500 });
+    return privateJsonResponse(
+      { error: 'AI 연동 준비상태를 확인하지 못했습니다.' },
+      { status: 500 },
+    );
   }
 }

@@ -17,6 +17,7 @@ import {
 } from './file-inventory';
 import { QueryRequestError, readSingleQueryParam } from './request-query';
 import { readRouteParam, RouteParamError } from './request-path';
+import { privateJsonResponse } from './private-response';
 
 const pageSize = 25;
 type Row = {
@@ -225,10 +226,7 @@ export async function checkInventoryPresence(
 }
 
 export const inventoryJson = (value: unknown, status = 200) =>
-  Response.json(value, {
-    status,
-    headers: { 'cache-control': 'private, no-store' },
-  });
+  privateJsonResponse(value, { status });
 export function inventoryError(error: unknown) {
   if (
     error instanceof PortalAccessError ||

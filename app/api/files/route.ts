@@ -30,6 +30,7 @@ import { scheduleDuplicateRequestMetric } from '@/lib/duplicate-request-metrics'
 import { isCrossSiteRequest } from '@/lib/request-origin';
 import { isMultipartFormDataContentType } from '@/lib/request-multipart';
 import { HeaderRequestError, readIdempotencyKey } from '@/lib/request-header';
+import { privateJsonResponse } from '@/lib/private-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,12 +46,9 @@ function errorResponse(error: unknown) {
     error instanceof FlowError ||
     error instanceof HeaderRequestError
   ) {
-    return Response.json(
+    return privateJsonResponse(
       { error: error.message },
-      {
-        status: error.status,
-        headers: { 'cache-control': 'private, no-store' },
-      },
+      { status: error.status },
     );
   }
   return null;
@@ -219,17 +217,14 @@ export async function POST(request: Request) {
         source: 'file_upload',
         outcome: 'unkeyed_request',
       });
-    return Response.json(
-      { file: stored },
-      { status: 201, headers: { 'cache-control': 'private, no-store' } },
-    );
+    return privateJsonResponse({ file: stored }, { status: 201 });
   } catch (error) {
     const response = errorResponse(error);
     if (response) return response;
     console.error('Failed to upload company file', error);
-    return Response.json(
+    return privateJsonResponse(
       { error: '기업자료를 보안 저장소에 등록하지 못했습니다.' },
-      { status: 500, headers: { 'cache-control': 'private, no-store' } },
+      { status: 500 },
     );
   }
 }

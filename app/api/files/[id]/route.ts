@@ -15,6 +15,7 @@ import {
 } from '@/lib/company-file-access';
 import { isCrossSiteRequest } from '@/lib/request-origin';
 import { readRouteParam, RouteParamError } from '@/lib/request-path';
+import { privateJsonResponse } from '@/lib/private-response';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,12 +25,9 @@ function errorResponse(error: unknown) {
     error instanceof CompanyFileError ||
     error instanceof RouteParamError
   ) {
-    return Response.json(
+    return privateJsonResponse(
       { error: error.message },
-      {
-        status: error.status,
-        headers: { 'cache-control': 'private, no-store' },
-      },
+      { status: error.status },
     );
   }
   return null;
@@ -111,9 +109,9 @@ export async function GET(
     const response = errorResponse(error);
     if (response) return response;
     console.error('Failed to download company file', error);
-    return Response.json(
+    return privateJsonResponse(
       { error: '기업자료를 내려받지 못했습니다.' },
-      { status: 500, headers: { 'cache-control': 'private, no-store' } },
+      { status: 500 },
     );
   }
 }
@@ -210,9 +208,9 @@ export async function DELETE(
     const response = errorResponse(error);
     if (response) return response;
     console.error('Failed to delete company file', error);
-    return Response.json(
+    return privateJsonResponse(
       { error: '기업자료를 삭제하지 못했습니다.' },
-      { status: 500, headers: { 'cache-control': 'private, no-store' } },
+      { status: 500 },
     );
   }
 }

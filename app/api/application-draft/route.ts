@@ -16,6 +16,7 @@ import {
   parseApplicationDraft,
   type DraftEnvelope,
 } from '@/lib/application-draft';
+import { privateJsonResponse } from '@/lib/private-response';
 
 export const dynamic = 'force-dynamic';
 type Row = {
@@ -25,10 +26,7 @@ type Row = {
   updated_at: string;
 };
 const json = (data: unknown, status = 200) =>
-  Response.json(data, {
-    status,
-    headers: { 'cache-control': 'private, no-store' },
-  });
+  privateJsonResponse(data, { status });
 
 async function handle(request: Request) {
   try {

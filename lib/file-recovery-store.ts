@@ -19,6 +19,7 @@ import { portalStateId } from '@/db/schema';
 import type { RecoveryPreview } from './file-recovery';
 import { PORTAL_STATE_LIMIT_BYTES } from './pilot-readiness';
 import { readRouteParam, RouteParamError } from './request-path';
+import { privateJsonResponse } from './private-response';
 
 type RecordValue = Record<string, unknown>;
 type RecoveryState = {
@@ -365,8 +366,5 @@ export function recoveryError(error: unknown) {
       : error instanceof Error
         ? error.message
         : '회수 요청을 확인해 주세요.';
-  return Response.json(
-    { error: message },
-    { status, headers: { 'cache-control': 'private, no-store' } },
-  );
+  return privateJsonResponse({ error: message }, { status });
 }

@@ -19,6 +19,7 @@ import {
   loadFlowAccess,
   recheckFlowAccess,
 } from '@/lib/consulting-flow-store';
+import { privateJsonResponse } from '@/lib/private-response';
 
 export const dynamic = 'force-dynamic';
 type Context = { params: Promise<{ caseId: string }> };
@@ -28,16 +29,12 @@ export async function GET(request: Request, context: Context) {
       request,
       (await context.params).caseId,
     );
-    return Response.json(
-      {
-        flow: publicFlow(flow),
-        role: user.role === 'admin' ? 'admin' : 'partner',
-        readiness: flowReadiness(),
-        canUpload:
-          user.role === 'admin' || Boolean(user.permissions?.fileUpload),
-      },
-      { headers: { 'cache-control': 'private, no-store' } },
-    );
+    return privateJsonResponse({
+      flow: publicFlow(flow),
+      role: user.role === 'admin' ? 'admin' : 'partner',
+      readiness: flowReadiness(),
+      canUpload: user.role === 'admin' || Boolean(user.permissions?.fileUpload),
+    });
   } catch (error) {
     return flowErrorResponse(error);
   }
@@ -66,10 +63,10 @@ export async function POST(request: Request, context: Context) {
           source: 'flow_command',
           outcome: 'safe_retry',
         });
-        return Response.json(
-          { flow: publicFlow(flow), duplicate: true },
-          { headers: { 'cache-control': 'no-store' } },
-        );
+        return privateJsonResponse({
+          flow: publicFlow(flow),
+          duplicate: true,
+        });
       }
     } catch (error) {
       if (
@@ -175,10 +172,7 @@ export async function POST(request: Request, context: Context) {
     assertFlowLifecycleActive(access.state, flow.caseId);
     await commitFlow(flow, next, access.statePayload);
     uploadedKeys = [];
-    return Response.json(
-      { flow: publicFlow(next) },
-      { headers: { 'cache-control': 'no-store' } },
-    );
+    return privateJsonResponse({ flow: publicFlow(next) });
   } catch (error) {
     if (uploadedKeys.length) {
       // A failed/ambiguous DB response must never delete a successfully referenced file.
