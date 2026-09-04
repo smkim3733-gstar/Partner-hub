@@ -16,6 +16,7 @@ const bundle = await build({
     contents: `
 import { registerPassword, loginPassword, logoutPassword, setupPassword, createPasswordLink } from '@/lib/password-handlers';
 import { GET as getState, PUT as saveState } from '@/app/api/state/route';
+import { POST as registerChatGPT } from '@/app/api/register/route';
 import { POST as createPartner } from '@/app/api/admin/partners/route';
 import { GET as getFlow, POST as postFlow } from '@/app/api/consulting-flow/[caseId]/route';
 import { GET as getFile, DELETE as deleteFile } from '@/app/api/files/[id]/route';
@@ -27,7 +28,7 @@ import { GET as getInventoryPresence } from '@/app/api/admin/file-inventory/[id]
 import { GET as previewRecovery, POST as recoverOriginal } from '@/app/api/admin/file-inventory/[id]/recovery/route';
 export default { async fetch(request) {
   const pathname = new URL(request.url).pathname;
-  const routes = { 'POST /signup': registerPassword, 'POST /login': loginPassword, 'POST /logout': logoutPassword, 'POST /setup': setupPassword, 'POST /issue': createPasswordLink, 'GET /state': getState, 'PUT /save': saveState, 'POST /partners': createPartner, 'POST /files': uploadFile, 'GET /draft': getDraft, 'PUT /draft': saveDraft, 'DELETE /draft': deleteDraft };
+  const routes = { 'POST /signup': registerPassword, 'POST /login': loginPassword, 'POST /logout': logoutPassword, 'POST /setup': setupPassword, 'POST /issue': createPasswordLink, 'POST /chatgpt-register': registerChatGPT, 'GET /state': getState, 'PUT /save': saveState, 'POST /partners': createPartner, 'POST /files': uploadFile, 'GET /draft': getDraft, 'PUT /draft': saveDraft, 'DELETE /draft': deleteDraft };
   if (pathname === '/inventory' && request.method === 'GET') return getInventory(request);
   if (pathname.startsWith('/recovery/') && ['GET', 'POST'].includes(request.method)) return (request.method === 'GET' ? previewRecovery : recoverOriginal)(request, { params: Promise.resolve({ id: pathname.slice(10) }) });
   if (pathname.startsWith('/inventory/') && request.method === 'GET') return getInventoryPresence(request, { params: Promise.resolve({ id: pathname.slice(11) }) });
@@ -1917,6 +1918,29 @@ try {
     'suspension blocks an already issued password session',
   );
   await expect(
+    await call(
+      '/chatgpt-register',
+      {
+        name: '가상 런타임파트너',
+        phone: '010-0000-0000',
+        affiliation: '가상 검증소속',
+        email,
+      },
+      {
+        'oai-authenticated-user-id': 'synthetic-suspended-partner',
+        'oai-authenticated-user-email': email,
+      },
+    ),
+    403,
+    'ChatGPT self-registration cannot reopen a suspended account',
+  );
+  assert.equal(
+    JSON.parse(
+      (await db.prepare('SELECT payload FROM portal_state').first()).payload,
+    ).members.find((member) => member.id === memberId).status,
+    '정지',
+  );
+  await expect(
     await call('/flow/runtime-own', nativeAnalysis, { cookie }),
     403,
     'suspension denies even an identical previously successful FLOW command',
@@ -2130,6 +2154,55 @@ try {
     401,
     'logged-out session cannot be replayed',
   );
+  const chatGPTSignup = {
+    name: '가상 ChatGPT 가입자',
+    phone: '010-0000-0099',
+    affiliation: '가상 검증소속',
+    email: 'chatgpt-runtime@example.invalid',
+  };
+  const chatGPTHeaders = {
+    'oai-authenticated-user-id': 'synthetic-chatgpt-register-user',
+    'oai-authenticated-user-email': chatGPTSignup.email,
+  };
+  await expect(
+    await call('/chatgpt-register', chatGPTSignup, chatGPTHeaders),
+    200,
+    'native ChatGPT self-registration creates one pending account',
+  );
+  await db.prepare('DELETE FROM portal_auth_limits').run();
+  const chatGPTRevision = JSON.parse(
+    (await db.prepare('SELECT payload FROM portal_state').first()).payload,
+  ).membersRevision;
+  for (let attempt = 0; attempt < 8; attempt++)
+    assert.equal(
+      (
+        await call('/chatgpt-register', chatGPTSignup, {
+          ...chatGPTHeaders,
+          'cf-connecting-ip': `198.51.100.${attempt + 1}`,
+        })
+      ).status,
+      200,
+    );
+  const chatGPTLimited = await expect(
+    await call('/chatgpt-register', chatGPTSignup, {
+      ...chatGPTHeaders,
+      'cf-connecting-ip': '198.51.100.9',
+    }),
+    429,
+    'stable ChatGPT identity limits registration across changing client IPs',
+  );
+  assert.equal(chatGPTLimited.headers.get('retry-after'), '900');
+  const chatGPTState = JSON.parse(
+    (await db.prepare('SELECT payload FROM portal_state').first()).payload,
+  );
+  assert.equal(chatGPTState.membersRevision, chatGPTRevision);
+  assert.equal(
+    chatGPTState.members.filter(
+      (member) => member.email === chatGPTSignup.email,
+    ).length,
+    1,
+  );
+  checks.push('identical ChatGPT registration retries do not rewrite state');
   assert.equal(outboundRequests, 0);
   checks.push('no external network calls during the isolated pilot');
   console.log(

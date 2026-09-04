@@ -23,7 +23,7 @@ import {
   passwordDatabase,
   passwordResponse,
   passwordErrorResponse,
-  limitPasswordAttempts,
+  limitAuthenticationAttempts,
   sessionCookie,
   sessionToken,
   sessionLifetimeSeconds,
@@ -77,7 +77,7 @@ export function passwordHandler(
 
 export const registerPassword = passwordHandler(async (request) => {
   const body = await passwordBody(request);
-  await limitPasswordAttempts(request, 'register');
+  await limitAuthenticationAttempts(request, 'register');
   if (body.consent !== true)
     throw new PasswordError('가입정보 이용에 동의해 주세요.');
   const { value, errors } = validatePartnerRegistration({
@@ -175,7 +175,10 @@ export const loginPassword = passwordHandler(async (request) => {
   const body = await passwordBody(request);
   const email =
     typeof body.email === 'string' ? normalizeLoginEmail(body.email) : '';
-  await limitPasswordAttempts(request, 'login', email.slice(0, 254));
+  await limitAuthenticationAttempts(request, 'login', {
+    kind: 'email',
+    value: email.slice(0, 254),
+  });
   if (
     !isValidLoginEmail(email) ||
     email.length > 254 ||
@@ -257,7 +260,7 @@ export const createPasswordLink = passwordHandler(async (request) => {
     reservedEmails.has(normalizeLoginEmail(member.email))
   )
     throw new PasswordError('설정 가능한 파트너를 확인해 주세요.');
-  await limitPasswordAttempts(request, 'setup-link');
+  await limitAuthenticationAttempts(request, 'setup-link');
   const db = await passwordDatabase();
   const token = opaqueToken();
   const nowTime = Date.now();
@@ -316,7 +319,7 @@ export const createPasswordLink = passwordHandler(async (request) => {
 
 export const setupPassword = passwordHandler(async (request) => {
   const body = await passwordBody(request);
-  await limitPasswordAttempts(request, 'setup');
+  await limitAuthenticationAttempts(request, 'setup');
   const password = checkedPassword(body.password);
   if (typeof body.token !== 'string' || !/^[a-f0-9]{64}$/.test(body.token))
     throw new PasswordError(

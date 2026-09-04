@@ -74,10 +74,10 @@ export function passwordErrorResponse(error: unknown) {
     503,
   );
 }
-export async function limitPasswordAttempts(
+export async function limitAuthenticationAttempts(
   request: Request,
   purpose: string,
-  email?: string,
+  subject?: { kind: 'email' | 'identity'; value: string },
 ) {
   const db = await passwordDatabase();
   const now = Date.now();
@@ -87,7 +87,7 @@ export async function limitPasswordAttempts(
   const buckets: [string, number][] = [
     [`${purpose}:ip:${ip}`, purpose === 'register' ? 8 : 30],
   ];
-  if (email) buckets.push([`${purpose}:email:${email}`, 8]);
+  if (subject) buckets.push([`${purpose}:${subject.kind}:${subject.value}`, 8]);
   await db
     .prepare('DELETE FROM portal_auth_limits WHERE expires_at < ?1')
     .bind(now)

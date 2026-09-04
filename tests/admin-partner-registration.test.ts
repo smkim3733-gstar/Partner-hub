@@ -635,6 +635,11 @@ void test('public self registration still requires matching authenticated email 
     '승인대기',
   );
   assert.equal(membersRevisionOf(current), 2);
+  const retry = await selfRegister(
+    request(signup, signup.email, '/api/register'),
+  );
+  assert.equal(retry.status, 200);
+  assert.equal(membersRevisionOf(await state()), 2);
   assert.equal(
     (
       await selfRegister(
@@ -643,6 +648,51 @@ void test('public self registration still requires matching authenticated email 
     ).status,
     409,
   );
+  const suspended = body({ email: 'suspended@example.invalid' });
+  assert.equal(
+    (await selfRegister(request(suspended, suspended.email, '/api/register')))
+      .status,
+    403,
+  );
+  assert.equal(
+    (await state()).members.find((member) => member.id === 'suspended-id')
+      ?.status,
+    '정지',
+  );
+});
+
+void test('public ChatGPT registration rate limits one stable identity across changing client IPs without repeated state writes', async () => {
+  const signup = body({ email: 'limited-signup@example.invalid' });
+  const first = await selfRegister(
+    request(signup, signup.email, '/api/register'),
+  );
+  assert.equal(first.status, 200);
+  const db = (env as unknown as { DB: D1Database }).DB;
+  await db.prepare('DELETE FROM portal_auth_limits').run();
+  const revision = membersRevisionOf(await state());
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const repeated = await selfRegister(
+      request(signup, signup.email, '/api/register', 'POST', {
+        'cf-connecting-ip': `198.51.100.${attempt + 1}`,
+      }),
+    );
+    assert.equal(repeated.status, 200);
+  }
+  const limited = await selfRegister(
+    request(signup, signup.email, '/api/register', 'POST', {
+      'cf-connecting-ip': '198.51.100.9',
+    }),
+  );
+  assert.equal(limited.status, 429);
+  assert.equal(limited.headers.get('retry-after'), '900');
+  assertPrivateAuthResponse(limited);
+  assert.equal(membersRevisionOf(await state()), revision);
+  assert.equal(
+    (await state()).members.filter((member) => member.email === signup.email)
+      .length,
+    1,
+  );
+  await db.prepare('DELETE FROM portal_auth_limits').run();
 });
 
 void test('public self registration rejects non-JSON and oversized bodies before writing', async () => {

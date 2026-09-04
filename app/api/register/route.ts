@@ -13,6 +13,10 @@ import { portalConflictReceiptFromRequest } from '@/lib/portal-conflict-receipt'
 import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
 import { chatGPTIdentityFromRequest } from '@/lib/request-auth';
 import { privateJsonResponse } from '@/lib/private-response';
+import {
+  limitAuthenticationAttempts,
+  PasswordError,
+} from '@/lib/password-store';
 
 const MAX_REQUEST_BYTES = 12_000;
 
@@ -81,6 +85,10 @@ export async function POST(request: Request) {
         { status: 401 },
       );
     }
+    await limitAuthenticationAttempts(request, 'chatgpt-register', {
+      kind: 'identity',
+      value: identity.id,
+    });
     const body = await readBoundedJsonObject(request, MAX_REQUEST_BYTES);
     const name = normalizedText(body.name);
     const phone = normalizedText(body.phone);
@@ -117,6 +125,12 @@ export async function POST(request: Request) {
           409,
         );
       }
+      if (existing?.status === '정지') {
+        throw new FlowError(
+          '이용이 정지된 계정입니다. 대표님께 문의해 주세요.',
+          403,
+        );
+      }
 
       const pendingMember: RegistrationMember = {
         ...existing,
@@ -138,6 +152,15 @@ export async function POST(request: Request) {
         },
       };
 
+      if (
+        existing?.status === '승인대기' &&
+        existing.name === pendingMember.name &&
+        existing.phone === pendingMember.phone &&
+        existing.affiliation === pendingMember.affiliation &&
+        existing.email === pendingMember.email
+      )
+        return state;
+
       const nextMembers = [...state.members];
       if (existingIndex >= 0) nextMembers[existingIndex] = pendingMember;
       else nextMembers.push(pendingMember);
@@ -155,6 +178,14 @@ export async function POST(request: Request) {
     });
     return privateJsonResponse({ ok: true, status: '승인대기' });
   } catch (error) {
+    if (error instanceof PasswordError)
+      return privateJsonResponse(
+        { error: error.message },
+        {
+          status: error.status,
+          headers: error.status === 429 ? { 'retry-after': '900' } : {},
+        },
+      );
     if (error instanceof JsonRequestError)
       return privateJsonResponse(
         { error: error.message },

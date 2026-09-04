@@ -508,6 +508,7 @@ void test('authentication inputs remain routed through shared boundaries', async
     ['app/api/register/route.ts', 'chatGPTIdentityFromRequest(request)'],
     ['app/api/state/route.ts', 'chatGPTIdentityFromRequest(request)?.email'],
     ['lib/password-store.ts', 'rateLimitClientKey(request)'],
+    ['app/api/register/route.ts', 'limitAuthenticationAttempts('],
     [
       'lib/password-store.ts',
       'readSessionCookieToken(request, cookieName(request))',
