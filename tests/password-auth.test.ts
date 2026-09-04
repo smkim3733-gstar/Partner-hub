@@ -35,7 +35,7 @@ import {
   readPasswordLinkSummary,
   recordPasswordLinkMetric,
 } from '../lib/password-link-metrics';
-import { portalPasswordSchemaSql } from '../db/schema';
+import { portalPasswordSchemaSql, portalStateId } from '../db/schema';
 import { failNextDatabaseStatement, flushWaitUntil } from './runtime-mock.mjs';
 
 const origin = 'https://portal.example.invalid';
@@ -79,6 +79,9 @@ async function state() {
 async function expectStatus(response: Response, status: number) {
   assert.equal(response.status, status, await response.clone().text());
   return response;
+}
+function statementSql(statement: D1PreparedStatement) {
+  return (statement as unknown as { sql: string }).sql;
 }
 function assertPrivateAuthResponse(response: Response) {
   assert.equal(
@@ -392,6 +395,113 @@ void test('suspension, deletion and email change immediately block a session', a
     await writePortalState(current);
     assert.equal((await getState(request(undefined, { cookie }))).status, 403);
   }
+});
+void test('login cannot commit a session after suspension wins the state race', async () => {
+  await register();
+  await approve();
+  const memberId = (await state()).members[1].id;
+  const db = await passwordDatabase();
+  const batch = db.batch.bind(db);
+  let once = true;
+  db.batch = async <T = unknown>(statements: D1PreparedStatement[]) => {
+    if (
+      once &&
+      statements.some((statement) =>
+        statementSql(statement).includes('INSERT INTO portal_password_sessions'),
+      )
+    ) {
+      once = false;
+      const suspended = await state();
+      suspended.members[1].status = '정지';
+      await db
+        .prepare(
+          'UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3',
+        )
+        .bind(
+          JSON.stringify(suspended),
+          new Date().toISOString(),
+          portalStateId,
+        )
+        .run();
+    }
+    return batch<T>(statements);
+  };
+  try {
+    assert.equal((await login(request({ email, password }))).status, 403);
+  } finally {
+    db.batch = batch;
+  }
+  assert.equal(
+    (
+      await database
+        .prepare(
+          'SELECT COUNT(*) AS total FROM portal_password_sessions WHERE member_id = ?1',
+        )
+        .bind(memberId)
+        .first<{ total: number }>()
+    )?.total,
+    0,
+  );
+});
+void test('stale setup-link issuance cannot delete a newer link after member email changes', async () => {
+  const db = await passwordDatabase();
+  const batch = db.batch.bind(db);
+  const newerToken = 'a'.repeat(64);
+  const changedEmail = 'changed@example.invalid';
+  let once = true;
+  db.batch = async <T = unknown>(statements: D1PreparedStatement[]) => {
+    if (
+      once &&
+      statements.some((statement) =>
+        statementSql(statement).includes('INSERT INTO portal_password_links'),
+      )
+    ) {
+      once = false;
+      const changed = await state();
+      changed.members[0].email = changedEmail;
+      await db
+        .prepare(
+          'UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3',
+        )
+        .bind(JSON.stringify(changed), new Date().toISOString(), portalStateId)
+        .run();
+      await db
+        .prepare(
+          'INSERT INTO portal_password_links (token_hash, member_id, email, expires_at, created_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)',
+        )
+        .bind(
+          tokenHash(newerToken),
+          'existing',
+          changedEmail,
+          Date.now() + 30 * 60_000,
+          'test-owner',
+          new Date().toISOString(),
+        )
+        .run();
+    }
+    return batch<T>(statements);
+  };
+  try {
+    assert.equal(
+      (
+        await issue(
+          request({ memberId: 'existing', confirmed: true }, ownerHeaders),
+        )
+      ).status,
+      409,
+    );
+  } finally {
+    db.batch = batch;
+  }
+  const links = await database
+    .prepare(
+      'SELECT token_hash, email FROM portal_password_links WHERE member_id = ?1',
+    )
+    .bind('existing')
+    .all<{ token_hash: string; email: string }>();
+  assert.equal(links.results.length, 1);
+  assert.equal(links.results[0]?.token_hash, tokenHash(newerToken));
+  assert.equal(links.results[0]?.email, changedEmail);
 });
 void test('administrator status changes atomically revoke sessions and setup links so reactivation cannot revive them', async () => {
   const cookie = await loggedIn();

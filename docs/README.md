@@ -9,6 +9,7 @@
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                  | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
 | [ChatGPT 가입 계정 상태 무결성 경계](CHATGPT_REGISTRATION_INTEGRITY_BOUNDARY_2026_09_05.md)                      | 정지 계정 보존, 동일 재시도 무기록과 사용자 ID 기반 반복 가입 제한                       |
 | [계정 상태 변경 인증수단 폐기 무결성 경계](PASSWORD_ACCESS_REVOCATION_INTEGRITY_2026_09_05.md)                  | 정지·재활성화·이메일 변경·삭제와 세션·설정 링크의 원자적 폐기                            |
+| [로그인 세션·설정 링크 발급 커밋 무결성 경계](PASSWORD_ISSUANCE_COMMIT_GUARD_2026_09_05.md)                   | 동시 상태·비밀번호 변경 뒤 늦은 세션·링크 재생성과 최신 링크 삭제 차단                   |
 | [파트너 유형 명시 선택 안전성](PARTNER_TYPE_SELECTION_SAFETY_2026_09_03.md)                                      | 직접등록·승인대기 유형 자동선택 제거와 허용 유형 검증                                    |
 | [대표 직접등록 응답 검증 안전성](PARTNER_REGISTRATION_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                  | 등록 입력·최소 권한·명단 일관성 검증과 손상 응답 재시도 보호                             |
 | [원본 보관 현황 응답 검증 안전성](FILE_INVENTORY_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                       | 목록·필터·커서·파일 ID·원본 존재와 크기 관계 검증                                        |

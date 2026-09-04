@@ -206,7 +206,7 @@ export const loginPassword = passwordHandler(async (request) => {
   const token = opaqueToken();
   const now = Date.now();
   const previous = sessionToken(request);
-  await db.batch([
+  const results = await db.batch([
     db
       .prepare(
         'DELETE FROM portal_password_sessions WHERE expires_at <= ?1 OR token_hash = ?2',
@@ -214,7 +214,14 @@ export const loginPassword = passwordHandler(async (request) => {
       .bind(now, previous ? tokenHash(previous) : ''),
     db
       .prepare(
-        'INSERT INTO portal_password_sessions (token_hash, member_id, email, credential_version, expires_at) VALUES (?1, ?2, ?3, ?4, ?5)',
+        `INSERT INTO portal_password_sessions (token_hash, member_id, email, credential_version, expires_at)
+        SELECT ?1, ?2, ?3, ?4, ?5
+        WHERE EXISTS (SELECT 1 FROM portal_password_accounts a
+          WHERE a.member_id = ?2 AND a.email = ?3 AND a.credential_version = ?4)
+          AND EXISTS (SELECT 1 FROM portal_state s, json_each(s.payload, '$.members') m
+          WHERE s.id = ?6 AND json_extract(m.value, '$.id') = ?2
+          AND lower(trim(json_extract(m.value, '$.email'))) = ?3
+          AND json_extract(m.value, '$.status') = '활성')`,
       )
       .bind(
         tokenHash(token),
@@ -222,8 +229,14 @@ export const loginPassword = passwordHandler(async (request) => {
         email,
         account.credential_version,
         now + sessionLifetimeSeconds * 1000,
+        portalStateId,
       ),
   ]);
+  if (results[1].meta.changes !== 1)
+    throw new PasswordError(
+      '계정 상태나 비밀번호가 변경되었습니다. 다시 확인해 주세요.',
+      403,
+    );
   return passwordResponse({ ok: true }, 200, sessionCookie(request, token));
 });
 
@@ -263,6 +276,7 @@ export const createPasswordLink = passwordHandler(async (request) => {
   await limitAuthenticationAttempts(request, 'setup-link');
   const db = await passwordDatabase();
   const token = opaqueToken();
+  const memberEmail = normalizeLoginEmail(member.email);
   const nowTime = Date.now();
   const expiresAt = nowTime + 30 * 60_000;
   const priorLink = await db
@@ -286,25 +300,40 @@ export const createPasswordLink = passwordHandler(async (request) => {
     Boolean(priorLink) &&
     priorLink!.consumed_by == null &&
     Number(priorLink!.expires_at) <= nowTime;
-  await db.batch([
+  const results = await db.batch([
     db
       .prepare(
-        'DELETE FROM portal_password_links WHERE member_id = ?1 OR expires_at <= ?2',
+        `DELETE FROM portal_password_links WHERE (member_id = ?1 OR expires_at <= ?2)
+        AND EXISTS (SELECT 1 FROM portal_state s, json_each(s.payload, '$.members') m
+          WHERE s.id = ?3 AND json_extract(m.value, '$.id') = ?1
+          AND lower(trim(json_extract(m.value, '$.email'))) = ?4
+          AND json_extract(m.value, '$.status') != '정지')`,
       )
-      .bind(member.id, nowTime),
+      .bind(member.id, nowTime, portalStateId, memberEmail),
     db
       .prepare(
-        'INSERT INTO portal_password_links (token_hash, member_id, email, expires_at, created_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)',
+        `INSERT INTO portal_password_links (token_hash, member_id, email, expires_at, created_by, created_at)
+        SELECT ?1, ?2, ?3, ?4, ?5, ?6
+        WHERE EXISTS (SELECT 1 FROM portal_state s, json_each(s.payload, '$.members') m
+          WHERE s.id = ?7 AND json_extract(m.value, '$.id') = ?2
+          AND lower(trim(json_extract(m.value, '$.email'))) = ?3
+          AND json_extract(m.value, '$.status') != '정지')`,
       )
       .bind(
         tokenHash(token),
         member.id,
-        normalizeLoginEmail(member.email),
+        memberEmail,
         expiresAt,
         actor.id,
         new Date().toISOString(),
+        portalStateId,
       ),
   ]);
+  if (results[1].meta.changes !== 1)
+    throw new PasswordError(
+      '계정 정보가 변경되었습니다. 최신 명단을 확인한 후 다시 발급해 주세요.',
+      409,
+    );
   schedulePasswordLinkMetric({
     issued: 1,
     activeReplacement: replacesActive ? 1 : 0,
