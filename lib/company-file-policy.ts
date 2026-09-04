@@ -1,4 +1,10 @@
 /** Shared upload rules. Category keys stay compatible with existing stored documents. */
+import {
+  uploadFileAccept,
+  uploadFileExtension,
+  type UploadFileExtension,
+} from './upload-file-formats';
+
 export const companyFileCategories = [
   '사업자등록증',
   '크레탑',
@@ -12,9 +18,7 @@ export const companyFileCategories = [
 export type CompanyFileCategory = (typeof companyFileCategories)[number];
 export const MAX_COMPANY_FILE_BYTES = 25 * 1024 * 1024;
 export const MAX_APPLICATION_FILES = 10;
-export const companyFileAccept = '.pdf,.jpg,.jpeg,.png,.xlsx,.xls,.docx,.txt';
-export const recordingFileAccept = '.docx,.txt,.pdf,.mp3,.m4a,.wav';
-const documentExtensions = new Set([
+const documentFileExtensions = [
   'pdf',
   'jpg',
   'jpeg',
@@ -23,17 +27,29 @@ const documentExtensions = new Set([
   'xls',
   'docx',
   'txt',
-]);
-const recordingExtensions = new Set([
+] as const satisfies readonly UploadFileExtension[];
+const recordingFileExtensions = [
   'docx',
   'txt',
   'pdf',
   'mp3',
   'm4a',
   'wav',
+] as const satisfies readonly UploadFileExtension[];
+const audioFileExtensions = [
+  'mp3',
+  'm4a',
+  'wav',
+] as const satisfies readonly UploadFileExtension[];
+const documentExtensions = new Set<string>(documentFileExtensions);
+const recordingExtensions = new Set<string>(recordingFileExtensions);
+const audioExtensions = new Set<string>(audioFileExtensions);
+export const companyFileAccept = uploadFileAccept(documentFileExtensions);
+export const recordingFileAccept = uploadFileAccept(recordingFileExtensions);
+export const companyPortalFileAccept = uploadFileAccept([
+  ...documentFileExtensions,
+  ...audioFileExtensions,
 ]);
-const audioExtensions = new Set(['mp3', 'm4a', 'wav']);
-const extension = (name: string) => name.split('.').at(-1)?.toLowerCase() || '';
 export function safeFileName(value: string) {
   const filename = Array.from(value.normalize('NFC'), (character) => {
     const codePoint = character.codePointAt(0) ?? 0;
@@ -57,7 +73,7 @@ export function safeFileName(value: string) {
     .trimEnd()}${suffix}`;
 }
 export const isAudioFile = (name: string) =>
-  audioExtensions.has(extension(name));
+  audioExtensions.has(uploadFileExtension(name));
 export const companyCategoryLabel = (category: string) =>
   category === '상담녹취' ? '녹취자료' : category;
 
@@ -69,7 +85,7 @@ export function companyFileProblem(
     return '비어 있는 파일은 등록할 수 없습니다.';
   if (file.size > MAX_COMPANY_FILE_BYTES)
     return '파일 한 개의 크기는 25MB 이하여야 합니다.';
-  const ext = extension(file.name);
+  const ext = uploadFileExtension(file.name);
   if (category === '상담녹취') {
     if (!recordingExtensions.has(ext))
       return '녹취자료는 Word(DOCX)·TXT·PDF 또는 MP3·M4A·WAV로 등록해 주세요.';

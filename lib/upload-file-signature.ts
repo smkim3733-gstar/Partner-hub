@@ -1,5 +1,6 @@
 import { unzipSync } from 'fflate';
 import { textFileContentProblem } from './text-file-content';
+import { uploadFileExtension, uploadFileFormat } from './upload-file-formats';
 
 const SIGNATURE_MISMATCH =
   '파일 확장자와 실제 파일 형식이 일치하지 않습니다. 원본 프로그램에서 다시 저장한 파일을 선택해 주세요.';
@@ -88,21 +89,28 @@ export async function uploadFileContentProblem(
   file: Pick<File, 'name' | 'slice' | 'arrayBuffer'>,
   availableBytes?: ArrayBuffer,
 ) {
-  const extension = file.name.split('.').at(-1)?.toLowerCase() ?? '';
+  const extension = uploadFileExtension(file.name);
+  const format = uploadFileFormat(extension);
+  if (!format) return SIGNATURE_MISMATCH;
   try {
-    if (extension === 'txt' || extension === 'md')
+    if (format.signature === 'text')
       return textFileContentProblem(
         new Uint8Array(availableBytes ?? (await file.arrayBuffer())),
       );
-    if (['docx', 'xlsx', 'pptx'].includes(extension)) {
+    if (
+      format.signature === 'docx' ||
+      format.signature === 'xlsx' ||
+      format.signature === 'pptx'
+    ) {
       const bytes = new Uint8Array(
         availableBytes ?? (await file.arrayBuffer()),
       );
-      const directory = {
-        docx: 'word/',
-        xlsx: 'xl/',
-        pptx: 'ppt/',
-      }[extension] as 'word/' | 'xl/' | 'ppt/';
+      const directory =
+        format.signature === 'docx'
+          ? 'word/'
+          : format.signature === 'xlsx'
+            ? 'xl/'
+            : 'ppt/';
       return isOoxml(bytes, directory) ? '' : SIGNATURE_MISMATCH;
     }
 
@@ -110,26 +118,26 @@ export async function uploadFileContentProblem(
       availableBytes ?? (await file.slice(0, MAX_HEADER_BYTES).arrayBuffer()),
     ).subarray(0, MAX_HEADER_BYTES);
     const valid =
-      extension === 'pdf'
+      format.signature === 'pdf'
         ? includesAscii(bytes.subarray(0, 1024), '%PDF-')
-        : extension === 'png'
+        : format.signature === 'png'
           ? startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-          : extension === 'jpg' || extension === 'jpeg'
+          : format.signature === 'jpeg'
             ? startsWith(bytes, [0xff, 0xd8, 0xff])
-            : extension === 'xls'
+            : format.signature === 'xls'
               ? startsWith(
                   bytes,
                   [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1],
                 )
-              : extension === 'wav'
+              : format.signature === 'wav'
                 ? startsWith(bytes, [0x52, 0x49, 0x46, 0x46]) &&
                   bytes[8] === 0x57 &&
                   bytes[9] === 0x41 &&
                   bytes[10] === 0x56 &&
                   bytes[11] === 0x45
-                : extension === 'm4a'
+                : format.signature === 'm4a'
                   ? hasIsoBaseMediaTypeBox(bytes)
-                  : extension === 'mp3'
+                  : format.signature === 'mp3'
                     ? isMpegAudio(bytes)
                     : false;
     return valid ? '' : SIGNATURE_MISMATCH;

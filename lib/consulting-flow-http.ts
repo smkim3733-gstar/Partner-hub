@@ -4,6 +4,7 @@ import {
   type FlowFile,
 } from '@/lib/consulting-flow';
 import { safeFileName } from './company-file-policy';
+import { uploadFileExtension, uploadFileFormat } from './upload-file-formats';
 import { audioFileProblem, transcriptFileProblem } from './transcript-policy';
 import { JsonRequestError, readBoundedJsonObject } from './request-json';
 import {
@@ -83,20 +84,6 @@ export async function parseFlowRequest(request: Request) {
     audio,
   };
 }
-const mime: Record<string, string> = {
-  pdf: 'application/pdf',
-  png: 'image/png',
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  txt: 'text/plain',
-  md: 'text/markdown',
-  mp3: 'audio/mpeg',
-  m4a: 'audio/mp4',
-  wav: 'audio/wav',
-  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-};
 export function describeUpload(
   file: File,
   command: FlowCommand,
@@ -125,7 +112,7 @@ export function describeUpload(
     );
   if (file.size > 25 * 1024 * 1024)
     throw new FlowError('첨부파일은 25MB 이하여야 합니다.', 413);
-  const ext = file.name.split('.').at(-1)?.toLowerCase() || '';
+  const ext = uploadFileExtension(file.name);
   const allowed =
     slot === 'audio'
       ? ['mp3', 'm4a', 'wav']
@@ -138,7 +125,8 @@ export function describeUpload(
             : purpose === 'report'
               ? ['pdf', 'docx', 'pptx', 'txt', 'md']
               : ['pdf', 'jpg', 'jpeg', 'png', 'docx', 'xlsx', 'txt'];
-  if (!allowed.includes(ext))
+  const format = uploadFileFormat(ext);
+  if (!allowed.includes(ext) || !format)
     throw new FlowError(
       `이 자료는 ${allowed.join(', ')} 형식으로 첨부해 주세요.`,
     );
@@ -152,7 +140,7 @@ export function describeUpload(
   return {
     id,
     name: safeFileName(file.name),
-    contentType: mime[ext],
+    contentType: format.contentType,
     size: file.size,
     key: `consulting-flow/${id}`,
     createdAt: now,
