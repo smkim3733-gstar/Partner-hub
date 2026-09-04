@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `8a7fb7754354ccb8da374ad5eb722b6782cfa931` (`fix: reject ambiguous ChatGPT registration email`)
-- 최신 기능: ChatGPT 자가등록 이메일과 일치하는 레거시 회원이 둘 이상이면 첫 승인대기 계정을 선택하지 않고 회원·자격·결속 처리 전에 HTTP 409로 거절
-- 검증: Node 회귀 검사 487개, 격리 workerd/D1/R2 검사 181개, 타입검사, 전체 lint, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200 통과
+- 최신 기능 커밋: `d03e54539027f5cb040b55086d674db24eb05214` (`fix: reject invalid stable member IDs`)
+- 최신 기능: 대표 저장과 비밀번호·ChatGPT 인증 전 경로에서 파트너 안정 ID가 비어 있지 않고 현재 명단에 정확히 1개인지 확인하며 레거시 중복·빈 ID를 실패 차단
+- 검증: Node 회귀 검사 493개, 격리 workerd/D1/R2 검사 187개, 타입검사, 전체 lint, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107, 배포 `appgdep_6a9ae289003c8191a503a7bf7599021e`
-- 최신 Sites 저장 버전: 120 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_0369667769b4819187b41d5bf4c4ac15`), 소스 `8a7fb7754354ccb8da374ad5eb722b6782cfa931`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108~119는 버전 120으로 대체해 배포하지 않으며, ChatGPT 자가등록 중복 이메일 보완본 버전 120이 정확한 버전 운영 배포 승인 대기 중이다.
+- 최신 Sites 저장 버전: 121 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_3c641c41a0288191ac35982394793a07`), 소스 `d03e54539027f5cb040b55086d674db24eb05214`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108~120은 버전 121로 대체해 배포하지 않으며, 파트너 안정 ID 무결성 보완본 버전 121이 정확한 버전 운영 배포 승인 대기 중이다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -45,20 +45,21 @@ node tests/password-worker-smoke.mjs
 ## 이어서 읽을 문서
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
-2. [ChatGPT 자가등록 중복 이메일 무결성](CHATGPT_REGISTRATION_AMBIGUOUS_EMAIL_INTEGRITY_2026_09_05.md)
-3. [ChatGPT 중복 이메일 결속 무결성](CHATGPT_AMBIGUOUS_EMAIL_BINDING_INTEGRITY_2026_09_05.md)
-4. [변경 요청 Origin 필수 보안 경계](MUTATION_ORIGIN_REQUIRED_BOUNDARY_2026_09_05.md)
-5. [ChatGPT 관리자 안정 ID 결속 무결성](CHATGPT_OWNER_STABLE_IDENTITY_INTEGRITY_2026_09_05.md)
-6. [제품 기획 검수](PRODUCT_PLANNING_REVIEW.md)
-7. [브라우저 화면 보안 헤더 경계](BROWSER_PAGE_SECURITY_HEADERS_2026_09_04.md)
-8. [빌드 도구와 운영 의존성 경계](BUILD_TOOL_RUNTIME_DEPENDENCY_BOUNDARY_2026_09_04.md)
-9. [운영 의존성 보안 패치와 잔여 위험](DEPENDENCY_SECURITY_PATCH_AND_RESIDUAL_RISK_2026_09_04.md)
-10. [협업신청 첨부 내용 확인 중 제출 잠금 정책](APPLICATION_ATTACHMENT_HASHING_SUBMISSION_LOCK_POLICY_2026_09_04.md)
-11. [협업신청 첨부 실제 내용 중복 판정 정책](APPLICATION_ATTACHMENT_CONTENT_DEDUPLICATION_POLICY_2026_09_04.md)
-12. [상담 FLOW 화면 재시도 지문 정책](FLOW_CLIENT_RETRY_FINGERPRINT_POLICY_2026_09_04.md)
-13. [업로드 멱등키·영수증 파일명 정규화 정책](UPLOAD_RECEIPT_FILENAME_NORMALIZATION_POLICY_2026_09_04.md)
-14. [신청 첨부 업로드 멱등키 Content-Type 정책](APPLICATION_UPLOAD_KEY_CONTENT_TYPE_POLICY_2026_09_04.md)
-15. [문서 전체 목록](README.md)
+2. [파트너 안정 ID 무결성](DUPLICATE_MEMBER_ID_INTEGRITY_2026_09_05.md)
+3. [ChatGPT 자가등록 중복 이메일 무결성](CHATGPT_REGISTRATION_AMBIGUOUS_EMAIL_INTEGRITY_2026_09_05.md)
+4. [ChatGPT 중복 이메일 결속 무결성](CHATGPT_AMBIGUOUS_EMAIL_BINDING_INTEGRITY_2026_09_05.md)
+5. [변경 요청 Origin 필수 보안 경계](MUTATION_ORIGIN_REQUIRED_BOUNDARY_2026_09_05.md)
+6. [ChatGPT 관리자 안정 ID 결속 무결성](CHATGPT_OWNER_STABLE_IDENTITY_INTEGRITY_2026_09_05.md)
+7. [제품 기획 검수](PRODUCT_PLANNING_REVIEW.md)
+8. [브라우저 화면 보안 헤더 경계](BROWSER_PAGE_SECURITY_HEADERS_2026_09_04.md)
+9. [빌드 도구와 운영 의존성 경계](BUILD_TOOL_RUNTIME_DEPENDENCY_BOUNDARY_2026_09_04.md)
+10. [운영 의존성 보안 패치와 잔여 위험](DEPENDENCY_SECURITY_PATCH_AND_RESIDUAL_RISK_2026_09_04.md)
+11. [협업신청 첨부 내용 확인 중 제출 잠금 정책](APPLICATION_ATTACHMENT_HASHING_SUBMISSION_LOCK_POLICY_2026_09_04.md)
+12. [협업신청 첨부 실제 내용 중복 판정 정책](APPLICATION_ATTACHMENT_CONTENT_DEDUPLICATION_POLICY_2026_09_04.md)
+13. [상담 FLOW 화면 재시도 지문 정책](FLOW_CLIENT_RETRY_FINGERPRINT_POLICY_2026_09_04.md)
+14. [업로드 멱등키·영수증 파일명 정규화 정책](UPLOAD_RECEIPT_FILENAME_NORMALIZATION_POLICY_2026_09_04.md)
+15. [신청 첨부 업로드 멱등키 Content-Type 정책](APPLICATION_UPLOAD_KEY_CONTENT_TYPE_POLICY_2026_09_04.md)
+16. [문서 전체 목록](README.md)
 
 ## Git에 넣지 않는 것
 
@@ -71,4 +72,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 버전 120 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108~119는 버전 120으로 대체해 배포하지 않는다. 버전 120 공개 배포에는 정확히 `버전 120 운영 배포 승인`이라는 사용자 명시 승인이 필요하다. 승인·배포 점검 여부와 관계없이 30분 간격 자동 개발이 다음 고우선순위 운영 감사를 이어간다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
+Sites 버전 121 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108~120은 버전 121로 대체해 배포하지 않는다. 버전 121 공개 배포에는 정확히 `버전 121 운영 배포 승인`이라는 사용자 명시 승인이 필요하다. 승인·배포 점검 여부와 관계없이 30분 간격 자동 개발이 다음 고우선순위 운영 감사를 이어간다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
