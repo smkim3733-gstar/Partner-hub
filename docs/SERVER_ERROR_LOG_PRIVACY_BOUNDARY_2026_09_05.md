@@ -34,5 +34,5 @@
 - 기능 커밋: `462746ddb6c2b8f81338d0f8605dc722826b4dcd` (`fix: sanitize server error logs`)
 - GitHub `main`과 Sites 소스 저장소: 기능 커밋 반영 완료
 - Sites 저장 버전: 107 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_54a665e340e08191bf2326f1f24bc122`)
-- 현재 공개 운영본: 버전 106 (`appgdep_6a9adf09fff48191885654f873bcba8f`)
-- 버전 107 공개 배포: 사용자 명시 승인 대기
+- 현재 공개 운영본: 버전 107 (`appgdep_6a9ae289003c8191a503a7bf7599021e`)
+- 운영 확인: 화면 3곳 HTTP 200과 여섯 가지 보안 헤더, 보호 API 3곳 익명 HTTP 401과 비공개 캐시·참조정보·MIME 경계 통과

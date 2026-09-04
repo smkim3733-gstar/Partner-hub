@@ -37,5 +37,7 @@
 - 기능 커밋: `debbef1522f041653ce2ce1ef8b9bf8d5ffb09e9` (`fix: update secure build stack`)
 - GitHub `main`과 Sites 소스 저장소: 기능 커밋 반영 완료
 - Sites 저장 버전: 106 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_27746f11d2b48191bfb8510b9c59d72b`)
-- 현재 공개 운영본: 버전 106 (`appgdep_6a9adf09fff48191885654f873bcba8f`)
+- 버전 106 배포 기록: `appgdep_6a9adf09fff48191885654f873bcba8f`
 - 운영 확인: 화면 3곳 HTTP 200과 여섯 가지 보안 헤더, 보호 API 3곳 익명 HTTP 401과 비공개 캐시·참조정보·MIME 경계 통과
+
+후속 서버 로그 개인정보 보완은 [서버 오류 로그 개인정보 경계](SERVER_ERROR_LOG_PRIVACY_BOUNDARY_2026_09_05.md)에 기록했으며 현재 공개 운영본은 버전 107이다.
