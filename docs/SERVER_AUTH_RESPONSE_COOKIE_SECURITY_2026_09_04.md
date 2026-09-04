@@ -28,4 +28,4 @@
 - 로컬 Workers `/` HTTP 200 확인
 - 격리검사 중 운영 쓰기, 메일, 유료 AI, 외부 요청 0건
 
-2026-09-04 현재 로컬 검증·커밋 단계다. GitHub 푸시와 공개 Sites 배포는 사용자 운영 반영 승인 전까지 수행하지 않는다.
+2026-09-04 사용자 연속 운영 반영 승인에 따라 커밋 `b281318`을 GitHub `main`과 공개 Sites 버전 82에 반영했다. 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결을 유지했으며 운영 `/`, `/account`, `/account/setup`의 HTTP 200과 익명 `/api/state`의 HTTP 401·공통 보안 헤더를 확인했다. 배포 근거는 `outputs/release/server-auth-response-cookie-security-deployment.json`에 기록한다.
