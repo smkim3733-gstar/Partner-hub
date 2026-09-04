@@ -556,6 +556,27 @@ void test('administrator state save rejects invalid root counters and diagnosis 
     assert.deepEqual(await state(), before);
   }
 });
+void test('administrator state save rejects invalid case display fields and account links', async () => {
+  const before = await state();
+  const corruptions = [
+    (changed: typeof before) => { changed.cases[0].company = ' '; },
+    (changed: typeof before) => { changed.cases[0].trainee = '가상 기존파트너 '; },
+    (changed: typeof before) => { changed.cases[0].partnerMemberId = 'missing-member'; },
+    (changed: typeof before) => {
+      (changed.cases[0] as Record<string, unknown>).partnerMemberId = null;
+    },
+  ];
+
+  for (const mutate of corruptions) {
+    const changed = structuredClone(before);
+    mutate(changed);
+    const response = await saveState(
+      request({ state: changed }, ownerHeaders, 'PUT'),
+    );
+    assert.equal(response.status, 403, await response.clone().text());
+    assert.deepEqual(await state(), before);
+  }
+});
 void test('stored invalid root counters and diagnosis records block access and generic repair', async () => {
   const cookie = await loggedIn();
   const valid = await state();
@@ -601,6 +622,28 @@ void test('stored invalid root counters and diagnosis records block access and g
   ];
 
   for (const corrupted of corruptions) {
+    await writePortalState(corrupted);
+    const partnerRead = await getState(request(undefined, { cookie }));
+    assert.equal(partnerRead.status, 403, await partnerRead.clone().text());
+    const ownerRead = await getState(request(undefined, ownerHeaders));
+    assert.equal(ownerRead.status, 503, await ownerRead.clone().text());
+    const repairWrite = await saveState(
+      request({ state: valid }, ownerHeaders, 'PUT'),
+    );
+    assert.equal(repairWrite.status, 503, await repairWrite.clone().text());
+  }
+});
+void test('stored invalid case fields and account links block access and generic repair', async () => {
+  const cookie = await loggedIn();
+  const valid = await state();
+  const corruptions = [
+    (changed: typeof valid) => { changed.cases[0].trainee = ''; },
+    (changed: typeof valid) => { changed.cases[0].partnerMemberId = 'missing-member'; },
+  ];
+
+  for (const mutate of corruptions) {
+    const corrupted = structuredClone(valid);
+    mutate(corrupted);
     await writePortalState(corrupted);
     const partnerRead = await getState(request(undefined, { cookie }));
     assert.equal(partnerRead.status, 403, await partnerRead.clone().text());

@@ -2572,6 +2572,20 @@ try {
     403,
     'generic owner state save rejects a duplicate case ID',
   );
+  for (const [mutate, label] of [
+    [(state) => { state.cases[0].company = ' '; }, 'blank case company'],
+    [(state) => { state.cases[0].trainee = '가상 런타임파트너 '; }, 'padded case trainee'],
+    [(state) => { state.cases[0].partnerMemberId = 'missing-runtime-member'; }, 'orphaned case assignment'],
+    [(state) => { state.cases[0].partnerMemberId = null; }, 'non-string case assignment'],
+  ]) {
+    const invalidCaseState = structuredClone(cleanMemberIdState);
+    mutate(invalidCaseState);
+    await expect(
+      await call('/save', { state: invalidCaseState }, ownerHeaders, 'PUT'),
+      403,
+      `generic owner state save rejects ${String(label)}`,
+    );
+  }
   for (const [field, label] of [
     ['tasks', 'task'],
     ['companyDocuments', 'document'],
@@ -2732,6 +2746,35 @@ try {
       await call('/save', { state: cleanMemberIdState }, ownerHeaders, 'PUT'),
       503,
       `stored ${label} blocks generic repair writes`,
+    );
+  }
+  for (const [mutate, label] of [
+    [(state) => { state.cases[0].trainee = ''; }, 'blank case trainee'],
+    [(state) => { state.cases[0].partnerMemberId = 'missing-runtime-member'; }, 'orphaned case assignment'],
+  ]) {
+    const invalidStoredCaseState = structuredClone(cleanMemberIdState);
+    mutate(invalidStoredCaseState);
+    await db
+      .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+      .bind(
+        JSON.stringify(invalidStoredCaseState),
+        new Date().toISOString(),
+      )
+      .run();
+    await expect(
+      await call('/state', undefined, { cookie: structuralCookie }),
+      403,
+      `stored ${String(label)} blocks password partner access`,
+    );
+    await expect(
+      await call('/state', undefined, ownerHeaders),
+      503,
+      `stored ${String(label)} blocks administrator reads`,
+    );
+    await expect(
+      await call('/save', { state: cleanMemberIdState }, ownerHeaders, 'PUT'),
+      503,
+      `stored ${String(label)} blocks generic repair writes`,
     );
   }
   await db

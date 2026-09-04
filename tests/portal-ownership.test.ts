@@ -141,6 +141,22 @@ void test('duplicate or blank case IDs fail closed before partner projection can
   );
 });
 
+void test('invalid case display fields and orphaned explicit assignments fail closed', () => {
+  const missingCompany = fixture();
+  missingCompany.cases[0].company = ' ';
+  assert.throws(
+    () => stateForPortalUser(missingCompany, user),
+    /진행 필수 표시 필드가 올바르지 않습니다/,
+  );
+
+  const orphaned = fixture();
+  orphaned.cases[0].partnerMemberId = 'missing-member';
+  assert.throws(
+    () => stateForPortalUser(orphaned, user),
+    /진행 담당 계정 연결을 하나로 확인할 수 없습니다/,
+  );
+});
+
 void test('duplicate or blank task, document and schedule IDs fail closed before ownership merging', () => {
   const fixtures = [
     {
@@ -313,6 +329,9 @@ void test('partner cannot create an operational record with a reserved seed ID',
 void test('unambiguous legacy names remain usable, including normalized display names', () => {
   const current = fixture();
   current.members = [current.members[0]];
+  current.cases = current.cases.filter(
+    (item) => item.partnerMemberId !== 'partner-two',
+  );
   current.members[0].name = ` ${user.memberName!}(가상) `;
   const visible = stateForPortalUser(current, user) as typeof current;
   assert.deepEqual(
@@ -377,5 +396,8 @@ void test('legacy file permission refuses a same-name claimant and keeps adminis
   );
   const unique = fixture();
   unique.members = [unique.members[0]];
+  unique.cases = unique.cases.filter(
+    (item) => item.partnerMemberId !== 'partner-two',
+  );
   assert.equal(mayReadCompanyFile(user, row, unique), true);
 });

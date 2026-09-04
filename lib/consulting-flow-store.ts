@@ -69,10 +69,16 @@ export async function stateWithConsultingFlows(raw: unknown) {
       '$.recordings', json((SELECT json_group_array(json_object('id', json_extract(v.value, '$.id'))) FROM json_each(payload, '$.recordings') v))
     ) AS payload FROM consulting_flows`)
     .all<{ payload: string }>();
-  return projectFlowState(
+  const projected = projectFlowState(
     raw,
     rows.results.map((row) => JSON.parse(row.payload) as ConsultingFlow),
   );
+  if (projected !== null && !hasPortalStateStructure(projected))
+    throw new FlowError(
+      '저장된 운영 데이터 구조를 확인할 수 없습니다. 관리자 복구가 필요합니다.',
+      503,
+    );
+  return projected;
 }
 export async function commitFlow(
   before: ConsultingFlow,

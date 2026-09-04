@@ -755,7 +755,12 @@ void test('generic administrator state save cannot delete a suspended partner wi
   base.companyDocuments = [];
   base.schedule = [];
   const assignments = [
-    ['cases', { id: 'linked-case', partnerMemberId: 'existing-id' }],
+    ['cases', {
+      id: 'linked-case',
+      company: '가상 연결기업',
+      trainee: '가상 기존파트너',
+      partnerMemberId: 'existing-id',
+    }],
     ['tasks', { id: 'linked-task', assignee: '가상 기존파트너' }],
     [
       'companyDocuments',
