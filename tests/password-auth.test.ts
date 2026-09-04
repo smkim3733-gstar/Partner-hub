@@ -549,6 +549,17 @@ void test('administrator status changes atomically revoke sessions and setup lin
     400,
   );
   await expectStatus(await login(request({ email, password })), 200);
+  assert.equal(
+    (
+      await database
+        .prepare(
+          'SELECT COUNT(*) AS total FROM portal_password_accounts WHERE member_id = ?1',
+        )
+        .bind(memberId)
+        .first<{ total: number }>()
+    )?.total,
+    1,
+  );
 });
 void test('approval preserves a pending account setup link while suspension remains revoking', async () => {
   const pending = await state();
@@ -564,6 +575,82 @@ void test('approval preserves a pending account setup link while suspension rema
   await expectStatus(
     await setup(request({ token: setupToken, password })),
     200,
+  );
+});
+void test('email change and deletion atomically remove stale credentials while status changes preserve them', async () => {
+  await loggedIn();
+  const memberId = (await state()).members[1].id;
+  const changedEmail = 'changed-login@example.invalid';
+  const changed = await state();
+  changed.members[1].email = changedEmail;
+  await expectStatus(
+    await saveState(request({ state: changed }, ownerHeaders, 'PUT')),
+    200,
+  );
+  assert.equal(
+    (
+      await database
+        .prepare(
+          'SELECT COUNT(*) AS total FROM portal_password_accounts WHERE member_id = ?1',
+        )
+        .bind(memberId)
+        .first<{ total: number }>()
+    )?.total,
+    0,
+  );
+  assert.equal((await login(request({ email, password }))).status, 401);
+
+  const changedPassword = `${password} changed email`;
+  const setupToken = await link(memberId);
+  await expectStatus(
+    await setup(request({ token: setupToken, password: changedPassword })),
+    200,
+  );
+  await expectStatus(
+    await login(request({ email: changedEmail, password: changedPassword })),
+    200,
+  );
+
+  const suspended = await state();
+  suspended.members[1].status = '정지';
+  await expectStatus(
+    await saveState(request({ state: suspended }, ownerHeaders, 'PUT')),
+    200,
+  );
+  assert.equal(
+    (
+      await database
+        .prepare(
+          'SELECT COUNT(*) AS total FROM portal_password_accounts WHERE member_id = ?1',
+        )
+        .bind(memberId)
+        .first<{ total: number }>()
+    )?.total,
+    1,
+  );
+
+  const removed = await state();
+  removed.members = removed.members.filter((member) => member.id !== memberId);
+  await expectStatus(
+    await saveState(request({ state: removed }, ownerHeaders, 'PUT')),
+    200,
+  );
+  assert.equal(
+    (
+      await database
+        .prepare(
+          'SELECT COUNT(*) AS total FROM portal_password_accounts WHERE member_id = ?1',
+        )
+        .bind(memberId)
+        .first<{ total: number }>()
+    )?.total,
+    0,
+  );
+  assert.equal(
+    (
+      await register({ email: changedEmail, password: changedPassword })
+    ).status,
+    201,
   );
 });
 void test('member state write rolls back when password access revocation fails', async () => {
@@ -592,6 +679,37 @@ void test('member state write rolls back when password access revocation fails',
     )?.total,
     1,
   );
+  await expectStatus(await getState(request(undefined, { cookie })), 200);
+});
+void test('email change rolls back state and all access revocation when credential deletion fails', async () => {
+  const cookie = await loggedIn();
+  const memberId = (await state()).members[1].id;
+  await link(memberId);
+  const before = await state();
+  const changed = structuredClone(before);
+  changed.members[1].email = 'rollback-email@example.invalid';
+  failNextDatabaseStatement('DELETE FROM portal_password_accounts');
+  assert.equal(
+    (await saveState(request({ state: changed }, ownerHeaders, 'PUT'))).status,
+    500,
+  );
+  const after = await state();
+  assert.equal(after.members[1].email, email);
+  assert.equal(after.membersRevision, before.membersRevision);
+  for (const table of [
+    'portal_password_accounts',
+    'portal_password_sessions',
+    'portal_password_links',
+  ])
+    assert.equal(
+      (
+        await database
+          .prepare(`SELECT COUNT(*) AS total FROM ${table} WHERE member_id = ?1`)
+          .bind(memberId)
+          .first<{ total: number }>()
+      )?.total,
+      1,
+    );
   await expectStatus(await getState(request(undefined, { cookie })), 200);
 });
 void test('logout revokes token and clears host cookie; replay is unauthorized', async () => {

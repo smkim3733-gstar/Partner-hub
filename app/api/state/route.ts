@@ -265,6 +265,7 @@ export async function PUT(request: Request) {
     let passwordAccessRevocation = {
       sessionMemberIds: [] as string[],
       setupLinkMemberIds: [] as string[],
+      credentialMemberIds: [] as string[],
     };
     const result = await mutatePortalState(
       async (currentState) => {
@@ -315,7 +316,11 @@ export async function PUT(request: Request) {
                 currentState,
                 supportProtected,
               )
-            : { sessionMemberIds: [], setupLinkMemberIds: [] };
+            : {
+                sessionMemberIds: [],
+                setupLinkMemberIds: [],
+                credentialMemberIds: [],
+              };
         if (
           memberChange &&
           membersRevisionOf(body.state) !== membersRevisionOf(currentState)

@@ -129,6 +129,7 @@ export function passwordAccessRevocationForStateChange(
   );
   const sessionMemberIds = new Set<string>();
   const setupLinkMemberIds = new Set<string>();
+  const credentialMemberIds = new Set<string>();
   for (const member of passwordAccessMembers(currentState)) {
     if (typeof member.id !== 'string') continue;
     const next = nextById.get(member.id);
@@ -141,10 +142,12 @@ export function passwordAccessRevocationForStateChange(
     if (identityChanged || statusChanged) sessionMemberIds.add(member.id);
     if (identityChanged || member.status === '정지' || next?.status === '정지')
       setupLinkMemberIds.add(member.id);
+    if (identityChanged) credentialMemberIds.add(member.id);
   }
   return {
     sessionMemberIds: [...sessionMemberIds],
     setupLinkMemberIds: [...setupLinkMemberIds],
+    credentialMemberIds: [...credentialMemberIds],
   };
 }
 
@@ -153,6 +156,7 @@ export function passwordAccessRevocationStatements(
   revocation: {
     sessionMemberIds: readonly string[];
     setupLinkMemberIds: readonly string[];
+    credentialMemberIds: readonly string[];
   },
   committedPortalPayload: string,
 ) {
@@ -162,7 +166,14 @@ export function passwordAccessRevocationStatements(
   const setupLinkMemberIds = [
     ...new Set(revocation.setupLinkMemberIds.filter(Boolean)),
   ];
-  if (sessionMemberIds.length === 0 && setupLinkMemberIds.length === 0)
+  const credentialMemberIds = [
+    ...new Set(revocation.credentialMemberIds.filter(Boolean)),
+  ];
+  if (
+    sessionMemberIds.length === 0 &&
+    setupLinkMemberIds.length === 0 &&
+    credentialMemberIds.length === 0
+  )
     return [];
   const committed = `EXISTS (SELECT 1 FROM portal_state WHERE id = ?2 AND payload = ?3)`;
   return [
@@ -178,6 +189,13 @@ export function passwordAccessRevocationStatements(
       db
         .prepare(
           `DELETE FROM portal_password_links WHERE member_id = ?1 AND ${committed}`,
+        )
+        .bind(memberId, portalStateId, committedPortalPayload),
+    ),
+    ...credentialMemberIds.map((memberId) =>
+      db
+        .prepare(
+          `DELETE FROM portal_password_accounts WHERE member_id = ?1 AND ${committed}`,
         )
         .bind(memberId, portalStateId, committedPortalPayload),
     ),

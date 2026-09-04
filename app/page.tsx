@@ -2900,7 +2900,7 @@ function AccessManagement({
             <div className="flex items-start justify-between gap-4 border-b p-5"><div><p className="text-xs font-semibold text-[#0877b8]">{reviewingPending ? '신규 파트너 신청' : partnerDetail(selectedMember)}</p><h2 id="permission-modal-title" className="mt-1 text-xl font-bold">{selectedMember.name} {reviewingPending ? '신청 검토' : '계정·권한 설정'}</h2><p className="mt-1 text-sm text-slate-500">화면 안 변경은 저장 전까지 계정에 반영되지 않으며 취소하면 폐기됩니다.</p></div><button type="button" onClick={closeMemberSettings} className="grid size-11 place-items-center rounded-xl text-slate-500 hover:bg-slate-100" aria-label="계정·권한 설정 닫기"><X className="size-5" /></button></div>
             <div className="max-h-[65vh] space-y-3 overflow-y-auto p-5">
               <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                <Field label="로그인 이메일" required hint="파트너 본인이 사용하는 이메일입니다. 변경 후에는 새 비밀번호 설정 링크를 발급해 주세요.">
+                <Field label="로그인 이메일" required hint="변경을 저장하면 기존 비밀번호·세션·설정 링크가 폐기됩니다. 새 이메일로 비밀번호 설정 링크를 발급해 주세요.">
                   <input
                     ref={selectedEmailRef}
                     type="email"
@@ -2929,11 +2929,11 @@ function AccessManagement({
               })}
               <div className="rounded-2xl border border-red-200 bg-red-50/70 p-4">
                 <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-                  <div><p className="text-sm font-bold text-red-800">계정 삭제</p><p className="mt-1 text-xs leading-5 text-red-700">활성 계정이나 담당기업이 있는 계정은 먼저 정리한 뒤 삭제할 수 있습니다.</p></div>
+                  <div><p className="text-sm font-bold text-red-800">계정 삭제</p><p className="mt-1 text-xs leading-5 text-red-700">활성 계정이나 담당기업이 있는 계정은 먼저 정리해야 합니다. 삭제하면 사이트 비밀번호·세션·설정 링크도 함께 폐기됩니다.</p></div>
                   {!deleteConfirming ? (
                     <button type="button" onClick={() => setDeleteConfirming(true)} disabled={selectedMember.status === '활성' || selectedMember.companies > 0} className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-red-300 bg-white px-4 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-100 disabled:cursor-not-allowed disabled:opacity-50"><Trash2 className="size-4" aria-hidden="true" /> 계정 삭제</button>
                   ) : (
-                    <div role="alert" className="flex flex-col gap-2 sm:items-end"><p className="text-sm font-bold text-red-800">정말 삭제하시겠습니까?</p><div className="flex gap-2"><button type="button" onClick={() => setDeleteConfirming(false)} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200">취소</button><button type="button" onClick={deleteSelectedMember} className="min-h-11 rounded-xl bg-red-700 px-3 text-sm font-semibold text-white hover:bg-red-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-200">이 계정 삭제</button></div></div>
+                    <div role="alert" className="flex flex-col gap-2 sm:items-end"><p className="text-sm font-bold text-red-800">비밀번호 자격까지 삭제하시겠습니까?</p><div className="flex gap-2"><button type="button" onClick={() => setDeleteConfirming(false)} className="min-h-11 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-slate-200">취소</button><button type="button" onClick={deleteSelectedMember} className="min-h-11 rounded-xl bg-red-700 px-3 text-sm font-semibold text-white hover:bg-red-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-red-200">이 계정 삭제</button></div></div>
                   )}
                 </div>
               </div>

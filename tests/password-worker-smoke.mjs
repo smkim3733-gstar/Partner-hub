@@ -2253,6 +2253,94 @@ try {
     1,
   );
   checks.push('identical ChatGPT registration retries do not rewrite state');
+
+  const disposableEmail = 'disposable-runtime@example.invalid';
+  const disposablePassword = 'disposable runtime test secret 123!';
+  await expect(
+    await call('/signup', {
+      name: '가상 삭제검증 파트너',
+      phone: '010-0000-0088',
+      affiliation: '가상 삭제검증 소속',
+      email: disposableEmail,
+      password: disposablePassword,
+      consent: true,
+    }),
+    201,
+    'disposable password account registers for credential cleanup',
+  );
+  let disposableState = (
+    await (await call('/state', undefined, ownerHeaders)).json()
+  ).state;
+  const disposableMember = disposableState.members.find(
+    (member) => member.email === disposableEmail,
+  );
+  disposableMember.status = '활성';
+  await expect(
+    await call('/save', { state: disposableState }, ownerHeaders, 'PUT'),
+    200,
+    'owner activates disposable credential account',
+  );
+  await expect(
+    await call('/login', {
+      email: disposableEmail,
+      password: disposablePassword,
+    }),
+    200,
+    'disposable credential account signs in before deletion',
+  );
+  disposableState = (
+    await (await call('/state', undefined, ownerHeaders)).json()
+  ).state;
+  disposableState.members.find(
+    (member) => member.id === disposableMember.id,
+  ).status = '정지';
+  await expect(
+    await call('/save', { state: disposableState }, ownerHeaders, 'PUT'),
+    200,
+    'owner suspends disposable account before deletion',
+  );
+  assert.ok(
+    await db
+      .prepare(
+        'SELECT member_id FROM portal_password_accounts WHERE member_id = ?1',
+      )
+      .bind(disposableMember.id)
+      .first(),
+  );
+  checks.push('suspension preserves the reusable password credential');
+  disposableState = (
+    await (await call('/state', undefined, ownerHeaders)).json()
+  ).state;
+  disposableState.members = disposableState.members.filter(
+    (member) => member.id !== disposableMember.id,
+  );
+  await expect(
+    await call('/save', { state: disposableState }, ownerHeaders, 'PUT'),
+    200,
+    'owner deletes disposable account through the real state handler',
+  );
+  assert.equal(
+    await db
+      .prepare(
+        'SELECT member_id FROM portal_password_accounts WHERE member_id = ?1',
+      )
+      .bind(disposableMember.id)
+      .first(),
+    null,
+  );
+  checks.push('member deletion atomically removes the password credential');
+  await expect(
+    await call('/signup', {
+      name: '가상 재등록 파트너',
+      phone: '010-0000-0089',
+      affiliation: '가상 재등록 소속',
+      email: disposableEmail,
+      password: disposablePassword,
+      consent: true,
+    }),
+    201,
+    'deleted account email can register without an orphan credential conflict',
+  );
   assert.equal(outboundRequests, 0);
   checks.push('no external network calls during the isolated pilot');
   console.log(
