@@ -458,6 +458,62 @@ void test('bound ChatGPT authentication rejects a legacy member with a non-strin
   );
   assert.equal(response.status, 403, await response.clone().text());
 });
+void test('administrator state save rejects non-object entries across every portal record array', async () => {
+  const before = await state();
+  const fields = [
+    'timeline',
+    'schedule',
+    'tasks',
+    'companyDocuments',
+    'cases',
+    'members',
+  ] as const;
+  const statuses: Array<[string, number]> = [];
+  for (const field of fields) {
+    const changed = structuredClone(before);
+    (changed as Record<string, unknown>)[field] = [null];
+    const response = await saveState(
+      request({ state: changed }, ownerHeaders, 'PUT'),
+    );
+    statuses.push([field, response.status]);
+    await writePortalState(before);
+  }
+  assert.deepEqual(
+    statuses,
+    fields.map((field) => [field, 403]),
+  );
+  assert.deepEqual(await state(), before);
+});
+void test('stored non-object records block partner access, administrator reads and generic repair writes', async () => {
+  const cookie = await loggedIn();
+  const valid = await state();
+  const corrupted = structuredClone(valid);
+  corrupted.cases = [null as unknown as Record<string, unknown>];
+  await writePortalState(corrupted);
+
+  const partnerRead = await getState(request(undefined, { cookie }));
+  assert.equal(partnerRead.status, 403, await partnerRead.clone().text());
+  const ownerRead = await getState(request(undefined, ownerHeaders));
+  assert.equal(ownerRead.status, 503, await ownerRead.clone().text());
+  const repairWrite = await saveState(
+    request({ state: valid }, ownerHeaders, 'PUT'),
+  );
+  assert.equal(repairWrite.status, 503, await repairWrite.clone().text());
+  assert.deepEqual((await state()).cases, corrupted.cases);
+});
+void test('stored non-object member fails closed before ChatGPT account matching', async () => {
+  const current = await state();
+  current.members.push(null as unknown as PartnerAccount);
+  await writePortalState(current);
+
+  const response = await getState(
+    request(undefined, {
+      'oai-authenticated-user-id': 'non-object-member-chatgpt-user',
+      'oai-authenticated-user-email': 'existing@example.invalid',
+    }),
+  );
+  assert.equal(response.status, 403, await response.clone().text());
+});
 void test('administrator access binds the stable ChatGPT identity, rejects a recycled owner email and survives a provider email change', async () => {
   const initial = await getState(request(undefined, ownerHeaders));
   assert.equal(initial.status, 200, await initial.clone().text());

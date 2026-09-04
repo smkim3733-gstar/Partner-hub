@@ -2541,6 +2541,61 @@ try {
   const peerMember = cleanMemberIdState.members.find(
     (member) => member.id === peerId,
   );
+  for (const field of ['members', 'cases']) {
+    const nonObjectIncomingState = structuredClone(cleanMemberIdState);
+    nonObjectIncomingState[field] = [null];
+    await expect(
+      await call(
+        '/save',
+        { state: nonObjectIncomingState },
+        ownerHeaders,
+        'PUT',
+      ),
+      403,
+      `generic owner state save rejects a non-object ${field} entry`,
+    );
+  }
+  const structuralLogin = await expect(
+    await call('/login', { email, password: `${password} new` }),
+    200,
+    'structural corruption test creates a password session',
+  );
+  const structuralCookie = structuralLogin.headers
+    .get('set-cookie')
+    .split(';')[0];
+  const nonObjectStoredState = structuredClone(cleanMemberIdState);
+  nonObjectStoredState.cases = [null];
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(JSON.stringify(nonObjectStoredState), new Date().toISOString())
+    .run();
+  await expect(
+    await call('/state', undefined, { cookie: structuralCookie }),
+    403,
+    'stored non-object record blocks password partner access',
+  );
+  await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'stored non-object record blocks administrator reads',
+  );
+  await expect(
+    await call('/save', { state: cleanMemberIdState }, ownerHeaders, 'PUT'),
+    503,
+    'stored non-object record blocks generic repair writes',
+  );
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(
+      stateBeforeAmbiguousLegacyEmail.payload,
+      stateBeforeAmbiguousLegacyEmail.updated_at,
+    )
+    .run();
+  await expect(
+    await call('/logout', {}, { cookie: structuralCookie }),
+    200,
+    'structural corruption test session logout succeeds',
+  );
   const malformedEmailSaveState = structuredClone(cleanMemberIdState);
   malformedEmailSaveState.members.find(
     (member) => member.id === memberId,

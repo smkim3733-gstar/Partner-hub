@@ -209,19 +209,29 @@ export class PortalAccessError extends Error {
   }
 }
 
-function asPortalState(value: unknown): PortalStateRecord | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+function isPortalRecord(value: unknown): value is PortalRecord {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function isPortalRecordArray(value: unknown): value is PortalRecord[] {
+  return Array.isArray(value) && value.every(isPortalRecord);
+}
+
+export function hasPortalStateStructure(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const state = value as Partial<PortalStateRecord>;
-  if (
-    !Array.isArray(state.timeline) ||
-    !Array.isArray(state.schedule) ||
-    !Array.isArray(state.tasks) ||
-    !Array.isArray(state.companyDocuments) ||
-    !Array.isArray(state.cases) ||
-    !Array.isArray(state.members)
-  )
-    return null;
-  return state as PortalStateRecord;
+  return (
+    isPortalRecordArray(state.timeline) &&
+    isPortalRecordArray(state.schedule) &&
+    isPortalRecordArray(state.tasks) &&
+    isPortalRecordArray(state.companyDocuments) &&
+    isPortalRecordArray(state.cases) &&
+    isPortalRecordArray(state.members)
+  );
+}
+
+function asPortalState(value: unknown): PortalStateRecord | null {
+  return hasPortalStateStructure(value) ? (value as PortalStateRecord) : null;
 }
 
 export function normalizedMemberName(name: unknown) {

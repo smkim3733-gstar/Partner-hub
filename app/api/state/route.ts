@@ -223,6 +223,8 @@ export async function GET(request: Request) {
   } catch (error) {
     const accessResponse = accessErrorResponse(error, request);
     if (accessResponse) return accessResponse;
+    if (error instanceof FlowError)
+      return privateJson({ error: error.message }, { status: error.status });
     console.error(
       'Failed to read portal state',
       error instanceof Error ? error.name : 'unknown',

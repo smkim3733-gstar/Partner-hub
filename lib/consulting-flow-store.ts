@@ -7,6 +7,7 @@ import {
 } from '@/lib/consulting-flow';
 import { resolveFlowAssignment } from '@/lib/consulting-flow-access';
 import {
+  hasPortalStateStructure,
   requirePortalUser,
   PortalAccessError,
   type PortalUser,
@@ -49,6 +50,11 @@ export async function readFlow(caseId: string): Promise<ConsultingFlow | null> {
   return row ? JSON.parse(row.payload) : null;
 }
 export async function stateWithConsultingFlows(raw: unknown) {
+  if (raw !== null && !hasPortalStateStructure(raw))
+    throw new FlowError(
+      '저장된 운영 데이터 구조를 확인할 수 없습니다. 관리자 복구가 필요합니다.',
+      503,
+    );
   const rows = await (
     await flowDatabase()
   )
