@@ -118,6 +118,66 @@ function passwordAccessMembers(state: unknown): PasswordAccessMember[] {
   return Array.isArray(members) ? members : [];
 }
 
+export const passwordCredentialEmailConflictMessage =
+  '이 이메일에는 다른 사이트 비밀번호 자격이 남아 있습니다. 이메일을 확인하거나 기존 자격을 정리한 뒤 다시 시도해 주세요.';
+
+async function passwordCredentialEmailOwner(
+  db: D1Database,
+  email: string,
+) {
+  const row = await db
+    .prepare(
+      'SELECT member_id FROM portal_password_accounts WHERE email = ?1',
+    )
+    .bind(email)
+    .first<{ member_id: string }>();
+  return row?.member_id ?? null;
+}
+
+export async function passwordCredentialEmailReserved(
+  email: string,
+  allowedMemberId?: string,
+) {
+  const normalizedEmail = normalizeLoginEmail(email);
+  if (!normalizedEmail) return false;
+  const owner = await passwordCredentialEmailOwner(
+    await passwordDatabase(),
+    normalizedEmail,
+  );
+  return owner !== null && owner !== allowedMemberId;
+}
+
+export async function passwordCredentialEmailConflictForStateChange(
+  currentState: unknown,
+  nextState: unknown,
+) {
+  const currentById = new Map(
+    passwordAccessMembers(currentState)
+      .filter((member) => typeof member.id === 'string')
+      .map((member) => [member.id as string, member]),
+  );
+  const candidates = passwordAccessMembers(nextState).flatMap((member) => {
+    if (typeof member.id !== 'string' || typeof member.email !== 'string')
+      return [];
+    const email = normalizeLoginEmail(member.email);
+    if (!email) return [];
+    const current = currentById.get(member.id);
+    const currentEmail =
+      typeof current?.email === 'string'
+        ? normalizeLoginEmail(current.email)
+        : '';
+    if (current && currentEmail === email) return [];
+    return [{ email, allowedMemberId: current ? member.id : undefined }];
+  });
+  if (candidates.length === 0) return false;
+  const db = await passwordDatabase();
+  for (const candidate of candidates) {
+    const owner = await passwordCredentialEmailOwner(db, candidate.email);
+    if (owner !== null && owner !== candidate.allowedMemberId) return true;
+  }
+  return false;
+}
+
 export function passwordAccessRevocationForStateChange(
   currentState: unknown,
   nextState: unknown,

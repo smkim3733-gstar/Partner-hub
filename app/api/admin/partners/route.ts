@@ -25,6 +25,10 @@ import {
 } from '@/lib/duplicate-request-metrics';
 import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
 import { privateJsonResponse } from '@/lib/private-response';
+import {
+  passwordCredentialEmailConflictMessage,
+  passwordCredentialEmailReserved,
+} from '@/lib/password-store';
 
 export const dynamic = 'force-dynamic';
 const response = (data: unknown, status = 200) =>
@@ -102,6 +106,10 @@ export async function POST(request: Request) {
         registered = prior;
         replayed = true;
         return state;
+      }
+      if (await passwordCredentialEmailReserved(value.email)) {
+        duplicateOutcome = 'existing_record_blocked';
+        throw new FlowError(passwordCredentialEmailConflictMessage, 409);
       }
       if (
         state.members.some((m) => m.email.trim().toLowerCase() === value.email)

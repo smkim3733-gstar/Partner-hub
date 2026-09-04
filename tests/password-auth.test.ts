@@ -653,6 +653,98 @@ void test('email change and deletion atomically remove stale credentials while s
     201,
   );
 });
+void test('member email changes reject credentials reserved by a detached account', async () => {
+  const db = await passwordDatabase();
+  const reservedEmail = 'detached-reservation@example.invalid';
+  await db
+    .prepare(`INSERT INTO portal_password_accounts
+      (member_id, email, password_hash, credential_version, created_at, updated_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?5)`)
+    .bind(
+      'deleted-detached-member',
+      reservedEmail,
+      hashPassword(password),
+      'detached-credential-version',
+      new Date().toISOString(),
+    )
+    .run();
+  const changed = await state();
+  changed.members[0].email = reservedEmail;
+  const response = await saveState(
+    request({ state: changed }, ownerHeaders, 'PUT'),
+  );
+  assert.equal(response.status, 409, await response.clone().text());
+  assert.match(
+    ((await response.json()) as { error: string }).error,
+    /비밀번호 자격/,
+  );
+  assert.equal((await state()).members[0].email, 'existing@example.invalid');
+  const resurrected = await state();
+  resurrected.members.push({
+    id: 'deleted-detached-member',
+    name: '가상 재생성 파트너',
+    email: reservedEmail,
+    cohort: '',
+    role: '일반 파트너',
+    status: '활성',
+    companies: 0,
+    permissions: { ...defaultPartnerPermissions },
+  });
+  assert.equal(
+    (
+      await saveState(
+        request({ state: resurrected }, ownerHeaders, 'PUT'),
+      )
+    ).status,
+    409,
+  );
+  assert.equal((await state()).members.length, 1);
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT member_id FROM portal_password_accounts WHERE email = ?1',
+        )
+        .bind(reservedEmail)
+        .first<{ member_id: string }>()
+    )?.member_id,
+    'deleted-detached-member',
+  );
+});
+void test('member email changes may reconcile and remove a credential already owned by that member', async () => {
+  const db = await passwordDatabase();
+  const reconciledEmail = 'reconciled-owner@example.invalid';
+  await db
+    .prepare(`INSERT INTO portal_password_accounts
+      (member_id, email, password_hash, credential_version, created_at, updated_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?5)`)
+    .bind(
+      'existing',
+      reconciledEmail,
+      hashPassword(password),
+      'reconciled-credential-version',
+      new Date().toISOString(),
+    )
+    .run();
+  const changed = await state();
+  changed.members[0].email = reconciledEmail;
+  await expectStatus(
+    await saveState(request({ state: changed }, ownerHeaders, 'PUT')),
+    200,
+  );
+  assert.equal((await state()).members[0].email, reconciledEmail);
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT COUNT(*) AS total FROM portal_password_accounts WHERE member_id = ?1',
+        )
+        .bind('existing')
+        .first<{ total: number }>()
+    )?.total,
+    0,
+  );
+});
 void test('member state write rolls back when password access revocation fails', async () => {
   const cookie = await loggedIn();
   const before = await state();

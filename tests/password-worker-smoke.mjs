@@ -2341,6 +2341,68 @@ try {
     201,
     'deleted account email can register without an orphan credential conflict',
   );
+  const reservedCredentialEmail =
+    'detached-reserved-runtime@example.invalid';
+  await db
+    .prepare(`INSERT INTO portal_password_accounts
+      (member_id, email, password_hash, credential_version, created_at, updated_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?5)`)
+    .bind(
+      'detached-runtime-member',
+      reservedCredentialEmail,
+      'synthetic-detached-runtime-hash',
+      'synthetic-detached-runtime-version',
+      new Date().toISOString(),
+    )
+    .run();
+  await expect(
+    await call(
+      '/partners',
+      {
+        name: '가상 예약충돌 파트너',
+        phone: '010-0000-0090',
+        affiliation: '가상 예약충돌 소속',
+        email: reservedCredentialEmail,
+        memberType: '기타',
+        confirmed: true,
+        requestId: 'runtime-reserved-register-001',
+      },
+      ownerHeaders,
+    ),
+    409,
+    'direct registration rejects a detached credential email',
+  );
+  const reservedState = (
+    await (await call('/state', undefined, ownerHeaders)).json()
+  ).state;
+  reservedState.members.find((member) => member.id === peerId).email =
+    reservedCredentialEmail;
+  await expect(
+    await call('/save', { state: reservedState }, ownerHeaders, 'PUT'),
+    409,
+    'member email change rejects a detached credential email',
+  );
+  const stateAfterReservationConflict = (
+    await (await call('/state', undefined, ownerHeaders)).json()
+  ).state;
+  assert.equal(
+    stateAfterReservationConflict.members.find((member) => member.id === peerId)
+      .email,
+    peerRegistration.email,
+  );
+  checks.push('credential email conflict leaves the member roster unchanged');
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT member_id FROM portal_password_accounts WHERE email = ?1',
+        )
+        .bind(reservedCredentialEmail)
+        .first()
+    ).member_id,
+    'detached-runtime-member',
+  );
+  checks.push('credential email conflict leaves the detached credential intact');
   assert.equal(outboundRequests, 0);
   checks.push('no external network calls during the isolated pilot');
   console.log(

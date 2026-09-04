@@ -70,6 +70,8 @@ import { privateJsonResponse } from '@/lib/private-response';
 import {
   passwordAccessRevocationForStateChange,
   passwordAccessRevocationStatements,
+  passwordCredentialEmailConflictForStateChange,
+  passwordCredentialEmailConflictMessage,
 } from '@/lib/password-store';
 
 const privateJson = privateJsonResponse;
@@ -304,6 +306,14 @@ export async function PUT(request: Request) {
           applicationProtected,
           currentUser.role === 'admin' ? 'admin' : 'partner',
         );
+        if (
+          currentUser.role === 'admin' &&
+          (await passwordCredentialEmailConflictForStateChange(
+            currentState,
+            supportProtected,
+          ))
+        )
+          throw new FlowError(passwordCredentialEmailConflictMessage, 409);
         const memberChange =
           currentUser.role === 'admin' &&
           !sameMemberRecords(

@@ -29,6 +29,7 @@ import {
 import { readPartnerRegistrationResponse } from '../lib/partner-registration-response';
 import { env } from 'cloudflare:workers';
 import { readDuplicateRequestSummary } from '../lib/duplicate-request-metrics';
+import { passwordDatabase } from '../lib/password-store';
 import { flushWaitUntil } from './runtime-mock.mjs';
 
 const owner = 'seedy@sites.test';
@@ -112,6 +113,9 @@ async function created(data = body()) {
   return (await response.json()) as PartnerRegistrationResult;
 }
 beforeEach(async () => {
+  await (await passwordDatabase())
+    .prepare('DELETE FROM portal_password_accounts')
+    .run();
   await writePortalState({
     version: 1,
     consultationNumber: 0,
@@ -339,6 +343,40 @@ void test('case-insensitive duplicate, suspended account and owner address are r
   assert.deepEqual(current.members[0].permissions, defaultPartnerPermissions);
 });
 
+void test('direct registration rejects an email reserved by a detached password credential', async () => {
+  const db = await passwordDatabase();
+  await db
+    .prepare(`INSERT INTO portal_password_accounts
+      (member_id, email, password_hash, credential_version, created_at, updated_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?5)`)
+    .bind(
+      'deleted-member-id',
+      'new-partner@example.invalid',
+      'synthetic-detached-password-hash',
+      'synthetic-detached-version',
+      new Date().toISOString(),
+    )
+    .run();
+  const response = await create(request(body()));
+  assert.equal(response.status, 409, await response.clone().text());
+  assert.match(
+    ((await response.json()) as { error: string }).error,
+    /비밀번호 자격/,
+  );
+  assert.equal((await state()).members.length, 2);
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT member_id FROM portal_password_accounts WHERE email = ?1',
+        )
+        .bind('new-partner@example.invalid')
+        .first<{ member_id: string }>()
+    )?.member_id,
+    'deleted-member-id',
+  );
+});
+
 void test('retry uses the same account; request id cannot be reused for different data', async () => {
   await readDuplicateRequestSummary();
   await (env as unknown as { DB: D1Database }).DB.prepare(
@@ -346,6 +384,18 @@ void test('retry uses the same account; request id cannot be reused for differen
   ).run();
   const data = body();
   const first = await created(data);
+  await (await passwordDatabase())
+    .prepare(`INSERT INTO portal_password_accounts
+      (member_id, email, password_hash, credential_version, created_at, updated_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, ?5)`)
+    .bind(
+      first.member.id,
+      first.member.email,
+      'synthetic-owned-password-hash',
+      'synthetic-owned-version',
+      new Date().toISOString(),
+    )
+    .run();
   const replay = await create(request(data));
   assert.equal(replay.status, 200);
   const second = (await replay.json()) as PartnerRegistrationResult;
