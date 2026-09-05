@@ -57,7 +57,21 @@ class Statement {
     const result = sqlite.prepare(this.sql).run(...this.args());
     return { success: true, meta: { changes: Number(result.changes) } };
   }
-  async run() { return this.runSync(); }
+  batchSync() {
+    failStatementIfRequested(this.sql);
+    const statement = sqlite.prepare(this.sql);
+    if (statement.columns().length > 0)
+      return {
+        success: true,
+        results: statement.all(...this.args()),
+        meta: { changes: 0 },
+      };
+    const result = statement.run(...this.args());
+    return { success: true, meta: { changes: Number(result.changes) } };
+  }
+  async run() {
+    return this.runSync();
+  }
   async first() {
     failStatementIfRequested(this.sql);
     return sqlite.prepare(this.sql).get(...this.args()) ?? null;
@@ -87,10 +101,13 @@ export const env = {
       }
       sqlite.exec('BEGIN');
       try {
-        const results = items.map(item => item.runSync());
+        const results = items.map((item) => item.batchSync());
         sqlite.exec('COMMIT');
         return results;
-      } catch (error) { sqlite.exec('ROLLBACK'); throw error; }
+      } catch (error) {
+        sqlite.exec('ROLLBACK');
+        throw error;
+      }
     },
   },
   AI_SOURCE_FILES: {

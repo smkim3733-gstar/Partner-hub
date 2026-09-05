@@ -2173,13 +2173,33 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  const invalidHiddenAuditTimestamp = JSON.parse(intactFlowPayload);
+  invalidHiddenAuditTimestamp.audit[0].at = 'not-a-date';
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(invalidHiddenAuditTimestamp), 'runtime-own')
+    .run();
+  const invalidHiddenAuditTimestampDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects an invalid hidden audit timestamp',
+  );
+  assertPrivateAuthResponse(invalidHiddenAuditTimestampDashboard);
+  assert.match(
+    (await invalidHiddenAuditTimestampDashboard.json()).error,
+    /무결성/,
+  );
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   await expect(
     await call('/flow/runtime-own', undefined, { cookie }),
     200,
     'FLOW detail resumes after the native D1 payload identity is restored',
   );
   checks.push(
-    'FLOW D1 row identity, timestamp, structure, collection field, hidden field length, reference, state-evidence and resource-ceiling guards protect detail ACL, dashboard projection and AI result capacity',
+    'FLOW D1 row identity, timestamp, structure, collection field, hidden field length and semantics, reference, state-evidence and resource-ceiling guards protect detail ACL, dashboard projection and AI result capacity',
   );
   assert.deepEqual(
     Object.keys(privateMimeFlow.commandReceipts[mimeCommand.commandId]).sort(),

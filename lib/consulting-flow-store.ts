@@ -63,6 +63,61 @@ const validFlowTimestamp = (value: unknown): value is string =>
   typeof value === 'string' &&
   value.length > 0 &&
   Number.isFinite(Date.parse(value));
+// Mirrors ECMAScript trim whitespace in one literal; repeated char() chains exceed D1's expression-depth limit.
+const sqliteTrimCharacters = `'\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff'`;
+const blankSqlText = (expression: string) =>
+  `length(trim(${expression}, ${sqliteTrimCharacters})) = 0`;
+const invalidSqlTimestamp = (expression: string) =>
+  `julianday(${expression}) IS NULL`;
+const jsonExtractSql = (alias: string, field: string) =>
+  `json_extract(${alias}.value, '$.${field}')`;
+const blankJsonTextSql = (alias: string, field: string) =>
+  blankSqlText(jsonExtractSql(alias, field));
+const invalidJsonTimestampSql = (alias: string, field: string) =>
+  invalidSqlTimestamp(jsonExtractSql(alias, field));
+const invalidOptionalJsonTimestampSql = (alias: string, field: string) =>
+  `(json_type(${alias}.value, '$.${field}') IS NOT NULL AND ${invalidJsonTimestampSql(alias, field)})`;
+// Keep this separate from the large projection predicate so both stay below D1's depth ceiling.
+const hiddenFlowSemanticViolationSql = `SELECT 1 AS invalid FROM consulting_flows
+  WHERE CASE WHEN json_valid(payload) THEN
+    EXISTS (SELECT 1 FROM json_each(payload, '$.reports') r WHERE
+      ${blankJsonTextSql('r', 'title')} OR
+      ${invalidJsonTimestampSql('r', 'createdAt')} OR
+      ${blankJsonTextSql('r', 'createdBy')} OR
+      ${blankJsonTextSql('r', 'fileId')}) OR
+    EXISTS (SELECT 1 FROM json_each(payload, '$.files') f WHERE
+      ${blankJsonTextSql('f', 'id')} OR ${blankJsonTextSql('f', 'name')} OR
+      ${blankJsonTextSql('f', 'contentType')} OR ${blankJsonTextSql('f', 'key')} OR
+      ${invalidJsonTimestampSql('f', 'createdAt')} OR ${blankJsonTextSql('f', 'purpose')} OR
+      ${blankJsonTextSql('f', 'intakeFileId')} OR ${blankJsonTextSql('f', 'intakeSourceHash')} OR
+      ${blankJsonTextSql('f', 'sourceReviewedBy')} OR
+      ${invalidOptionalJsonTimestampSql('f', 'sourceReviewedAt')}) OR
+    EXISTS (SELECT 1 FROM json_each(payload, '$.recordings') r WHERE
+      ${blankJsonTextSql('r', 'id')} OR ${blankJsonTextSql('r', 'meetingId')} OR
+      ${blankJsonTextSql('r', 'fileId')} OR ${blankJsonTextSql('r', 'transcriptFileId')} OR
+      ${blankJsonTextSql('r', 'audioFileId')} OR ${blankJsonTextSql('r', 'transcriptReviewedBy')} OR
+      ${invalidJsonTimestampSql('r', 'consentAt')} OR ${invalidJsonTimestampSql('r', 'createdAt')} OR
+      ${invalidOptionalJsonTimestampSql('r', 'transcriptReviewedAt')}) OR
+    EXISTS (SELECT 1 FROM json_each(payload, '$.jobs') j WHERE
+      ${blankJsonTextSql('j', 'id')} OR ${invalidJsonTimestampSql('j', 'createdAt')} OR
+      ${blankJsonTextSql('j', 'sourceRecordingId')} OR ${blankJsonTextSql('j', 'sourceReportId')} OR
+      ${blankJsonTextSql('j', 'reportId')} OR ${invalidOptionalJsonTimestampSql('j', 'startedAt')} OR
+      ${invalidOptionalJsonTimestampSql('j', 'completedAt')} OR
+      (json_type(j.value, '$.startedAt') IS NOT NULL AND
+        julianday(json_extract(j.value, '$.startedAt')) < julianday(json_extract(j.value, '$.createdAt'))) OR
+      (json_type(j.value, '$.completedAt') IS NOT NULL AND
+        (json_type(j.value, '$.startedAt') IS NULL OR
+          julianday(json_extract(j.value, '$.completedAt')) < julianday(json_extract(j.value, '$.startedAt'))))) OR
+    EXISTS (SELECT 1 FROM json_each(payload, '$.audit') a WHERE
+      ${blankJsonTextSql('a', 'id')} OR ${invalidJsonTimestampSql('a', 'at')} OR
+      ${blankJsonTextSql('a', 'actor')} OR ${blankJsonTextSql('a', 'action')} OR
+      ${blankJsonTextSql('a', 'detail')}) OR
+    EXISTS (SELECT 1 FROM json_each(payload, '$.commandIds') command WHERE
+      ${blankSqlText('command.value')}) OR
+    EXISTS (SELECT 1 FROM json_each(payload, '$.commandReceipts') receipt WHERE
+      ${blankSqlText('receipt.key')} OR ${blankJsonTextSql('receipt', 'actorKey')} OR
+      ${blankJsonTextSql('receipt', 'fingerprint')})
+  ELSE 0 END LIMIT 1`;
 function storedFlowFromRow(
   row: StoredFlowRow,
   expectedCaseId?: string,
@@ -118,11 +173,11 @@ export async function stateWithConsultingFlows(raw: unknown) {
       '저장된 운영 데이터 구조를 확인할 수 없습니다. 관리자 복구가 필요합니다.',
       503,
     );
-  const rows = await (
-    await flowDatabase()
-  )
+  const database = await flowDatabase();
+  const batch = await database.batch([
+    database.prepare(hiddenFlowSemanticViolationSql),
     // Project inside SQLite: a dashboard refresh must not load every firm's report or transcript.
-    .prepare(`SELECT case_id, partner_id, revision, updated_at,
+    database.prepare(`SELECT case_id, partner_id, revision, updated_at,
       CASE WHEN json_valid(payload) THEN CASE WHEN
         json_type(payload, '$.schemaVersion') = 'integer' AND
         json_type(payload, '$.caseId') = 'text' AND json_type(payload, '$.company') = 'text' AND
@@ -288,8 +343,11 @@ export async function stateWithConsultingFlows(raw: unknown) {
             'decisionId', json_extract(r.value, '$.decisionId'), 'documentsKey', json_extract(r.value, '$.documentsKey')
           )) FROM json_each(payload, '$.reports') r)),
           '$.recordings', json((SELECT json_group_array(json_object('id', json_extract(v.value, '$.id'))) FROM json_each(payload, '$.recordings') v))
-        ) ELSE NULL END ELSE NULL END AS payload FROM consulting_flows`)
-    .all<StoredFlowRow>();
+        ) ELSE NULL END ELSE NULL END AS payload FROM consulting_flows`),
+  ]);
+  const semanticViolations = batch[0] as D1Result<{ invalid: number }>;
+  const rows = batch[1] as D1Result<StoredFlowRow>;
+  if (semanticViolations.results.length > 0) throw storedFlowIntegrityError();
   const projected = projectFlowState(
     raw,
     rows.results.map((row) => storedFlowFromRow(row, undefined, true)),

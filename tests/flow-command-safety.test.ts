@@ -1160,6 +1160,168 @@ void test('FLOW dashboard rejects malformed or oversized fields removed by SQLit
   }
 });
 
+void test('FLOW dashboard rejects blank or invalid-date fields removed by SQLite projection', async () => {
+  const addFile = (
+    payload: Record<string, unknown>,
+    overrides: Record<string, unknown>,
+  ) => {
+    (payload.files as Array<Record<string, unknown>>).push({
+      id: 'semantic-hidden-file',
+      name: 'synthetic.txt',
+      contentType: 'text/plain',
+      size: 1,
+      key: 'synthetic/semantic-hidden-file',
+      createdAt: payload.updatedAt,
+      purpose: 'source_archived',
+      ...overrides,
+    });
+  };
+  const addRecording = (
+    payload: Record<string, unknown>,
+    overrides: Record<string, unknown>,
+  ) => {
+    (payload.meetings as Array<Record<string, unknown>>).push({
+      id: 'semantic-hidden-meeting',
+      kind: 'followup',
+      startsAt: '2026-09-05T01:00:00.000Z',
+      endsAt: '2026-09-05T02:00:00.000Z',
+      location: '온라인',
+      attendance: 'admin',
+      status: 'completed',
+      completedAt: '2026-09-05T02:00:00.000Z',
+      note: '',
+      createdBy: adminEmail,
+    });
+    (payload.recordings as Array<Record<string, unknown>>).push({
+      id: 'semantic-hidden-recording',
+      meetingId: 'semantic-hidden-meeting',
+      transcript: '',
+      consentAt: '2026-09-05T02:00:00.000Z',
+      createdAt: '2026-09-05T02:00:00.000Z',
+      ...overrides,
+    });
+  };
+  const corruptions: Array<{
+    label: string;
+    apply: (payload: Record<string, unknown>) => void;
+  }> = [
+    {
+      label: 'blank report title',
+      apply: (payload) => {
+        (payload.reports as Array<Record<string, unknown>>)[0].title = ' \t';
+      },
+    },
+    {
+      label: 'blank report author',
+      apply: (payload) => {
+        (payload.reports as Array<Record<string, unknown>>)[0].createdBy =
+          '\u00a0';
+      },
+    },
+    {
+      label: 'invalid report timestamp',
+      apply: (payload) => {
+        (payload.reports as Array<Record<string, unknown>>)[0].createdAt =
+          'not-a-date';
+      },
+    },
+    {
+      label: 'blank file storage key',
+      apply: (payload) => addFile(payload, { key: '\u3000' }),
+    },
+    {
+      label: 'blank file reviewer',
+      apply: (payload) => addFile(payload, { sourceReviewedBy: ' \r\n' }),
+    },
+    {
+      label: 'invalid file timestamp',
+      apply: (payload) => addFile(payload, { createdAt: 'not-a-date' }),
+    },
+    {
+      label: 'blank recording reviewer',
+      apply: (payload) =>
+        addRecording(payload, { transcriptReviewedBy: '\ufeff' }),
+    },
+    {
+      label: 'invalid recording consent timestamp',
+      apply: (payload) => addRecording(payload, { consentAt: 'not-a-date' }),
+    },
+    {
+      label: 'invalid job processing timestamp',
+      apply: (payload) => {
+        (payload.jobs as Array<Record<string, unknown>>).push({
+          id: 'semantic-hidden-job',
+          stage: 1,
+          status: 'processing',
+          reason: '',
+          createdAt: payload.updatedAt,
+          startedAt: 'not-a-date',
+        });
+      },
+    },
+    {
+      label: 'reversed job processing timestamp',
+      apply: (payload) => {
+        (payload.jobs as Array<Record<string, unknown>>).push({
+          id: 'semantic-hidden-job',
+          stage: 1,
+          status: 'processing',
+          reason: '',
+          createdAt: '2026-09-05T02:00:00.000Z',
+          startedAt: '2026-09-05T01:00:00.000Z',
+        });
+      },
+    },
+    {
+      label: 'blank audit actor',
+      apply: (payload) => {
+        (payload.audit as Array<Record<string, unknown>>)[0].actor = '\u2007';
+      },
+    },
+    {
+      label: 'blank audit detail',
+      apply: (payload) => {
+        (payload.audit as Array<Record<string, unknown>>)[0].detail = '   ';
+      },
+    },
+    {
+      label: 'invalid audit timestamp',
+      apply: (payload) => {
+        (payload.audit as Array<Record<string, unknown>>)[0].at = 'not-a-date';
+      },
+    },
+    {
+      label: 'blank command ID',
+      apply: (payload) => {
+        (payload.commandIds as string[]).push('\u202f');
+      },
+    },
+    {
+      label: 'blank command receipt values',
+      apply: (payload) => {
+        const commandId = (payload.commandIds as string[])[0];
+        payload.commandReceipts = {
+          [commandId]: { actorKey: '\u205f', fingerprint: '\u1680' },
+        };
+      },
+    },
+  ];
+
+  for (const corruption of corruptions) {
+    await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+    const flow = await fixture();
+    await replaceStoredFlow(flow.caseId, (payload) => {
+      corruption.apply(payload);
+      return payload;
+    });
+    await assert.rejects(
+      stateWithConsultingFlows(await readPortalState()),
+      (error) => error instanceof FlowError && error.status === 503,
+      corruption.label,
+    );
+  }
+});
+
 void test('FLOW command denies a partner suspended while the request body is read', async () => {
   const flow = await fixture();
   const req = request(
