@@ -165,6 +165,7 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
     transmitted = options?.body as string;
     return Response.json(
       {
+        model: 'claude-synthetic-response-model',
         stop_reason: 'end_turn',
         content: [
           {

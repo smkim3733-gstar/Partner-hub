@@ -324,6 +324,10 @@ export async function POST(request: Request) {
         throw new AnthropicMessageResponseError(
           'Claude 요청 식별값을 확인하지 못했습니다.',
         );
+      if (!payload.model)
+        throw new AnthropicMessageResponseError(
+          'Claude 응답 모델을 확인하지 못했습니다.',
+        );
       let result: ReturnType<typeof parseStepZeroResult>;
       try {
         result = parseStepZeroResult(payload.text.trim());
@@ -363,6 +367,7 @@ export async function POST(request: Request) {
         instructionVersion: CLAUDE_FLOW_INSTRUCTION_VERSION,
         model,
         providerRequestId: payload.requestId,
+        providerModel: payload.model,
         result,
         usage: payload.usage,
         createdAt: new Date().toISOString(),

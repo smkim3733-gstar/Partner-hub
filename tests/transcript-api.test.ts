@@ -271,6 +271,7 @@ void test('DOCX review -> private files -> one mocked fourth report; audio-only 
     assert.ok(!content.includes('base64'));
     return Response.json(
       {
+        model: 'claude-synthetic-response-model',
         stop_reason: 'end_turn',
         content: [
           {

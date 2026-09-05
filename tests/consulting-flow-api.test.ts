@@ -452,6 +452,7 @@ void nodeTest(
       calls++;
       return Response.json(
         {
+          model: 'claude-synthetic-response-model',
           stop_reason: 'end_turn',
           content: [{ type: 'text', text: reportBody + '\n[분석 끝]' }],
           usage: { input_tokens: 10, output_tokens: 20 },

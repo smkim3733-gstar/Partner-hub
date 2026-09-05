@@ -590,6 +590,7 @@ try {
   const completedDiagnosisResult = JSON.stringify({
     _requestFingerprint: diagnosisFingerprint,
     _providerRequestId: 'req_synthetic_workerd',
+    _providerModel: 'claude-synthetic-provider-model',
     companyOverview: '가상 기업 현황',
     confirmedStrengths: [],
     mainRisks: [],
@@ -615,6 +616,14 @@ try {
     JSON.stringify({
       ...JSON.parse(completedDiagnosisResult),
       _providerRequestId: 'r'.repeat(201),
+    }),
+    JSON.stringify({
+      ...JSON.parse(completedDiagnosisResult),
+      _providerModel: '',
+    }),
+    JSON.stringify({
+      ...JSON.parse(completedDiagnosisResult),
+      _providerModel: 'm'.repeat(201),
     }),
   ])
     await assert.rejects(

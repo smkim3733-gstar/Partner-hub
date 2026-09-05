@@ -11,6 +11,7 @@ void test('Anthropic response parser returns only validated text, completion, us
     parseAnthropicMessageResponse(
       {
         id: 'msg_synthetic_body_id',
+        model: 'claude-synthetic-response-model',
         stop_reason: 'end_turn',
         content: [
           { type: 'text', text: '첫 블록' },
@@ -27,6 +28,7 @@ void test('Anthropic response parser returns only validated text, completion, us
       text: '첫 블록\n둘째 블록',
       usage: { inputTokens: 10, outputTokens: 20 },
       requestId: 'req_synthetic_header_id',
+      model: 'claude-synthetic-response-model',
     },
   );
 });
@@ -66,6 +68,25 @@ void test('Anthropic response parser rejects malformed blocks, token counts and 
       }),
     /요청 식별값 형식이 올바르지 않습니다/,
   );
+  for (const model of [
+    undefined,
+    '',
+    ' model ',
+    'm'.repeat(201),
+    'bad\u0001model',
+  ])
+    assert.throws(
+      () =>
+        parseAnthropicMessageResponse(
+          {
+            model,
+            content: [{ type: 'text', text: 'ok' }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+          { responseRequestId: 'req_synthetic_invalid_model' },
+        ),
+      /응답 모델|요청 식별값 형식이 올바르지 않습니다/,
+    );
 });
 
 void test('unreadable Anthropic response hides provider payload details', async () => {
@@ -90,6 +111,7 @@ void test('unreadable Anthropic response hides provider payload details', async 
       text: '',
       usage: { inputTokens: 0, outputTokens: 0 },
       requestId: 'req_failed_request',
+      model: null,
     },
   );
 });

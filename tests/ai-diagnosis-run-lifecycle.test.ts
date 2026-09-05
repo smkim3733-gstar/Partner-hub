@@ -41,6 +41,7 @@ function completedRun(id: string, caseId: string): SavedStepZeroRun {
     instructionVersion: 'test-instruction-v1',
     model: 'synthetic-model',
     providerRequestId: 'req_synthetic_lifecycle',
+    providerModel: 'claude-synthetic-provider-model',
     result: {
       companyOverview: '가상 기업 현황',
       confirmedStrengths: [],
@@ -165,12 +166,15 @@ void test('AI diagnosis runs preserve one durable forward lifecycle', async () =
     ...completedRun(runId, caseId).result,
     _requestFingerprint: fingerprint,
     _providerRequestId: 'req_synthetic_lifecycle',
+    _providerModel: 'claude-synthetic-provider-model',
   };
   for (const invalidEnvelope of [
     { ...validEnvelope, mainRisks: [3] },
     { ...validEnvelope, unexpected: true },
     { ...validEnvelope, _providerRequestId: '' },
     { ...validEnvelope, _providerRequestId: 'r'.repeat(201) },
+    { ...validEnvelope, _providerModel: '' },
+    { ...validEnvelope, _providerModel: 'm'.repeat(201) },
   ])
     await assert.rejects(
       db
@@ -228,6 +232,8 @@ void test('AI diagnosis runs preserve one durable forward lifecycle', async () =
     { ...completed, usage: { inputTokens: 0, outputTokens: 20 } },
     { ...completed, usage: { inputTokens: 10, outputTokens: 0 } },
     { ...completed, usage: { inputTokens: 10, outputTokens: 4_001 } },
+    { ...completed, providerModel: '' },
+    { ...completed, providerModel: 'm'.repeat(201) },
   ])
     await assert.rejects(
       completeStepZeroRequest(invalid, 'synthetic-admin', fingerprint),

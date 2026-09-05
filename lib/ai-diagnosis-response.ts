@@ -194,6 +194,7 @@ function parseRun(
     !text(run.model, 200) ||
     (run.providerRequestId !== null &&
       !text(run.providerRequestId, AI_PROVIDER_REQUEST_ID_LIMIT)) ||
+    (run.providerModel !== null && !text(run.providerModel, 200)) ||
     !result ||
     !usage ||
     !safeInteger(usage.inputTokens) ||
@@ -210,6 +211,7 @@ function parseRun(
     instructionVersion: run.instructionVersion as string,
     model: run.model as string,
     providerRequestId: run.providerRequestId as string | null,
+    providerModel: run.providerModel as string | null,
     result,
     usage: {
       inputTokens: usage.inputTokens as number,

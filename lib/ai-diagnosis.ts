@@ -51,6 +51,7 @@ export type SavedStepZeroRun = {
   instructionVersion: string;
   model: string;
   providerRequestId: string | null;
+  providerModel: string | null;
   result: StepZeroResult;
   usage: { inputTokens: number; outputTokens: number };
   createdAt: string;
@@ -250,6 +251,7 @@ function safeTokenCount(value: unknown, maximum = Number.MAX_SAFE_INTEGER) {
 function runFromRow(row: AiDiagnosisRunRow): SavedStepZeroRun | null {
   try {
     const providerRequestId = storedProviderRequestId(row);
+    const providerModel = storedProviderModel(row);
     assertValidStepZeroClaimInput({
       requestId: row.id,
       requestFingerprint: storedFingerprint(row),
@@ -265,6 +267,8 @@ function runFromRow(row: AiDiagnosisRunRow): SavedStepZeroRun | null {
       row.status !== '대표 검토 대기' ||
       (providerRequestId !== null &&
         !boundedIdentity(providerRequestId, AI_PROVIDER_REQUEST_ID_LIMIT)) ||
+      (providerModel !== null &&
+        !boundedIdentity(providerModel, AI_DIAGNOSIS_RUN_FIELD_LIMITS.model)) ||
       !safeTokenCount(row.input_tokens) ||
       !safeTokenCount(row.output_tokens, STEP_ZERO_MAX_OUTPUT_TOKENS)
     )
@@ -278,6 +282,7 @@ function runFromRow(row: AiDiagnosisRunRow): SavedStepZeroRun | null {
       instructionVersion: row.instruction_version,
       model: row.model,
       providerRequestId,
+      providerModel,
       result: parseStepZeroResult(row.result_json),
       usage: { inputTokens: row.input_tokens, outputTokens: row.output_tokens },
       createdAt: row.created_at,
@@ -318,6 +323,16 @@ function storedProviderRequestId(row: AiDiagnosisRunRow) {
     return typeof value._providerRequestId === 'string'
       ? value._providerRequestId
       : '';
+  } catch {
+    return '';
+  }
+}
+
+function storedProviderModel(row: AiDiagnosisRunRow) {
+  try {
+    const value = JSON.parse(row.result_json) as Record<string, unknown>;
+    if (value._providerModel === undefined) return null;
+    return typeof value._providerModel === 'string' ? value._providerModel : '';
   } catch {
     return '';
   }
@@ -408,6 +423,11 @@ export async function completeStepZeroRequest(
       run.status !== '대표 검토 대기' ||
       typeof run.providerRequestId !== 'string' ||
       !boundedIdentity(run.providerRequestId, AI_PROVIDER_REQUEST_ID_LIMIT) ||
+      typeof run.providerModel !== 'string' ||
+      !boundedIdentity(
+        run.providerModel,
+        AI_DIAGNOSIS_RUN_FIELD_LIMITS.model,
+      ) ||
       !safeTokenCount(run.usage.inputTokens) ||
       !safeTokenCount(run.usage.outputTokens, STEP_ZERO_MAX_OUTPUT_TOKENS)
     )
@@ -419,6 +439,7 @@ export async function completeStepZeroRequest(
     ...parseStepZeroResult(JSON.stringify(run.result)),
     _requestFingerprint: requestFingerprint,
     _providerRequestId: run.providerRequestId,
+    _providerModel: run.providerModel,
   });
   if (
     new TextEncoder().encode(resultEnvelope).length >
