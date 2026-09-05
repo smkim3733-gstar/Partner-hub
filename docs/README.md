@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [AI 진단 생성중 잠금 envelope 무결성 경계](AI_DIAGNOSIS_PENDING_ENVELOPE_INTEGRITY_2026_09_05.md)                   | 요청 지문 전용 단일 키와 256 UTF-8 바이트 생성중 잠금 상한 강제                          |
 | [AI 진단 완료 결과 envelope 무결성 경계](AI_DIAGNOSIS_RESULT_ENVELOPE_INTEGRITY_2026_09_05.md)                       | 정확한 결과 키·배열·문자열과 320,000 UTF-8 바이트 저장 상한 강제                         |
 | [AI 진단 실행 원장 수명주기 무결성 경계](AI_DIAGNOSIS_RUN_LIFECYCLE_INTEGRITY_2026_09_05.md)                         | 요청 신원 불변, 생성중 단방향 완료·실패 전이와 terminal 원장 보존                        |
 | [파트너 접속 통계 D1 전이 무결성 경계](PORTAL_LOGIN_STATS_TRANSITION_INTEGRITY_2026_09_05.md)                        | 계정 ID 불변, UTC 시각 전진과 30분 기준 누적 접속 세션 +1 강제                           |
