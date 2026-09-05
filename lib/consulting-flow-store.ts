@@ -45,6 +45,7 @@ import {
   consultingFlowsJobTransitionTimestampTriggerSql,
   consultingFlowsNoDeleteTriggerSql,
   consultingFlowsAiResultReportTriggerSql,
+  consultingFlowsAiResultFileTriggerSql,
   consultingFlowsNonCommandScopeTriggerSql,
   consultingFlowsNewCommandEvidenceTriggerSql,
   consultingFlowsNewCommandReceiptIdentityTriggerSql,
@@ -159,6 +160,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandTargetTriggerSql),
         db.prepare(consultingFlowsNonCommandScopeTriggerSql),
         db.prepare(consultingFlowsAiResultReportTriggerSql),
+        db.prepare(consultingFlowsAiResultFileTriggerSql),
         db.prepare(consultingFlowsCommandInsertReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsNewCommandReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsCommandInsertMemberActorTriggerSql),
@@ -1336,8 +1338,10 @@ function assertFlowCommitTransition(
       report.createdAt !== after.updatedAt ||
       report.createdBy !== 'Claude · 대표 검토 전' ||
       report.origin !== 'ai' ||
+      report.fileId !== undefined ||
       report.decisionId !== undefined ||
       report.documentsKey !== undefined ||
+      !sameValue(before.files, after.files) ||
       (job.stage === 1 &&
         (report.sourceReportId !== undefined ||
           report.sourceRecordingId !== undefined ||

@@ -323,6 +323,12 @@ const flowAiResultReportTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowAiResultFileTriggerSql = migrationStatements(
+  await readFile(
+    path.join(project, 'drizzle', '0063_consulting_flow_ai_result_file.sql'),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -351,6 +357,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_command_target_guard',
   'consulting_flows_non_command_scope_guard',
   'consulting_flows_ai_result_report_guard',
+  'consulting_flows_ai_result_file_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -382,6 +389,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowCommandTargetTriggerSql[1],
       flowNonCommandScopeTriggerSql[0],
       flowAiResultReportTriggerSql[0],
+      flowAiResultFileTriggerSql[0],
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3838,6 +3846,23 @@ try {
     /AI result report is invalid/,
   );
   checks.push('FLOW native D1 binds one exact AI result report');
+  const completionWithFile = structuredClone(validCompletionEvidenceFlow);
+  const completionFileId = 'native-hidden-ai-result-file';
+  completionWithFile.files.push({
+    id: completionFileId,
+    name: 'ai-result.pdf',
+    contentType: 'application/pdf',
+    size: 1,
+    key: `consulting-flow/${completionFileId}`,
+    createdAt: evidenceTimes[4],
+    purpose: 'report',
+  });
+  completionWithFile.reports.at(-1).fileId = completionFileId;
+  await assert.rejects(
+    saveEvidenceTransition(processingEvidenceFlow, completionWithFile),
+    /AI result file is invalid/,
+  );
+  checks.push('FLOW native D1 rejects unsupported AI result files');
   const staleCompletionEvidenceFlow = structuredClone(
     validCompletionEvidenceFlow,
   );

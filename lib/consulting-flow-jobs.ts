@@ -6,7 +6,6 @@ import {
   type ConsultingFlow,
   type FlowAiFailureObservation,
   type FlowAiSuccessObservation,
-  type FlowFile,
   type FlowJob,
 } from './consulting-flow';
 import {
@@ -65,7 +64,6 @@ export function finishFlowJob(
   now: string,
   outcome: {
     body?: string;
-    file?: FlowFile;
     error?: string;
     evidence?: FlowAiSuccessObservation;
     failureEvidence?: FlowAiFailureObservation;
@@ -102,10 +100,7 @@ export function finishFlowJob(
   )
     throw new FlowError('Claude 실패 응답 추적 증거 형식이 올바르지 않습니다.');
   if (current && !outcome.error) {
-    if (
-      next.reports.length >= FLOW_COLLECTION_LIMITS.reports ||
-      (outcome.file && next.files.length >= FLOW_COLLECTION_LIMITS.files)
-    )
+    if (next.reports.length >= FLOW_COLLECTION_LIMITS.reports)
       throw resultCapacityError();
     if (
       outcome.body &&
@@ -147,7 +142,6 @@ export function finishFlowJob(
       version: next.reports.filter((r) => r.stage === job.stage).length + 1,
       title: reportLabels[job.stage],
       body: outcome.body,
-      fileId: outcome.file?.id,
       sourceReportId: job.stage === 4 ? job.sourceReportId : undefined,
       sourceRecordingId: job.sourceRecordingId,
       createdAt: now,
@@ -155,7 +149,6 @@ export function finishFlowJob(
       origin: 'ai' as const,
     };
     next.reports.push(report);
-    if (outcome.file) next.files.push(outcome.file);
     if (job.stage === 1) next.analysis = { reportId: report.id };
     job.status = 'complete';
     job.reportId = report.id;

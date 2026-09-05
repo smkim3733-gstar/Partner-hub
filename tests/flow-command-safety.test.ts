@@ -2031,6 +2031,75 @@ void test('FLOW AI completion binds one exact report and preserves report histor
   );
 });
 
+void test('FLOW AI completion cannot attach an unsupported result file', async () => {
+  const queued = await queuedReportFixture(false);
+  const job = queued.jobs.at(-1)!;
+  const claimed = claimFlowJob(
+    queued,
+    job.id,
+    new Date(Date.parse(queued.updatedAt) + 1).toISOString(),
+  );
+  await commitFlow(queued, claimed);
+  const completedAt = new Date(Date.parse(claimed.updatedAt) + 1).toISOString();
+  const completed = finishFlowJob(
+    claimed,
+    job.id,
+    claimed.updatedAt,
+    completedAt,
+    {
+      body,
+      evidence: {
+        instructionVersion: 'synthetic-flow-instruction-v1',
+        requestedModel: 'claude-requested-test-model',
+        providerRequestId: 'req_no_result_file',
+        providerModel: 'claude-resolved-test-model',
+        providerMessageId: 'msg_no_result_file',
+        inputTokens: 10,
+        outputTokens: 20,
+        observedAt: completedAt,
+      },
+    },
+  );
+  const forged = structuredClone(completed);
+  const fileId = `hidden-ai-result-file-${++sequence}`;
+  forged.files.push({
+    id: fileId,
+    name: 'ai-result.pdf',
+    contentType: 'application/pdf',
+    size: 1,
+    key: flowFileStorageKey(fileId),
+    createdAt: completedAt,
+    purpose: 'report',
+  });
+  forged.reports.at(-1)!.fileId = fileId;
+  await assert.rejects(
+    commitFlow(claimed, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+        claimed.caseId,
+        claimed.revision,
+      )
+      .run(),
+    /AI result file is invalid/,
+  );
+  assert.deepEqual(
+    await readFlow(claimed.caseId),
+    JSON.parse(JSON.stringify(claimed)),
+  );
+});
+
 void test('FLOW new command receipts require canonical identity fields', async () => {
   const initial = await fixture();
   const commandId = `command-receipt-identity-${++sequence}`;
