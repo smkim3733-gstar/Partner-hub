@@ -2793,6 +2793,178 @@ try {
       `generic owner state save rejects ${label}`,
     );
   }
+  const provenanceBytes = new TextEncoder().encode(
+    'SYNTHETIC_WORKER_PROVENANCE',
+  );
+  const provenanceDocument = (fileId, overrides = {}) => ({
+    ...validStoredDocument,
+    id: `document-${fileId}`,
+    company: '가상 본인기업',
+    title: '격리 원본 대조',
+    category: '기타자료',
+    assignedTrainee: passwordMember.name,
+    partnerMemberId: memberId,
+    caseId: 'runtime-own',
+    storageFileId: fileId,
+    fileName: 'source.txt',
+    fileSize: provenanceBytes.byteLength,
+    sensitive: false,
+    ...overrides,
+  });
+  async function seedProvenanceFile({
+    fileId,
+    status = 'ready',
+    includeObject = true,
+    objectSize = provenanceBytes.byteLength,
+    includeUploadRequest = true,
+  }) {
+    await db
+      .prepare(`INSERT INTO company_file_objects
+        (id, storage_key, original_name, company, category, title,
+         assigned_trainee, uploaded_by_user_id, uploaded_by_email,
+         content_type, size_bytes, created_at)
+        VALUES (?1, ?2, 'source.txt', '가상 본인기업', '기타자료',
+          '격리 원본 대조', ?3, ?4, ?5, 'text/plain', ?6, ?7)`)
+      .bind(
+        fileId,
+        `company-source/${fileId}`,
+        passwordMember.name,
+        memberId,
+        passwordMember.email,
+        provenanceBytes.byteLength,
+        new Date().toISOString(),
+      )
+      .run();
+    await db
+      .prepare(
+        'INSERT INTO company_file_assignments (file_id, partner_member_id) VALUES (?1, ?2)',
+      )
+      .bind(fileId, memberId)
+      .run();
+    await db
+      .prepare(
+        'INSERT INTO company_file_case_links (file_id, case_id) VALUES (?1, ?2)',
+      )
+      .bind(fileId, 'runtime-own')
+      .run();
+    if (includeUploadRequest)
+      await db
+        .prepare(`INSERT INTO company_file_upload_requests
+          (owner_key, request_key, fingerprint, file_id, created_at, status)
+          VALUES (?1, ?2, ?3, ?4, ?5, ?6)`)
+        .bind(
+          `member:${memberId}`,
+          `request-${fileId}`,
+          `fingerprint-${fileId}`,
+          fileId,
+          new Date().toISOString(),
+          status,
+        )
+        .run();
+    if (includeObject)
+      await bucket.put(
+        `company-source/${fileId}`,
+        new Uint8Array(objectSize),
+      );
+  }
+  const missingProvenanceState = structuredClone(cleanMemberIdState);
+  missingProvenanceState.companyDocuments = [
+    ...missingProvenanceState.companyDocuments,
+    provenanceDocument('worker-provenance-missing'),
+  ];
+  await expect(
+    await call(
+      '/save',
+      { state: missingProvenanceState },
+      ownerHeaders,
+      'PUT',
+    ),
+    409,
+    'generic state save rejects a document original absent from the D1 ledger',
+  );
+  for (const {
+    fileId,
+    seedOptions,
+    documentOverrides = {},
+    label,
+  } of [
+    {
+      fileId: 'worker-provenance-mismatch',
+      seedOptions: {},
+      documentOverrides: { fileName: 'other.txt' },
+      label: 'D1 metadata mismatch',
+    },
+    {
+      fileId: 'worker-provenance-pending',
+      seedOptions: { status: 'pending' },
+      label: 'pending upload ledger',
+    },
+    {
+      fileId: 'worker-provenance-deleted',
+      seedOptions: { status: 'deleted' },
+      label: 'deleted upload ledger',
+    },
+    {
+      fileId: 'worker-provenance-missing-r2',
+      seedOptions: { includeObject: false },
+      label: 'missing private R2 original',
+    },
+    {
+      fileId: 'worker-provenance-wrong-r2-size',
+      seedOptions: { objectSize: provenanceBytes.byteLength - 1 },
+      label: 'size-mismatched private R2 original',
+    },
+  ]) {
+    await seedProvenanceFile({ fileId, ...seedOptions });
+    const invalidProvenanceState = structuredClone(cleanMemberIdState);
+    invalidProvenanceState.companyDocuments = [
+      ...invalidProvenanceState.companyDocuments,
+      provenanceDocument(fileId, documentOverrides),
+    ];
+    await expect(
+      await call(
+        '/save',
+        { state: invalidProvenanceState },
+        ownerHeaders,
+        'PUT',
+      ),
+      409,
+      `generic state save rejects ${label}`,
+    );
+  }
+  for (const { fileId, includeUploadRequest, label } of [
+    {
+      fileId: 'worker-provenance-ready',
+      includeUploadRequest: true,
+      label: 'ready D1/R2 original',
+    },
+    {
+      fileId: 'worker-provenance-legacy',
+      includeUploadRequest: false,
+      label: 'intact legacy D1/R2 original',
+    },
+  ]) {
+    await seedProvenanceFile({ fileId, includeUploadRequest });
+    const validProvenanceState = structuredClone(cleanMemberIdState);
+    validProvenanceState.companyDocuments = [
+      ...validProvenanceState.companyDocuments,
+      provenanceDocument(fileId),
+    ];
+    await expect(
+      await call(
+        '/save',
+        { state: validProvenanceState },
+        ownerHeaders,
+        'PUT',
+      ),
+      200,
+      `generic state save links ${label}`,
+    );
+    await db
+      .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+      .bind(JSON.stringify(cleanMemberIdState), new Date().toISOString())
+      .run();
+  }
   for (const [field, label] of [
     ['tasks', 'task'],
     ['companyDocuments', 'document'],

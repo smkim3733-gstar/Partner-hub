@@ -1363,6 +1363,7 @@ function AdminDashboard({
     state_revision: '화면 버전',
     recovery_proof: '회수 증적 보호',
     document_file_metadata: '원본 메타데이터 보호',
+    document_file_provenance: '원본 보관 원장 대조',
     cas_exhausted: '동시 저장 반복',
     other: '분류 확인 필요',
   };

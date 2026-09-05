@@ -8,6 +8,11 @@ import {
 import { ApplicationSubmission } from '../lib/application-submission';
 import { GET, PUT } from './state-request';
 import { readPortalState, writePortalState } from '../lib/portal-state';
+import {
+  companyFileBucket,
+  companyFileDatabase,
+  ensureCompanyFileTables,
+} from '../lib/company-files';
 
 type Snapshot = { value: string; membersRevision?: number };
 function deferred<T>() {
@@ -368,6 +373,40 @@ void test('lost save response followed by retry retains one case, timeline and d
   const identity = (
     (await (await GET(request())).json()) as { currentUser: { id: string } }
   ).currentUser.id;
+  const db = companyFileDatabase();
+  await ensureCompanyFileTables(db);
+  await db
+    .prepare(`INSERT INTO company_file_objects
+      (id, storage_key, original_name, company, category, title,
+       assigned_trainee, uploaded_by_user_id, uploaded_by_email,
+       content_type, size_bytes, created_at)
+      VALUES ('stable-file', 'company-source/stable-file', 'stable-file.pdf',
+        '가상기업', '기타자료', '가상 업로드자료', '대표', ?1,
+        'smkim3733@gmail.com', 'application/pdf', 1024,
+        '2026-09-05T00:00:00Z')`)
+    .bind(identity)
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO company_file_assignments (file_id, partner_member_id) VALUES ('stable-file', '')",
+    )
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO company_file_case_links (file_id, case_id) VALUES ('stable-file', 'stable-case')",
+    )
+    .run();
+  await db
+    .prepare(`INSERT INTO company_file_upload_requests
+      (owner_key, request_key, fingerprint, file_id, created_at, status)
+      VALUES (?1, 'stable-request', 'stable-fingerprint', 'stable-file',
+        '2026-09-05T00:00:00Z', 'ready')`)
+    .bind(`admin:${identity}`)
+    .run();
+  await companyFileBucket().put(
+    'company-source/stable-file',
+    new Uint8Array(1_024),
+  );
   const state = {
     ...empty,
     cases: [
@@ -391,6 +430,7 @@ void test('lost save response followed by retry retains one case, timeline and d
         category: '기타자료',
         status: '제출완료',
         assignedTrainee: '대표',
+        partnerMemberId: '',
         submittedBy: '대표',
         updatedAt: '방금 전',
         version: 'V1',

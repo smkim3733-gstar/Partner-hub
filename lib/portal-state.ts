@@ -12,6 +12,7 @@ import {
 } from '@/db/schema';
 import { PORTAL_STATE_LIMIT_BYTES } from '@/lib/pilot-readiness';
 import type { PortalConflictKind } from '@/lib/portal-conflict-metrics';
+import { companyDocumentFileProvenanceCommitConditionSql } from '@/lib/company-document-file-provenance';
 
 type PortalStateRow = {
   payload: string;
@@ -102,6 +103,15 @@ export type PortalDraftGuard = {
   draftId: string;
   revision: number;
 };
+export type PortalStateCommitCondition = 'company_document_file_provenance';
+
+const portalStateCommitConditionSql: Record<
+  PortalStateCommitCondition,
+  string
+> = {
+  company_document_file_provenance:
+    companyDocumentFileProvenanceCommitConditionSql,
+};
 
 /** Retry against the latest state instead of replacing a concurrently saved member list. */
 export async function mutatePortalState<T>(
@@ -111,6 +121,7 @@ export async function mutatePortalState<T>(
     db: D1Database,
     committedPayload: string,
   ) => D1PreparedStatement[],
+  commitConditions?: () => readonly PortalStateCommitCondition[],
 ) {
   const db = database();
   await ensurePortalTables(db);
@@ -133,12 +144,17 @@ export async function mutatePortalState<T>(
     }
     const updatedAt = new Date().toISOString();
     const guard = requiredDraft?.();
+    const conditionSql = [
+      ...new Set(commitConditions?.() ?? []),
+    ]
+      .map((condition) => `AND (${portalStateCommitConditionSql[condition]})`)
+      .join(' ');
     const write = guard
       ? db
           .prepare(
             row
-              ? 'UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3 AND payload = ?4 AND EXISTS (SELECT 1 FROM application_drafts WHERE owner_key = ?5 AND draft_id = ?6 AND revision = ?7 AND payload IS NOT NULL)'
-              : 'INSERT INTO portal_state (payload, updated_at, id) SELECT ?1, ?2, ?3 WHERE ?4 IS NULL AND EXISTS (SELECT 1 FROM application_drafts WHERE owner_key = ?5 AND draft_id = ?6 AND revision = ?7 AND payload IS NOT NULL) ON CONFLICT(id) DO NOTHING',
+              ? `UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3 AND payload = ?4 AND EXISTS (SELECT 1 FROM application_drafts WHERE owner_key = ?5 AND draft_id = ?6 AND revision = ?7 AND payload IS NOT NULL) ${conditionSql}`
+              : `INSERT INTO portal_state (payload, updated_at, id) SELECT ?1, ?2, ?3 WHERE ?4 IS NULL AND EXISTS (SELECT 1 FROM application_drafts WHERE owner_key = ?5 AND draft_id = ?6 AND revision = ?7 AND payload IS NOT NULL) ${conditionSql} ON CONFLICT(id) DO NOTHING`,
           )
           .bind(
             payload,
@@ -152,14 +168,14 @@ export async function mutatePortalState<T>(
       : row
         ? db
             .prepare(
-              'UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3 AND payload = ?4',
+              `UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3 AND payload = ?4 ${conditionSql}`,
             )
             .bind(payload, updatedAt, portalStateId, row.payload)
         : db
             .prepare(
-              'INSERT INTO portal_state (id, payload, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO NOTHING',
+              `INSERT INTO portal_state (id, payload, updated_at) SELECT ?1, ?2, ?3 WHERE ?4 IS NULL ${conditionSql} ON CONFLICT(id) DO NOTHING`,
             )
-            .bind(portalStateId, payload, updatedAt);
+            .bind(portalStateId, payload, updatedAt, null);
     const result =
       effects.length > 0
         ? (await db.batch([write, ...effects]))[0]

@@ -671,10 +671,7 @@ void test('ordinary state saves preserve existing company original metadata', as
     fileName: 'source.pdf',
     fileSize: 1_024,
   };
-  const created = await saveState(
-    request({ state: initial }, ownerHeaders, 'PUT'),
-  );
-  assert.equal(created.status, 200, await created.clone().text());
+  await writePortalState(initial);
 
   const review = await state();
   review.companyDocuments[0].status = '검토완료';

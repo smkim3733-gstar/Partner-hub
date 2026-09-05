@@ -23,6 +23,7 @@ export type PortalConflictKind =
   | 'state_revision'
   | 'recovery_proof'
   | 'document_file_metadata'
+  | 'document_file_provenance'
   | 'cas_exhausted'
   | 'capacity'
   | 'other';

@@ -15,6 +15,7 @@ import { FlowError } from '@/lib/consulting-flow';
 import { portalRevision } from '@/lib/portal-revision';
 import { assertRecoveryProofUnchanged } from '@/lib/file-recovery-proof';
 import { companyDocumentFileMetadataMutationError } from '@/lib/company-document-file-metadata-integrity';
+import { checkNewCompanyDocumentFileProvenance } from '@/lib/company-document-file-provenance';
 import { assertNewDraftCases } from '@/lib/application-draft-store';
 import {
   ApplicationDetailsError,
@@ -267,6 +268,7 @@ export async function PUT(request: Request) {
     const expectedRevision = readIfMatchRevision(request);
 
     let draftGuard: PortalDraftGuard | null = null;
+    let requireDocumentFileCommitGuard = false;
     let passwordAccessRevocation = {
       sessionMemberIds: [] as string[],
       setupLinkMemberIds: [] as string[],
@@ -275,6 +277,7 @@ export async function PUT(request: Request) {
     };
     const result = await mutatePortalState(
       async (currentState) => {
+        requireDocumentFileCommitGuard = false;
         const currentUser = await requirePortalUser(request, currentState);
         const revision = await portalRevision(currentState);
         if (
@@ -367,6 +370,19 @@ export async function PUT(request: Request) {
             documentFileMetadataError,
             'document_file_metadata',
           );
+        const documentFileProvenance =
+          await checkNewCompanyDocumentFileProvenance(
+            (currentState as Record<string, unknown> | null)
+              ?.companyDocuments,
+            next.companyDocuments,
+          );
+        requireDocumentFileCommitGuard =
+          documentFileProvenance.requiresCommitGuard;
+        if (documentFileProvenance.error)
+          throw new PortalStateConflict(
+            documentFileProvenance.error,
+            'document_file_provenance',
+          );
         await assertRecoveryProofUnchanged(currentState, next);
         if (expectedRevision !== revision) {
           // An uncertain response may be retried only when it makes no changes.
@@ -385,6 +401,10 @@ export async function PUT(request: Request) {
           passwordAccessRevocation,
           committedPayload,
         ),
+      () =>
+        requireDocumentFileCommitGuard
+          ? ['company_document_file_provenance']
+          : [],
     );
     schedulePortalConflictRecovery({
       token: presentedReceipt,
