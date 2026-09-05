@@ -2023,13 +2023,37 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  const orphanedFlowReference = JSON.parse(intactFlowPayload);
+  orphanedFlowReference.reports[0].sourceReportId = 'missing-report';
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(orphanedFlowReference), 'runtime-own')
+    .run();
+  const orphanedReferenceRead = await expect(
+    await call('/flow/runtime-own', undefined, ownerHeaders),
+    503,
+    'FLOW detail rejects an orphaned report reference',
+  );
+  assertPrivateAuthResponse(orphanedReferenceRead);
+  assert.match((await orphanedReferenceRead.json()).error, /무결성/);
+  const orphanedReferenceDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects an orphaned projected report reference',
+  );
+  assertPrivateAuthResponse(orphanedReferenceDashboard);
+  assert.match((await orphanedReferenceDashboard.json()).error, /무결성/);
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   await expect(
     await call('/flow/runtime-own', undefined, { cookie }),
     200,
     'FLOW detail resumes after the native D1 payload identity is restored',
   );
   checks.push(
-    'FLOW D1 row identity, timestamp, required structure and collection field guards protect detail ACL and dashboard projection',
+    'FLOW D1 row identity, timestamp, structure, collection field and internal reference guards protect detail ACL and dashboard projection',
   );
   assert.deepEqual(
     Object.keys(privateMimeFlow.commandReceipts[mimeCommand.commandId]).sort(),
@@ -2210,7 +2234,7 @@ try {
     recipient: '가상 담당',
     dueDate: '',
     status: 'received',
-    fileId: 'synthetic-requested-document',
+    fileId: metricFlow.files[0].id,
     note: '',
     createdAt: '2026-08-31T00:00:00.000Z',
     receivedAt: '2026-08-31T00:00:00.000Z',

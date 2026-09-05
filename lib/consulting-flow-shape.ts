@@ -240,13 +240,98 @@ function validReceipts(value: unknown) {
   );
 }
 
+function reference(value: unknown) {
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function hasReferenceIntegrity(flow: JsonRecord, mode: ShapeMode) {
+  const reports = flow.reports as Array<JsonRecord>;
+  const meetings = flow.meetings as Array<JsonRecord>;
+  const recordings = flow.recordings as Array<JsonRecord>;
+  const reportById = new Map(reports.map((item) => [item.id as string, item]));
+  const meetingById = new Map(
+    meetings.map((item) => [item.id as string, item]),
+  );
+  const recordingIds = new Set(recordings.map((item) => item.id as string));
+  const analysis = flow.analysis as JsonRecord;
+  const decision = flow.decision as JsonRecord | undefined;
+  const contract = flow.contract as JsonRecord | undefined;
+  const analysisReport = reference(analysis.reportId);
+  if (analysisReport && reportById.get(analysisReport)?.stage !== 1)
+    return false;
+  if (
+    !reports.every((item) => {
+      const sourceReportId = reference(item.sourceReportId);
+      const sourceRecordingId = reference(item.sourceRecordingId);
+      const decisionId = reference(item.decisionId);
+      return (
+        (!sourceReportId || reportById.get(sourceReportId)?.stage === 1) &&
+        (!sourceRecordingId || recordingIds.has(sourceRecordingId)) &&
+        (!decisionId || decision?.id === decisionId)
+      );
+    })
+  )
+    return false;
+  if (decision && reportById.get(decision.reportId as string)?.stage !== 4)
+    return false;
+  if (
+    contract &&
+    (meetingById.get(contract.meetingId as string)?.kind !== 'contract' ||
+      reportById.get(contract.reportId as string)?.stage !== 6)
+  )
+    return false;
+  if (mode === 'projected') return true;
+
+  const files = flow.files as Array<JsonRecord>;
+  const fileIds = new Set(files.map((item) => item.id as string));
+  if (
+    !reports.every((item) => {
+      const fileId = reference(item.fileId);
+      return !fileId || fileIds.has(fileId);
+    }) ||
+    !recordings.every((item) => {
+      const fileReferences = ['fileId', 'transcriptFileId', 'audioFileId']
+        .map((key) => reference(item[key]))
+        .filter((item): item is string => Boolean(item));
+      return (
+        meetingById.has(item.meetingId as string) &&
+        fileReferences.every((id) => fileIds.has(id))
+      );
+    }) ||
+    !(flow.requests as Array<JsonRecord>).every((item) => {
+      const fileId = reference(item.fileId);
+      return !fileId || fileIds.has(fileId);
+    }) ||
+    (contract && !fileIds.has(contract.signedFileId as string))
+  )
+    return false;
+
+  if (
+    !(flow.jobs as Array<JsonRecord>).every((item) => {
+      const sourceRecordingId = reference(item.sourceRecordingId);
+      const sourceReportId = reference(item.sourceReportId);
+      const reportId = reference(item.reportId);
+      return (
+        (!sourceRecordingId || recordingIds.has(sourceRecordingId)) &&
+        (!sourceReportId || reportById.get(sourceReportId)?.stage === 1) &&
+        (!reportId || reportById.get(reportId)?.stage === item.stage)
+      );
+    })
+  )
+    return false;
+  const commandIds = new Set(flow.commandIds as string[]);
+  return Object.keys(
+    (flow.commandReceipts as JsonRecord | undefined) ?? {},
+  ).every((id) => commandIds.has(id));
+}
+
 function hasBaseStructure(value: unknown, mode: ShapeMode) {
   const flow = asRecord(value);
   if (!flow) return false;
   const projected = mode === 'projected';
   const stored = mode === 'stored';
   const requiredStrings = ['caseId', 'company', 'partnerId', 'partnerName'];
-  return (
+  const valid =
     flow.schemaVersion === 1 &&
     requiredStrings.every((key) => named(flow[key])) &&
     text(flow.updatedAt) &&
@@ -270,8 +355,8 @@ function hasBaseStructure(value: unknown, mode: ShapeMode) {
       (Array.isArray(flow.commandIds) &&
         flow.commandIds.every(named) &&
         new Set(flow.commandIds).size === flow.commandIds.length)) &&
-    (projected || validReceipts(flow.commandReceipts))
-  );
+    (projected || validReceipts(flow.commandReceipts));
+  return valid && hasReferenceIntegrity(flow, mode);
 }
 
 export function hasConsultingFlowStructure(

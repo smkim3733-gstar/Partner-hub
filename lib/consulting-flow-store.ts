@@ -139,6 +139,45 @@ export async function stateWithConsultingFlows(raw: unknown) {
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.jobs') e WHERE e.type <> 'object') AND
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.audit') e WHERE e.type <> 'object') AND
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.commandIds') e WHERE e.type <> 'text') AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.reports') r WHERE
+          json_type(r.value, '$.fileId') IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM json_each(payload, '$.files') f
+            WHERE json_extract(f.value, '$.id') = json_extract(r.value, '$.fileId')
+          )) AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.recordings') r WHERE
+          NOT EXISTS (SELECT 1 FROM json_each(payload, '$.meetings') m
+            WHERE json_extract(m.value, '$.id') = json_extract(r.value, '$.meetingId')) OR
+          (json_type(r.value, '$.fileId') IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM json_each(payload, '$.files') f
+            WHERE json_extract(f.value, '$.id') = json_extract(r.value, '$.fileId'))) OR
+          (json_type(r.value, '$.transcriptFileId') IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM json_each(payload, '$.files') f
+            WHERE json_extract(f.value, '$.id') = json_extract(r.value, '$.transcriptFileId'))) OR
+          (json_type(r.value, '$.audioFileId') IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM json_each(payload, '$.files') f
+            WHERE json_extract(f.value, '$.id') = json_extract(r.value, '$.audioFileId')))) AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.requests') r WHERE
+          json_type(r.value, '$.fileId') IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM json_each(payload, '$.files') f
+            WHERE json_extract(f.value, '$.id') = json_extract(r.value, '$.fileId')
+          )) AND
+        (json_type(payload, '$.contract') IS NULL OR EXISTS (
+          SELECT 1 FROM json_each(payload, '$.files') f
+          WHERE json_extract(f.value, '$.id') = json_extract(payload, '$.contract.signedFileId')
+        )) AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.jobs') j WHERE
+          (json_type(j.value, '$.sourceRecordingId') IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM json_each(payload, '$.recordings') r
+            WHERE json_extract(r.value, '$.id') = json_extract(j.value, '$.sourceRecordingId'))) OR
+          (json_type(j.value, '$.sourceReportId') IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM json_each(payload, '$.reports') r
+            WHERE json_extract(r.value, '$.id') = json_extract(j.value, '$.sourceReportId'))) OR
+          (json_type(j.value, '$.reportId') IS NOT NULL AND NOT EXISTS (
+            SELECT 1 FROM json_each(payload, '$.reports') r
+            WHERE json_extract(r.value, '$.id') = json_extract(j.value, '$.reportId')))) AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.commandReceipts') receipt WHERE
+          NOT EXISTS (SELECT 1 FROM json_each(payload, '$.commandIds') command
+            WHERE command.value = receipt.key)) AND
         json_type(payload, '$.analysis.reportId') = 'text' AND json_type(payload, '$.ai') = 'object' AND
         json_type(payload, '$.ai.enabled') IN ('true', 'false') AND json_type(payload, '$.ai.sourceText') = 'text' AND
         (json_type(payload, '$.decision') IS NULL OR json_type(payload, '$.decision') = 'object') AND
@@ -174,6 +213,7 @@ function assertFlowCommitTransition(
   if (
     before.schemaVersion !== 1 ||
     after.schemaVersion !== 1 ||
+    !hasStoredConsultingFlowStructure(after) ||
     typeof before.caseId !== 'string' ||
     !before.caseId ||
     after.caseId !== before.caseId ||

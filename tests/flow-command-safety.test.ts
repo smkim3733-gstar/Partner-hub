@@ -106,6 +106,38 @@ void test('FLOW duplicate payment requests persist one payment and accept an exa
   const flow = await fixture(),
     signed = structuredClone(flow);
   signed.revision++;
+  signed.files.push({
+    id: 'synthetic-signed',
+    name: 'synthetic-signed.pdf',
+    contentType: 'application/pdf',
+    size: 1,
+    key: 'synthetic/signed.pdf',
+    createdAt: new Date().toISOString(),
+    purpose: 'signed_contract',
+  });
+  signed.reports.push({
+    id: 'synthetic-report',
+    stage: 6,
+    version: 1,
+    title: '가상 계약서',
+    body: '',
+    sourceReportId: flow.reports[0].id,
+    createdAt: new Date().toISOString(),
+    createdBy: '가상 대표',
+    origin: 'manual',
+  });
+  signed.meetings.push({
+    id: 'synthetic-meeting',
+    kind: 'contract',
+    startsAt: '2026-08-30T00:00:00.000Z',
+    endsAt: '2026-08-30T01:00:00.000Z',
+    location: '가상',
+    attendance: 'admin',
+    status: 'completed',
+    note: '',
+    createdBy: '가상 대표',
+    completedAt: '2026-08-30T01:00:00.000Z',
+  });
   signed.contract = {
     meetingId: 'synthetic-meeting',
     reportId: 'synthetic-report',
@@ -514,6 +546,152 @@ void test('FLOW rejects malformed collection entries before detail use', async (
   }
 });
 
+void test('FLOW rejects orphaned internal references before detail use', async () => {
+  const corruptions: Array<
+    [string, (payload: Record<string, unknown>) => unknown]
+  > = [
+    [
+      'report file',
+      (payload) => ({
+        ...payload,
+        reports: (payload.reports as Array<Record<string, unknown>>).map(
+          (item, index) =>
+            index === 0 ? { ...item, fileId: 'missing-file' } : item,
+        ),
+      }),
+    ],
+    [
+      'report source',
+      (payload) => ({
+        ...payload,
+        reports: (payload.reports as Array<Record<string, unknown>>).map(
+          (item, index) =>
+            index === 0 ? { ...item, sourceReportId: 'missing-report' } : item,
+        ),
+      }),
+    ],
+    [
+      'analysis report',
+      (payload) => ({
+        ...payload,
+        analysis: {
+          ...(payload.analysis as Record<string, unknown>),
+          reportId: 'missing-report',
+        },
+      }),
+    ],
+    [
+      'recording meeting',
+      (payload) => ({
+        ...payload,
+        recordings: [
+          {
+            id: 'orphan-recording',
+            meetingId: 'missing-meeting',
+            transcript: '',
+            consentAt: new Date().toISOString(),
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }),
+    ],
+    [
+      'request file',
+      (payload) => ({
+        ...payload,
+        requests: [
+          {
+            id: 'orphan-request',
+            title: '자료',
+            required: true,
+            channel: '이메일',
+            recipient: partner.email,
+            dueDate: '',
+            status: 'received',
+            fileId: 'missing-file',
+            note: '',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }),
+    ],
+    [
+      'decision report',
+      (payload) => ({
+        ...payload,
+        decision: {
+          id: 'orphan-decision',
+          reportId: 'missing-report',
+          solutions: ['가상 솔루션'],
+          note: '',
+          documentsNeeded: false,
+          at: new Date().toISOString(),
+        },
+      }),
+    ],
+    [
+      'AI job source',
+      (payload) => ({
+        ...payload,
+        jobs: [
+          {
+            id: 'orphan-job',
+            stage: 4,
+            sourceRecordingId: 'missing-recording',
+            sourceReportId: (payload.reports as Array<{ id: string }>)[0].id,
+            status: 'blocked',
+            reason: '가상 대기',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }),
+    ],
+    [
+      'command receipt',
+      (payload) => ({
+        ...payload,
+        commandReceipts: {
+          ...(payload.commandReceipts as Record<string, unknown>),
+          'orphan-command': {
+            actorKey: 'member:synthetic',
+            fingerprint: 'synthetic-fingerprint',
+          },
+        },
+      }),
+    ],
+  ];
+  for (const [name, corrupt] of corruptions) {
+    const flow = await fixture();
+    await replaceStoredFlow(flow.caseId, corrupt);
+    await assert.rejects(
+      readFlow(flow.caseId),
+      (error) => error instanceof FlowError && error.status === 503,
+      name,
+    );
+  }
+});
+
+void test('FLOW commit rejects an orphaned reference before D1 writes', async () => {
+  const initial = newConsultingFlow(
+    `flow-orphan-commit-${++sequence}`,
+    '가상기업',
+    partner.id,
+    partner.name,
+  );
+  const changed = applyFlowCommand(
+    initial,
+    { type: 'save_report', stage: 1, body },
+    { id: adminEmail, role: 'admin', name: '가상 대표' },
+    { commandId: `orphan-${++sequence}`, now: new Date().toISOString() },
+  );
+  changed.reports[0].fileId = 'missing-file';
+  await assert.rejects(
+    commitFlow(initial, changed),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  assert.equal(await readFlow(initial.caseId), null);
+});
+
 void test('FLOW dashboard validates full stored structure before SQLite projection', async () => {
   await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
   const flow = await fixture();
@@ -533,6 +711,32 @@ void test('FLOW dashboard rejects non-object hidden collection entries', async (
   await replaceStoredFlow(flow.caseId, (payload) => ({
     ...payload,
     files: [1],
+  }));
+  await assert.rejects(
+    stateWithConsultingFlows(await readPortalState()),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+});
+
+void test('FLOW dashboard rejects a hidden orphaned file reference', async () => {
+  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  const flow = await fixture();
+  await replaceStoredFlow(flow.caseId, (payload) => ({
+    ...payload,
+    requests: [
+      {
+        id: 'orphan-dashboard-request',
+        title: '자료',
+        required: true,
+        channel: '이메일',
+        recipient: partner.email,
+        dueDate: '',
+        status: 'received',
+        fileId: 'missing-file',
+        note: '',
+        createdAt: new Date().toISOString(),
+      },
+    ],
   }));
   await assert.rejects(
     stateWithConsultingFlows(await readPortalState()),
