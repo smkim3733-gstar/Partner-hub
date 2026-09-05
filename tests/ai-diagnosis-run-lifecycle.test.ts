@@ -200,6 +200,66 @@ void test('AI diagnosis runs preserve one durable forward lifecycle', async () =
   );
 });
 
+void test('AI diagnosis run identity fields stay within the API envelope', async () => {
+  const db = companyFileDatabase();
+  await ensureAiDiagnosisTables(db);
+  const base = claimInput(
+    'diagnosis-field-boundary',
+    'diagnosis-field-boundary-case',
+  );
+  const invalidClaims = [
+    { ...base, requestId: 'unsafe request id' },
+    { ...base, caseId: '가'.repeat(121) },
+    { ...base, company: '가'.repeat(101) },
+    { ...base, instructionVersion: 'v'.repeat(101) },
+    { ...base, model: 'm'.repeat(201) },
+    { ...base, createdByUserId: 'u'.repeat(257) },
+  ];
+  for (const input of invalidClaims)
+    await assert.rejects(
+      claimStepZeroRequest(input),
+      /실행 신원 형식이 올바르지 않습니다/,
+    );
+
+  const directBase = {
+    id: 'diagnosis-direct-field-boundary',
+    caseId: 'diagnosis-direct-field-case',
+    company: '가상 진단기업',
+    instructionVersion: 'v1',
+    model: 'model',
+    actorId: 'admin',
+  };
+  for (const values of [
+    { ...directBase, id: 'unsafe id' },
+    { ...directBase, caseId: '가'.repeat(121) },
+    { ...directBase, company: '가'.repeat(101) },
+    { ...directBase, instructionVersion: 'v'.repeat(101) },
+    { ...directBase, model: 'm'.repeat(201) },
+    { ...directBase, actorId: 'u'.repeat(257) },
+  ])
+    await assert.rejects(
+      db
+        .prepare(
+          `INSERT INTO ai_diagnosis_runs
+            (id, case_id, company, stage, status, instruction_version, model,
+             result_json, input_tokens, output_tokens, created_by_user_id, created_at)
+           VALUES (?1, ?2, ?3, 'Step 0', '생성중', ?4, ?5, ?6, 0, 0, ?7,
+             '2026-09-05T00:00:00.000Z')`,
+        )
+        .bind(
+          values.id,
+          values.caseId,
+          values.company,
+          values.instructionVersion,
+          values.model,
+          JSON.stringify({ _requestFingerprint: fingerprint }),
+          values.actorId,
+        )
+        .run(),
+      /field envelope is invalid/,
+    );
+});
+
 void test('application code has one AI diagnosis run writer and no deleter', async () => {
   const files = (
     await Promise.all(

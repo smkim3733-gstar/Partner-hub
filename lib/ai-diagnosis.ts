@@ -1,5 +1,6 @@
 import {
   aiDiagnosisRunsCaseIndexSql,
+  aiDiagnosisRunsFieldEnvelopeTriggerSql,
   aiDiagnosisRunsIdentityTriggerSql,
   aiDiagnosisRunsInsertEnvelopeTriggerSql,
   aiDiagnosisRunsNoDeleteTriggerSql,
@@ -11,6 +12,7 @@ import {
 } from '@/db/schema';
 import { companyFileDatabase } from '@/lib/company-files';
 import {
+  AI_DIAGNOSIS_RUN_FIELD_LIMITS,
   STEP_ZERO_PENDING_LIMIT_BYTES,
   STEP_ZERO_RESULT_LIMIT_BYTES,
 } from '@/lib/storage-limits';
@@ -65,11 +67,38 @@ export async function ensureAiDiagnosisTables(db: D1Database) {
     db.prepare(aiDiagnosisRunsPendingCaseIndexSql),
     db.prepare(aiDiagnosisRunsInsertEnvelopeTriggerSql),
     db.prepare(aiDiagnosisRunsPendingEnvelopeTriggerSql),
+    db.prepare(aiDiagnosisRunsFieldEnvelopeTriggerSql),
     db.prepare(aiDiagnosisRunsIdentityTriggerSql),
     db.prepare(aiDiagnosisRunsTransitionTriggerSql),
     db.prepare(aiDiagnosisRunsResultEnvelopeTriggerSql),
     db.prepare(aiDiagnosisRunsNoDeleteTriggerSql),
   ]);
+}
+
+function boundedIdentity(value: string, maximum: number) {
+  return (
+    value.length > 0 &&
+    value === value.trim() &&
+    Array.from(value).length <= maximum
+  );
+}
+
+function assertValidStepZeroClaimInput(input: StepZeroClaimInput) {
+  if (
+    !/^[A-Za-z0-9_-]{16,100}$/.test(input.requestId) ||
+    !boundedIdentity(input.caseId, AI_DIAGNOSIS_RUN_FIELD_LIMITS.caseId) ||
+    !boundedIdentity(input.company, AI_DIAGNOSIS_RUN_FIELD_LIMITS.company) ||
+    !boundedIdentity(
+      input.instructionVersion,
+      AI_DIAGNOSIS_RUN_FIELD_LIMITS.instructionVersion,
+    ) ||
+    !boundedIdentity(input.model, AI_DIAGNOSIS_RUN_FIELD_LIMITS.model) ||
+    !boundedIdentity(
+      input.createdByUserId,
+      AI_DIAGNOSIS_RUN_FIELD_LIMITS.actorId,
+    )
+  )
+    throw new Error('AI 진단 실행 신원 형식이 올바르지 않습니다.');
 }
 
 export function serializeStepZeroPendingEnvelope(requestFingerprint: string) {
@@ -229,6 +258,7 @@ function storedFingerprint(row: AiDiagnosisRunRow) {
 export async function claimStepZeroRequest(
   input: StepZeroClaimInput,
 ): Promise<StepZeroClaim> {
+  assertValidStepZeroClaimInput(input);
   const db = companyFileDatabase();
   await ensureAiDiagnosisTables(db);
   const result = await db

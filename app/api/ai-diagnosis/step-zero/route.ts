@@ -25,6 +25,7 @@ import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
 import { isCrossSiteRequest } from '@/lib/request-origin';
 import { QueryRequestError, readSingleQueryParam } from '@/lib/request-query';
 import { privateJsonResponse } from '@/lib/private-response';
+import { AI_DIAGNOSIS_RUN_FIELD_LIMITS } from '@/lib/storage-limits';
 
 export const dynamic = 'force-dynamic';
 
@@ -219,7 +220,11 @@ export async function POST(request: Request) {
     const runtime = env as unknown as AiRuntimeEnvironment;
     const apiKey = runtime.ANTHROPIC_API_KEY?.trim();
     const model = runtime.ANTHROPIC_MODEL?.trim();
-    if (!apiKey || !model) {
+    if (
+      !apiKey ||
+      !model ||
+      Array.from(model).length > AI_DIAGNOSIS_RUN_FIELD_LIMITS.model
+    ) {
       return privateJsonResponse(
         { error: 'Anthropic API 키와 사용 모델 연결이 필요합니다.' },
         { status: 503 },

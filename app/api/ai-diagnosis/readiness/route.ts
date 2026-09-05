@@ -7,6 +7,7 @@ import {
 import { PortalAccessError, requirePortalUser } from '@/lib/portal-auth';
 import { readPortalState } from '@/lib/portal-state';
 import { privateJsonResponse } from '@/lib/private-response';
+import { AI_DIAGNOSIS_RUN_FIELD_LIMITS } from '@/lib/storage-limits';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,7 +40,10 @@ export async function GET(request: Request) {
 
     const runtime = env as unknown as AiRuntimeEnvironment;
     const apiKeyConfigured = Boolean(runtime.ANTHROPIC_API_KEY?.trim());
-    const modelConfigured = Boolean(runtime.ANTHROPIC_MODEL?.trim());
+    const model = runtime.ANTHROPIC_MODEL?.trim();
+    const modelConfigured = Boolean(
+      model && Array.from(model).length <= AI_DIAGNOSIS_RUN_FIELD_LIMITS.model,
+    );
     const sourceStorageConfigured = Boolean(runtime.AI_SOURCE_FILES);
     const generationEnabled =
       apiKeyConfigured && modelConfigured && sourceStorageConfigured;
@@ -52,7 +56,7 @@ export async function GET(request: Request) {
       migration: CLAUDE_FLOW_MIGRATION_SUMMARY,
       apiKeyConfigured,
       modelConfigured,
-      model: modelConfigured ? runtime.ANTHROPIC_MODEL?.trim() : null,
+      model: modelConfigured ? model : null,
       sourceStorageConfigured,
       generationEnabled,
       nextAction: !apiKeyConfigured

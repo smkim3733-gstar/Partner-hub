@@ -376,6 +376,13 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
     );
 
     await writePortalState(state());
+    runtime.ANTHROPIC_MODEL = 'm'.repeat(201);
+    assert.equal(
+      (await POST(request('step-zero-oversized-model'))).status,
+      503,
+    );
+    assert.equal(externalCalls, 0, 'oversized model must fail before fetch');
+    runtime.ANTHROPIC_MODEL = 'synthetic-step-zero-model';
     const generated = await POST(request());
     assert.equal(generated.status, 201, await generated.clone().text());
     assert.equal(externalCalls, 1);

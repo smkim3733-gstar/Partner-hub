@@ -446,6 +446,44 @@ try {
   checks.push('portal state D1 writes enforce the UTF-8 payload capacity');
   const diagnosisFingerprint = 'a'.repeat(64);
   const diagnosisRunId = 'migration-diagnosis-lifecycle';
+  const diagnosisIdentityBase = {
+    id: 'migration-diagnosis-field-boundary',
+    caseId: 'migration-diagnosis-field-case',
+    company: '가상 진단기업',
+    instructionVersion: 'v1',
+    model: 'model',
+    actorId: 'admin',
+  };
+  for (const values of [
+    { ...diagnosisIdentityBase, id: 'unsafe id' },
+    { ...diagnosisIdentityBase, caseId: '가'.repeat(121) },
+    { ...diagnosisIdentityBase, company: '가'.repeat(101) },
+    { ...diagnosisIdentityBase, instructionVersion: 'v'.repeat(101) },
+    { ...diagnosisIdentityBase, model: 'm'.repeat(201) },
+    { ...diagnosisIdentityBase, actorId: 'u'.repeat(257) },
+  ])
+    await assert.rejects(
+      db
+        .prepare(
+          `INSERT INTO ai_diagnosis_runs
+            (id, case_id, company, stage, status, instruction_version, model,
+             result_json, input_tokens, output_tokens, created_by_user_id, created_at)
+           VALUES (?1, ?2, ?3, 'Step 0', '생성중', ?4, ?5, ?6, 0, 0, ?7,
+             '2026-09-05T00:00:00.000Z')`,
+        )
+        .bind(
+          values.id,
+          values.caseId,
+          values.company,
+          values.instructionVersion,
+          values.model,
+          JSON.stringify({ _requestFingerprint: diagnosisFingerprint }),
+          values.actorId,
+        )
+        .run(),
+      /field envelope is invalid/,
+    );
+  checks.push('AI diagnosis run identity fields keep bounded API envelopes');
   for (const [index, resultJson] of [
     JSON.stringify({
       _requestFingerprint: diagnosisFingerprint,
