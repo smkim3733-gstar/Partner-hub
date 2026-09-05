@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `52a5e8ef29ea8f23c2e9740e12531c80019a9593` (`fix: preserve FLOW AI failure history`)
-- 최신 기능: 상담 FLOW 공급자 실패 증거의 재시도 전 이력 이동·성공 후 최대 20건 보존
+- 최신 기능 커밋: `03b024f8afe2595bf5d5950cbfd5a1ce4bab9276` (`fix: timestamp FLOW AI failures`)
+- 최신 기능: 상담 FLOW 공급자 HTTP 실패의 UTC 관측시각 보존과 작업·FLOW 시간선 및 재시도 이력 순서 결속
 - 검증: Node 회귀 검사 644개, 격리 workerd/D1/R2 검사 451개, 타입검사, 전체 lint, 변경 파일 포맷 검사, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200·CSP·`DENY`·`nosniff`·`no-referrer` 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 197 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_a653bf394ae48191bef23ce8c5ee217d`), 소스 `52a5e8ef29ea8f23c2e9740e12531c80019a9593`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–196은 버전 197로 대체해 배포하지 않으며, FLOW AI 실패 이력 보완본 버전 197이 정확한 버전 운영 배포 승인 대기 중이다.
+- 최신 Sites 저장 버전: 198 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_02d8a0a32cb08191b9abffa10ec325ce`), 소스 `03b024f8afe2595bf5d5950cbfd5a1ce4bab9276`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–197은 버전 198로 대체해 배포하지 않으며, FLOW AI 실패 관측시각 보완본 버전 198이 정확한 버전 운영 배포 승인 대기 중이다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -44,7 +44,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW AI 실패 이력 무결성 경계](FLOW_AI_FAILURE_HISTORY_INTEGRITY_2026_09_06.md)를 확인한다.
+먼저 [상담 FLOW AI 실패 관측시각 무결성 경계](FLOW_AI_FAILURE_TIMESTAMP_INTEGRITY_2026_09_06.md)를 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
