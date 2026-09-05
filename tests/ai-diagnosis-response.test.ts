@@ -131,6 +131,8 @@ void test('mismatched or malformed Step 0 results never reach the screen', async
     { ...run, usage: { inputTokens: -1, outputTokens: 20 } },
     { ...run, createdAt: 'not-a-date' },
     { ...run, result: { ...run.result, mainRisks: [3] } },
+    { ...run, model: '손상�모델' },
+    { ...run, result: { ...run.result, mainRisks: ['손상\u0001위험'] } },
   ])
     await assert.rejects(
       readStepZeroRunResponse(Response.json({ run: value }), {

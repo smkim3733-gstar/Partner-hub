@@ -26,6 +26,7 @@ import { isCrossSiteRequest } from '@/lib/request-origin';
 import { QueryRequestError, readSingleQueryParam } from '@/lib/request-query';
 import { privateJsonResponse } from '@/lib/private-response';
 import { AI_DIAGNOSIS_RUN_FIELD_LIMITS } from '@/lib/storage-limits';
+import { isSafeStoredText } from '@/lib/unicode-text';
 
 export const dynamic = 'force-dynamic';
 
@@ -223,6 +224,7 @@ export async function POST(request: Request) {
     if (
       !apiKey ||
       !model ||
+      !isSafeStoredText(model) ||
       Array.from(model).length > AI_DIAGNOSIS_RUN_FIELD_LIMITS.model
     ) {
       return privateJsonResponse(

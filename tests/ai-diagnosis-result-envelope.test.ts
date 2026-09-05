@@ -70,6 +70,14 @@ void test('Step 0 parser rejects missing, malformed and over-limit fields', () =
     },
     { ...validResult(), companyOverview: '가'.repeat(12_001) },
     { ...validResult(), confirmedStrengths: ['가'.repeat(4_001)] },
+    { ...validResult(), companyOverview: '손상 문자열\ud800' },
+    { ...validResult(), mainRisks: ['위험\u0001'] },
+    {
+      ...validResult(),
+      solutionCandidates: [
+        { solution: '방안', basis: '근거', condition: '손상�문자열' },
+      ],
+    },
   ];
 
   for (const value of invalidValues)

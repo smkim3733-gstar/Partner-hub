@@ -484,6 +484,31 @@ try {
       /field envelope is invalid/,
     );
   checks.push('AI diagnosis run identity fields keep bounded API envelopes');
+  for (const values of [
+    { ...diagnosisIdentityBase, company: '손상\u0001기업' },
+    { ...diagnosisIdentityBase, model: '손상�모델' },
+  ])
+    await assert.rejects(
+      db
+        .prepare(
+          `INSERT INTO ai_diagnosis_runs
+            (id, case_id, company, stage, status, instruction_version, model,
+             result_json, input_tokens, output_tokens, created_by_user_id, created_at)
+           VALUES (?1, ?2, ?3, 'Step 0', '생성중', ?4, ?5, ?6, 0, 0, ?7,
+             '2026-09-05T00:00:00.000Z')`,
+        )
+        .bind(
+          values.id,
+          values.caseId,
+          values.company,
+          values.instructionVersion,
+          values.model,
+          JSON.stringify({ _requestFingerprint: diagnosisFingerprint }),
+          values.actorId,
+        )
+        .run(),
+      /text envelope is invalid/,
+    );
   for (const [index, resultJson] of [
     JSON.stringify({
       _requestFingerprint: diagnosisFingerprint,
@@ -581,6 +606,24 @@ try {
         .run(),
       /result envelope is invalid/,
     );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE ai_diagnosis_runs SET status = '대표 검토 대기',
+          result_json = ?1, input_tokens = 10, output_tokens = 20,
+          created_at = ?2 WHERE id = ?3`,
+      )
+      .bind(
+        JSON.stringify({
+          ...JSON.parse(completedDiagnosisResult),
+          mainRisks: ['손상\ud800문자열'],
+        }),
+        '2026-09-05T00:01:00.000Z',
+        diagnosisRunId,
+      )
+      .run(),
+    /text envelope is invalid/,
+  );
   await db
     .prepare(
       `UPDATE ai_diagnosis_runs SET status = '대표 검토 대기',
@@ -605,6 +648,7 @@ try {
   );
   checks.push('AI diagnosis runs keep one durable forward lifecycle');
   checks.push('AI diagnosis completed results keep one exact bounded envelope');
+  checks.push('AI diagnosis identity and result text reject unsafe Unicode');
   assert.deepEqual(
     await db
       .prepare(

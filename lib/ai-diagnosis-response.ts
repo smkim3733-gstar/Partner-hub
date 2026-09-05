@@ -1,7 +1,5 @@
-import type {
-  SavedStepZeroRun,
-  StepZeroResult,
-} from './ai-diagnosis';
+import type { SavedStepZeroRun, StepZeroResult } from './ai-diagnosis';
+import { isSafeStoredText } from './unicode-text';
 
 type JsonObject = Record<string, unknown>;
 
@@ -38,6 +36,7 @@ function text(value: unknown, maxLength = 12_000) {
   return (
     typeof value === 'string' &&
     value.trim().length > 0 &&
+    isSafeStoredText(value) &&
     value.length <= maxLength
   );
 }
@@ -62,10 +61,7 @@ async function json(response: Response, fallback: string) {
 export async function readAiIntegrationReadinessResponse(
   response: Response,
 ): Promise<AiIntegrationReadiness> {
-  const raw = await json(
-    response,
-    'AI 연동 준비상태 응답을 읽지 못했습니다.',
-  );
+  const raw = await json(response, 'AI 연동 준비상태 응답을 읽지 못했습니다.');
   if (!response.ok)
     throw new AiDiagnosisResponseError(
       serverError(raw) || 'AI 연동 준비상태를 확인하지 못했습니다.',
@@ -156,7 +152,8 @@ function parseResult(value: unknown): StepZeroResult | null {
     companyOverview: result.companyOverview as string,
     confirmedStrengths,
     mainRisks,
-    solutionCandidates: solutionCandidates as StepZeroResult['solutionCandidates'],
+    solutionCandidates:
+      solutionCandidates as StepZeroResult['solutionCandidates'],
     verificationQuestions,
     missingDocuments,
     complianceNotes,

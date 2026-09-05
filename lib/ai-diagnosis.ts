@@ -1,12 +1,14 @@
 import {
   aiDiagnosisRunsCaseIndexSql,
   aiDiagnosisRunsFieldEnvelopeTriggerSql,
+  aiDiagnosisRunsFieldTextTriggerSql,
   aiDiagnosisRunsIdentityTriggerSql,
   aiDiagnosisRunsInsertEnvelopeTriggerSql,
   aiDiagnosisRunsNoDeleteTriggerSql,
   aiDiagnosisRunsPendingCaseIndexSql,
   aiDiagnosisRunsPendingEnvelopeTriggerSql,
   aiDiagnosisRunsResultEnvelopeTriggerSql,
+  aiDiagnosisRunsResultTextTriggerSql,
   aiDiagnosisRunsTableSql,
   aiDiagnosisRunsTransitionTriggerSql,
 } from '@/db/schema';
@@ -16,6 +18,7 @@ import {
   STEP_ZERO_PENDING_LIMIT_BYTES,
   STEP_ZERO_RESULT_LIMIT_BYTES,
 } from '@/lib/storage-limits';
+import { isSafeStoredText } from '@/lib/unicode-text';
 
 export type StepZeroResult = {
   companyOverview: string;
@@ -68,9 +71,11 @@ export async function ensureAiDiagnosisTables(db: D1Database) {
     db.prepare(aiDiagnosisRunsInsertEnvelopeTriggerSql),
     db.prepare(aiDiagnosisRunsPendingEnvelopeTriggerSql),
     db.prepare(aiDiagnosisRunsFieldEnvelopeTriggerSql),
+    db.prepare(aiDiagnosisRunsFieldTextTriggerSql),
     db.prepare(aiDiagnosisRunsIdentityTriggerSql),
     db.prepare(aiDiagnosisRunsTransitionTriggerSql),
     db.prepare(aiDiagnosisRunsResultEnvelopeTriggerSql),
+    db.prepare(aiDiagnosisRunsResultTextTriggerSql),
     db.prepare(aiDiagnosisRunsNoDeleteTriggerSql),
   ]);
 }
@@ -79,6 +84,7 @@ function boundedIdentity(value: string, maximum: number) {
   return (
     value.length > 0 &&
     value === value.trim() &&
+    isSafeStoredText(value) &&
     Array.from(value).length <= maximum
   );
 }
@@ -113,7 +119,11 @@ export function serializeStepZeroPendingEnvelope(requestFingerprint: string) {
 function boundedText(value: unknown, maxLength: number, allowEmpty = false) {
   if (typeof value !== 'string') return null;
   const normalized = value.trim();
-  if ((!normalized && !allowEmpty) || Array.from(normalized).length > maxLength)
+  if (
+    (!normalized && !allowEmpty) ||
+    !isSafeStoredText(normalized) ||
+    Array.from(normalized).length > maxLength
+  )
     return null;
   return normalized;
 }

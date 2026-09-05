@@ -8,6 +8,7 @@ import { PortalAccessError, requirePortalUser } from '@/lib/portal-auth';
 import { readPortalState } from '@/lib/portal-state';
 import { privateJsonResponse } from '@/lib/private-response';
 import { AI_DIAGNOSIS_RUN_FIELD_LIMITS } from '@/lib/storage-limits';
+import { isSafeStoredText } from '@/lib/unicode-text';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,7 +43,9 @@ export async function GET(request: Request) {
     const apiKeyConfigured = Boolean(runtime.ANTHROPIC_API_KEY?.trim());
     const model = runtime.ANTHROPIC_MODEL?.trim();
     const modelConfigured = Boolean(
-      model && Array.from(model).length <= AI_DIAGNOSIS_RUN_FIELD_LIMITS.model,
+      model &&
+      isSafeStoredText(model) &&
+      Array.from(model).length <= AI_DIAGNOSIS_RUN_FIELD_LIMITS.model,
     );
     const sourceStorageConfigured = Boolean(runtime.AI_SOURCE_FILES);
     const generationEnabled =

@@ -302,6 +302,13 @@ export const aiDiagnosisRunsPendingEnvelopeTriggerSql = `CREATE TRIGGER IF NOT E
 
 export const aiDiagnosisRunsFieldEnvelopeTriggerSql = `CREATE TRIGGER IF NOT EXISTS ai_diagnosis_runs_field_envelope_guard BEFORE INSERT ON ai_diagnosis_runs WHEN length(NEW.id) NOT BETWEEN 16 AND ${AI_DIAGNOSIS_RUN_FIELD_LIMITS.requestId} OR NEW.id GLOB '*[^A-Za-z0-9_-]*' OR length(NEW.case_id) NOT BETWEEN 1 AND ${AI_DIAGNOSIS_RUN_FIELD_LIMITS.caseId} OR length(NEW.company) NOT BETWEEN 1 AND ${AI_DIAGNOSIS_RUN_FIELD_LIMITS.company} OR length(NEW.instruction_version) NOT BETWEEN 1 AND ${AI_DIAGNOSIS_RUN_FIELD_LIMITS.instructionVersion} OR length(NEW.model) NOT BETWEEN 1 AND ${AI_DIAGNOSIS_RUN_FIELD_LIMITS.model} OR length(NEW.created_by_user_id) NOT BETWEEN 1 AND ${AI_DIAGNOSIS_RUN_FIELD_LIMITS.actorId} BEGIN SELECT RAISE(ABORT, 'AI diagnosis run field envelope is invalid'); END`;
 
+const invalidStoredTextSql = (column: string) =>
+  `EXISTS (WITH RECURSIVE character_positions(position) AS (VALUES(1) UNION ALL SELECT position + 1 FROM character_positions WHERE position < length(${column})) SELECT 1 FROM character_positions WHERE unicode(substr(${column}, position, 1)) BETWEEN 0 AND 8 OR unicode(substr(${column}, position, 1)) BETWEEN 11 AND 12 OR unicode(substr(${column}, position, 1)) BETWEEN 14 AND 31 OR unicode(substr(${column}, position, 1)) BETWEEN 127 AND 159 OR unicode(substr(${column}, position, 1)) = 65533)`;
+
+export const aiDiagnosisRunsFieldTextTriggerSql = `CREATE TRIGGER IF NOT EXISTS ai_diagnosis_runs_field_text_guard BEFORE INSERT ON ai_diagnosis_runs WHEN EXISTS (SELECT 1 FROM json_each(json_array(NEW.id, NEW.case_id, NEW.company, NEW.instruction_version, NEW.model, NEW.created_by_user_id)) AS field WHERE ${invalidStoredTextSql('field.value')}) BEGIN SELECT RAISE(ABORT, 'AI diagnosis run text envelope is invalid'); END`;
+
+export const aiDiagnosisRunsResultTextTriggerSql = `CREATE TRIGGER IF NOT EXISTS ai_diagnosis_runs_result_text_guard BEFORE UPDATE ON ai_diagnosis_runs WHEN NEW.status = '대표 검토 대기' AND EXISTS (SELECT 1 FROM json_tree(NEW.result_json) AS field WHERE field.type = 'text' AND ${invalidStoredTextSql('field.value')}) BEGIN SELECT RAISE(ABORT, 'AI diagnosis run text envelope is invalid'); END`;
+
 export const aiDiagnosisRunsIdentityTriggerSql =
   "CREATE TRIGGER IF NOT EXISTS ai_diagnosis_runs_identity_immutable BEFORE UPDATE ON ai_diagnosis_runs WHEN NEW.id IS NOT OLD.id OR NEW.case_id IS NOT OLD.case_id OR NEW.company IS NOT OLD.company OR NEW.stage IS NOT OLD.stage OR NEW.instruction_version IS NOT OLD.instruction_version OR NEW.model IS NOT OLD.model OR NEW.created_by_user_id IS NOT OLD.created_by_user_id BEGIN SELECT RAISE(ABORT, 'AI diagnosis run identity is immutable'); END";
 

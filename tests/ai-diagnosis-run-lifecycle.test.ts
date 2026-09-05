@@ -158,6 +158,20 @@ void test('AI diagnosis runs preserve one durable forward lifecycle', async () =
         .run(),
       /result envelope is invalid/,
     );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE ai_diagnosis_runs SET status = '대표 검토 대기',
+          result_json = ?1, input_tokens = 10, output_tokens = 20,
+          created_at = '2026-09-05T00:01:00.000Z' WHERE id = ?2`,
+      )
+      .bind(
+        JSON.stringify({ ...validEnvelope, mainRisks: ['손상\ud800문자열'] }),
+        runId,
+      )
+      .run(),
+    /text envelope is invalid/,
+  );
   assert.deepEqual(
     await db
       .prepare('SELECT * FROM ai_diagnosis_runs WHERE id = ?1')
@@ -214,6 +228,8 @@ void test('AI diagnosis run identity fields stay within the API envelope', async
     { ...base, instructionVersion: 'v'.repeat(101) },
     { ...base, model: 'm'.repeat(201) },
     { ...base, createdByUserId: 'u'.repeat(257) },
+    { ...base, company: '손상\ud800기업' },
+    { ...base, model: '손상\u0001모델' },
   ];
   for (const input of invalidClaims)
     await assert.rejects(
@@ -257,6 +273,32 @@ void test('AI diagnosis run identity fields stay within the API envelope', async
         )
         .run(),
       /field envelope is invalid/,
+    );
+
+  for (const values of [
+    { ...directBase, company: '손상\u0001기업' },
+    { ...directBase, model: '손상�모델' },
+  ])
+    await assert.rejects(
+      db
+        .prepare(
+          `INSERT INTO ai_diagnosis_runs
+            (id, case_id, company, stage, status, instruction_version, model,
+             result_json, input_tokens, output_tokens, created_by_user_id, created_at)
+           VALUES (?1, ?2, ?3, 'Step 0', '생성중', ?4, ?5, ?6, 0, 0, ?7,
+             '2026-09-05T00:00:00.000Z')`,
+        )
+        .bind(
+          values.id,
+          values.caseId,
+          values.company,
+          values.instructionVersion,
+          values.model,
+          JSON.stringify({ _requestFingerprint: fingerprint }),
+          values.actorId,
+        )
+        .run(),
+      /text envelope is invalid/,
     );
 });
 
