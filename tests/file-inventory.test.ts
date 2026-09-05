@@ -41,7 +41,6 @@ async function seed(documents: unknown[] = []) {
   await db.batch([
     db.prepare('DELETE FROM company_file_object_integrity'),
     db.prepare('DELETE FROM company_file_storage_keys'),
-    db.prepare('DELETE FROM company_file_metadata'),
     db.prepare('DELETE FROM company_file_case_links'),
     db.prepare('DELETE FROM company_file_assignments'),
     db.prepare('DELETE FROM company_file_objects'),
@@ -63,6 +62,7 @@ async function file(
   status?: 'pending' | 'ready' | 'deleted',
   metadata = true,
   caseId?: string,
+  metadataLedger = true,
 ) {
   const db = companyFileDatabase();
   if (metadata) {
@@ -80,15 +80,16 @@ async function file(
         date,
       )
       .run();
-    await db
-      .prepare(`INSERT INTO company_file_metadata
-        (file_id, original_name, company, category, title, assigned_trainee,
-         uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
-        SELECT id, original_name, company, category, title, assigned_trainee,
-          uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at
-        FROM company_file_objects WHERE id = ?1`)
-      .bind(id)
-      .run();
+    if (metadataLedger)
+      await db
+        .prepare(`INSERT INTO company_file_metadata
+          (file_id, original_name, company, category, title, assigned_trainee,
+           uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
+          SELECT id, original_name, company, category, title, assigned_trainee,
+            uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at
+          FROM company_file_objects WHERE id = ?1`)
+        .bind(id)
+        .run();
     await db
       .prepare(
         'INSERT INTO company_file_assignments (file_id, partner_member_id) VALUES (?1, ?2)',
@@ -167,7 +168,7 @@ void test('actual document and intake references distinguish linked files from s
   await file('integrity-missing', 'ready');
   await file('integrity-mime-mismatch', 'ready');
   await file('storage-key-mismatch', 'ready');
-  await file('metadata-ledger-missing', 'ready');
+  await file('metadata-ledger-missing', 'ready', true, undefined, false);
   await file('metadata-title-mismatch', 'ready');
   await file('deletion-incomplete', 'deleted');
   await file('deleted-reference', 'deleted', false);
@@ -185,10 +186,6 @@ void test('actual document and intake references distinguish linked files from s
     .prepare(`UPDATE company_file_objects
       SET storage_key = 'company-source/another-file' WHERE id = ?1`)
     .bind('storage-key-mismatch')
-    .run();
-  await companyFileDatabase()
-    .prepare('DELETE FROM company_file_metadata WHERE file_id = ?1')
-    .bind('metadata-ledger-missing')
     .run();
   await companyFileDatabase()
     .prepare(

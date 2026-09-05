@@ -3,6 +3,8 @@ import { env } from 'cloudflare:workers';
 import {
   companyFileAssignmentsTableSql,
   companyFileCaseLinksTableSql,
+  companyFileMetadataNoDirectDeleteTriggerSql,
+  companyFileMetadataNoUpdateTriggerSql,
   companyFileMetadataTableSql,
   companyFileObjectIntegrityTableSql,
   companyFileObjectsCompanyIndexSql,
@@ -102,6 +104,8 @@ export async function ensureCompanyFileTables(db: D1Database) {
     db.prepare(companyFileObjectIntegrityTableSql),
     db.prepare(companyFileStorageKeysTableSql),
     db.prepare(companyFileMetadataTableSql),
+    db.prepare(companyFileMetadataNoUpdateTriggerSql),
+    db.prepare(companyFileMetadataNoDirectDeleteTriggerSql),
     db.prepare(companyFileAssignmentsTableSql),
     db.prepare(companyFileCaseLinksTableSql),
     db.prepare(companyFileUploadRequestsTableSql),

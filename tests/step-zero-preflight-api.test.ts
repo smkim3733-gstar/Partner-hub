@@ -171,7 +171,6 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
     db.prepare('DELETE FROM ai_diagnosis_runs'),
     db.prepare('DELETE FROM company_file_object_integrity'),
     db.prepare('DELETE FROM company_file_storage_keys'),
-    db.prepare('DELETE FROM company_file_metadata'),
     db.prepare('DELETE FROM company_file_case_links'),
     db.prepare('DELETE FROM company_file_assignments'),
     db.prepare('DELETE FROM company_file_upload_requests'),

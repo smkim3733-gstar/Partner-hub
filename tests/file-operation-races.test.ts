@@ -602,6 +602,39 @@ void test('new uploads bind every immutable company-file metadata fact in D1', a
   assert.deepEqual({ ...metadata }, { ...facts });
 });
 
+void test('metadata ledger rejects direct mutation but permits guarded parent deletion', async () => {
+  await seed();
+  const id = await create(),
+    db = companyFileDatabase(),
+    bucket = companyFileBucket();
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE company_file_metadata SET title = '직접 변경' WHERE file_id = ?1",
+      )
+      .bind(id)
+      .run(),
+    /immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM company_file_metadata WHERE file_id = ?1')
+      .bind(id)
+      .run(),
+    /requires parent deletion/,
+  );
+  assert.ok(await bucket.get(`company-source/${id}`));
+  assert.equal((await remove(request('DELETE'), context(id))).status, 204);
+  assert.equal(
+    await db
+      .prepare('SELECT file_id FROM company_file_metadata WHERE file_id = ?1')
+      .bind(id)
+      .first(),
+    null,
+  );
+  assert.equal(await bucket.get(`company-source/${id}`), null);
+});
+
 void test('download rejects valid-looking company metadata drift before R2 access', async () => {
   await seed();
   const id = await create(),

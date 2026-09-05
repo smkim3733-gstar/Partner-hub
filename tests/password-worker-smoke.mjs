@@ -144,6 +144,21 @@ function assertPrivateAuthResponse(response) {
   assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
 }
+function migrationStatements(source) {
+  const statements = [];
+  let pending = '';
+  for (const part of source.replace(/^--.*$/gm, '').split(';')) {
+    const fragment = part.trim();
+    if (!fragment) continue;
+    pending = pending ? `${pending};${fragment}` : fragment;
+    if (/^CREATE\s+TRIGGER\b/i.test(pending) && !/\bEND$/i.test(pending))
+      continue;
+    statements.push(`${pending};`);
+    pending = '';
+  }
+  assert.equal(pending, '', 'migration must end with a complete SQL statement');
+  return statements;
+}
 try {
   const db = await mf.getD1Database('DB');
   await db
@@ -189,12 +204,16 @@ try {
         path.join(project, 'drizzle', name),
         'utf8',
       );
-      for (const sql of migration
-        .replace(/^--.*$/gm, '')
-        .split(';')
-        .map((s) => s.trim())
-        .filter(Boolean))
-        await db.prepare(sql).run();
+      for (const sql of migrationStatements(migration))
+        try {
+          if (/^CREATE\s+TRIGGER\b/i.test(sql))
+            await db.exec(sql.replace(/\s+/g, ' '));
+          else await db.prepare(sql).run();
+        } catch (error) {
+          throw new Error(
+            `Migration ${name} failed for ${sql}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
       if (pass === 0 && name === '0014_consulting_flow_file_owners.sql') {
         await db
           .prepare(
@@ -341,10 +360,6 @@ try {
   checks.push(
     'pre-version-169 company originals receive exact legacy metadata facts',
   );
-  await db
-    .prepare('DELETE FROM company_file_metadata WHERE file_id = ?1')
-    .bind(migrationCompanyFile.id)
-    .run();
   await db
     .prepare('DELETE FROM company_file_storage_keys WHERE file_id = ?1')
     .bind(migrationCompanyFile.id)
@@ -1252,8 +1267,27 @@ try {
     .bind(normalizedFile.id)
     .first();
   assert.deepEqual(normalizedMetadataFacts, normalizedObjectFacts);
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE company_file_metadata SET title = '직접 변경' WHERE file_id = ?1",
+      )
+      .bind(normalizedFile.id)
+      .run(),
+    /immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM company_file_metadata WHERE file_id = ?1')
+      .bind(normalizedFile.id)
+      .run(),
+    /requires parent deletion/,
+  );
   checks.push(
     'new company uploads bind registry MIME, native R2 ETag, storage key and immutable metadata in D1',
+  );
+  checks.push(
+    'company metadata ledger rejects direct rewrite and removal in native D1',
   );
   const deletionGuardFile = (
     await (
@@ -1695,9 +1729,6 @@ try {
       .prepare('DELETE FROM company_file_upload_requests WHERE file_id = ?1')
       .bind(inventoryIntegrityId),
     db
-      .prepare('DELETE FROM company_file_metadata WHERE file_id = ?1')
-      .bind(inventoryIntegrityId),
-    db
       .prepare('DELETE FROM company_file_objects WHERE id = ?1')
       .bind(inventoryIntegrityId),
   ]);
@@ -2028,12 +2059,11 @@ try {
       path.join(project, 'drizzle', name),
       'utf8',
     );
-    for (const sql of migration
-      .replace(/^--.*$/gm, '')
-      .split(';')
-      .map((s) => s.trim())
-      .filter(Boolean))
-      await db.prepare(sql).run();
+    for (const sql of migrationStatements(migration)) {
+      if (/^CREATE\s+TRIGGER\b/i.test(sql))
+        await db.exec(sql.replace(/\s+/g, ' '));
+      else await db.prepare(sql).run();
+    }
   }
   assert.equal(
     (

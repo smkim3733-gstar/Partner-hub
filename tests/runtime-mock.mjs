@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
 const sqlite = new DatabaseSync(':memory:');
+sqlite.exec('PRAGMA foreign_keys = ON');
 export const objects = new Map();
 const objectMetadata = new Map();
 const objectEtags = new Map();

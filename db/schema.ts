@@ -174,6 +174,14 @@ FROM company_file_objects
 ORDER BY created_at, id
 `;
 
+// D1 exec treats newlines as statement separators. Keep each trigger in one line
+// so the same definition is safe in runtime setup and one-shot migrations.
+export const companyFileMetadataNoUpdateTriggerSql =
+  "CREATE TRIGGER IF NOT EXISTS company_file_metadata_no_update BEFORE UPDATE ON company_file_metadata BEGIN SELECT RAISE(ABORT, 'company file metadata is immutable'); END";
+
+export const companyFileMetadataNoDirectDeleteTriggerSql =
+  "CREATE TRIGGER IF NOT EXISTS company_file_metadata_no_direct_delete BEFORE DELETE ON company_file_metadata WHEN EXISTS (SELECT 1 FROM company_file_objects WHERE id = OLD.file_id) BEGIN SELECT RAISE(ABORT, 'company file metadata requires parent deletion'); END";
+
 // A missing row denotes a legacy name assignment. An empty member ID explicitly
 // means administrator-only and must never fall back to a name match.
 export const companyFileAssignmentsTableSql = `

@@ -211,7 +211,6 @@ beforeEach(async () => {
     [
       'company_file_object_integrity',
       'company_file_storage_keys',
-      'company_file_metadata',
       'company_file_case_links',
       'company_file_assignments',
       'company_file_objects',
