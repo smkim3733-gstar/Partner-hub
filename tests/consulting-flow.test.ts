@@ -38,6 +38,7 @@ import {
   FLOW_COLLECTION_LIMITS,
   FLOW_TEXT_LIMITS,
   flowTextLength,
+  hasFlowAiFailureEvidenceHistoryStructure,
   hasFlowAiFailureEvidenceStructure,
   hasFlowAiEvidenceStructure,
   isWellFormedFlowText,
@@ -697,6 +698,20 @@ test('FLOW AI evidence accepts only complete exact bounded provider records', ()
     { ...aiFailureEvidence, providerRequestId: ' req_padded' },
   ])
     assert.equal(hasFlowAiFailureEvidenceStructure(evidence), false);
+  assert.equal(
+    hasFlowAiFailureEvidenceHistoryStructure([aiFailureEvidence]),
+    true,
+  );
+  assert.equal(hasFlowAiFailureEvidenceHistoryStructure([]), false);
+  assert.equal(
+    hasFlowAiFailureEvidenceHistoryStructure(
+      Array.from(
+        { length: FLOW_COLLECTION_LIMITS.aiFailureEvidenceHistory + 1 },
+        () => aiFailureEvidence,
+      ),
+    ),
+    false,
+  );
 });
 test('AI result capacity and report size are rejected before an invalid state is returned', () => {
   let flow = apply(start(), {
@@ -800,6 +815,20 @@ test('AI failures remain failed; stale/disabled job results cannot drive the wor
   assert.equal(failed.jobs[0].status, 'failed');
   assert.deepEqual(failed.jobs[0].failureEvidence, aiFailureEvidence);
   assert.equal(deepReport(failed), undefined);
+  const atHistoryCapacity = structuredClone(failed);
+  atHistoryCapacity.jobs[0].failureEvidenceHistory = Array.from(
+    { length: FLOW_COLLECTION_LIMITS.aiFailureEvidenceHistory },
+    () => ({ ...aiFailureEvidence }),
+  );
+  assert.throws(
+    () =>
+      apply(atHistoryCapacity, {
+        type: 'retry_job',
+        jobId: j.id,
+        costConsent: true,
+      }),
+    /이력이 가득/,
+  );
   const retried = apply(failed, {
     type: 'retry_job',
     jobId: j.id,
@@ -807,6 +836,7 @@ test('AI failures remain failed; stale/disabled job results cannot drive the wor
   });
   assert.equal(retried.jobs[0].status, 'queued');
   assert.equal(retried.jobs[0].failureEvidence, undefined);
+  assert.deepEqual(retried.jobs[0].failureEvidenceHistory, [aiFailureEvidence]);
   const disabled = apply(claimed, { type: 'set_ai_policy', enabled: false });
   const discarded = finishFlowJob(disabled, j.id, now, now, { body });
   assert.equal(discarded.jobs[0].status, 'blocked');
@@ -904,6 +934,13 @@ test('stable member ID prevents another partner or same-name claimant reading re
           ...aiFailureEvidence,
           futureFailureSecret: '숨김 실패 값',
         },
+        failureEvidenceHistory: [
+          {
+            ...aiFailureEvidence,
+            providerRequestId: 'req_historical_failure',
+            futureHistoricalFailureSecret: '숨김 이전 실패 값',
+          },
+        ],
       },
     ],
     ai: { ...report.ai, futureAiSecret: '숨김 AI 값' },
@@ -917,6 +954,10 @@ test('stable member ID prevents another partner or same-name claimant reading re
   assert.equal('futureAiSecret' in safe.ai, false);
   assert.equal('futureEvidenceSecret' in safe.jobs[0].evidence!, false);
   assert.equal('futureFailureSecret' in safe.jobs[1].failureEvidence!, false);
+  assert.equal(
+    'futureHistoricalFailureSecret' in safe.jobs[1].failureEvidenceHistory![0],
+    false,
+  );
 });
 test('pipeline stages derive from verified events; partner-only meeting omitted from representative shared schedule', () => {
   const s = pay(signed());

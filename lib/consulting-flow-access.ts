@@ -116,6 +116,9 @@ export function publicFlow(flow: ConsultingFlow): ConsultingFlow {
       failureEvidence: job.failureEvidence
         ? selectKeys(job.failureEvidence, FLOW_OBJECT_KEYS.jobFailureEvidence)
         : undefined,
+      failureEvidenceHistory: job.failureEvidenceHistory?.map((evidence) =>
+        selectKeys(evidence, FLOW_OBJECT_KEYS.jobFailureEvidence),
+      ),
     })),
     audit: flow.audit.map((entry) => selectKeys(entry, FLOW_OBJECT_KEYS.audit)),
     commandIds: [],

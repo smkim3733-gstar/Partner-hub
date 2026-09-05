@@ -1805,6 +1805,24 @@ void test('FLOW detail and dashboard reject undefined root and hidden nested pro
         },
       });
     },
+    (payload) => {
+      (payload.jobs as Array<Record<string, unknown>>).push({
+        id: 'hidden-failure-history-job',
+        stage: 1,
+        status: 'queued',
+        reason: '',
+        createdAt: payload.updatedAt,
+        failureEvidenceHistory: [
+          {
+            instructionVersion: 'synthetic-flow-instruction-v1',
+            requestedModel: 'claude-requested-test-model',
+            httpStatus: 429,
+            providerRequestId: 'req_synthetic_historical_failure',
+            futurePrivateValue: '숨김 과거 오류 값',
+          },
+        ],
+      });
+    },
   ];
   for (const corrupt of corruptions) {
     await deleteConsultingFlowFixture(await flowDatabase());

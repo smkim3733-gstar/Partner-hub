@@ -110,6 +110,7 @@ export type FlowJob = {
   reportId?: string;
   evidence?: FlowAiEvidence;
   failureEvidence?: FlowAiFailureEvidence;
+  failureEvidenceHistory?: FlowAiFailureEvidence[];
 };
 export type ConsultingFlow = {
   schemaVersion: 1;
@@ -1000,6 +1001,13 @@ export function applyFlowCommand(
         '재시도 비용과 AI 자동생성 승인을 확인해 주세요.',
       );
       demand(
+        !job.failureEvidence ||
+          (job.failureEvidenceHistory?.length ?? 0) <
+            FLOW_COLLECTION_LIMITS.aiFailureEvidenceHistory,
+        'AI 실패 추적 이력이 가득 찼습니다. 관리자 검토 후 계속해 주세요.',
+        409,
+      );
+      demand(
         !s.contract && (job.stage !== 1 || !firstMeeting(s)?.completedAt),
         '이미 후속 단계가 진행되어 이 작업을 재시도할 수 없습니다.',
         409,
@@ -1019,6 +1027,11 @@ export function applyFlowCommand(
       job.status = 'queued';
       job.reason = '';
       job.startedAt = undefined;
+      if (job.failureEvidence)
+        job.failureEvidenceHistory = [
+          ...(job.failureEvidenceHistory ?? []),
+          job.failureEvidence,
+        ];
       job.failureEvidence = undefined;
       detail = '대표 확인 후 AI 생성 재시도';
       break;

@@ -507,6 +507,14 @@ void nodeTest(
         )
       ).flow;
       assert.equal(flow.jobs.at(-1)?.failureEvidence, undefined);
+      assert.deepEqual(flow.jobs.at(-1)?.failureEvidenceHistory, [
+        {
+          instructionVersion: 'v2.5-partner-workflow-2026-08-30',
+          requestedModel: 'claude-opus-5',
+          httpStatus: 429,
+          providerRequestId: 'req_consulting_flow_failure',
+        },
+      ]);
       const runs = await Promise.all([
         run(
           request('/api/consulting-flow/api-case/run', {}),
@@ -538,6 +546,7 @@ void nodeTest(
         inputTokens: 10,
         outputTokens: 20,
       });
+      assert.equal(flow.jobs.at(-1)?.failureEvidenceHistory?.length, 1);
       assert.equal(flow.analysis.adminAt, undefined);
       const newReportId = flow.reports.at(-1)!.id;
       flow = (

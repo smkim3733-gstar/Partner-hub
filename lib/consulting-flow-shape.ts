@@ -28,6 +28,7 @@ export const FLOW_COLLECTION_LIMITS = {
   audit: 4000,
   commandIds: 2000,
   commandReceipts: 2000,
+  aiFailureEvidenceHistory: 20,
 } as const;
 
 export const FLOW_TEXT_LIMITS = {
@@ -231,6 +232,7 @@ export const FLOW_OBJECT_KEYS = {
     'reportId',
     'evidence',
     'failureEvidence',
+    'failureEvidenceHistory',
   ],
   jobEvidence: [
     'instructionVersion',
@@ -559,6 +561,15 @@ export function hasFlowAiFailureEvidenceStructure(value: unknown) {
   );
 }
 
+export function hasFlowAiFailureEvidenceHistoryStructure(value: unknown) {
+  return (
+    Array.isArray(value) &&
+    value.length >= 1 &&
+    value.length <= FLOW_COLLECTION_LIMITS.aiFailureEvidenceHistory &&
+    value.every(hasFlowAiFailureEvidenceStructure)
+  );
+}
+
 function validJob(item: JsonRecord) {
   if (
     !hasOnlyKeys(item, FLOW_OBJECT_KEYS.job) ||
@@ -584,12 +595,15 @@ function validJob(item: JsonRecord) {
   const reportId = reference(item.reportId);
   const evidence = item.evidence;
   const failureEvidence = item.failureEvidence;
+  const failureEvidenceHistory = item.failureEvidenceHistory;
   if (
     (evidence !== undefined && !hasFlowAiEvidenceStructure(evidence)) ||
     (evidence !== undefined && item.status !== 'complete') ||
     (failureEvidence !== undefined &&
       !hasFlowAiFailureEvidenceStructure(failureEvidence)) ||
-    (failureEvidence !== undefined && item.status !== 'failed')
+    (failureEvidence !== undefined && item.status !== 'failed') ||
+    (failureEvidenceHistory !== undefined &&
+      !hasFlowAiFailureEvidenceHistoryStructure(failureEvidenceHistory))
   )
     return false;
   const statusEvidence =
