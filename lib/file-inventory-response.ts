@@ -171,13 +171,24 @@ export async function readFileInventoryPresenceResponse(
     !nullableSize(payload.expectedSizeBytes) ||
     (payload.sizeMatches !== null &&
       typeof payload.sizeMatches !== 'boolean') ||
+    (payload.integrityMode !== null &&
+      payload.integrityMode !== 'metadata' &&
+      payload.integrityMode !== 'etag') ||
+    (payload.integrityMatches !== null &&
+      typeof payload.integrityMatches !== 'boolean') ||
     !validDate(payload.checkedAt) ||
     (payload.exists
       ? payload.sizeBytes === null
       : payload.sizeBytes !== null || payload.sizeMatches !== null) ||
     (payload.exists && payload.expectedSizeBytes === null
       ? payload.sizeMatches !== null
-      : payload.exists && payload.sizeMatches === null)
+      : payload.exists && payload.sizeMatches === null) ||
+    (payload.expectedSizeBytes === null
+      ? payload.integrityMode !== null || payload.integrityMatches !== null
+      : payload.exists
+        ? payload.integrityMatches === null ||
+          (payload.integrityMatches === true && payload.integrityMode === null)
+        : payload.integrityMatches !== null)
   )
     throw invalid(response.status, '원본 존재 확인');
 
@@ -187,6 +198,8 @@ export async function readFileInventoryPresenceResponse(
     sizeBytes: payload.sizeBytes as number | null,
     expectedSizeBytes: payload.expectedSizeBytes as number | null,
     sizeMatches: payload.sizeMatches as boolean | null,
+    integrityMode: payload.integrityMode as InventoryPresence['integrityMode'],
+    integrityMatches: payload.integrityMatches as boolean | null,
     checkedAt: payload.checkedAt as string,
   };
 }

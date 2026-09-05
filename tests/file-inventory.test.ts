@@ -83,6 +83,12 @@ async function file(
       )
       .bind(id, member.id)
       .run();
+    await db
+      .prepare(`INSERT INTO company_file_object_integrity
+        (file_id, validation_mode, r2_etag, r2_content_type)
+        VALUES (?1, 'metadata', NULL, 'text/plain')`)
+      .bind(id)
+      .run();
     if (caseId)
       await db
         .prepare(
@@ -224,14 +230,41 @@ void test('keyset pagination has no duplicates or missing same-time rows; cursor
     assert.equal((await list(request(query))).status, 400);
 });
 
-void test('presence uses metadata-only R2 head; size mismatch and missing originals do not mutate records or expose keys', async () => {
+void test('presence uses metadata-only R2 head; size and object-integrity mismatches do not mutate records or expose keys', async () => {
   await seed();
   await file('presence-present', 'ready');
   await file('presence-mismatch', 'ready');
   await file('presence-missing', 'ready');
+  await file('presence-missing-integrity', 'ready');
+  await file('presence-mime-mismatch', 'ready');
+  await file('presence-etag-tampered', 'ready');
   const bucket = companyFileBucket();
-  await bucket.put('company-source/presence-present', 'TEST');
-  await bucket.put('company-source/presence-mismatch', 'LONGER');
+  const metadata = { httpMetadata: { contentType: 'text/plain' } };
+  await bucket.put('company-source/presence-present', 'TEST', metadata);
+  await bucket.put('company-source/presence-mismatch', 'LONGER', metadata);
+  await bucket.put(
+    'company-source/presence-missing-integrity',
+    'TEST',
+    metadata,
+  );
+  await companyFileDatabase()
+    .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
+    .bind('presence-missing-integrity')
+    .run();
+  await bucket.put('company-source/presence-mime-mismatch', 'TEST', {
+    httpMetadata: { contentType: 'text/markdown' },
+  });
+  const stored = await bucket.put(
+    'company-source/presence-etag-tampered',
+    'GOOD',
+    metadata,
+  );
+  await companyFileDatabase()
+    .prepare(`UPDATE company_file_object_integrity
+      SET validation_mode = 'etag', r2_etag = ?2 WHERE file_id = ?1`)
+    .bind('presence-etag-tampered', stored.etag)
+    .run();
+  await bucket.put('company-source/presence-etag-tampered', 'EVIL', metadata);
   const before = await readPortalState();
   const originalGet = bucket.get.bind(bucket),
     originalPut = bucket.put.bind(bucket),
@@ -243,10 +276,13 @@ void test('presence uses metadata-only R2 head; size mismatch and missing origin
   bucket.put = noBody;
   bucket.delete = noBody;
   try {
-    for (const [id, exists, matches] of [
-      ['presence-present', true, true],
-      ['presence-mismatch', true, false],
-      ['presence-missing', false, null],
+    for (const [id, exists, matches, integrityMode, integrityMatches] of [
+      ['presence-present', true, true, 'metadata', true],
+      ['presence-mismatch', true, false, 'metadata', false],
+      ['presence-missing', false, null, null, null],
+      ['presence-missing-integrity', true, true, null, false],
+      ['presence-mime-mismatch', true, true, 'metadata', false],
+      ['presence-etag-tampered', true, true, 'etag', false],
     ] as const) {
       const response = await presence(request(), {
         params: Promise.resolve({ id }),
@@ -255,13 +291,15 @@ void test('presence uses metadata-only R2 head; size mismatch and missing origin
       const value = await readFileInventoryPresenceResponse(response, id);
       assert.equal(value.exists, exists);
       assert.equal(value.sizeMatches, matches);
+      assert.equal(value.integrityMode, integrityMode);
+      assert.equal(value.integrityMatches, integrityMatches);
       assert.doesNotMatch(
         JSON.stringify(value),
         /company-source|storage_key|TEST|LONGER/,
       );
       assert.match(response.headers.get('cache-control')!, /private, no-store/);
     }
-    assert.equal((await page('?status=all')).items.length, 3);
+    assert.equal((await page('?status=all')).items.length, 6);
   } finally {
     bucket.get = originalGet;
     bucket.put = originalPut;
@@ -274,7 +312,7 @@ void test('presence uses metadata-only R2 head; size mismatch and missing origin
         .prepare('SELECT COUNT(*) AS count FROM company_file_objects')
         .first<{ count: number }>()
     )?.count,
-    3,
+    6,
   );
 });
 
@@ -291,6 +329,8 @@ void test('pending-only reservations can be checked without inventing file metad
   assert.equal(result.exists, true);
   assert.equal(result.expectedSizeBytes, null);
   assert.equal(result.sizeMatches, null);
+  assert.equal(result.integrityMode, null);
+  assert.equal(result.integrityMatches, null);
   const originalHead = bucket.head.bind(bucket);
   bucket.head = async () => {
     throw new Error('PRIVATE_STORAGE_ERROR');

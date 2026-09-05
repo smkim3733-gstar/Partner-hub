@@ -34,6 +34,8 @@ export type InventoryPresence = {
   sizeBytes: number | null;
   expectedSizeBytes: number | null;
   sizeMatches: boolean | null;
+  integrityMode: 'metadata' | 'etag' | null;
+  integrityMatches: boolean | null;
   checkedAt: string;
 };
 

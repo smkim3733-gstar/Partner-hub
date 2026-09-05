@@ -1408,6 +1408,8 @@ try {
   ).json();
   assert.equal(inventoryPresence.exists, true);
   assert.equal(inventoryPresence.sizeMatches, true);
+  assert.equal(inventoryPresence.integrityMode, 'etag');
+  assert.equal(inventoryPresence.integrityMatches, true);
   await db
     .prepare(
       "INSERT INTO company_file_upload_requests (owner_key, request_key, fingerprint, file_id, created_at, status) VALUES (?1, 'worker-inventory-request', 'private-fingerprint', 'worker-inventory-pending', ?2, 'pending')",

@@ -156,8 +156,8 @@ export function AdminFileInventory(controls: RecoveryControls) {
             <p className="rounded-lg bg-sky-50 p-3 text-sm leading-6 text-sky-950">
               <ShieldCheck className="mr-1 inline size-4" aria-hidden="true" />
               연결 확인 필요는 삭제 가능 판정이 아닙니다. 목록은 DB 기록
-              기준이며, 원본 존재 확인은 파일 본문을 읽지 않고 존재·크기만
-              조회합니다.
+              기준이며, 원본 무결성 확인은 파일 본문을 읽지 않고 존재·크기·고정
+              MIME·ETag 원장을 조회합니다.
             </p>
             {busy && (
               <output className="block">보관 기록을 확인하고 있습니다.</output>
@@ -257,13 +257,13 @@ export function AdminFileInventory(controls: RecoveryControls) {
                           >
                             {checking === item.id
                               ? '확인 중…'
-                              : '원본 존재 확인'}
+                              : '원본 무결성 확인'}
                           </Button>
                           {presence && (
                             <output className="block text-xs leading-5">
                               {typeof presence === 'string'
                                 ? presence
-                                : `${presence.exists ? '원본 존재' : '원본 없음'} · ${sizeLabel(presence.sizeBytes)}${presence.sizeMatches === false ? ' · 기록과 크기 불일치: 추가 확인 필요' : ''} · ${dateLabel(presence.checkedAt)}`}
+                                : `${presence.exists ? '원본 존재' : '원본 없음'} · ${sizeLabel(presence.sizeBytes)}${presence.sizeMatches === false ? ' · 기록과 크기 불일치: 사용 중지·복구 필요' : ''}${presence.integrityMatches === false ? ' · 객체 무결성 원장 불일치: 사용 중지·복구 필요' : presence.integrityMatches && presence.integrityMode === 'etag' ? ' · ETag·MIME 무결성 확인' : presence.integrityMatches && presence.integrityMode === 'metadata' ? ' · 기존 원본: 크기·MIME만 확인' : ''} · ${dateLabel(presence.checkedAt)}`}
                             </output>
                           )}
                           {item.status === 'unlinked' && (

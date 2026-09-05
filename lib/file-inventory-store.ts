@@ -2,7 +2,9 @@ import { Buffer } from 'node:buffer';
 import {
   companyFileBucket,
   companyFileDatabase,
+  companyFileObjectMatchesIntegrity,
   ensureCompanyFileTables,
+  readCompanyFileObjectIntegrity,
   CompanyFileError,
 } from './company-files';
 import { consultingFlowsTableSql } from '@/db/schema';
@@ -200,13 +202,15 @@ export async function checkInventoryPresence(
   id = readRouteParam(id, 120, '파일 식별값을 확인해 주세요.');
   const db = await inventoryDatabase();
   const row = await db
-    .prepare(`SELECT f.storage_key, f.size_bytes, u.file_id
+    .prepare(`SELECT f.id, f.storage_key, f.content_type, f.size_bytes, u.file_id
     FROM company_file_objects f LEFT JOIN company_file_upload_requests u ON u.file_id = f.id WHERE f.id = ?1
-    UNION ALL SELECT NULL, NULL, file_id FROM company_file_upload_requests
+    UNION ALL SELECT NULL, NULL, NULL, NULL, file_id FROM company_file_upload_requests
     WHERE file_id = ?1 AND NOT EXISTS (SELECT 1 FROM company_file_objects WHERE id = ?1) LIMIT 1`)
     .bind(id)
     .first<{
+      id: string | null;
       storage_key: string | null;
+      content_type: string | null;
       size_bytes: number | null;
       file_id: string | null;
     }>();
@@ -214,6 +218,35 @@ export async function checkInventoryPresence(
     throw new CompanyFileError('확인할 파일 기록을 찾지 못했습니다.', 404);
   const key = row.storage_key ?? `company-source/${row.file_id}`;
   const object = await companyFileBucket().head(key);
+  let integrityMode: InventoryPresence['integrityMode'] = null;
+  let integrityMatches: boolean | null = null;
+  if (
+    object &&
+    row.id !== null &&
+    row.storage_key !== null &&
+    row.content_type !== null &&
+    row.size_bytes !== null
+  ) {
+    const file = {
+      id: row.id,
+      storage_key: row.storage_key,
+      content_type: row.content_type,
+      size_bytes: row.size_bytes,
+    };
+    try {
+      const integrity = await readCompanyFileObjectIntegrity(file);
+      integrityMode = integrity.validationMode;
+      integrityMatches = companyFileObjectMatchesIntegrity(
+        file,
+        object,
+        integrity,
+      );
+    } catch (error) {
+      if (!(error instanceof CompanyFileError) || error.status !== 503)
+        throw error;
+      integrityMatches = false;
+    }
+  }
   return {
     id,
     exists: Boolean(object),
@@ -221,6 +254,8 @@ export async function checkInventoryPresence(
     expectedSizeBytes: row.size_bytes,
     sizeMatches:
       object && row.size_bytes !== null ? object.size === row.size_bytes : null,
+    integrityMode,
+    integrityMatches,
     checkedAt: new Date().toISOString(),
   };
 }

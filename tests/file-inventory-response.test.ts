@@ -33,6 +33,8 @@ const presence = {
   sizeBytes: 4,
   expectedSizeBytes: 4,
   sizeMatches: true,
+  integrityMode: 'etag',
+  integrityMatches: true,
   checkedAt: page.checkedAt,
 };
 
@@ -84,6 +86,9 @@ void test('presence response must match requested ID and size relationships', as
     { ...presence, exists: false },
     { ...presence, sizeBytes: -1 },
     { ...presence, expectedSizeBytes: null, sizeMatches: true },
+    { ...presence, integrityMode: 'invalid' },
+    { ...presence, integrityMatches: null },
+    { ...presence, integrityMode: null, integrityMatches: true },
     { ...presence, checkedAt: 'not-a-date' },
   ])
     await assert.rejects(
@@ -98,6 +103,7 @@ void test('presence response must match requested ID and size relationships', as
         exists: false,
         sizeBytes: null,
         sizeMatches: null,
+        integrityMatches: null,
       }),
       item.id,
     ),
@@ -106,6 +112,27 @@ void test('presence response must match requested ID and size relationships', as
       exists: false,
       sizeBytes: null,
       sizeMatches: null,
+      integrityMatches: null,
+    },
+  );
+
+  assert.deepEqual(
+    await readFileInventoryPresenceResponse(
+      Response.json({
+        ...presence,
+        expectedSizeBytes: null,
+        sizeMatches: null,
+        integrityMode: null,
+        integrityMatches: null,
+      }),
+      item.id,
+    ),
+    {
+      ...presence,
+      expectedSizeBytes: null,
+      sizeMatches: null,
+      integrityMode: null,
+      integrityMatches: null,
     },
   );
 });
