@@ -9,9 +9,11 @@ import {
   portalLoginStatsTableSql,
   portalStateIdentityTriggerSql,
   portalStateId,
+  portalStateInsertEnvelopeTriggerSql,
   portalStateInsertTriggerSql,
   portalStateNoDeleteTriggerSql,
   portalStateTableSql,
+  portalStateUpdateEnvelopeTriggerSql,
 } from '@/db/schema';
 import { PORTAL_STATE_LIMIT_BYTES } from '@/lib/pilot-readiness';
 import type { PortalConflictKind } from '@/lib/portal-conflict-metrics';
@@ -47,7 +49,9 @@ async function ensurePortalTables(db: D1Database) {
   await db.batch([
     db.prepare(portalStateTableSql),
     db.prepare(portalStateInsertTriggerSql),
+    db.prepare(portalStateInsertEnvelopeTriggerSql),
     db.prepare(portalStateIdentityTriggerSql),
+    db.prepare(portalStateUpdateEnvelopeTriggerSql),
     db.prepare(portalStateNoDeleteTriggerSql),
     db.prepare(portalLoginStatsTableSql),
     db.prepare(companyFileObjectsTableSql),

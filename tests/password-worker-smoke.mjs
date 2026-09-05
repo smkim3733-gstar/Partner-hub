@@ -377,6 +377,17 @@ try {
       .run(),
     /root is durable/,
   );
+  await assert.rejects(
+    db.prepare('UPDATE portal_state SET payload = ?1').bind('{malformed').run(),
+    /update envelope is invalid/,
+  );
+  await assert.rejects(
+    db
+      .prepare('UPDATE portal_state SET updated_at = ?1')
+      .bind('not-a-timestamp')
+      .run(),
+    /update envelope is invalid/,
+  );
   assert.deepEqual(
     await db
       .prepare('SELECT id, payload, updated_at FROM portal_state')
@@ -384,6 +395,7 @@ try {
     intactPortalRoot,
   );
   checks.push('portal state keeps one fixed durable native D1 root');
+  checks.push('portal state D1 writes require a JSON object and UTC timestamp');
   assert.deepEqual(
     await db
       .prepare(

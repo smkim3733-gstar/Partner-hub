@@ -71,6 +71,20 @@ void test('portal state keeps one fixed durable D1 root', async () => {
       .run(),
     /root is durable/,
   );
+  await assert.rejects(
+    db
+      .prepare('UPDATE portal_state SET payload = ?1 WHERE id = ?2')
+      .bind('{malformed', portalStateId)
+      .run(),
+    /update envelope is invalid/,
+  );
+  await assert.rejects(
+    db
+      .prepare('UPDATE portal_state SET updated_at = ?1 WHERE id = ?2')
+      .bind('not-a-timestamp', portalStateId)
+      .run(),
+    /update envelope is invalid/,
+  );
   assert.deepEqual(
     await db
       .prepare('SELECT id, payload, updated_at FROM portal_state WHERE id = ?1')
