@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [상담 FLOW AI 작업 수명주기 전이 무결성](FLOW_AI_JOB_LIFECYCLE_INTEGRITY_2026_09_06.md)                              | 작업 신원 불변, 허용 상태 전이와 상태별 수명주기 필드 조합의 앱·D1 강제                  |
 | [상담 FLOW 최초 AI 작업 삽입 무결성](FLOW_INITIAL_AI_JOB_INTEGRITY_2026_09_06.md)                                    | 0044 D1 트리거의 최초 완료·실패 작업 및 조작 공급자 증거 삽입 차단                       |
 | [상담 FLOW AI 증거·감사 D1 전이 무결성](FLOW_AI_EVIDENCE_D1_TRANSITION_INTEGRITY_2026_09_06.md)                      | 0043 D1 트리거의 증거·이력·작업·감사 불변 전이와 정상 재시도 보존                        |
 | [상담 FLOW AI 증거·감사 전이 불변성](FLOW_AI_EVIDENCE_TRANSITION_IMMUTABILITY_2026_09_06.md)                         | 후속 저장의 기존 성공·실패 증거, 실패 이력, 작업과 감사기록 변경·삭제 차단               |
