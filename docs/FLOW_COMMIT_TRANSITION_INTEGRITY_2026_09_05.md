@@ -39,6 +39,6 @@ D1 `updated_at`과 JSON payload의 `updatedAt`도 읽을 때 대조하지 않았
 
 버전 108~142는 버전 143으로 대체하며 공개 배포하지 않는다. 버전 143 공개 배포는 정확히 `버전 143 운영 배포 승인`이라는 사용자 명시 승인 뒤 진행한다.
 
-## 다음 감사
+## 다음 감사 결과
 
-FLOW payload의 기업명·담당자명·수정시각과 reports·files·meetings·recordings·requests·payments·jobs·audit·commandIds, analysis·ai의 필수 최상위 구조를 서버 사용 전에 검증한다. 식별 envelope가 일치해도 필수 컬렉션이 없거나 다른 형식인 손상 payload는 ACL·응답·진행단계 계산에 전달하지 않는다.
+[상담 FLOW payload 최상위 구조 무결성 경계](FLOW_PAYLOAD_STRUCTURE_INTEGRITY_2026_09_05.md)에서 기업명·담당자명·수정시각과 필수 배열·객체 구조를 상세 조회 전에 검증했다. 대시보드는 원본 전체 구조를 SQLite에서 먼저 확인한 경우에만 민감 본문을 축소하고 클라이언트도 같은 공용 전체 구조 검증기를 사용한다.
