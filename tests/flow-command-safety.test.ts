@@ -73,11 +73,17 @@ async function storeFlowFileBinding(
 }
 
 function addSyntheticCommandReceipt(flow: ConsultingFlow, commandId: string) {
+  const audit = flow.audit.find(
+    (entry) => entry.id === commandId && entry.action !== 'ai_result',
+  );
+  assert.ok(audit);
   flow.commandReceipts = {
     ...flow.commandReceipts,
     [commandId]: {
       actorKey: `admin:${adminEmail}`,
       fingerprint: `synthetic-${commandId}`,
+      actor: audit.actor,
+      action: audit.action,
     },
   };
 }
@@ -1070,7 +1076,7 @@ void test('FLOW native D1 rejects terminal AI evidence on the first root insert'
         mismatchedQueued.updatedAt,
       )
       .run(),
-    /(?:initial job audit identity|initial command evidence) is invalid/,
+    /(?:(?:initial job audit identity|initial command evidence) is|initial command semantics are) invalid/,
   );
   await db
     .prepare(
@@ -1148,7 +1154,7 @@ void test('FLOW new AI jobs bind creation time, stage source and audit', async (
           initial.revision,
         )
         .run(),
-      /(?:job creation (?:origin|audit identity)|new command evidence) is invalid/,
+      /(?:(?:job creation (?:origin|audit identity)|new command evidence) is|command semantics are) invalid/,
     );
     assert.deepEqual(await readFlow(initial.caseId), initial);
   }
@@ -1204,7 +1210,7 @@ void test('FLOW new AI job ID binds to one exact creation audit ID', async () =>
         initial.revision,
       )
       .run(),
-    /(?:job creation audit identity|new command evidence|command receipt origin) is invalid/,
+    /(?:(?:job creation audit identity|new command evidence|command receipt origin) is|command semantics are) invalid/,
   );
   assert.deepEqual(await readFlow(initial.caseId), initial);
   const missingCommand = structuredClone(valid);
@@ -1253,6 +1259,8 @@ void test('FLOW command IDs and receipts remain append-only', async () => {
     [commandId]: {
       actorKey: `admin:${adminEmail}`,
       fingerprint: 'synthetic-command-history-fingerprint',
+      actor: '가상 대표',
+      action: 'save_report',
     },
   };
   await commitFlow(initial, saved);
@@ -1345,7 +1353,7 @@ void test('FLOW new command IDs require one audit and immutable receipt', async 
           initial.revision,
         )
         .run(),
-      /new command evidence is invalid/,
+      /(?:new command evidence is|command semantics are) invalid/,
     );
     assert.deepEqual(await readFlow(initial.caseId), initial);
   }
@@ -1417,6 +1425,96 @@ void test('FLOW command receipts originate only with same-revision commands', as
     /command receipt origin is invalid/,
   );
   assert.deepEqual(await readFlow(legacy.caseId), legacy);
+});
+
+void test('FLOW command receipt semantics match and preserve their audit', async () => {
+  const initial = await fixture();
+  const commandId = `command-semantic-${++sequence}`;
+  const valid = applyFlowCommand(
+    initial,
+    { type: 'set_ai_policy', enabled: false },
+    { id: adminEmail, role: 'admin', name: '가상 대표' },
+    {
+      commandId,
+      now: new Date(Date.parse(initial.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(valid, commandId);
+  const db = await flowDatabase();
+  for (const mutate of [
+    (flow: ConsultingFlow) => {
+      flow.commandReceipts![commandId].actor = '위조 행위자';
+    },
+    (flow: ConsultingFlow) => {
+      flow.commandReceipts![commandId].action = 'save_report';
+    },
+  ]) {
+    const changed = structuredClone(valid);
+    mutate(changed);
+    await assert.rejects(
+      commitFlow(initial, changed),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          changed.revision,
+          JSON.stringify(changed),
+          changed.updatedAt,
+          initial.caseId,
+          initial.revision,
+        )
+        .run(),
+      /command semantics are invalid/,
+    );
+    assert.deepEqual(await readFlow(initial.caseId), initial);
+  }
+  await commitFlow(initial, valid);
+  for (const mutate of [
+    (flow: ConsultingFlow) => {
+      flow.commandReceipts![commandId].actor = '사후 위조 행위자';
+    },
+    (flow: ConsultingFlow) => {
+      flow.commandReceipts![commandId].action = 'confirm_analysis';
+    },
+  ]) {
+    const changed = structuredClone(valid);
+    changed.revision++;
+    changed.updatedAt = new Date(
+      Date.parse(valid.updatedAt) + changed.revision,
+    ).toISOString();
+    mutate(changed);
+    await assert.rejects(
+      commitFlow(valid, changed),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          changed.revision,
+          JSON.stringify(changed),
+          changed.updatedAt,
+          valid.caseId,
+          valid.revision,
+        )
+        .run(),
+      /command semantics are invalid/,
+    );
+    assert.deepEqual(
+      await readFlow(valid.caseId),
+      JSON.parse(JSON.stringify(valid)),
+    );
+  }
 });
 
 void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => {
@@ -3539,7 +3637,7 @@ void test('FLOW report retry validates file bytes and body but accepts an identi
   assert.equal(saved?.files[0].contentType, 'text/plain');
   assert.deepEqual(
     Object.keys(saved?.commandReceipts?.[commandId] ?? {}).sort(),
-    ['actorKey', 'fingerprint'],
+    ['action', 'actor', 'actorKey', 'fingerprint'],
   );
   assert.equal(
     (

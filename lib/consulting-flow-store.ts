@@ -13,7 +13,9 @@ import {
   consultingFlowsAuditAppendOnlyTriggerSql,
   consultingFlowsCommandHistoryTriggerSql,
   consultingFlowsCommandInsertEvidenceTriggerSql,
+  consultingFlowsCommandInsertSemanticsTriggerSql,
   consultingFlowsCommandReceiptOriginTriggerSql,
+  consultingFlowsCommandSemanticsTriggerSql,
   consultingFlowsFailureEvidenceTriggerSql,
   consultingFlowsFailureHistoryTriggerSql,
   consultingFlowsIdentityTriggerSql,
@@ -123,6 +125,8 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandInsertEvidenceTriggerSql),
         db.prepare(consultingFlowsNewCommandEvidenceTriggerSql),
         db.prepare(consultingFlowsCommandReceiptOriginTriggerSql),
+        db.prepare(consultingFlowsCommandInsertSemanticsTriggerSql),
+        db.prepare(consultingFlowsCommandSemanticsTriggerSql),
         db.prepare(consultingFlowsNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),
@@ -833,7 +837,9 @@ export async function stateWithConsultingFlows(raw: unknown) {
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.commandReceipts') receipt WHERE
           receipt.type <> 'object' OR length(receipt.key) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.id} OR
           COALESCE(json_type(receipt.value, '$.actorKey'), '') <> 'text' OR length(json_extract(receipt.value, '$.actorKey')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.receiptActorKey} OR
-          COALESCE(json_type(receipt.value, '$.fingerprint'), '') <> 'text' OR length(json_extract(receipt.value, '$.fingerprint')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.receiptFingerprint}) AND
+          COALESCE(json_type(receipt.value, '$.fingerprint'), '') <> 'text' OR length(json_extract(receipt.value, '$.fingerprint')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.receiptFingerprint} OR
+          (json_type(receipt.value, '$.actor') IS NOT NULL AND (json_type(receipt.value, '$.actor') <> 'text' OR length(json_extract(receipt.value, '$.actor')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.actor})) OR
+          (json_type(receipt.value, '$.action') IS NOT NULL AND (json_type(receipt.value, '$.action') <> 'text' OR length(json_extract(receipt.value, '$.action')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.auditAction}))) AND
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.reports') r WHERE
           json_type(r.value, '$.fileId') IS NOT NULL AND NOT EXISTS (
             SELECT 1 FROM json_each(payload, '$.files') f
@@ -989,16 +995,21 @@ function assertFlowCommitTransition(
     Object.keys(afterReceipts).some(
       (id) => !Object.hasOwn(beforeReceipts, id) && !newCommandIds.includes(id),
     ) ||
-    newCommandIds.some(
-      (id) =>
-        !Object.hasOwn(afterReceipts, id) ||
-        newAudit.filter(
-          (entry) =>
-            entry.id === id &&
-            entry.at === after.updatedAt &&
-            entry.action !== 'ai_result',
-        ).length !== 1,
-    )
+    newCommandIds.some((id) => {
+      const receipt = afterReceipts[id];
+      const matchingAudit = newAudit.filter(
+        (entry) =>
+          entry.id === id &&
+          entry.at === after.updatedAt &&
+          entry.action !== 'ai_result',
+      );
+      return (
+        !receipt ||
+        matchingAudit.length !== 1 ||
+        receipt.actor !== matchingAudit[0].actor ||
+        receipt.action !== matchingAudit[0].action
+      );
+    })
   )
     throw storedFlowIntegrityError();
   const previousJobIds = new Set(before.jobs.map((job) => job.id));

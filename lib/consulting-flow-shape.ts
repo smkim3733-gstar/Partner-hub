@@ -258,7 +258,7 @@ export const FLOW_OBJECT_KEYS = {
     'providerRequestId',
   ],
   audit: ['id', 'at', 'actor', 'action', 'detail'],
-  receipt: ['actorKey', 'fingerprint'],
+  receipt: ['actorKey', 'fingerprint', 'actor', 'action'],
 } as const;
 
 const asRecord = (value: unknown): JsonRecord | null =>
@@ -764,7 +764,12 @@ function validReceipts(value: unknown) {
         receipt &&
         hasOnlyKeys(receipt, FLOW_OBJECT_KEYS.receipt) &&
         boundedName(receipt.actorKey, FLOW_FIELD_LIMITS.receiptActorKey) &&
-        boundedName(receipt.fingerprint, FLOW_FIELD_LIMITS.receiptFingerprint)
+        boundedName(
+          receipt.fingerprint,
+          FLOW_FIELD_LIMITS.receiptFingerprint,
+        ) &&
+        optionalText(receipt.actor, FLOW_FIELD_LIMITS.actor) &&
+        optionalText(receipt.action, FLOW_FIELD_LIMITS.auditAction)
       );
     }),
   );

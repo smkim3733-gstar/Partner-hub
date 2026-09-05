@@ -175,7 +175,15 @@ export type ConsultingFlow = {
     detail: string;
   }>;
   commandIds: string[];
-  commandReceipts?: Record<string, { actorKey: string; fingerprint: string }>;
+  commandReceipts?: Record<
+    string,
+    {
+      actorKey: string;
+      fingerprint: string;
+      actor?: string;
+      action?: string;
+    }
+  >;
 };
 export type FlowCommand = { type: string; [key: string]: unknown };
 export class FlowError extends Error {

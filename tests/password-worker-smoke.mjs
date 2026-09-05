@@ -247,6 +247,12 @@ const flowCommandReceiptOriginTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowCommandSemanticsTriggerSql = migrationStatements(
+  await readFile(
+    path.join(project, 'drizzle', '0053_consulting_flow_command_semantics.sql'),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -265,6 +271,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_job_creation_command_guard',
   'consulting_flows_new_command_evidence_guard',
   'consulting_flows_command_receipt_origin_guard',
+  'consulting_flows_command_semantics_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -286,6 +293,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowCommandHistoryTriggerSql,
       ...flowNewCommandEvidenceTriggerSql,
       ...flowCommandReceiptOriginTriggerSql,
+      flowCommandSemanticsTriggerSql[1],
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3547,15 +3555,21 @@ try {
       .run();
   await assert.rejects(
     (async () => {
-      await db
-        .prepare(
+      await db.batch([
+        db.prepare(
           'DROP TRIGGER IF EXISTS consulting_flows_command_insert_evidence_guard',
-        )
-        .run();
+        ),
+        db.prepare(
+          'DROP TRIGGER IF EXISTS consulting_flows_command_insert_semantics_guard',
+        ),
+      ]);
       try {
         return await insertEvidenceFlow();
       } finally {
-        await db.prepare(flowNewCommandEvidenceTriggerSql[0]).run();
+        await db.batch([
+          db.prepare(flowNewCommandEvidenceTriggerSql[0]),
+          db.prepare(flowCommandSemanticsTriggerSql[0]),
+        ]);
       }
     })(),
     /initial job(?: origin)? is invalid/,
@@ -3569,6 +3583,9 @@ try {
     db.prepare(
       'DROP TRIGGER IF EXISTS consulting_flows_command_insert_evidence_guard',
     ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_command_insert_semantics_guard',
+    ),
   ]);
   try {
     await insertEvidenceFlow();
@@ -3578,6 +3595,7 @@ try {
       db.prepare(flowAiEvidenceInsertTriggerSql),
       db.prepare(flowAiJobCreationOriginTriggerSql[0]),
       db.prepare(flowNewCommandEvidenceTriggerSql[0]),
+      db.prepare(flowCommandSemanticsTriggerSql[0]),
     ]);
   }
   const backfilledReceiptOriginFlow = structuredClone(legacyReceiptOriginFlow);
@@ -3773,8 +3791,17 @@ try {
       },
     },
     {
+      name: 'FLOW native D1 preserves existing command receipt semantics',
+      pattern: /command semantics are invalid/,
+      apply(flow) {
+        const commandId = Object.keys(flow.commandReceipts)[0];
+        assert.ok(commandId);
+        flow.commandReceipts[commandId].action = 'forged_action';
+      },
+    },
+    {
       name: 'FLOW native D1 requires a receipt for each new command ID',
-      pattern: /new command evidence is invalid/,
+      pattern: /(?:new command evidence|command semantics) (?:is|are) invalid/,
       apply(flow) {
         const commandId = 'native-command-without-receipt';
         flow.commandIds.push(commandId);
@@ -3789,13 +3816,36 @@ try {
     },
     {
       name: 'FLOW native D1 requires an audit for each new command ID',
-      pattern: /new command evidence is invalid/,
+      pattern: /(?:new command evidence|command semantics) (?:is|are) invalid/,
       apply(flow) {
         const commandId = 'native-command-without-audit';
         flow.commandIds.push(commandId);
         flow.commandReceipts[commandId] = {
           actorKey: 'admin:synthetic-owner',
           fingerprint: 'native-command-without-audit-fingerprint',
+          actor: '가상 대표',
+          action: 'set_ai_policy',
+        };
+      },
+    },
+    {
+      name: 'FLOW native D1 binds new command receipt semantics to its audit',
+      pattern: /command semantics are invalid/,
+      apply(flow) {
+        const commandId = 'native-command-semantic-mismatch';
+        flow.commandIds.push(commandId);
+        flow.audit.push({
+          id: commandId,
+          at: flow.updatedAt,
+          actor: '가상 대표',
+          action: 'set_ai_policy',
+          detail: '가상 명령 의미 결속 검사',
+        });
+        flow.commandReceipts[commandId] = {
+          actorKey: 'admin:synthetic-owner',
+          fingerprint: 'native-command-semantic-mismatch-fingerprint',
+          actor: '가상 대표',
+          action: 'save_report',
         };
       },
     },
@@ -3823,7 +3873,7 @@ try {
     {
       name: 'FLOW native D1 binds each new AI job to its creation audit ID',
       pattern:
-        /(?:job creation audit identity|new command evidence) is invalid/,
+        /(?:(?:job creation audit identity|new command evidence) is|command semantics are) invalid/,
       apply(flow) {
         flow.jobs.push({
           id: 'native-substituted-creation-job',
@@ -3948,11 +3998,14 @@ try {
       .run(),
     /transition envelope is invalid/,
   );
-  await db
-    .prepare(
+  await db.batch([
+    db.prepare(
       'DROP TRIGGER IF EXISTS consulting_flows_command_insert_evidence_guard',
-    )
-    .run();
+    ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_command_insert_semantics_guard',
+    ),
+  ]);
   try {
     await assert.rejects(
       db
@@ -3972,7 +4025,10 @@ try {
       /insert envelope is invalid/,
     );
   } finally {
-    await db.prepare(flowNewCommandEvidenceTriggerSql[0]).run();
+    await db.batch([
+      db.prepare(flowNewCommandEvidenceTriggerSql[0]),
+      db.prepare(flowCommandSemanticsTriggerSql[0]),
+    ]);
   }
   assert.deepEqual(
     await db
@@ -4586,7 +4642,7 @@ try {
   await restoreConsultingFlowTransitionGuards(db);
   assert.deepEqual(
     Object.keys(privateMimeFlow.commandReceipts[mimeCommand.commandId]).sort(),
-    ['actorKey', 'fingerprint'],
+    ['action', 'actor', 'actorKey', 'fingerprint'],
   );
   const mimeRetry = await expect(
     await callFlowFile(

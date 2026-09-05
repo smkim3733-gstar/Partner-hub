@@ -153,11 +153,20 @@ export async function POST(request: Request, context: Context) {
         intakeCategory: imported?.category,
       },
     );
+    const commandAudit = next.audit.at(-1);
+    if (
+      !commandAudit ||
+      commandAudit.id !== input.commandId ||
+      commandAudit.action === 'ai_result'
+    )
+      throw new FlowError('업무 요청 감사기록을 확인할 수 없습니다.', 503);
     next.commandReceipts = {
       ...flow.commandReceipts,
       [input.commandId]: {
         actorKey: receipt.actorKey,
         fingerprint: receipt.fingerprint,
+        actor: commandAudit.actor,
+        action: commandAudit.action,
       },
     };
     if (imported) {

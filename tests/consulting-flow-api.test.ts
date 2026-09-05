@@ -374,6 +374,8 @@ void nodeTest(
       'cas-insert-01': {
         actorKey: 'admin:seedy@sites.test',
         fingerprint: 'synthetic-cas-insert-receipt',
+        actor: '대표',
+        action: 'save_report',
       },
     };
     await commitFlow(old, a);
