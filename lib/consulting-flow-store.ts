@@ -10,9 +10,14 @@ import {
   consultingFlowFileOwnersNoUpdateTriggerSql,
   consultingFlowFileOwnersCaseIndexSql,
   consultingFlowFileOwnersTableSql,
+  consultingFlowsAuditAppendOnlyTriggerSql,
+  consultingFlowsFailureEvidenceTriggerSql,
+  consultingFlowsFailureHistoryTriggerSql,
   consultingFlowsIdentityTriggerSql,
   consultingFlowsInsertEnvelopeTriggerSql,
+  consultingFlowsJobsTransitionTriggerSql,
   consultingFlowsNoDeleteTriggerSql,
+  consultingFlowsSuccessEvidenceTriggerSql,
   consultingFlowsTransitionTriggerSql,
   consultingFlowsTableSql,
   portalStateId,
@@ -79,6 +84,11 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsIdentityTriggerSql),
         db.prepare(consultingFlowsInsertEnvelopeTriggerSql),
         db.prepare(consultingFlowsTransitionTriggerSql),
+        db.prepare(consultingFlowsAuditAppendOnlyTriggerSql),
+        db.prepare(consultingFlowsJobsTransitionTriggerSql),
+        db.prepare(consultingFlowsSuccessEvidenceTriggerSql),
+        db.prepare(consultingFlowsFailureHistoryTriggerSql),
+        db.prepare(consultingFlowsFailureEvidenceTriggerSql),
         db.prepare(consultingFlowsNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),
@@ -930,6 +940,21 @@ function assertFlowCommitTransition(
   if (
     before.audit.length > after.audit.length ||
     before.audit.some((entry, index) => !sameValue(entry, after.audit[index]))
+  )
+    throw storedFlowIntegrityError();
+  const previousJobIds = new Set(before.jobs.map((job) => job.id));
+  if (
+    after.jobs.some(
+      (job) =>
+        !previousJobIds.has(job.id) &&
+        ((job.status !== 'queued' && job.status !== 'blocked') ||
+          job.startedAt !== undefined ||
+          job.completedAt !== undefined ||
+          job.reportId !== undefined ||
+          job.evidence !== undefined ||
+          job.failureEvidence !== undefined ||
+          job.failureEvidenceHistory !== undefined),
+    )
   )
     throw storedFlowIntegrityError();
   const nextJobs = new Map(after.jobs.map((job) => [job.id, job]));

@@ -605,69 +605,78 @@ void test('FLOW commit requires exactly one revision and a valid stored timestam
 
 void test('FLOW commit preserves existing AI evidence, failure history, jobs and audit records', async () => {
   const initial = await fixture();
-  const seeded = structuredClone(initial);
   const timestamp = (offset: number) =>
     new Date(Date.parse(initial.updatedAt) + offset).toISOString();
-  const historyAt = timestamp(1);
-  const failureAt = timestamp(2);
-  const successAt = timestamp(3);
+  const queuedAt = timestamp(1);
+  const startedAt = timestamp(2);
+  const historyAt = timestamp(3);
+  const retryAt = timestamp(4);
+  const restartedAt = timestamp(5);
+  const failureAt = timestamp(6);
+  const nextAt = timestamp(7);
   const successJobId = `immutable-success-${++sequence}`;
   const failureJobId = `immutable-failure-${++sequence}`;
-  const successAuditId = `${successJobId}-${successAt}`;
+  const successAuditId = `${successJobId}-${historyAt}`;
   const failureAuditId = `${failureJobId}-${failureAt}`;
   const historyAuditId = `${failureJobId}-${historyAt}`;
-  seeded.revision++;
-  seeded.updatedAt = successAt;
-  seeded.jobs.push(
+  const queued = structuredClone(initial);
+  queued.revision++;
+  queued.updatedAt = queuedAt;
+  queued.jobs.push(
     {
       id: successJobId,
       stage: 1,
-      status: 'complete',
+      status: 'queued',
       reason: '',
-      createdAt: successAt,
-      startedAt: successAt,
-      completedAt: successAt,
-      reportId: seeded.reports[0].id,
-      evidence: {
-        auditId: successAuditId,
-        instructionVersion: 'synthetic-flow-instruction-v1',
-        requestedModel: 'claude-requested-test-model',
-        providerRequestId: 'req_immutable_success',
-        providerModel: 'claude-resolved-test-model',
-        providerMessageId: 'msg_immutable_success',
-        inputTokens: 10,
-        outputTokens: 20,
-        observedAt: successAt,
-      },
+      createdAt: queuedAt,
     },
     {
       id: failureJobId,
       stage: 1,
-      status: 'failed',
-      reason: '가상 공급자 오류',
-      createdAt: historyAt,
-      startedAt: failureAt,
-      failureEvidence: {
-        auditId: failureAuditId,
-        instructionVersion: 'synthetic-flow-instruction-v1',
-        requestedModel: 'claude-requested-test-model',
-        httpStatus: 429,
-        observedAt: failureAt,
-        providerRequestId: 'req_immutable_failure',
-      },
-      failureEvidenceHistory: [
-        {
-          auditId: historyAuditId,
-          instructionVersion: 'synthetic-flow-instruction-v1',
-          requestedModel: 'claude-requested-test-model',
-          httpStatus: 503,
-          observedAt: historyAt,
-          providerRequestId: 'req_immutable_history',
-        },
-      ],
+      status: 'queued',
+      reason: '',
+      createdAt: queuedAt,
     },
   );
-  seeded.audit.push(
+  await commitFlow(initial, queued);
+  const processing = structuredClone(queued);
+  processing.revision++;
+  processing.updatedAt = startedAt;
+  for (const job of processing.jobs.slice(-2)) {
+    job.status = 'processing';
+    job.startedAt = startedAt;
+  }
+  await commitFlow(queued, processing);
+  const firstResult = structuredClone(processing);
+  firstResult.revision++;
+  firstResult.updatedAt = historyAt;
+  const successJob = firstResult.jobs.find((job) => job.id === successJobId)!;
+  successJob.status = 'complete';
+  successJob.completedAt = historyAt;
+  successJob.reportId = firstResult.reports[0].id;
+  successJob.evidence = {
+    auditId: successAuditId,
+    instructionVersion: 'synthetic-flow-instruction-v1',
+    requestedModel: 'claude-requested-test-model',
+    providerRequestId: 'req_immutable_success',
+    providerModel: 'claude-resolved-test-model',
+    providerMessageId: 'msg_immutable_success',
+    inputTokens: 10,
+    outputTokens: 20,
+    observedAt: historyAt,
+  };
+  const failedJob = firstResult.jobs.find((job) => job.id === failureJobId)!;
+  failedJob.status = 'failed';
+  failedJob.reason = '과거 가상 공급자 오류';
+  failedJob.failureEvidence = {
+    auditId: historyAuditId,
+    instructionVersion: 'synthetic-flow-instruction-v1',
+    requestedModel: 'claude-requested-test-model',
+    httpStatus: 503,
+    observedAt: historyAt,
+    providerRequestId: 'req_immutable_history',
+  };
+  firstResult.audit.push(
     {
       id: historyAuditId,
       at: historyAt,
@@ -676,21 +685,55 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
       detail: '1차 분석보고서 실패 · 과거 가상 공급자 오류',
     },
     {
-      id: failureAuditId,
-      at: failureAt,
-      actor: '보고서 자동생성',
-      action: 'ai_result',
-      detail: '1차 분석보고서 실패 · 가상 공급자 오류',
-    },
-    {
       id: successAuditId,
-      at: successAt,
+      at: historyAt,
       actor: '보고서 자동생성',
       action: 'ai_result',
       detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
     },
   );
-  await commitFlow(initial, seeded);
+  await commitFlow(processing, firstResult);
+  const retry = structuredClone(firstResult);
+  retry.revision++;
+  retry.updatedAt = retryAt;
+  const retryJob = retry.jobs.find((job) => job.id === failureJobId)!;
+  retryJob.status = 'queued';
+  retryJob.reason = '';
+  retryJob.startedAt = undefined;
+  retryJob.failureEvidenceHistory = [retryJob.failureEvidence!];
+  retryJob.failureEvidence = undefined;
+  await commitFlow(firstResult, retry);
+  const restarted = structuredClone(retry);
+  restarted.revision++;
+  restarted.updatedAt = restartedAt;
+  const restartedJob = restarted.jobs.find((job) => job.id === failureJobId)!;
+  restartedJob.status = 'processing';
+  restartedJob.startedAt = restartedAt;
+  await commitFlow(retry, restarted);
+  const failedAgain = structuredClone(restarted);
+  failedAgain.revision++;
+  failedAgain.updatedAt = failureAt;
+  const failedAgainJob = failedAgain.jobs.find(
+    (job) => job.id === failureJobId,
+  )!;
+  failedAgainJob.status = 'failed';
+  failedAgainJob.reason = '가상 공급자 오류';
+  failedAgainJob.failureEvidence = {
+    auditId: failureAuditId,
+    instructionVersion: 'synthetic-flow-instruction-v1',
+    requestedModel: 'claude-requested-test-model',
+    httpStatus: 429,
+    observedAt: failureAt,
+    providerRequestId: 'req_immutable_failure',
+  };
+  failedAgain.audit.push({
+    id: failureAuditId,
+    at: failureAt,
+    actor: '보고서 자동생성',
+    action: 'ai_result',
+    detail: '1차 분석보고서 실패 · 가상 공급자 오류',
+  });
+  await commitFlow(restarted, failedAgain);
   const stored = (await readFlow(initial.caseId))!;
   const mutations: Array<(flow: ConsultingFlow) => void> = [
     (flow) => {
@@ -719,7 +762,7 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
   for (const mutate of mutations) {
     const changed = structuredClone(stored);
     changed.revision++;
-    changed.updatedAt = timestamp(4);
+    changed.updatedAt = nextAt;
     mutate(changed);
     await assert.rejects(
       commitFlow(stored, changed),
@@ -727,6 +770,76 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
     );
     assert.deepEqual(await readFlow(stored.caseId), stored);
   }
+});
+
+void test('FLOW commit requires a new AI job to start without terminal evidence', async () => {
+  const initial = await fixture();
+  const changed = structuredClone(initial);
+  const at = new Date(Date.parse(initial.updatedAt) + 1).toISOString();
+  const jobId = `invented-complete-job-${++sequence}`;
+  const auditId = `${jobId}-${at}`;
+  changed.revision++;
+  changed.updatedAt = at;
+  changed.jobs.push({
+    id: jobId,
+    stage: 1,
+    status: 'complete',
+    reason: '',
+    createdAt: at,
+    startedAt: at,
+    completedAt: at,
+    reportId: changed.reports[0].id,
+    evidence: {
+      auditId,
+      instructionVersion: 'synthetic-flow-instruction-v1',
+      requestedModel: 'claude-requested-test-model',
+      providerRequestId: 'req_invented_success',
+      providerModel: 'claude-resolved-test-model',
+      providerMessageId: 'msg_invented_success',
+      inputTokens: 10,
+      outputTokens: 20,
+      observedAt: at,
+    },
+  });
+  changed.audit.push({
+    id: auditId,
+    at,
+    actor: '보고서 자동생성',
+    action: 'ai_result',
+    detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
+  });
+  await assert.rejects(
+    commitFlow(initial, changed),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  assert.deepEqual(await readFlow(initial.caseId), initial);
+});
+
+void test('FLOW native D1 keeps existing audit records append-only', async () => {
+  const flow = await fixture();
+  const changed = structuredClone(flow);
+  changed.revision++;
+  changed.updatedAt = new Date(Date.parse(flow.updatedAt) + 1).toISOString();
+  changed.audit[0].detail = '구조상 정상인 변조 감사기록';
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        changed.revision,
+        JSON.stringify(changed),
+        changed.updatedAt,
+        flow.caseId,
+        flow.revision,
+      )
+      .run(),
+    /audit is append-only/,
+  );
+  assert.deepEqual(await readFlow(flow.caseId), flow);
 });
 
 void test('FLOW rejects a D1 updated timestamp that differs from its payload', async () => {

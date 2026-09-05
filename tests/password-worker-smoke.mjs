@@ -159,6 +159,39 @@ function migrationStatements(source) {
   assert.equal(pending, '', 'migration must end with a complete SQL statement');
   return statements;
 }
+const flowAiEvidenceTransitionTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0043_consulting_flow_ai_evidence_transition.sql',
+    ),
+    'utf8',
+  ),
+);
+const consultingFlowTransitionTriggerNames = [
+  'consulting_flows_transition_guard',
+  'consulting_flows_audit_append_only',
+  'consulting_flows_jobs_transition_guard',
+  'consulting_flows_success_evidence_guard',
+  'consulting_flows_failure_history_guard',
+  'consulting_flows_failure_evidence_guard',
+];
+async function dropConsultingFlowTransitionGuards(db) {
+  await db.batch(
+    consultingFlowTransitionTriggerNames.map((name) =>
+      db.prepare(`DROP TRIGGER IF EXISTS ${name}`),
+    ),
+  );
+}
+async function restoreConsultingFlowTransitionGuards(db) {
+  await db.batch(
+    [
+      consultingFlowsTransitionTriggerSql,
+      ...flowAiEvidenceTransitionTriggerSql,
+    ].map((sql) => db.prepare(sql)),
+  );
+}
 const uploadRequestNoDeleteTriggerSql =
   "CREATE TRIGGER IF NOT EXISTS company_file_upload_requests_no_delete BEFORE DELETE ON company_file_upload_requests BEGIN SELECT RAISE(ABORT, 'company file upload request is durable'); END";
 const companyFileObjectsNoUpdateTriggerSql =
@@ -222,16 +255,14 @@ async function deleteConsultingFlowFixture(db, caseId) {
   }
 }
 async function mutateConsultingFlowFixture(db, sql, values) {
-  await db
-    .prepare('DROP TRIGGER IF EXISTS consulting_flows_transition_guard')
-    .run();
+  await dropConsultingFlowTransitionGuards(db);
   try {
     return await db
       .prepare(sql)
       .bind(...values)
       .run();
   } finally {
-    await db.prepare(consultingFlowsTransitionTriggerSql).run();
+    await restoreConsultingFlowTransitionGuards(db);
   }
 }
 try {
@@ -3294,6 +3325,239 @@ try {
     .bind('runtime-own')
     .first();
   const intactFlowPayload = intactFlowRow.payload;
+  const evidenceCaseId = 'native-flow-ai-evidence-transition';
+  const evidenceTimes = Array.from({ length: 5 }, (_, index) =>
+    new Date(Date.parse('2026-09-06T12:00:00.000Z') + index).toISOString(),
+  );
+  const evidenceFlow = JSON.parse(intactFlowPayload);
+  evidenceFlow.caseId = evidenceCaseId;
+  evidenceFlow.revision = 0;
+  evidenceFlow.updatedAt = evidenceTimes[1];
+  evidenceFlow.files = [];
+  for (const report of evidenceFlow.reports) delete report.fileId;
+  evidenceFlow.jobs = [
+    {
+      id: 'native-immutable-success',
+      stage: 1,
+      status: 'complete',
+      reason: '',
+      createdAt: evidenceTimes[0],
+      startedAt: evidenceTimes[0],
+      completedAt: evidenceTimes[1],
+      reportId: evidenceFlow.reports[0].id,
+      evidence: {
+        auditId: `native-immutable-success-${evidenceTimes[1]}`,
+        instructionVersion: 'synthetic-flow-instruction-v1',
+        requestedModel: 'claude-requested-test-model',
+        providerRequestId: 'req_native_immutable_success',
+        providerModel: 'claude-resolved-test-model',
+        providerMessageId: 'msg_native_immutable_success',
+        inputTokens: 10,
+        outputTokens: 20,
+        observedAt: evidenceTimes[1],
+      },
+    },
+    {
+      id: 'native-immutable-failure',
+      stage: 1,
+      status: 'failed',
+      reason: '가상 공급자 오류',
+      createdAt: evidenceTimes[0],
+      startedAt: evidenceTimes[1],
+      failureEvidence: {
+        auditId: `native-immutable-failure-${evidenceTimes[1]}`,
+        instructionVersion: 'synthetic-flow-instruction-v1',
+        requestedModel: 'claude-requested-test-model',
+        httpStatus: 429,
+        observedAt: evidenceTimes[1],
+        providerRequestId: 'req_native_immutable_failure',
+      },
+      failureEvidenceHistory: [
+        {
+          auditId: `native-immutable-failure-${evidenceTimes[0]}`,
+          instructionVersion: 'synthetic-flow-instruction-v1',
+          requestedModel: 'claude-requested-test-model',
+          httpStatus: 503,
+          observedAt: evidenceTimes[0],
+          providerRequestId: 'req_native_immutable_history',
+        },
+      ],
+    },
+  ];
+  evidenceFlow.audit = [
+    {
+      id: `native-immutable-failure-${evidenceTimes[0]}`,
+      at: evidenceTimes[0],
+      actor: '보고서 자동생성',
+      action: 'ai_result',
+      detail: '1차 분석보고서 실패 · 과거 가상 공급자 오류',
+    },
+    {
+      id: `native-immutable-success-${evidenceTimes[1]}`,
+      at: evidenceTimes[1],
+      actor: '보고서 자동생성',
+      action: 'ai_result',
+      detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
+    },
+    {
+      id: `native-immutable-failure-${evidenceTimes[1]}`,
+      at: evidenceTimes[1],
+      actor: '보고서 자동생성',
+      action: 'ai_result',
+      detail: '1차 분석보고서 실패 · 가상 공급자 오류',
+    },
+  ];
+  await db
+    .prepare(
+      `INSERT INTO consulting_flows
+        (case_id, partner_id, revision, payload, updated_at)
+      VALUES (?1, ?2, ?3, ?4, ?5)`,
+    )
+    .bind(
+      evidenceCaseId,
+      evidenceFlow.partnerId,
+      evidenceFlow.revision,
+      JSON.stringify(evidenceFlow),
+      evidenceFlow.updatedAt,
+    )
+    .run();
+  const saveEvidenceTransition = async (before, after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        evidenceCaseId,
+        before.revision,
+      )
+      .run();
+  const retriedEvidenceFlow = structuredClone(evidenceFlow);
+  retriedEvidenceFlow.revision++;
+  retriedEvidenceFlow.updatedAt = evidenceTimes[2];
+  const retriedFailureJob = retriedEvidenceFlow.jobs[1];
+  retriedFailureJob.status = 'queued';
+  retriedFailureJob.reason = '';
+  delete retriedFailureJob.startedAt;
+  retriedFailureJob.failureEvidenceHistory.push(
+    retriedFailureJob.failureEvidence,
+  );
+  delete retriedFailureJob.failureEvidence;
+  await saveEvidenceTransition(evidenceFlow, retriedEvidenceFlow);
+  const processingEvidenceFlow = structuredClone(retriedEvidenceFlow);
+  processingEvidenceFlow.revision++;
+  processingEvidenceFlow.updatedAt = evidenceTimes[3];
+  processingEvidenceFlow.jobs[1].status = 'processing';
+  processingEvidenceFlow.jobs[1].startedAt = evidenceTimes[3];
+  await saveEvidenceTransition(retriedEvidenceFlow, processingEvidenceFlow);
+  const failedEvidenceFlow = structuredClone(processingEvidenceFlow);
+  failedEvidenceFlow.revision++;
+  failedEvidenceFlow.updatedAt = evidenceTimes[4];
+  failedEvidenceFlow.jobs[1].status = 'failed';
+  failedEvidenceFlow.jobs[1].reason = '두 번째 가상 공급자 오류';
+  failedEvidenceFlow.jobs[1].failureEvidence = {
+    auditId: `native-immutable-failure-${evidenceTimes[4]}`,
+    instructionVersion: 'synthetic-flow-instruction-v1',
+    requestedModel: 'claude-requested-test-model',
+    httpStatus: 500,
+    observedAt: evidenceTimes[4],
+    providerRequestId: 'req_native_immutable_failure_again',
+  };
+  failedEvidenceFlow.audit.push({
+    id: `native-immutable-failure-${evidenceTimes[4]}`,
+    at: evidenceTimes[4],
+    actor: '보고서 자동생성',
+    action: 'ai_result',
+    detail: '1차 분석보고서 실패 · 두 번째 가상 공급자 오류',
+  });
+  await saveEvidenceTransition(processingEvidenceFlow, failedEvidenceFlow);
+  checks.push(
+    'FLOW native D1 permits exact failure evidence history movement and new result evidence',
+  );
+  const nativeEvidenceMutations = [
+    {
+      name: 'FLOW native D1 preserves existing audit records',
+      pattern: /audit is append-only/,
+      apply(flow) {
+        flow.audit[0].detail = '구조상 정상인 변조 감사기록';
+      },
+    },
+    {
+      name: 'FLOW native D1 preserves existing jobs',
+      pattern: /job transition is invalid/,
+      apply(flow) {
+        flow.jobs.shift();
+      },
+    },
+    {
+      name: 'FLOW native D1 rejects an invented terminal AI job',
+      pattern: /job transition is invalid/,
+      apply(flow) {
+        const job = structuredClone(flow.jobs[0]);
+        job.id = 'native-invented-terminal-job';
+        job.evidence.auditId = `${job.id}-${job.completedAt}`;
+        flow.jobs.push(job);
+        flow.audit.push({
+          id: job.evidence.auditId,
+          at: job.completedAt,
+          actor: '보고서 자동생성',
+          action: 'ai_result',
+          detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
+        });
+      },
+    },
+    {
+      name: 'FLOW native D1 preserves success evidence',
+      pattern: /success evidence transition is invalid/,
+      apply(flow) {
+        flow.jobs[0].evidence.providerModel = 'claude-mutated-test-model';
+      },
+    },
+    {
+      name: 'FLOW native D1 preserves failure evidence history',
+      pattern: /failure history is immutable/,
+      apply(flow) {
+        flow.jobs[1].failureEvidenceHistory[0].providerRequestId =
+          'req_native_mutated_history';
+      },
+    },
+    {
+      name: 'FLOW native D1 preserves current failure evidence',
+      pattern: /failure evidence transition is invalid/,
+      apply(flow) {
+        flow.jobs[1].failureEvidence.httpStatus = 429;
+      },
+    },
+  ];
+  for (const mutation of nativeEvidenceMutations) {
+    const changed = structuredClone(failedEvidenceFlow);
+    changed.revision++;
+    changed.updatedAt = new Date(
+      Date.parse(failedEvidenceFlow.updatedAt) + 1,
+    ).toISOString();
+    mutation.apply(changed);
+    await assert.rejects(
+      saveEvidenceTransition(failedEvidenceFlow, changed),
+      mutation.pattern,
+    );
+    checks.push(mutation.name);
+  }
+  assert.deepEqual(
+    JSON.parse(
+      (
+        await db
+          .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+          .bind(evidenceCaseId)
+          .first()
+      ).payload,
+    ),
+    failedEvidenceFlow,
+  );
+  await deleteConsultingFlowFixture(db, evidenceCaseId);
   await assert.rejects(
     db
       .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
@@ -3344,9 +3608,7 @@ try {
   checks.push(
     'FLOW inserts and updates require one atomic native D1 revision envelope',
   );
-  await db
-    .prepare('DROP TRIGGER IF EXISTS consulting_flows_transition_guard')
-    .run();
+  await dropConsultingFlowTransitionGuards(db);
   const mismatchedFlow = JSON.parse(intactFlowPayload);
   mismatchedFlow.partnerId = peerId;
   await db
@@ -3943,7 +4205,7 @@ try {
   checks.push(
     'FLOW D1 row identity, timestamp, structure, collection field, hidden field length and semantics, reference, state-evidence and resource-ceiling guards protect detail ACL, dashboard projection and AI result capacity',
   );
-  await db.prepare(consultingFlowsTransitionTriggerSql).run();
+  await restoreConsultingFlowTransitionGuards(db);
   assert.deepEqual(
     Object.keys(privateMimeFlow.commandReceipts[mimeCommand.commandId]).sort(),
     ['actorKey', 'fingerprint'],

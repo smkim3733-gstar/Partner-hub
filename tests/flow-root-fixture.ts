@@ -1,7 +1,30 @@
 import {
+  consultingFlowsAuditAppendOnlyTriggerSql,
+  consultingFlowsFailureEvidenceTriggerSql,
+  consultingFlowsFailureHistoryTriggerSql,
+  consultingFlowsJobsTransitionTriggerSql,
   consultingFlowsNoDeleteTriggerSql,
+  consultingFlowsSuccessEvidenceTriggerSql,
   consultingFlowsTransitionTriggerSql,
 } from '../db/schema';
+
+const transitionTriggers = [
+  consultingFlowsTransitionTriggerSql,
+  consultingFlowsAuditAppendOnlyTriggerSql,
+  consultingFlowsJobsTransitionTriggerSql,
+  consultingFlowsSuccessEvidenceTriggerSql,
+  consultingFlowsFailureHistoryTriggerSql,
+  consultingFlowsFailureEvidenceTriggerSql,
+] as const;
+
+const transitionTriggerNames = [
+  'consulting_flows_transition_guard',
+  'consulting_flows_audit_append_only',
+  'consulting_flows_jobs_transition_guard',
+  'consulting_flows_success_evidence_guard',
+  'consulting_flows_failure_history_guard',
+  'consulting_flows_failure_evidence_guard',
+] as const;
 
 /** Remove synthetic FLOW roots, then immediately restore the runtime guard. */
 export async function deleteConsultingFlowFixture(
@@ -27,15 +50,17 @@ export async function mutateConsultingFlowFixture(
   sql: string,
   values: unknown[],
 ) {
-  await db
-    .prepare('DROP TRIGGER IF EXISTS consulting_flows_transition_guard')
-    .run();
+  await db.batch(
+    transitionTriggerNames.map((name) =>
+      db.prepare(`DROP TRIGGER IF EXISTS ${name}`),
+    ),
+  );
   try {
     return await db
       .prepare(sql)
       .bind(...values)
       .run();
   } finally {
-    await db.prepare(consultingFlowsTransitionTriggerSql).run();
+    await db.batch(transitionTriggers.map((sql) => db.prepare(sql)));
   }
 }
