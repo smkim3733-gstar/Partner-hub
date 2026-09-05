@@ -15,6 +15,7 @@ import {
   readFlow,
   flowBucket,
   flowDatabase,
+  flowFileObjectBinding,
   stateWithConsultingFlows,
 } from '../lib/consulting-flow-store';
 import { readPortalState, writePortalState } from '../lib/portal-state';
@@ -56,6 +57,15 @@ const body =
   );
 let sequence = 0;
 const context = (caseId: string) => ({ params: Promise.resolve({ caseId }) });
+async function storeFlowFileBinding(
+  file: ConsultingFlow['files'][number],
+  body: Parameters<R2Bucket['put']>[1],
+) {
+  const object = await flowBucket().put(file.key, body, {
+    httpMetadata: { contentType: file.contentType },
+  });
+  return new Map([[file.id, flowFileObjectBinding(file, object)]]);
+}
 
 void test('FLOW stops a queued model request when the caller is suspended during source preparation', async () => {
   const flow = await fixture();
@@ -79,13 +89,17 @@ void test('FLOW stops a queued model request when the caller is suspended during
     reason: '',
     createdAt: new Date().toISOString(),
   });
-  await commitFlow(flow, next);
+  await commitFlow(
+    flow,
+    next,
+    undefined,
+    await storeFlowFileBinding(next.files[0], source),
+  );
   const bucket = flowBucket(),
     get = bucket.get.bind(bucket),
     runtime = env as unknown as Record<string, unknown>;
   const previousKey = runtime.ANTHROPIC_API_KEY,
     fetch = globalThis.fetch;
-  await bucket.put(next.files[0].key, source);
   let calls = 0;
   runtime.ANTHROPIC_API_KEY = 'SYNTHETIC_NOT_A_REAL_KEY';
   globalThis.fetch = async () => {
@@ -215,7 +229,12 @@ void test('FLOW duplicate payment requests persist one payment and accept an exa
     expectedDepositWon: 1000,
     recordedBy: '가상 대표',
   };
-  await commitFlow(flow, signed);
+  await commitFlow(
+    flow,
+    signed,
+    undefined,
+    await storeFlowFileBinding(signed.files[0], new Uint8Array([1])),
+  );
   const command = {
       type: 'confirm_payment',
       paymentConfirmed: true,
@@ -1230,6 +1249,78 @@ void test('FLOW metadata backfill restores every authoritative field for a clean
   assert.deepEqual(await readFlow(saved.caseId), saved);
 });
 
+void test('FLOW requires an R2 write binding and fails closed when its integrity row disappears', async () => {
+  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  const flow = await fixture();
+  const missingBinding = structuredClone(flow);
+  const now = new Date().toISOString();
+  missingBinding.revision++;
+  missingBinding.updatedAt = now;
+  missingBinding.files.push({
+    id: `unbound-${++sequence}`,
+    name: 'unbound.txt',
+    contentType: 'text/plain',
+    size: 1,
+    key: flowFileStorageKey(`unbound-${sequence}`),
+    createdAt: now,
+    purpose: 'source',
+  });
+  await assert.rejects(
+    commitFlow(flow, missingBinding),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  assert.deepEqual(await readFlow(flow.caseId), flow);
+
+  const { saved, file } = await fixtureWithAttachment();
+  const db = await flowDatabase();
+  const stored = await db
+    .prepare(
+      `SELECT validation_mode, r2_etag, r2_content_type
+      FROM consulting_flow_file_object_integrity WHERE file_id = ?1`,
+    )
+    .bind(file.id)
+    .first<{
+      validation_mode: string;
+      r2_etag: string | null;
+      r2_content_type: string;
+    }>();
+  assert.deepEqual(
+    { ...stored },
+    {
+      validation_mode: 'etag',
+      r2_etag: (await flowBucket().head(file.key))?.etag,
+      r2_content_type: file.contentType,
+    },
+  );
+  await db
+    .prepare(
+      'DELETE FROM consulting_flow_file_object_integrity WHERE file_id = ?1',
+    )
+    .bind(file.id)
+    .run();
+  await assert.rejects(
+    readFlow(saved.caseId),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  assert.equal(
+    (
+      await download(request(saved.caseId, undefined), {
+        params: Promise.resolve({ caseId: saved.caseId, fileId: file.id }),
+      })
+    ).status,
+    503,
+  );
+  assert.equal(
+    await db
+      .prepare(
+        'SELECT 1 FROM consulting_flow_file_object_integrity WHERE file_id = ?1',
+      )
+      .bind(file.id)
+      .first(),
+    null,
+  );
+});
+
 void test('FLOW source archival advances the authoritative purpose in the same commit', async () => {
   await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
   const flow = await fixture();
@@ -1247,7 +1338,15 @@ void test('FLOW source archival advances the authoritative purpose in the same c
     createdAt: now,
     purpose: 'source',
   });
-  await commitFlow(flow, withSource);
+  await commitFlow(
+    flow,
+    withSource,
+    undefined,
+    await storeFlowFileBinding(
+      withSource.files.at(-1)!,
+      new Uint8Array(withSource.files.at(-1)!.size),
+    ),
+  );
   const current = (await readFlow(flow.caseId))!;
   const archived = applyFlowCommand(
     current,
@@ -2223,6 +2322,25 @@ void test('FLOW attachment download rejects an R2 body whose size differs from s
   );
   assert.deepEqual(await readFlow(saved.caseId), saved);
   assert.equal((await bucket.head(file.key))?.size, 3);
+});
+
+void test('FLOW attachment download rejects same-size R2 byte or MIME replacement', async () => {
+  for (const replacement of [
+    { body: 'SYNTHETIC_REPLACED', contentType: 'text/plain' },
+    { body: 'SYNTHETIC_ORIGINAL', contentType: 'text/markdown' },
+  ]) {
+    const { saved, file } = await fixtureWithAttachment(),
+      bucket = flowBucket();
+    assert.equal(replacement.body.length, file.size);
+    await bucket.put(file.key, replacement.body, {
+      httpMetadata: { contentType: replacement.contentType },
+    });
+    const response = await download(request(saved.caseId, undefined), {
+      params: Promise.resolve({ caseId: saved.caseId, fileId: file.id }),
+    });
+    assert.equal(response.status, 409, await response.clone().text());
+    assert.deepEqual(await readFlow(saved.caseId), saved);
+  }
 });
 
 void test('FLOW attachment download rejects stored metadata corruption introduced while R2 resolves', async () => {

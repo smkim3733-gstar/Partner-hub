@@ -188,6 +188,25 @@ void test('admin-only preflight is non-mutating and generation rechecks files af
         !raw.includes(before.files[0].key),
     );
     assert.deepEqual(await readFlow(caseId), before);
+    const replaced = new TextEncoder().encode(bodyText);
+    replaced[replaced.byteLength - 1] ^= 1;
+    await flowBucket().put(before.files[0].key, replaced, {
+      httpMetadata: { contentType: before.files[0].contentType },
+    });
+    const replacedCheck = await readReportPreflightResponse(
+      await GET(request(`${url}/preflight`), context),
+      caseId,
+      revision,
+    );
+    assert.equal(
+      replacedCheck.checks.find((check) => check.id === 'sources')?.passed,
+      false,
+    );
+    await flowBucket().put(
+      before.files[0].key,
+      new TextEncoder().encode(bodyText),
+      { httpMetadata: { contentType: before.files[0].contentType } },
+    );
     await flowBucket().delete(before.files[0].key);
     const missing = await command({ type: 'queue_report1' });
     assert.equal(missing.status, 400);
@@ -196,6 +215,7 @@ void test('admin-only preflight is non-mutating and generation rechecks files af
     await flowBucket().put(
       before.files[0].key,
       new TextEncoder().encode(bodyText),
+      { httpMetadata: { contentType: before.files[0].contentType } },
     );
     assert.equal(
       (await command({ type: 'queue_report1' }, undefined, 0)).status,

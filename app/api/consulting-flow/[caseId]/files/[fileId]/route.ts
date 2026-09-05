@@ -2,7 +2,9 @@ import { FlowError } from '@/lib/consulting-flow';
 import {
   flowBucket,
   flowErrorResponse,
+  flowFileObjectMatchesIntegrity,
   loadFlowAccess,
+  readFlowFileObjectIntegrity,
   recheckFlowAccess,
 } from '@/lib/consulting-flow-store';
 import { readRouteParam } from '@/lib/request-path';
@@ -32,11 +34,13 @@ export async function GET(
     );
     const file = flow.files.find((f) => f.id === fileId);
     if (!file) throw new FlowError('첨부파일을 찾을 수 없습니다.', 404);
+    const integrity = await readFlowFileObjectIntegrity(flow.caseId, file);
     const object = await flowBucket().get(file.key);
     if (!object)
       throw new FlowError('저장된 첨부파일을 찾을 수 없습니다.', 404);
     try {
-      if (object.size !== file.size) throw attachmentStorageConflict();
+      if (!flowFileObjectMatchesIntegrity(file, object, integrity))
+        throw attachmentStorageConflict();
       const access = await recheckFlowAccess(request, flow, user);
       const currentFile = access.flow.files.find((item) => item.id === file.id);
       if (!currentFile || currentFile.key !== file.key)
@@ -45,6 +49,17 @@ export async function GET(
         currentFile.name !== file.name ||
         currentFile.size !== file.size ||
         object.size !== currentFile.size
+      )
+        throw attachmentStorageConflict();
+      const currentIntegrity = await readFlowFileObjectIntegrity(
+        access.flow.caseId,
+        currentFile,
+      );
+      if (
+        currentIntegrity.validationMode !== integrity.validationMode ||
+        currentIntegrity.etag !== integrity.etag ||
+        currentIntegrity.contentType !== integrity.contentType ||
+        !flowFileObjectMatchesIntegrity(currentFile, object, currentIntegrity)
       )
         throw attachmentStorageConflict();
     } catch (error) {

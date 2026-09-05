@@ -248,6 +248,29 @@ try {
   checks.push(
     'version 159 ownership rows upgrade through additive metadata migration',
   );
+  assert.deepEqual(
+    await db
+      .prepare(
+        `SELECT validation_mode, r2_etag, r2_content_type
+        FROM consulting_flow_file_object_integrity WHERE file_id = ?1`,
+      )
+      .bind(migrationCompatibilityFile.id)
+      .first(),
+    {
+      validation_mode: 'metadata',
+      r2_etag: null,
+      r2_content_type: migrationCompatibilityFile.contentType,
+    },
+  );
+  checks.push(
+    'version 159 files receive explicit legacy R2 metadata validation mode',
+  );
+  await db
+    .prepare(
+      'DELETE FROM consulting_flow_file_object_integrity WHERE file_id = ?1',
+    )
+    .bind(migrationCompatibilityFile.id)
+    .run();
   await db
     .prepare('DELETE FROM consulting_flow_file_metadata WHERE file_id = ?1')
     .bind(migrationCompatibilityFile.id)
@@ -1945,10 +1968,23 @@ try {
     ).payload,
   );
   const privateMimeFile = privateMimeFlow.files.at(-1);
-  assert.equal(
-    (await bucket.head(privateMimeFile.key)).httpMetadata.contentType,
-    'text/plain',
+  const privateMimeHead = await bucket.head(privateMimeFile.key);
+  assert.equal(privateMimeHead.httpMetadata.contentType, 'text/plain');
+  assert.deepEqual(
+    await db
+      .prepare(
+        `SELECT validation_mode, r2_etag, r2_content_type
+        FROM consulting_flow_file_object_integrity WHERE file_id = ?1`,
+      )
+      .bind(privateMimeFile.id)
+      .first(),
+    {
+      validation_mode: 'etag',
+      r2_etag: privateMimeHead.etag,
+      r2_content_type: 'text/plain',
+    },
   );
+  checks.push('new FLOW uploads bind native R2 ETag and MIME in D1');
   const flowFileBytes = new TextEncoder().encode('SYNTHETIC_FLOW_MIME');
   await bucket.put(
     privateMimeFile.key,
@@ -1977,6 +2013,34 @@ try {
     flowFileBytes.byteLength,
   );
   checks.push('corrupt FLOW download denial preserves stored file size');
+  const sameSizeReplacement = flowFileBytes.slice();
+  sameSizeReplacement[sameSizeReplacement.byteLength - 1] ^= 1;
+  await bucket.put(privateMimeFile.key, sameSizeReplacement, {
+    httpMetadata: { contentType: 'text/plain' },
+  });
+  await expect(
+    await call(
+      `/flow-file/runtime-own/${privateMimeFile.id}`,
+      undefined,
+      ownerHeaders,
+    ),
+    409,
+    'FLOW attachment download rejects same-size native R2 byte replacement',
+  );
+  checks.push('same-size FLOW R2 replacement is rejected by ETag');
+  await bucket.put(privateMimeFile.key, flowFileBytes, {
+    httpMetadata: { contentType: 'text/markdown' },
+  });
+  await expect(
+    await call(
+      `/flow-file/runtime-own/${privateMimeFile.id}`,
+      undefined,
+      ownerHeaders,
+    ),
+    409,
+    'FLOW attachment download rejects native R2 MIME replacement',
+  );
+  checks.push('FLOW R2 MIME replacement is rejected by immutable metadata');
   await bucket.put(privateMimeFile.key, flowFileBytes, {
     httpMetadata: { contentType: 'text/plain' },
   });

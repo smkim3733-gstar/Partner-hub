@@ -136,7 +136,9 @@ void test('preflight blocks missing, unsupported, excessive, corrupt, empty and 
     const bytes =
       typeof value === 'string' ? new TextEncoder().encode(value) : value;
     file.size = bytes.byteLength;
-    await flowBucket().put(file.key, bytes);
+    await flowBucket().put(file.key, bytes, {
+      httpMetadata: { contentType: file.contentType },
+    });
     return inspectFirstReport(flow);
   }
   assert.equal(
@@ -174,7 +176,7 @@ void test('preflight blocks missing, unsupported, excessive, corrupt, empty and 
   assert.ok(
     (await inspectFirstReport(flow)).checks
       .find((check) => check.id === 'sources')
-      ?.detail.includes('크기가 일치하지'),
+      ?.detail.includes('원장과 일치하지'),
   );
   file.contentType = 'audio/mp4';
   file.name = 'recording.m4a';

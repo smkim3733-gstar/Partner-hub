@@ -15,6 +15,7 @@ import {
   commitFlow,
   flowBucket,
   flowErrorResponse,
+  flowFileObjectBinding,
   flowReadiness,
   loadFlowAccess,
   recheckFlowAccess,
@@ -42,6 +43,10 @@ export async function GET(request: Request, context: Context) {
 }
 export async function POST(request: Request, context: Context) {
   let uploadedKeys: string[] = [];
+  const fileObjectBindings = new Map<
+    string,
+    ReturnType<typeof flowFileObjectBinding>
+  >();
   try {
     assertSameOrigin(request);
     const initial = await loadFlowAccess(
@@ -156,22 +161,35 @@ export async function POST(request: Request, context: Context) {
       },
     };
     if (imported) {
-      await flowBucket().put(imported.file.key, imported.bytes, {
+      const object = await flowBucket().put(imported.file.key, imported.bytes, {
         httpMetadata: { contentType: imported.file.contentType },
       });
       uploadedKeys.push(imported.file.key);
+      fileObjectBindings.set(
+        imported.file.id,
+        flowFileObjectBinding(imported.file, object),
+      );
     }
     if (upload && input.file) {
-      await flowBucket().put(upload.key, input.file.stream(), {
+      const object = await flowBucket().put(upload.key, input.file.stream(), {
         httpMetadata: { contentType: upload.contentType },
       });
       uploadedKeys.push(upload.key);
+      fileObjectBindings.set(upload.id, flowFileObjectBinding(upload, object));
     }
     if (audioUpload && input.audio) {
-      await flowBucket().put(audioUpload.key, input.audio.stream(), {
-        httpMetadata: { contentType: audioUpload.contentType },
-      });
+      const object = await flowBucket().put(
+        audioUpload.key,
+        input.audio.stream(),
+        {
+          httpMetadata: { contentType: audioUpload.contentType },
+        },
+      );
       uploadedKeys.push(audioUpload.key);
+      fileObjectBindings.set(
+        audioUpload.id,
+        flowFileObjectBinding(audioUpload, object),
+      );
     }
     const access = await recheckFlowAccess(
       request,
@@ -180,7 +198,7 @@ export async function POST(request: Request, context: Context) {
       Boolean(input.file || input.audio),
     );
     assertFlowLifecycleActive(access.state, flow.caseId);
-    await commitFlow(flow, next, access.statePayload);
+    await commitFlow(flow, next, access.statePayload, fileObjectBindings);
     uploadedKeys = [];
     return privateJsonResponse({ flow: publicFlow(next) });
   } catch (error) {

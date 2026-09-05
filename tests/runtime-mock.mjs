@@ -1,6 +1,9 @@
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 const sqlite = new DatabaseSync(':memory:');
 export const objects = new Map();
+const objectMetadata = new Map();
+const objectEtags = new Map();
 const waitUntilTasks = [];
 let waitUntilFailure = false;
 let batchFailure = false;
@@ -113,18 +116,38 @@ export const env = {
   AI_SOURCE_FILES: {
     async head(key) {
       const bytes = objects.get(key);
-      return bytes ? { size: bytes.byteLength } : null;
+      return bytes
+        ? {
+            key,
+            size: bytes.byteLength,
+            etag: objectEtags.get(key),
+            httpMetadata: objectMetadata.get(key),
+          }
+        : null;
     },
-    async put(key, body) {
+    async put(key, body, options = {}) {
       const bytes = await new Response(body).arrayBuffer();
       objects.set(key, bytes);
-      return {};
+      const headers = options.httpMetadata;
+      const httpMetadata =
+        headers instanceof Headers
+          ? { contentType: headers.get('content-type') ?? undefined }
+          : headers;
+      const etag = createHash('md5')
+        .update(new Uint8Array(bytes))
+        .digest('hex');
+      objectMetadata.set(key, httpMetadata);
+      objectEtags.set(key, etag);
+      return { key, size: bytes.byteLength, etag, httpMetadata };
     },
     async get(key) {
       const bytes = objects.get(key);
       if (!bytes) return null;
       return {
+        key,
         size: bytes.byteLength,
+        etag: objectEtags.get(key),
+        httpMetadata: objectMetadata.get(key),
         body: new Response(bytes).body,
         async text() {
           return new TextDecoder().decode(bytes);
@@ -136,6 +159,8 @@ export const env = {
     },
     async delete(key) {
       objects.delete(key);
+      objectMetadata.delete(key);
+      objectEtags.delete(key);
     },
   },
 };

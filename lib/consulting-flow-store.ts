@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:workers';
 import {
+  consultingFlowFileObjectIntegrityTableSql,
   consultingFlowFileMetadataTableSql,
   consultingFlowFileOwnersCaseIndexSql,
   consultingFlowFileOwnersTableSql,
@@ -66,6 +67,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersCaseIndexSql),
         db.prepare(consultingFlowFileMetadataTableSql),
+        db.prepare(consultingFlowFileObjectIntegrityTableSql),
       ])
       .then(() => undefined);
     flowDatabaseInitialization = initialization.catch((error) => {
@@ -92,6 +94,20 @@ type StoredFlowRow = {
 type StoredFlowFileNamesRow = {
   case_id: string;
   names: string;
+};
+type StoredFlowFileObjectIntegrityRow = {
+  validation_mode: string;
+  r2_etag: string | null;
+  r2_content_type: string;
+};
+export type FlowFileObjectBinding = {
+  etag: string;
+  contentType: string;
+};
+export type FlowFileObjectIntegrity = {
+  validationMode: 'metadata' | 'etag';
+  etag: string | null;
+  contentType: string;
 };
 const storedFlowIntegrityError = () =>
   new FlowError(
@@ -228,6 +244,8 @@ const flowFileOwnershipViolationSql = (
     ON owner.file_id = json_extract(file.value, '$.id')
   LEFT JOIN consulting_flow_file_metadata metadata
     ON metadata.file_id = json_extract(file.value, '$.id')
+  LEFT JOIN consulting_flow_file_object_integrity object_integrity
+    ON object_integrity.file_id = json_extract(file.value, '$.id')
   WHERE ${caseIdOnly ? 'flow.case_id = ?1 AND ' : ''}(
     owner.file_id IS NULL OR owner.case_id IS NOT flow.case_id OR
     owner.storage_key IS NOT json_extract(file.value, '$.key') OR
@@ -240,7 +258,14 @@ const flowFileOwnershipViolationSql = (
     metadata.intake_file_id IS NOT json_extract(file.value, '$.intakeFileId') OR
     metadata.intake_source_hash IS NOT json_extract(file.value, '$.intakeSourceHash') OR
     metadata.source_reviewed_at IS NOT json_extract(file.value, '$.sourceReviewedAt') OR
-    metadata.source_reviewed_by IS NOT json_extract(file.value, '$.sourceReviewedBy'))
+    metadata.source_reviewed_by IS NOT json_extract(file.value, '$.sourceReviewedBy') OR
+    object_integrity.file_id IS NULL OR
+    object_integrity.r2_content_type IS NOT metadata.content_type OR
+    object_integrity.validation_mode NOT IN ('metadata', 'etag') OR
+    (object_integrity.validation_mode = 'metadata' AND object_integrity.r2_etag IS NOT NULL) OR
+    (object_integrity.validation_mode = 'etag' AND
+      (typeof(object_integrity.r2_etag) <> 'text' OR
+        length(object_integrity.r2_etag) NOT BETWEEN 1 AND 256)))
   LIMIT 1`;
 const claimFlowFileOwnershipSql = `INSERT INTO consulting_flow_file_owners
     (file_id, case_id, storage_key, created_at)
@@ -293,6 +318,29 @@ const transitionFlowFilePurposeSql = `INSERT INTO consulting_flow_file_metadata
     THEN ?1 ELSE NULL END,
     ?4, ?5, ?6, ?9, ?10, ?11, ?12, ?13
   ON CONFLICT(file_id) DO UPDATE SET purpose = excluded.purpose`;
+const claimFlowFileObjectIntegritySql = `INSERT INTO consulting_flow_file_object_integrity
+    (file_id, validation_mode, r2_etag, r2_content_type)
+  SELECT ?1, 'etag', ?15, ?5
+  WHERE EXISTS (SELECT 1 FROM consulting_flows
+      WHERE case_id = ?2 AND revision = ?13 AND payload = ?14)
+    AND EXISTS (SELECT 1 FROM consulting_flow_file_owners
+      WHERE file_id = ?1 AND case_id = ?2 AND storage_key = ?3 AND created_at = ?7)
+    AND EXISTS (SELECT 1 FROM consulting_flow_file_metadata WHERE file_id = ?1 AND
+      original_name = ?4 AND content_type = ?5 AND size_bytes = ?6 AND
+      purpose = ?8 AND intake_file_id IS ?9 AND intake_source_hash IS ?10 AND
+      source_reviewed_at IS ?11 AND source_reviewed_by IS ?12)
+    AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_object_integrity WHERE file_id = ?1)
+  UNION ALL
+  SELECT NULL, 'etag', ?15, ?5
+  WHERE NOT EXISTS (SELECT 1 FROM consulting_flows
+      WHERE case_id = ?2 AND revision = ?13 AND payload = ?14)
+    OR NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners
+      WHERE file_id = ?1 AND case_id = ?2 AND storage_key = ?3 AND created_at = ?7)
+    OR NOT EXISTS (SELECT 1 FROM consulting_flow_file_metadata WHERE file_id = ?1 AND
+      original_name = ?4 AND content_type = ?5 AND size_bytes = ?6 AND
+      purpose = ?8 AND intake_file_id IS ?9 AND intake_source_hash IS ?10 AND
+      source_reviewed_at IS ?11 AND source_reviewed_by IS ?12)
+    OR EXISTS (SELECT 1 FROM consulting_flow_file_object_integrity WHERE file_id = ?1)`;
 function flowFileOwnershipValues(file: FlowFile) {
   return [
     file.id,
@@ -307,6 +355,102 @@ function flowFileOwnershipValues(file: FlowFile) {
     file.sourceReviewedAt ?? null,
     file.sourceReviewedBy ?? null,
   ] as const;
+}
+function validFlowFileObjectBinding(
+  file: FlowFile,
+  binding: FlowFileObjectBinding | undefined,
+): binding is FlowFileObjectBinding {
+  return (
+    binding !== undefined &&
+    typeof binding.etag === 'string' &&
+    binding.etag.trim().length > 0 &&
+    binding.etag.length <= 256 &&
+    binding.contentType === file.contentType
+  );
+}
+export function flowFileObjectBinding(
+  file: FlowFile,
+  object: R2Object,
+): FlowFileObjectBinding {
+  if (
+    object.key !== file.key ||
+    object.size !== file.size ||
+    object.httpMetadata?.contentType !== file.contentType ||
+    typeof object.etag !== 'string' ||
+    !object.etag.trim() ||
+    object.etag.length > 256
+  )
+    throw new FlowError(
+      '첨부파일을 보안 저장소에 안전하게 기록하지 못했습니다.',
+      503,
+    );
+  return { etag: object.etag, contentType: file.contentType };
+}
+export function flowFileObjectMatchesIntegrity(
+  file: FlowFile,
+  object: R2Object,
+  integrity: FlowFileObjectIntegrity,
+) {
+  return (
+    object.key === file.key &&
+    object.size === file.size &&
+    object.httpMetadata?.contentType === integrity.contentType &&
+    integrity.contentType === file.contentType &&
+    (integrity.validationMode === 'metadata' || object.etag === integrity.etag)
+  );
+}
+export async function readFlowFileObjectIntegrity(
+  caseId: string,
+  file: FlowFile,
+): Promise<FlowFileObjectIntegrity> {
+  const row = await (
+    await flowDatabase()
+  )
+    .prepare(
+      `SELECT object_integrity.validation_mode, object_integrity.r2_etag,
+        object_integrity.r2_content_type
+      FROM consulting_flow_file_owners owner
+      JOIN consulting_flow_file_metadata metadata ON metadata.file_id = owner.file_id
+      JOIN consulting_flow_file_object_integrity object_integrity
+        ON object_integrity.file_id = owner.file_id
+      WHERE owner.file_id = ?1 AND owner.case_id = ?2 AND owner.storage_key = ?3 AND
+        owner.created_at = ?4 AND metadata.original_name = ?5 AND
+        metadata.content_type = ?6 AND metadata.size_bytes = ?7 AND
+        metadata.purpose = ?8 AND metadata.intake_file_id IS ?9 AND
+        metadata.intake_source_hash IS ?10 AND metadata.source_reviewed_at IS ?11 AND
+        metadata.source_reviewed_by IS ?12`,
+    )
+    .bind(
+      file.id,
+      caseId,
+      file.key,
+      file.createdAt,
+      file.name,
+      file.contentType,
+      file.size,
+      file.purpose,
+      file.intakeFileId ?? null,
+      file.intakeSourceHash ?? null,
+      file.sourceReviewedAt ?? null,
+      file.sourceReviewedBy ?? null,
+    )
+    .first<StoredFlowFileObjectIntegrityRow>();
+  if (
+    !row ||
+    row.r2_content_type !== file.contentType ||
+    (row.validation_mode !== 'metadata' && row.validation_mode !== 'etag') ||
+    (row.validation_mode === 'metadata'
+      ? row.r2_etag !== null
+      : typeof row.r2_etag !== 'string' ||
+        !row.r2_etag.trim() ||
+        row.r2_etag.length > 256)
+  )
+    throw storedFlowIntegrityError();
+  return {
+    validationMode: row.validation_mode,
+    etag: row.r2_etag,
+    contentType: row.r2_content_type,
+  };
 }
 function storedFlowFromRow(
   row: StoredFlowRow,
@@ -624,6 +768,7 @@ export async function commitFlow(
   before: ConsultingFlow,
   after: ConsultingFlow,
   statePayload?: string | null,
+  fileObjectBindings?: ReadonlyMap<string, FlowFileObjectBinding>,
 ) {
   if (after === before) return;
   assertFlowCommitTransition(before, after);
@@ -667,6 +812,19 @@ export async function commitFlow(
           );
   const previousFileIds = new Set(before.files.map((file) => file.id));
   const newFiles = after.files.filter((file) => !previousFileIds.has(file.id));
+  if (
+    (newFiles.length > 0 &&
+      (fileObjectBindings?.size !== newFiles.length ||
+        newFiles.some(
+          (file) =>
+            !validFlowFileObjectBinding(file, fileObjectBindings.get(file.id)),
+        ))) ||
+    (newFiles.length === 0 && (fileObjectBindings?.size ?? 0) > 0)
+  )
+    throw new FlowError(
+      '첨부파일 보관 증빙을 확인할 수 없습니다. 자료를 다시 등록해 주세요.',
+      503,
+    );
   const nextFiles = new Map(after.files.map((file) => [file.id, file]));
   const purposeChanges = before.files.flatMap((file) => {
     const next = nextFiles.get(file.id);
@@ -742,6 +900,25 @@ export async function commitFlow(
               file.sourceReviewedBy ?? null,
               after.revision,
               payload,
+            ),
+          db
+            .prepare(claimFlowFileObjectIntegritySql)
+            .bind(
+              file.id,
+              after.caseId,
+              file.key,
+              file.name,
+              file.contentType,
+              file.size,
+              file.createdAt,
+              file.purpose,
+              file.intakeFileId ?? null,
+              file.intakeSourceHash ?? null,
+              file.sourceReviewedAt ?? null,
+              file.sourceReviewedBy ?? null,
+              after.revision,
+              payload,
+              fileObjectBindings!.get(file.id)!.etag,
             ),
         ]),
       ]);

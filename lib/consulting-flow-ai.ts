@@ -25,6 +25,8 @@ import {
   commitFlow,
   flowBucket,
   flowEnvironment,
+  flowFileObjectMatchesIntegrity,
+  readFlowFileObjectIntegrity,
   readFlow,
 } from '@/lib/consulting-flow-store';
 import { readAnthropicMessageResponse } from '@/lib/anthropic-message-response';
@@ -111,14 +113,25 @@ export async function buildAnalysisSourceBlocks(
       throw new FlowError(
         `${file.name}: PDF·JPG·PNG·TXT로 변환하거나 신청자료 불러오기로 검토본을 등록해 주세요.`,
       );
+    const integrity =
+      flow.revision === 0
+        ? ({
+            validationMode: 'metadata',
+            etag: null,
+            contentType: file.contentType,
+          } as const)
+        : await readFlowFileObjectIntegrity(flow.caseId, file);
     const object = await flowBucket().get(file.key);
     if (!object)
       throw new FlowError(
         `${file.name}: 저장 파일을 찾지 못했습니다. 자료를 다시 등록하거나 AI 입력에서 제외해 주세요.`,
       );
-    if (object.size !== file.size || object.size > MAX_AI_SOURCE_BYTES)
+    if (
+      !flowFileObjectMatchesIntegrity(file, object, integrity) ||
+      object.size > MAX_AI_SOURCE_BYTES
+    )
       throw new FlowError(
-        `${file.name}: 저장된 파일 크기가 일치하지 않습니다. 자료를 다시 확인해 주세요.`,
+        `${file.name}: 저장된 파일 내용이나 형식이 원장과 일치하지 않습니다. 자료를 다시 확인해 주세요.`,
       );
     if (file.contentType.startsWith('text/')) {
       let value: string;
