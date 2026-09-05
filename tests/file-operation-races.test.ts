@@ -281,6 +281,12 @@ void test('a storage-key change after R2 deletion preserves the conflicting D1 f
   );
   assert.ok(
     await db
+      .prepare('SELECT file_id FROM company_file_metadata WHERE file_id = ?1')
+      .bind(id)
+      .first(),
+  );
+  assert.ok(
+    await db
       .prepare(
         'SELECT file_id FROM company_file_assignments WHERE file_id = ?1',
       )
@@ -577,6 +583,154 @@ void test('new uploads bind the native R2 ETag and MIME in D1', async () => {
   assert.deepEqual({ ...storageKey }, { storage_key: `company-source/${id}` });
 });
 
+void test('new uploads bind every immutable company-file metadata fact in D1', async () => {
+  await seed();
+  const id = await create(),
+    db = companyFileDatabase(),
+    facts = await db
+      .prepare(`SELECT original_name, company, category, title, assigned_trainee,
+        uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at
+        FROM company_file_objects WHERE id = ?1`)
+      .bind(id)
+      .first(),
+    metadata = await db
+      .prepare(`SELECT original_name, company, category, title, assigned_trainee,
+        uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at
+        FROM company_file_metadata WHERE file_id = ?1`)
+      .bind(id)
+      .first();
+  assert.deepEqual({ ...metadata }, { ...facts });
+});
+
+void test('download rejects valid-looking company metadata drift before R2 access', async () => {
+  await seed();
+  const id = await create(),
+    db = companyFileDatabase(),
+    bucket = companyFileBucket(),
+    get = bucket.get.bind(bucket);
+  await db
+    .prepare(
+      "UPDATE company_file_objects SET original_name = 'other.txt' WHERE id = ?1",
+    )
+    .bind(id)
+    .run();
+  let getCalls = 0;
+  bucket.get = async (...args: Parameters<R2Bucket['get']>) => {
+    getCalls++;
+    return get(...args);
+  };
+  try {
+    const response = await download(request('GET'), context(id));
+    assert.equal(response.status, 503, await response.clone().text());
+    assert.match(
+      ((await response.json()) as { error: string }).error,
+      /무결성/,
+    );
+    assert.equal(getCalls, 0);
+  } finally {
+    bucket.get = get;
+  }
+  assert.ok(await get(`company-source/${id}`));
+});
+
+void test('deletion rejects valid-looking company metadata drift before R2 access', async () => {
+  await seed();
+  const id = await create(),
+    db = companyFileDatabase(),
+    bucket = companyFileBucket(),
+    del = bucket.delete.bind(bucket);
+  await db
+    .prepare(
+      "UPDATE company_file_objects SET title = '다른 정상 제목' WHERE id = ?1",
+    )
+    .bind(id)
+    .run();
+  let deleteCalls = 0;
+  bucket.delete = async (...args: Parameters<R2Bucket['delete']>) => {
+    deleteCalls++;
+    return del(...args);
+  };
+  try {
+    const response = await remove(request('DELETE'), context(id));
+    assert.equal(response.status, 503, await response.clone().text());
+    assert.match(
+      ((await response.json()) as { error: string }).error,
+      /무결성/,
+    );
+    assert.equal(deleteCalls, 0);
+  } finally {
+    bucket.delete = del;
+  }
+  assert.ok(await bucket.get(`company-source/${id}`));
+});
+
+void test('metadata drift after R2 deletion preserves every D1 deletion ledger', async () => {
+  await seed();
+  const id = await create(),
+    db = companyFileDatabase(),
+    bucket = companyFileBucket(),
+    del = bucket.delete.bind(bucket);
+  bucket.delete = async (...args: Parameters<R2Bucket['delete']>) => {
+    await del(...args);
+    await db
+      .prepare(
+        "UPDATE company_file_objects SET title = '경합 변경 제목' WHERE id = ?1",
+      )
+      .bind(id)
+      .run();
+  };
+  try {
+    const response = await remove(request('DELETE'), context(id));
+    assert.equal(response.status, 503, await response.clone().text());
+    assert.match(
+      ((await response.json()) as { error: string }).error,
+      /무결성/,
+    );
+  } finally {
+    bucket.delete = del;
+  }
+  assert.equal(await bucket.get(`company-source/${id}`), null);
+  assert.ok(
+    await db
+      .prepare('SELECT id FROM company_file_objects WHERE id = ?1')
+      .bind(id)
+      .first(),
+  );
+  for (const table of [
+    'company_file_metadata',
+    'company_file_storage_keys',
+    'company_file_object_integrity',
+    'company_file_assignments',
+  ])
+    assert.ok(
+      await db
+        .prepare(`SELECT file_id FROM ${table} WHERE file_id = ?1`)
+        .bind(id)
+        .first(),
+    );
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT status FROM company_file_upload_requests WHERE file_id = ?1',
+        )
+        .bind(id)
+        .first<{ status: string }>()
+    )?.status,
+    'deleted',
+  );
+
+  await db
+    .prepare(`UPDATE company_file_objects SET title = (
+      SELECT title FROM company_file_metadata WHERE file_id = ?1) WHERE id = ?1`)
+    .bind(id)
+    .run();
+  await bucket.put(`company-source/${id}`, 'SYNTHETIC_RACE_ORIGINAL', {
+    httpMetadata: { contentType: 'text/plain' },
+  });
+  assert.equal((await remove(request('DELETE'), context(id))).status, 204);
+});
+
 void test('download rejects an R2 MIME replacement', async () => {
   await seed();
   const id = await create(),
@@ -672,12 +826,21 @@ void test('download rejects a D1 size change committed while R2 resolves', async
   };
   try {
     const response = await download(request('GET'), context(id));
-    assert.equal(response.status, 409, await response.clone().text());
+    assert.equal(response.status, 503, await response.clone().text());
+    assert.match(
+      ((await response.json()) as { error: string }).error,
+      /무결성/,
+    );
   } finally {
     bucket.get = get;
   }
   assert.ok(await bucket.get(`company-source/${id}`));
-  assert.ok(await findCompanyFile(id));
+  assert.ok(
+    await db
+      .prepare('SELECT id FROM company_file_objects WHERE id = ?1')
+      .bind(id)
+      .first(),
+  );
 });
 
 void test('upload suspended while R2 stores bytes does not publish metadata and preserves the uncertain original', async () => {
@@ -800,7 +963,7 @@ void test('suspension immediately before the metadata transaction cannot commit 
     batch = db.batch.bind(db);
   let once = true;
   db.batch = async <T = unknown>(statements: D1PreparedStatement[]) => {
-    if (once && statements.length === 5) {
+    if (once && statements.length === 6) {
       once = false;
       await suspend();
     }

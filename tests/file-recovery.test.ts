@@ -73,6 +73,7 @@ async function seed() {
     [
       'company_file_object_integrity',
       'company_file_storage_keys',
+      'company_file_metadata',
       'company_file_case_links',
       'company_file_assignments',
       'company_file_objects',
@@ -103,6 +104,15 @@ async function seed() {
     assigned_trainee, uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
     VALUES (?1, ?2, 'original.txt', '가상기업', '기타자료', '원본 검토자료', ?3, ?4, ?4, 'text/plain', 24, '2026-08-31T00:00:00Z')`)
     .bind(id, `company-source/${id}`, member.name, member.email)
+    .run();
+  await db
+    .prepare(`INSERT INTO company_file_metadata
+      (file_id, original_name, company, category, title, assigned_trainee,
+       uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
+      SELECT id, original_name, company, category, title, assigned_trainee,
+        uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at
+      FROM company_file_objects WHERE id = ?1`)
+    .bind(id)
     .run();
   await db
     .prepare(
@@ -595,7 +605,12 @@ void test('stale state, wrong target case and changed file metadata are rejected
     )
     .bind(id)
     .run();
-  assert.equal((await recover(request(value), context)).status, 409);
+  const metadataDrift = await recover(request(value), context);
+  assert.equal(metadataDrift.status, 503);
+  assert.match(
+    ((await metadataDrift.json()) as { error: string }).error,
+    /확인/,
+  );
   assert.equal((await state()).companyDocuments.length, 0);
 });
 

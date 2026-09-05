@@ -317,6 +317,34 @@ try {
   checks.push(
     'version 162 company originals retain their exact legacy R2 key binding',
   );
+  assert.deepEqual(
+    await db
+      .prepare(`SELECT original_name, company, category, title,
+        assigned_trainee, uploaded_by_user_id, uploaded_by_email,
+        content_type, size_bytes, created_at
+        FROM company_file_metadata WHERE file_id = ?1`)
+      .bind(migrationCompanyFile.id)
+      .first(),
+    {
+      original_name: 'migration-v162.txt',
+      company: '가상 마이그레이션기업',
+      category: '기타자료',
+      title: '가상 원본',
+      assigned_trainee: '가상 담당자',
+      uploaded_by_user_id: 'migration-user',
+      uploaded_by_email: 'migration@example.invalid',
+      content_type: migrationCompanyFile.contentType,
+      size_bytes: 1,
+      created_at: '2026-09-05T00:00:00.000Z',
+    },
+  );
+  checks.push(
+    'pre-version-169 company originals receive exact legacy metadata facts',
+  );
+  await db
+    .prepare('DELETE FROM company_file_metadata WHERE file_id = ?1')
+    .bind(migrationCompanyFile.id)
+    .run();
   await db
     .prepare('DELETE FROM company_file_storage_keys WHERE file_id = ?1')
     .bind(migrationCompanyFile.id)
@@ -1088,6 +1116,14 @@ try {
     )
     .run();
   await db
+    .prepare(`INSERT INTO company_file_metadata
+      (file_id, original_name, company, category, title, assigned_trainee,
+       uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
+      SELECT id, original_name, company, category, title, assigned_trainee,
+        uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at
+      FROM company_file_objects WHERE id = 'runtime-private-file'`)
+    .run();
+  await db
     .prepare(`INSERT INTO company_file_object_integrity
       (file_id, validation_mode, r2_etag, r2_content_type)
       VALUES ('runtime-private-file', 'metadata', NULL, 'text/plain')`)
@@ -1203,8 +1239,21 @@ try {
       .first(),
     { storage_key: `company-source/${normalizedFile.id}` },
   );
+  const normalizedObjectFacts = await db
+    .prepare(`SELECT original_name, company, category, title, assigned_trainee,
+      uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at
+      FROM company_file_objects WHERE id = ?1`)
+    .bind(normalizedFile.id)
+    .first();
+  const normalizedMetadataFacts = await db
+    .prepare(`SELECT original_name, company, category, title, assigned_trainee,
+      uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at
+      FROM company_file_metadata WHERE file_id = ?1`)
+    .bind(normalizedFile.id)
+    .first();
+  assert.deepEqual(normalizedMetadataFacts, normalizedObjectFacts);
   checks.push(
-    'new company uploads bind registry MIME, native R2 ETag and storage key in D1',
+    'new company uploads bind registry MIME, native R2 ETag, storage key and immutable metadata in D1',
   );
   const deletionGuardFile = (
     await (
@@ -1264,6 +1313,78 @@ try {
     'restored company deletion fixture is removed',
   );
   await bucket.delete(deletionGuardForeignKey);
+  const metadataGuardFile = (
+    await (
+      await expect(
+        await uploadSource(
+          {
+            cookie,
+            'idempotency-key': 'worker-company-metadata-integrity-guard',
+          },
+          memberId,
+          undefined,
+          'SYNTHETIC_METADATA_GUARD',
+        ),
+        201,
+        'company metadata guard fixture is stored',
+      )
+    ).json()
+  ).file;
+  const metadataGuardKey = `company-source/${metadataGuardFile.id}`;
+  await db
+    .prepare(
+      "UPDATE company_file_objects SET title = '다른 정상 제목' WHERE id = ?1",
+    )
+    .bind(metadataGuardFile.id)
+    .run();
+  const metadataGuardDownload = await expect(
+    await call(`/files/${metadataGuardFile.id}`, undefined, { cookie }),
+    503,
+    'company download rejects valid-looking D1 metadata drift',
+  );
+  assertPrivateAuthResponse(metadataGuardDownload);
+  assert.match((await metadataGuardDownload.json()).error, /무결성/);
+  const metadataGuardDelete = await expect(
+    await call(
+      `/files/${metadataGuardFile.id}`,
+      undefined,
+      { cookie },
+      'DELETE',
+    ),
+    503,
+    'company deletion rejects valid-looking D1 metadata drift',
+  );
+  assertPrivateAuthResponse(metadataGuardDelete);
+  assert.match((await metadataGuardDelete.json()).error, /무결성/);
+  assert.ok(await bucket.head(metadataGuardKey));
+  const metadataGuardInventory = await (
+    await call('/inventory?status=inconsistent', undefined, ownerHeaders)
+  ).json();
+  assert.ok(
+    metadataGuardInventory.items.some(
+      (item) =>
+        item.id === metadataGuardFile.id && item.status === 'inconsistent',
+    ),
+  );
+  checks.push(
+    'company metadata drift blocks download and deletion, preserves R2, and appears inconsistent',
+  );
+  await db
+    .prepare(`UPDATE company_file_objects SET title = (
+      SELECT title FROM company_file_metadata WHERE file_id = ?1) WHERE id = ?1`)
+    .bind(metadataGuardFile.id)
+    .run();
+  await expect(
+    await call(
+      `/files/${metadataGuardFile.id}`,
+      undefined,
+      { cookie },
+      'DELETE',
+    ),
+    204,
+    'restored company metadata fixture is removed',
+  );
+  assert.equal(await bucket.head(metadataGuardKey), null);
   const normalizedBytes = new TextEncoder().encode(
     'SYNTHETIC_MIME_NORMALIZATION',
   );
@@ -1513,6 +1634,14 @@ try {
         inventoryIntegrityCreatedAt,
       ),
     db
+      .prepare(`INSERT INTO company_file_metadata
+        (file_id, original_name, company, category, title, assigned_trainee,
+         uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
+        SELECT id, original_name, company, category, title, assigned_trainee,
+          uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at
+        FROM company_file_objects WHERE id = ?1`)
+      .bind(inventoryIntegrityId),
+    db
       .prepare(`INSERT INTO company_file_upload_requests
         (owner_key, request_key, fingerprint, file_id, created_at, status)
         VALUES (?1, 'worker-inventory-integrity-request', 'private-fingerprint', ?2, ?3, 'ready')`)
@@ -1564,6 +1693,9 @@ try {
   await db.batch([
     db
       .prepare('DELETE FROM company_file_upload_requests WHERE file_id = ?1')
+      .bind(inventoryIntegrityId),
+    db
+      .prepare('DELETE FROM company_file_metadata WHERE file_id = ?1')
       .bind(inventoryIntegrityId),
     db
       .prepare('DELETE FROM company_file_objects WHERE id = ?1')
@@ -1697,6 +1829,13 @@ try {
       .prepare(
         'SELECT file_id FROM company_file_object_integrity WHERE file_id = ?1',
       )
+      .bind(linkedFile.id)
+      .first(),
+    null,
+  );
+  assert.equal(
+    await db
+      .prepare('SELECT file_id FROM company_file_metadata WHERE file_id = ?1')
       .bind(linkedFile.id)
       .first(),
     null,
@@ -3942,6 +4081,15 @@ try {
         provenanceBytes.byteLength,
         new Date().toISOString(),
       )
+      .run();
+    await db
+      .prepare(`INSERT INTO company_file_metadata
+        (file_id, original_name, company, category, title, assigned_trainee,
+         uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
+        SELECT id, original_name, company, category, title, assigned_trainee,
+          uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at
+        FROM company_file_objects WHERE id = ?1`)
+      .bind(fileId)
       .run();
     await db
       .prepare(`INSERT INTO company_file_object_integrity

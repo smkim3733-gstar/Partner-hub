@@ -1,6 +1,7 @@
 import {
   companyFileBucket,
   companyFileDatabase,
+  companyFileMetadataIntegrityGuardSql,
   companyFileObjectMatchesIntegrity,
   findCompanyFile,
   CompanyFileError,
@@ -326,7 +327,9 @@ export async function recoverFile(request: Request, id: string) {
       AND EXISTS (SELECT 1 FROM company_file_objects f
         JOIN company_file_assignments a ON a.file_id = f.id JOIN company_file_case_links c ON c.file_id = f.id
         WHERE f.id = ?5 AND f.storage_key = ?6 AND f.original_name = ?7 AND f.company = ?8
-          AND f.title = ?9 AND f.category = ?10 AND f.size_bytes = ?11 AND a.partner_member_id = ?12 AND c.case_id = ?13)
+          AND f.title = ?9 AND f.category = ?10 AND f.size_bytes = ?11
+          AND a.partner_member_id = ?12 AND c.case_id = ?13
+          AND ${companyFileMetadataIntegrityGuardSql})
       AND COALESCE((SELECT status FROM company_file_upload_requests WHERE file_id = ?5), 'legacy') = ?14
       AND ((?15 IS NULL AND NOT EXISTS (SELECT 1 FROM consulting_flows WHERE case_id = ?13))
         OR EXISTS (SELECT 1 FROM consulting_flows WHERE case_id = ?13 AND revision = ?15 AND partner_id = ?12 AND json_extract(payload, '$.company') = ?8))

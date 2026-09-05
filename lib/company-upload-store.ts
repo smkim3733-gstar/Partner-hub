@@ -1,6 +1,7 @@
 import {
   companyFileObjectBinding,
   companyFileObjectMatchesIntegrity,
+  companyFileMetadataIntegrityGuardSql,
   CompanyFileError,
   findCompanyFile,
   readCompanyFileObjectIntegrity,
@@ -271,6 +272,35 @@ export async function storeCompanyUpload(
         metadata.sizeBytes,
       ),
     db
+      .prepare(`INSERT INTO company_file_metadata
+      (file_id, original_name, company, category, title, assigned_trainee,
+       uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
+      SELECT f.id, f.original_name, f.company, f.category, f.title,
+        f.assigned_trainee, f.uploaded_by_user_id, f.uploaded_by_email,
+        f.content_type, f.size_bytes, f.created_at
+      FROM company_file_objects f
+      WHERE f.id = ?1 AND f.storage_key = ?2 AND f.original_name = ?3
+        AND f.company = ?4 AND f.category = ?5 AND f.title = ?6
+        AND f.assigned_trainee = ?7 AND f.uploaded_by_user_id = ?8
+        AND f.uploaded_by_email = ?9 AND f.content_type = ?10
+        AND f.size_bytes = ?11 AND f.created_at = ?12
+        AND EXISTS (SELECT 1 FROM company_file_upload_requests
+          WHERE file_id = ?1 AND status = 'pending')`)
+      .bind(
+        id,
+        storageKey,
+        metadata.originalName,
+        metadata.company,
+        metadata.category,
+        metadata.title,
+        metadata.assignedTrainee,
+        user.id,
+        user.email,
+        metadata.contentType,
+        metadata.sizeBytes,
+        record.created_at,
+      ),
+    db
       .prepare(`INSERT INTO company_file_storage_keys (file_id, storage_key)
       SELECT ?1, ?2
       WHERE EXISTS (SELECT 1 FROM company_file_objects WHERE id = ?1 AND storage_key = ?2)
@@ -300,6 +330,8 @@ export async function storeCompanyUpload(
         AND validation_mode = 'etag' AND r2_etag = ?2 AND r2_content_type = ?3)
       AND EXISTS (SELECT 1 FROM company_file_storage_keys WHERE file_id = ?1
         AND storage_key = ?5)
+      AND EXISTS (SELECT 1 FROM company_file_objects f WHERE f.id = ?1
+        AND ${companyFileMetadataIntegrityGuardSql})
       AND ${fileStateGuard('?4')}`)
       .bind(
         id,

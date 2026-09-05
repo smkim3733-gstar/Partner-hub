@@ -341,8 +341,8 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
       );
     for (const [label, id, status] of [
       ['audioId', audioId, 400],
-      ['corrupt', corrupt, 409],
-      ['badPdf', badPdf, 409],
+      ['corrupt', corrupt, 503],
+      ['badPdf', badPdf, 503],
       ['oversized', oversized, 400],
     ] as const)
       assert.equal(

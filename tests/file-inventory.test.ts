@@ -39,6 +39,9 @@ async function seed(documents: unknown[] = []) {
   await ensureCompanyFileTables(db);
   await flowDatabase();
   await db.batch([
+    db.prepare('DELETE FROM company_file_object_integrity'),
+    db.prepare('DELETE FROM company_file_storage_keys'),
+    db.prepare('DELETE FROM company_file_metadata'),
     db.prepare('DELETE FROM company_file_case_links'),
     db.prepare('DELETE FROM company_file_assignments'),
     db.prepare('DELETE FROM company_file_objects'),
@@ -76,6 +79,15 @@ async function file(
         member.email,
         date,
       )
+      .run();
+    await db
+      .prepare(`INSERT INTO company_file_metadata
+        (file_id, original_name, company, category, title, assigned_trainee,
+         uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
+        SELECT id, original_name, company, category, title, assigned_trainee,
+          uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at
+        FROM company_file_objects WHERE id = ?1`)
+      .bind(id)
       .run();
     await db
       .prepare(
@@ -155,6 +167,8 @@ void test('actual document and intake references distinguish linked files from s
   await file('integrity-missing', 'ready');
   await file('integrity-mime-mismatch', 'ready');
   await file('storage-key-mismatch', 'ready');
+  await file('metadata-ledger-missing', 'ready');
+  await file('metadata-title-mismatch', 'ready');
   await file('deletion-incomplete', 'deleted');
   await file('deleted-reference', 'deleted', false);
   await file('deleted-complete', 'deleted', false);
@@ -171,6 +185,16 @@ void test('actual document and intake references distinguish linked files from s
     .prepare(`UPDATE company_file_objects
       SET storage_key = 'company-source/another-file' WHERE id = ?1`)
     .bind('storage-key-mismatch')
+    .run();
+  await companyFileDatabase()
+    .prepare('DELETE FROM company_file_metadata WHERE file_id = ?1')
+    .bind('metadata-ledger-missing')
+    .run();
+  await companyFileDatabase()
+    .prepare(
+      "UPDATE company_file_objects SET title = '다른 정상 제목' WHERE id = ?1",
+    )
+    .bind('metadata-title-mismatch')
     .run();
   await (
     await flowDatabase()
@@ -194,6 +218,8 @@ void test('actual document and intake references distinguish linked files from s
     {
       'unlinked-legacy': 'unlinked',
       'storage-key-mismatch': 'inconsistent',
+      'metadata-title-mismatch': 'inconsistent',
+      'metadata-ledger-missing': 'inconsistent',
       'staged-only': 'unlinked',
       'pending-record': 'pending',
       'metadata-missing': 'inconsistent',
@@ -359,6 +385,34 @@ void test('presence rejects a cross-file storage key before probing R2', async (
   try {
     const response = await presence(request(), {
       params: Promise.resolve({ id: 'presence-key-mismatch' }),
+    });
+    assert.equal(response.status, 503);
+    assert.match(await response.text(), /무결성/);
+    assert.equal(headCalls, 0);
+  } finally {
+    bucket.head = originalHead;
+  }
+});
+
+void test('presence rejects company metadata drift before probing R2', async () => {
+  await seed();
+  await file('presence-metadata-mismatch', 'ready');
+  await companyFileDatabase()
+    .prepare(
+      "UPDATE company_file_objects SET title = '다른 정상 제목' WHERE id = ?1",
+    )
+    .bind('presence-metadata-mismatch')
+    .run();
+  const bucket = companyFileBucket();
+  const originalHead = bucket.head.bind(bucket);
+  let headCalls = 0;
+  bucket.head = async (...args: Parameters<R2Bucket['head']>) => {
+    headCalls++;
+    return originalHead(...args);
+  };
+  try {
+    const response = await presence(request(), {
+      params: Promise.resolve({ id: 'presence-metadata-mismatch' }),
     });
     assert.equal(response.status, 503);
     assert.match(await response.text(), /무결성/);

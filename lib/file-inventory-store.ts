@@ -3,10 +3,13 @@ import {
   assertCompanyFileStorageKeyIntegrity,
   companyFileBucket,
   companyFileDatabase,
+  companyFileMetadataIntegrityGuardSql,
   companyFileObjectMatchesIntegrity,
   ensureCompanyFileTables,
+  findCompanyFile,
   readCompanyFileObjectIntegrity,
   CompanyFileError,
+  type CompanyFileRow,
 } from './company-files';
 import { consultingFlowsTableSql } from '@/db/schema';
 import { PortalAccessError, requirePortalUser } from './portal-auth';
@@ -122,6 +125,7 @@ export async function listFileInventory(
         CASE WHEN integrity.file_id IS NOT NULL
           AND object_key.file_id IS NOT NULL
           AND object_key.storage_key = f.storage_key
+          AND ${companyFileMetadataIntegrityGuardSql}
           AND typeof(integrity.r2_content_type) = 'text'
           AND integrity.r2_content_type = f.content_type
           AND ((integrity.validation_mode = 'metadata' AND integrity.r2_etag IS NULL)
@@ -230,35 +234,28 @@ export async function checkInventoryPresence(
     }>();
   if (!row)
     throw new CompanyFileError('확인할 파일 기록을 찾지 못했습니다.', 404);
+  let file: CompanyFileRow | null = null;
   if (
-    row.id !== null &&
-    row.storage_key !== null &&
-    row.content_type !== null &&
-    row.size_bytes !== null
-  )
-    await assertCompanyFileStorageKeyIntegrity({
-      id: row.id,
-      storage_key: row.storage_key,
-      content_type: row.content_type,
-      size_bytes: row.size_bytes,
-    });
-  const key = row.storage_key ?? `company-source/${row.file_id}`;
-  const object = await companyFileBucket().head(key);
-  let integrityMode: InventoryPresence['integrityMode'] = null;
-  let integrityMatches: boolean | null = null;
-  if (
-    object &&
     row.id !== null &&
     row.storage_key !== null &&
     row.content_type !== null &&
     row.size_bytes !== null
   ) {
-    const file = {
-      id: row.id,
-      storage_key: row.storage_key,
-      content_type: row.content_type,
-      size_bytes: row.size_bytes,
-    };
+    file = await findCompanyFile(row.id);
+    if (!file)
+      throw new CompanyFileError('확인할 파일 기록을 찾지 못했습니다.', 404);
+    await assertCompanyFileStorageKeyIntegrity({
+      id: file.id,
+      storage_key: file.storage_key,
+      content_type: file.content_type,
+      size_bytes: file.size_bytes,
+    });
+  }
+  const key = file?.storage_key ?? `company-source/${row.file_id}`;
+  const object = await companyFileBucket().head(key);
+  let integrityMode: InventoryPresence['integrityMode'] = null;
+  let integrityMatches: boolean | null = null;
+  if (object && file) {
     try {
       const integrity = await readCompanyFileObjectIntegrity(file);
       integrityMode = integrity.validationMode;
@@ -277,9 +274,11 @@ export async function checkInventoryPresence(
     id,
     exists: Boolean(object),
     sizeBytes: object?.size ?? null,
-    expectedSizeBytes: row.size_bytes,
+    expectedSizeBytes: file?.size_bytes ?? row.size_bytes,
     sizeMatches:
-      object && row.size_bytes !== null ? object.size === row.size_bytes : null,
+      object && (file?.size_bytes ?? row.size_bytes) !== null
+        ? object.size === (file?.size_bytes ?? row.size_bytes)
+        : null,
     integrityMode,
     integrityMatches,
     checkedAt: new Date().toISOString(),

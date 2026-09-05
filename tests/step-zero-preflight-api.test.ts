@@ -130,6 +130,15 @@ async function insertFile(id: string, category: string, linkedCaseId: string) {
     )
     .run();
   await db
+    .prepare(`INSERT INTO company_file_metadata
+      (file_id, original_name, company, category, title, assigned_trainee,
+       uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
+      SELECT id, original_name, company, category, title, assigned_trainee,
+        uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at
+      FROM company_file_objects WHERE id = ?1`)
+    .bind(id)
+    .run();
+  await db
     .prepare(`INSERT INTO company_file_object_integrity
       (file_id, validation_mode, r2_etag, r2_content_type)
       VALUES (?1, 'metadata', NULL, 'application/pdf')`)
@@ -162,6 +171,7 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
     db.prepare('DELETE FROM ai_diagnosis_runs'),
     db.prepare('DELETE FROM company_file_object_integrity'),
     db.prepare('DELETE FROM company_file_storage_keys'),
+    db.prepare('DELETE FROM company_file_metadata'),
     db.prepare('DELETE FROM company_file_case_links'),
     db.prepare('DELETE FROM company_file_assignments'),
     db.prepare('DELETE FROM company_file_upload_requests'),

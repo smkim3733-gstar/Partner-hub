@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers';
 import {
   companyFileAssignmentsTableSql,
   companyFileCaseLinksTableSql,
+  companyFileMetadataTableSql,
   companyFileObjectIntegrityTableSql,
   companyFileObjectsCompanyIndexSql,
   companyFileObjectsOwnerIndexSql,
@@ -100,6 +101,7 @@ export async function ensureCompanyFileTables(db: D1Database) {
     db.prepare(companyFileObjectsCompanyIndexSql),
     db.prepare(companyFileObjectIntegrityTableSql),
     db.prepare(companyFileStorageKeysTableSql),
+    db.prepare(companyFileMetadataTableSql),
     db.prepare(companyFileAssignmentsTableSql),
     db.prepare(companyFileCaseLinksTableSql),
     db.prepare(companyFileUploadRequestsTableSql),
@@ -111,6 +113,45 @@ const storedCompanyFileIntegrityError = () =>
     '저장된 기업자료 원본 무결성을 확인할 수 없습니다. 관리자 복구가 필요합니다.',
     503,
   );
+
+export const companyFileMetadataIntegrityGuardSql = `EXISTS (
+  SELECT 1 FROM company_file_metadata metadata
+  WHERE metadata.file_id = f.id
+    AND (metadata.original_name, metadata.company, metadata.category,
+      metadata.title, metadata.assigned_trainee, metadata.uploaded_by_user_id,
+      metadata.uploaded_by_email, metadata.content_type, metadata.size_bytes,
+      metadata.created_at) =
+      (f.original_name, f.company, f.category, f.title, f.assigned_trainee,
+       f.uploaded_by_user_id, f.uploaded_by_email, f.content_type, f.size_bytes,
+       f.created_at)
+)`;
+
+export async function assertCompanyFileMetadataIntegrity(file: CompanyFileRow) {
+  const row = await companyFileDatabase()
+    .prepare(`SELECT f.id FROM company_file_objects f
+      WHERE f.id = ?1
+        AND (f.storage_key, f.original_name, f.company, f.category, f.title,
+          f.assigned_trainee, f.uploaded_by_user_id, f.uploaded_by_email,
+          f.content_type, f.size_bytes, f.created_at) =
+          (?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+        AND ${companyFileMetadataIntegrityGuardSql}`)
+    .bind(
+      file.id,
+      file.storage_key,
+      file.original_name,
+      file.company,
+      file.category,
+      file.title,
+      file.assigned_trainee,
+      file.uploaded_by_user_id,
+      file.uploaded_by_email,
+      file.content_type,
+      file.size_bytes,
+      file.created_at,
+    )
+    .first<{ id: string }>();
+  if (!row || row.id !== file.id) throw storedCompanyFileIntegrityError();
+}
 
 export function companyFileObjectBinding(
   file: CompanyFileObjectFacts,
@@ -170,8 +211,18 @@ export async function readCompanyFileObjectIntegrity(
     FROM company_file_objects file
     JOIN company_file_object_integrity integrity ON integrity.file_id = file.id
     JOIN company_file_storage_keys object_key ON object_key.file_id = file.id
+    JOIN company_file_metadata metadata ON metadata.file_id = file.id
     WHERE file.id = ?1 AND file.storage_key = ?2 AND file.content_type = ?3
-      AND file.size_bytes = ?4 AND object_key.storage_key = file.storage_key`)
+      AND file.size_bytes = ?4 AND object_key.storage_key = file.storage_key
+      AND metadata.original_name = file.original_name
+      AND metadata.company = file.company AND metadata.category = file.category
+      AND metadata.title = file.title
+      AND metadata.assigned_trainee = file.assigned_trainee
+      AND metadata.uploaded_by_user_id = file.uploaded_by_user_id
+      AND metadata.uploaded_by_email = file.uploaded_by_email
+      AND metadata.content_type = file.content_type
+      AND metadata.size_bytes = file.size_bytes
+      AND metadata.created_at = file.created_at`)
     .bind(file.id, file.storage_key, file.content_type, file.size_bytes)
     .first<StoredCompanyFileObjectIntegrityRow>();
   if (
@@ -258,7 +309,7 @@ export function mayReadCompanyFile(
 export async function findCompanyFile(id: string) {
   const db = companyFileDatabase();
   await ensureCompanyFileTables(db);
-  return db
+  const row = await db
     .prepare(`
       SELECT f.id, storage_key, original_name, company, category, title,
         assigned_trainee, uploaded_by_user_id, uploaded_by_email,
@@ -270,12 +321,15 @@ export async function findCompanyFile(id: string) {
     `)
     .bind(id)
     .first<CompanyFileRow>();
+  if (row) await assertCompanyFileMetadataIntegrity(row);
+  return row;
 }
 
 /** New draft uploads are staged originals until explicitly linked by the saved
  * application. An abandoned attachment must not silently become AI input. */
 export const companyFileIntakeFilterSql = `
   NOT EXISTS (SELECT 1 FROM company_file_upload_requests u WHERE u.file_id = f.id AND u.status = 'deleted')
+  AND ${companyFileMetadataIntegrityGuardSql}
   AND (c.case_id IS NULL OR c.case_id NOT LIKE 'case-draft-%'
     OR NOT EXISTS (SELECT 1 FROM company_file_upload_requests u WHERE u.file_id = f.id)
     OR EXISTS (SELECT 1 FROM portal_state p, json_each(p.payload, '$.companyDocuments') d

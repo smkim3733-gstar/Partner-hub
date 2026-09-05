@@ -136,6 +136,15 @@ async function seedFile({
     )
     .run();
   await db
+    .prepare(`INSERT INTO company_file_metadata
+      (file_id, original_name, company, category, title, assigned_trainee,
+       uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
+      SELECT id, original_name, company, category, title, assigned_trainee,
+        uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at
+      FROM company_file_objects WHERE id = ?1`)
+    .bind(fileId)
+    .run();
+  await db
     .prepare(`INSERT INTO company_file_object_integrity
       (file_id, validation_mode, r2_etag, r2_content_type)
       VALUES (?1, 'metadata', NULL, 'application/pdf')`)
@@ -202,6 +211,7 @@ beforeEach(async () => {
     [
       'company_file_object_integrity',
       'company_file_storage_keys',
+      'company_file_metadata',
       'company_file_case_links',
       'company_file_assignments',
       'company_file_objects',

@@ -387,6 +387,15 @@ void test('lost save response followed by retry retains one case, timeline and d
     .bind(identity)
     .run();
   await db
+    .prepare(`INSERT INTO company_file_metadata
+      (file_id, original_name, company, category, title, assigned_trainee,
+       uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
+      SELECT id, original_name, company, category, title, assigned_trainee,
+        uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at
+      FROM company_file_objects WHERE id = ?1`)
+    .bind('stable-file')
+    .run();
+  await db
     .prepare(
       "INSERT INTO company_file_assignments (file_id, partner_member_id) VALUES ('stable-file', '')",
     )

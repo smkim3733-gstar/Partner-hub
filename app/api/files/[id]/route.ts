@@ -2,6 +2,7 @@ import {
   assertCompanyFileStorageKeyIntegrity,
   companyFileBucket,
   companyFileDatabase,
+  companyFileMetadataIntegrityGuardSql,
   companyFileObjectMatchesIntegrity,
   CompanyFileError,
   ensureCompanyFileTables,
@@ -126,6 +127,7 @@ export async function GET(
         AND EXISTS (SELECT 1 FROM company_file_object_integrity integrity
           WHERE integrity.file_id = f.id AND integrity.validation_mode = ?6
           AND integrity.r2_etag IS ?7 AND integrity.r2_content_type = ?8)
+        AND ${companyFileMetadataIntegrityGuardSql}
         AND ${fileStateGuard('?9')}`)
         .bind(
           id,
@@ -234,6 +236,7 @@ export async function DELETE(
         WHERE f.id = ?2 AND f.storage_key = ?3 AND a.partner_member_id IS ?4
         AND f.assigned_trainee = ?5 AND f.uploaded_by_user_id = ?6
         AND object_key.storage_key = f.storage_key
+        AND ${companyFileMetadataIntegrityGuardSql}
         AND NOT EXISTS (SELECT 1 FROM json_each(?7, '$.companyDocuments') document
           WHERE json_extract(document.value, '$.storageFileId') = f.id)
         AND ${fileStateGuard('?7')}
@@ -257,36 +260,19 @@ export async function DELETE(
       });
     }
     await companyFileBucket().delete(row.storage_key);
-    const cleanupGuard = `EXISTS (SELECT 1 FROM company_file_objects f
-      JOIN company_file_storage_keys object_key ON object_key.file_id = f.id
-      WHERE f.id = ?1 AND f.storage_key = ?2
-        AND object_key.storage_key = f.storage_key)`;
-    const cleanup = await db.batch([
-      db
-        .prepare(`DELETE FROM company_file_object_integrity
-          WHERE file_id = ?1 AND ${cleanupGuard}`)
-        .bind(id, row.storage_key),
-      db
-        .prepare(`DELETE FROM company_file_case_links
-          WHERE file_id = ?1 AND ${cleanupGuard}`)
-        .bind(id, row.storage_key),
-      db
-        .prepare(`DELETE FROM company_file_assignments
-          WHERE file_id = ?1 AND ${cleanupGuard}`)
-        .bind(id, row.storage_key),
-      db
-        .prepare(`DELETE FROM company_file_storage_keys
-          WHERE file_id = ?1 AND storage_key = ?2
-          AND EXISTS (SELECT 1 FROM company_file_objects f
-            WHERE f.id = ?1 AND f.storage_key = ?2)`)
-        .bind(id, row.storage_key),
-      db
-        .prepare(
-          'DELETE FROM company_file_objects WHERE id = ?1 AND storage_key = ?2',
-        )
-        .bind(id, row.storage_key),
-    ]);
-    if (cleanup.at(-1)?.meta.changes !== 1) {
+    // One guarded parent deletion keeps the immutable ledgers and object row in
+    // one SQLite decision. Foreign-key cascades remove every child ledger only
+    // after both the storage key and full metadata ledger still match.
+    const cleanup = await db
+      .prepare(`DELETE FROM company_file_objects AS f
+        WHERE f.id = ?1 AND f.storage_key = ?2
+          AND EXISTS (SELECT 1 FROM company_file_storage_keys object_key
+            WHERE object_key.file_id = f.id
+              AND object_key.storage_key = f.storage_key)
+          AND ${companyFileMetadataIntegrityGuardSql}`)
+      .bind(id, row.storage_key)
+      .run();
+    if (cleanup.meta.changes !== 1) {
       if (await findCompanyFile(id)) throw originalStorageConflict();
       return new Response(null, {
         status: 204,

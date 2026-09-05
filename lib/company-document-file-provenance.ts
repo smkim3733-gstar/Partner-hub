@@ -1,8 +1,10 @@
 import {
   companyFileBucket,
   companyFileDatabase,
+  companyFileMetadataIntegrityGuardSql,
   companyFileObjectMatchesIntegrity,
   ensureCompanyFileTables,
+  assertCompanyFileMetadataIntegrity,
   readCompanyFileObjectIntegrity,
   type CompanyFileRow,
 } from './company-files';
@@ -91,6 +93,7 @@ export async function checkNewCompanyDocumentFileProvenance(
         error:
           '기업자료 원본을 보관 원장에서 찾을 수 없습니다. 원본 보관 현황에서 다시 확인해 주세요.',
       };
+    await assertCompanyFileMetadataIntegrity(row);
     if (row.upload_status !== null && row.upload_status !== 'ready')
       return {
         requiresCommitGuard: true,
@@ -138,6 +141,7 @@ NOT EXISTS (
       LEFT JOIN company_file_upload_requests u ON u.file_id = f.id
       JOIN company_file_object_integrity integrity ON integrity.file_id = f.id
       WHERE f.id = json_extract(proposed.value, '$.storageFileId')
+        AND ${companyFileMetadataIntegrityGuardSql}
         AND f.original_name = json_extract(proposed.value, '$.fileName')
         AND f.size_bytes = json_extract(proposed.value, '$.fileSize')
         AND f.company = json_extract(proposed.value, '$.company')
