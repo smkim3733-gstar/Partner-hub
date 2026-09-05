@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                     | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                  | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [상담 FLOW 파일 확장자·MIME·목적 무결성 경계](FLOW_FILE_FORMAT_INTEGRITY_2026_09_05.md)                          | 목적별 허용 확장자·고정 MIME 등록표와 SQLite 축소 전 손상 형식 격리                      |
 | [상담 FLOW 파일 목적·크기 무결성 경계](FLOW_FILE_METADATA_SIZE_INTEGRITY_2026_09_05.md)                          | 저장 목적 허용 목록, 용도별 5MB·8MB·25MB 상한과 SQLite 축소 전 손상 격리                 |
 | [상담 FLOW 정확 객체 구조·공개 투영 무결성 경계](FLOW_EXACT_OBJECT_SHAPE_INTEGRITY_2026_09_05.md)                | 미정의 추가 속성 저장 차단, 명시적 공개 필드 투영과 SQLite 숨김 객체 검사                |
 | [상담 FLOW 잘못 구성된 Unicode 무결성 경계](FLOW_MALFORMED_UNICODE_INTEGRITY_2026_09_05.md)                      | 짝이 없는 UTF-16 surrogate의 저장·SQLite 변형·상세와 대시보드 불일치 차단                |
