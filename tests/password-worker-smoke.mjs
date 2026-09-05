@@ -2156,13 +2156,30 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  const oversizedHiddenAudit = JSON.parse(intactFlowPayload);
+  oversizedHiddenAudit.audit[0].detail = '가'.repeat(2001);
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(oversizedHiddenAudit), 'runtime-own')
+    .run();
+  const oversizedHiddenAuditDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects an oversized hidden audit field',
+  );
+  assertPrivateAuthResponse(oversizedHiddenAuditDashboard);
+  assert.match((await oversizedHiddenAuditDashboard.json()).error, /무결성/);
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   await expect(
     await call('/flow/runtime-own', undefined, { cookie }),
     200,
     'FLOW detail resumes after the native D1 payload identity is restored',
   );
   checks.push(
-    'FLOW D1 row identity, timestamp, structure, collection field, reference, state-evidence and resource-ceiling guards protect detail ACL, dashboard projection and AI result capacity',
+    'FLOW D1 row identity, timestamp, structure, collection field, hidden field length, reference, state-evidence and resource-ceiling guards protect detail ACL, dashboard projection and AI result capacity',
   );
   assert.deepEqual(
     Object.keys(privateMimeFlow.commandReceipts[mimeCommand.commandId]).sort(),

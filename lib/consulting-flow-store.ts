@@ -21,6 +21,8 @@ import { readRouteParam, RouteParamError } from '@/lib/request-path';
 import { privateJsonResponse } from '@/lib/private-response';
 import {
   FLOW_COLLECTION_LIMITS,
+  FLOW_FIELD_LIMITS,
+  FLOW_TEXT_LIMITS,
   hasProjectedConsultingFlowStructure,
   hasStoredConsultingFlowStructure,
 } from '@/lib/consulting-flow-shape';
@@ -141,6 +143,8 @@ export async function stateWithConsultingFlows(raw: unknown) {
         json_array_length(payload, '$.audit') <= ${FLOW_COLLECTION_LIMITS.audit} AND
         json_array_length(payload, '$.commandIds') <= ${FLOW_COLLECTION_LIMITS.commandIds} AND
         (SELECT COUNT(*) FROM json_each(payload, '$.commandReceipts')) <= ${FLOW_COLLECTION_LIMITS.commandReceipts} AND
+        COALESCE(json_type(payload, '$.ai.sourceText'), '') = 'text' AND
+        length(json_extract(payload, '$.ai.sourceText')) <= ${FLOW_TEXT_LIMITS.aiSourceText} AND
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.reports') e WHERE e.type <> 'object') AND
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.files') e WHERE e.type <> 'object') AND
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.meetings') e WHERE e.type <> 'object') AND
@@ -150,6 +154,70 @@ export async function stateWithConsultingFlows(raw: unknown) {
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.jobs') e WHERE e.type <> 'object') AND
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.audit') e WHERE e.type <> 'object') AND
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.commandIds') e WHERE e.type <> 'text') AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.reports') r WHERE
+          COALESCE(json_type(r.value, '$.version'), '') <> 'integer' OR json_extract(r.value, '$.version') NOT BETWEEN 1 AND 9007199254740991 OR
+          COALESCE(json_type(r.value, '$.title'), '') <> 'text' OR length(json_extract(r.value, '$.title')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.reportTitle} OR
+          COALESCE(json_type(r.value, '$.body'), '') <> 'text' OR length(json_extract(r.value, '$.body')) > ${FLOW_TEXT_LIMITS.reportBody} OR
+          COALESCE(json_type(r.value, '$.createdAt'), '') <> 'text' OR length(json_extract(r.value, '$.createdAt')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.timestamp} OR
+          COALESCE(json_type(r.value, '$.createdBy'), '') <> 'text' OR length(json_extract(r.value, '$.createdBy')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.actor} OR
+          COALESCE(json_type(r.value, '$.origin'), '') <> 'text' OR json_extract(r.value, '$.origin') NOT IN ('manual', 'ai') OR
+          (json_type(r.value, '$.fileId') IS NOT NULL AND
+            (json_type(r.value, '$.fileId') <> 'text' OR length(json_extract(r.value, '$.fileId')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.id}))) AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.files') f WHERE
+          COALESCE(json_type(f.value, '$.id'), '') <> 'text' OR length(json_extract(f.value, '$.id')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.id} OR
+          COALESCE(json_type(f.value, '$.name'), '') <> 'text' OR length(json_extract(f.value, '$.name')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.fileName} OR
+          COALESCE(json_type(f.value, '$.contentType'), '') <> 'text' OR length(json_extract(f.value, '$.contentType')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.fileContentType} OR
+          COALESCE(json_type(f.value, '$.size'), '') <> 'integer' OR json_extract(f.value, '$.size') NOT BETWEEN 0 AND 9007199254740991 OR
+          COALESCE(json_type(f.value, '$.key'), '') <> 'text' OR length(json_extract(f.value, '$.key')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.fileKey} OR
+          COALESCE(json_type(f.value, '$.createdAt'), '') <> 'text' OR length(json_extract(f.value, '$.createdAt')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.timestamp} OR
+          COALESCE(json_type(f.value, '$.purpose'), '') <> 'text' OR length(json_extract(f.value, '$.purpose')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.filePurpose} OR
+          EXISTS (SELECT 1 FROM json_each(json_array('intakeFileId', 'intakeSourceHash', 'sourceReviewedBy')) key WHERE
+            json_type(f.value, '$.' || key.value) IS NOT NULL AND
+            (json_type(f.value, '$.' || key.value) <> 'text' OR length(json_extract(f.value, '$.' || key.value)) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.fileMetadata})) OR
+          (json_type(f.value, '$.sourceReviewedAt') IS NOT NULL AND
+            (json_type(f.value, '$.sourceReviewedAt') <> 'text' OR length(json_extract(f.value, '$.sourceReviewedAt')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.timestamp}))) AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.recordings') r WHERE
+          COALESCE(json_type(r.value, '$.id'), '') <> 'text' OR length(json_extract(r.value, '$.id')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.id} OR
+          COALESCE(json_type(r.value, '$.meetingId'), '') <> 'text' OR length(json_extract(r.value, '$.meetingId')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.id} OR
+          EXISTS (SELECT 1 FROM json_each(json_array('fileId', 'transcriptFileId', 'audioFileId', 'transcriptReviewedBy')) key WHERE
+            json_type(r.value, '$.' || key.value) IS NOT NULL AND
+            (json_type(r.value, '$.' || key.value) <> 'text' OR length(json_extract(r.value, '$.' || key.value)) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.id})) OR
+          COALESCE(json_type(r.value, '$.transcript'), '') <> 'text' OR length(json_extract(r.value, '$.transcript')) > ${FLOW_TEXT_LIMITS.transcript} OR
+          COALESCE(json_type(r.value, '$.consentAt'), '') <> 'text' OR length(json_extract(r.value, '$.consentAt')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.timestamp} OR
+          COALESCE(json_type(r.value, '$.createdAt'), '') <> 'text' OR length(json_extract(r.value, '$.createdAt')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.timestamp} OR
+          (json_type(r.value, '$.transcriptReviewedAt') IS NOT NULL AND
+            (json_type(r.value, '$.transcriptReviewedAt') <> 'text' OR length(json_extract(r.value, '$.transcriptReviewedAt')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.timestamp}))) AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.jobs') j WHERE
+          COALESCE(json_type(j.value, '$.id'), '') <> 'text' OR length(json_extract(j.value, '$.id')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.id} OR
+          COALESCE(json_type(j.value, '$.stage'), '') <> 'integer' OR json_extract(j.value, '$.stage') NOT IN (1, 4) OR
+          COALESCE(json_type(j.value, '$.reason'), '') <> 'text' OR length(json_extract(j.value, '$.reason')) > ${FLOW_TEXT_LIMITS.jobReason} OR
+          COALESCE(json_type(j.value, '$.createdAt'), '') <> 'text' OR length(json_extract(j.value, '$.createdAt')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.timestamp} OR
+          EXISTS (SELECT 1 FROM json_each(json_array('sourceRecordingId', 'sourceReportId', 'reportId')) key WHERE
+            json_type(j.value, '$.' || key.value) IS NOT NULL AND
+            (json_type(j.value, '$.' || key.value) <> 'text' OR length(json_extract(j.value, '$.' || key.value)) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.id})) OR
+          EXISTS (SELECT 1 FROM json_each(json_array('startedAt', 'completedAt')) key WHERE
+            json_type(j.value, '$.' || key.value) IS NOT NULL AND
+            (json_type(j.value, '$.' || key.value) <> 'text' OR length(json_extract(j.value, '$.' || key.value)) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.timestamp}))) AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.audit') a WHERE
+          COALESCE(json_type(a.value, '$.id'), '') <> 'text' OR length(json_extract(a.value, '$.id')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.id} OR
+          COALESCE(json_type(a.value, '$.at'), '') <> 'text' OR length(json_extract(a.value, '$.at')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.timestamp} OR
+          COALESCE(json_type(a.value, '$.actor'), '') <> 'text' OR length(json_extract(a.value, '$.actor')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.actor} OR
+          COALESCE(json_type(a.value, '$.action'), '') <> 'text' OR length(json_extract(a.value, '$.action')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.auditAction} OR
+          COALESCE(json_type(a.value, '$.detail'), '') <> 'text' OR length(json_extract(a.value, '$.detail')) NOT BETWEEN 1 AND ${FLOW_TEXT_LIMITS.auditDetail}) AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.commandIds') command WHERE
+          length(command.value) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.id}) AND
+        (SELECT COUNT(*) FROM json_each(payload, '$.files')) =
+          (SELECT COUNT(DISTINCT json_extract(value, '$.id')) FROM json_each(payload, '$.files')) AND
+        (SELECT COUNT(*) FROM json_each(payload, '$.jobs')) =
+          (SELECT COUNT(DISTINCT json_extract(value, '$.id')) FROM json_each(payload, '$.jobs')) AND
+        (SELECT COUNT(*) FROM json_each(payload, '$.audit')) =
+          (SELECT COUNT(DISTINCT json_extract(value, '$.id')) FROM json_each(payload, '$.audit')) AND
+        (SELECT COUNT(*) FROM json_each(payload, '$.commandIds')) =
+          (SELECT COUNT(DISTINCT value) FROM json_each(payload, '$.commandIds')) AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.commandReceipts') receipt WHERE
+          receipt.type <> 'object' OR length(receipt.key) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.id} OR
+          COALESCE(json_type(receipt.value, '$.actorKey'), '') <> 'text' OR length(json_extract(receipt.value, '$.actorKey')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.receiptActorKey} OR
+          COALESCE(json_type(receipt.value, '$.fingerprint'), '') <> 'text' OR length(json_extract(receipt.value, '$.fingerprint')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.receiptFingerprint}) AND
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.reports') r WHERE
           json_type(r.value, '$.fileId') IS NOT NULL AND NOT EXISTS (
             SELECT 1 FROM json_each(payload, '$.files') f

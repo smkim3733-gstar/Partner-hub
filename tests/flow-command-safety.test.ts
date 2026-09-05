@@ -26,7 +26,10 @@ import {
   isFlowCommandRetry,
 } from '../lib/flow-command-receipt';
 import type { PortalUser } from '../lib/portal-auth';
-import { FLOW_COLLECTION_LIMITS } from '../lib/consulting-flow-shape';
+import {
+  FLOW_COLLECTION_LIMITS,
+  FLOW_TEXT_LIMITS,
+} from '../lib/consulting-flow-shape';
 
 const partner = {
   id: 'safety-partner',
@@ -1001,6 +1004,160 @@ void test('FLOW dashboard rejects excessive hidden collection entries', async ()
     stateWithConsultingFlows(await readPortalState()),
     (error) => error instanceof FlowError && error.status === 503,
   );
+});
+
+void test('FLOW dashboard rejects malformed or oversized fields removed by SQLite projection', async () => {
+  const corruptions: Array<{
+    label: string;
+    apply: (payload: Record<string, unknown>) => void;
+  }> = [
+    {
+      label: 'report body',
+      apply: (payload) => {
+        const reports = payload.reports as Array<Record<string, unknown>>;
+        reports[0].body = '가'.repeat(FLOW_TEXT_LIMITS.reportBody + 1);
+      },
+    },
+    {
+      label: 'AI source text',
+      apply: (payload) => {
+        (payload.ai as Record<string, unknown>).sourceText = '가'.repeat(
+          FLOW_TEXT_LIMITS.aiSourceText + 1,
+        );
+      },
+    },
+    {
+      label: 'audit detail',
+      apply: (payload) => {
+        const audit = payload.audit as Array<Record<string, unknown>>;
+        audit[0].detail = '가'.repeat(FLOW_TEXT_LIMITS.auditDetail + 1);
+      },
+    },
+    {
+      label: 'job reason',
+      apply: (payload) => {
+        (payload.jobs as Array<Record<string, unknown>>).push({
+          id: 'oversized-hidden-job',
+          stage: 1,
+          status: 'queued',
+          reason: '가'.repeat(FLOW_TEXT_LIMITS.jobReason + 1),
+          createdAt: payload.updatedAt,
+        });
+      },
+    },
+    {
+      label: 'file storage key',
+      apply: (payload) => {
+        (payload.files as Array<Record<string, unknown>>).push({
+          id: 'oversized-hidden-file',
+          name: 'synthetic.txt',
+          contentType: 'text/plain',
+          size: 1,
+          key: 'k'.repeat(601),
+          createdAt: payload.updatedAt,
+          purpose: 'source_archived',
+        });
+      },
+    },
+    {
+      label: 'recording transcript',
+      apply: (payload) => {
+        (payload.meetings as Array<Record<string, unknown>>).push({
+          id: 'hidden-meeting',
+          kind: 'followup',
+          startsAt: '2026-09-05T01:00:00.000Z',
+          endsAt: '2026-09-05T02:00:00.000Z',
+          location: '온라인',
+          attendance: 'admin',
+          status: 'completed',
+          completedAt: '2026-09-05T02:00:00.000Z',
+          note: '',
+          createdBy: adminEmail,
+        });
+        (payload.recordings as Array<Record<string, unknown>>).push({
+          id: 'oversized-hidden-recording',
+          meetingId: 'hidden-meeting',
+          transcript: '가'.repeat(FLOW_TEXT_LIMITS.transcript + 1),
+          consentAt: '2026-09-05T02:00:00.000Z',
+          createdAt: '2026-09-05T02:00:00.000Z',
+        });
+      },
+    },
+    {
+      label: 'command ID',
+      apply: (payload) => {
+        (payload.commandIds as string[])[0] = 'c'.repeat(201);
+      },
+    },
+    {
+      label: 'command receipt actor',
+      apply: (payload) => {
+        const commandId = (payload.commandIds as string[])[0];
+        payload.commandReceipts = {
+          [commandId]: {
+            actorKey: 'a'.repeat(501),
+            fingerprint: 'synthetic-fingerprint',
+          },
+        };
+      },
+    },
+    {
+      label: 'hidden job stage',
+      apply: (payload) => {
+        (payload.jobs as Array<Record<string, unknown>>).push({
+          id: 'malformed-hidden-job',
+          stage: 9,
+          status: 'queued',
+          reason: '',
+          createdAt: payload.updatedAt,
+        });
+      },
+    },
+    {
+      label: 'duplicate hidden file ID',
+      apply: (payload) => {
+        const files = payload.files as Array<Record<string, unknown>>;
+        for (const suffix of ['a', 'b'])
+          files.push({
+            id: 'duplicate-hidden-file',
+            name: `synthetic-${suffix}.txt`,
+            contentType: 'text/plain',
+            size: 1,
+            key: `synthetic/${suffix}`,
+            createdAt: payload.updatedAt,
+            purpose: 'source_archived',
+          });
+      },
+    },
+    {
+      label: 'duplicate hidden audit ID',
+      apply: (payload) => {
+        const audit = payload.audit as Array<Record<string, unknown>>;
+        audit.push({ ...audit[0] });
+      },
+    },
+    {
+      label: 'duplicate hidden command ID',
+      apply: (payload) => {
+        const commandIds = payload.commandIds as string[];
+        commandIds.push(commandIds[0]);
+      },
+    },
+  ];
+
+  for (const corruption of corruptions) {
+    await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+    const flow = await fixture();
+    await replaceStoredFlow(flow.caseId, (payload) => {
+      corruption.apply(payload);
+      return payload;
+    });
+    await assert.rejects(
+      stateWithConsultingFlows(await readPortalState()),
+      (error) => error instanceof FlowError && error.status === 503,
+      corruption.label,
+    );
+  }
 });
 
 void test('FLOW command denies a partner suspended while the request body is read', async () => {

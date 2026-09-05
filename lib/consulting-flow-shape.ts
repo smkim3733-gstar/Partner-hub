@@ -24,6 +24,35 @@ export const FLOW_TEXT_LIMITS = {
   auditDetail: 2000,
 } as const;
 
+export const FLOW_FIELD_LIMITS = {
+  id: 200,
+  timestamp: 40,
+  company: 300,
+  partnerName: 200,
+  reportTitle: 200,
+  documentsKey: 300000,
+  fileName: 300,
+  fileContentType: 200,
+  fileKey: 600,
+  filePurpose: 100,
+  fileMetadata: 500,
+  meetingLocation: 200,
+  meetingNote: 1500,
+  actor: 200,
+  auditAction: 100,
+  requestTitle: 150,
+  requestRecipient: 100,
+  requestNote: 1000,
+  paymentReference: 200,
+  decisionSolutionCount: 12,
+  decisionSolution: 80,
+  decisionNote: 2000,
+  aftercareSummary: 3000,
+  aftercareOwner: 100,
+  receiptActorKey: 500,
+  receiptFingerprint: 200,
+} as const;
+
 const asRecord = (value: unknown): JsonRecord | null =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as JsonRecord)
@@ -36,8 +65,9 @@ const boundedText = (value: unknown, maximum: number): value is string =>
 const boundedName = (value: unknown, maximum: number): value is string =>
   named(value) && value.length <= maximum;
 const timestamp = (value: unknown): value is string =>
-  boundedName(value, 40) && Number.isFinite(Date.parse(value));
-const optionalText = (value: unknown, maximum = 200) =>
+  boundedName(value, FLOW_FIELD_LIMITS.timestamp) &&
+  Number.isFinite(Date.parse(value));
+const optionalText = (value: unknown, maximum: number = FLOW_FIELD_LIMITS.id) =>
   value === undefined || boundedName(value, maximum);
 const optionalTimestamp = (value: unknown) =>
   value === undefined || timestamp(value);
@@ -67,7 +97,7 @@ function validItems(
     if (
       !item ||
       !valid(item) ||
-      !boundedName(item.id, 200) ||
+      !boundedName(item.id, FLOW_FIELD_LIMITS.id) ||
       ids.has(item.id as string)
     )
       return false;
@@ -87,14 +117,19 @@ function validReport(item: JsonRecord, projected: boolean) {
     ].every(
       (key) =>
         item[key] === null ||
-        optionalText(item[key], key === 'documentsKey' ? 300000 : 200),
+        optionalText(
+          item[key],
+          key === 'documentsKey'
+            ? FLOW_FIELD_LIMITS.documentsKey
+            : FLOW_FIELD_LIMITS.id,
+        ),
     );
   return (
     safeInteger(item.version, 1) &&
-    boundedName(item.title, 200) &&
+    boundedName(item.title, FLOW_FIELD_LIMITS.reportTitle) &&
     boundedText(item.body, FLOW_TEXT_LIMITS.reportBody) &&
     timestamp(item.createdAt) &&
-    boundedName(item.createdBy, 200) &&
+    boundedName(item.createdBy, FLOW_FIELD_LIMITS.actor) &&
     oneOf(item.origin, ['manual', 'ai']) &&
     [
       'fileId',
@@ -103,22 +138,27 @@ function validReport(item: JsonRecord, projected: boolean) {
       'decisionId',
       'documentsKey',
     ].every((key) =>
-      optionalText(item[key], key === 'documentsKey' ? 300000 : 200),
+      optionalText(
+        item[key],
+        key === 'documentsKey'
+          ? FLOW_FIELD_LIMITS.documentsKey
+          : FLOW_FIELD_LIMITS.id,
+      ),
     )
   );
 }
 
 function validFile(item: JsonRecord, stored: boolean) {
   return (
-    boundedName(item.name, 300) &&
-    boundedName(item.contentType, 200) &&
+    boundedName(item.name, FLOW_FIELD_LIMITS.fileName) &&
+    boundedName(item.contentType, FLOW_FIELD_LIMITS.fileContentType) &&
     safeInteger(item.size) &&
-    boundedText(item.key, 600) &&
-    (!stored || boundedName(item.key, 600)) &&
+    boundedText(item.key, FLOW_FIELD_LIMITS.fileKey) &&
+    (!stored || boundedName(item.key, FLOW_FIELD_LIMITS.fileKey)) &&
     timestamp(item.createdAt) &&
-    boundedName(item.purpose, 100) &&
+    boundedName(item.purpose, FLOW_FIELD_LIMITS.filePurpose) &&
     ['intakeFileId', 'intakeSourceHash', 'sourceReviewedBy'].every((key) =>
-      optionalText(item[key], 500),
+      optionalText(item[key], FLOW_FIELD_LIMITS.fileMetadata),
     ) &&
     optionalTimestamp(item.sourceReviewedAt)
   );
@@ -135,11 +175,11 @@ function validMeeting(item: JsonRecord) {
     timestamp(item.startsAt) &&
     timestamp(item.endsAt) &&
     Date.parse(item.endsAt as string) > Date.parse(item.startsAt as string) &&
-    boundedName(item.location, 200) &&
+    boundedName(item.location, FLOW_FIELD_LIMITS.meetingLocation) &&
     oneOf(item.attendance, ['both', 'partner', 'admin']) &&
     oneOf(item.status, ['scheduled', 'completed', 'cancelled']) &&
-    boundedText(item.note, 1500) &&
-    boundedName(item.createdBy, 200) &&
+    boundedText(item.note, FLOW_FIELD_LIMITS.meetingNote) &&
+    boundedName(item.createdBy, FLOW_FIELD_LIMITS.actor) &&
     validStatusTime
   );
 }
@@ -160,14 +200,14 @@ function validRecording(item: JsonRecord, projected: boolean) {
 
 function validRequest(item: JsonRecord) {
   if (
-    !boundedName(item.title, 150) ||
+    !boundedName(item.title, FLOW_FIELD_LIMITS.requestTitle) ||
     typeof item.required !== 'boolean' ||
     !oneOf(item.channel, ['카카오톡', '이메일', '기타']) ||
-    !boundedName(item.recipient, 100) ||
+    !boundedName(item.recipient, FLOW_FIELD_LIMITS.requestRecipient) ||
     !(item.dueDate === '' || calendarDate(item.dueDate)) ||
     !oneOf(item.status, ['requested', 'received', 'verified', 'needs_fix']) ||
     !optionalText(item.fileId) ||
-    !boundedText(item.note, 1000) ||
+    !boundedText(item.note, FLOW_FIELD_LIMITS.requestNote) ||
     !timestamp(item.createdAt) ||
     !['sentAt', 'receivedAt', 'reviewedAt', 'verifiedAt'].every((key) =>
       optionalTimestamp(item[key]),
@@ -207,8 +247,8 @@ function validPayment(item: JsonRecord) {
     safeInteger(item.amountWon, 1) &&
     (item.amountWon as number) <= 1_000_000_000_000 &&
     calendarDate(item.receivedAt) &&
-    boundedName(item.reference, 200) &&
-    boundedName(item.confirmedBy, 200) &&
+    boundedName(item.reference, FLOW_FIELD_LIMITS.paymentReference) &&
+    boundedName(item.confirmedBy, FLOW_FIELD_LIMITS.actor) &&
     timestamp(item.recordedAt)
   );
 }
@@ -257,8 +297,8 @@ function validJob(item: JsonRecord) {
 function validAudit(item: JsonRecord) {
   return (
     timestamp(item.at) &&
-    boundedName(item.actor, 200) &&
-    boundedName(item.action, 100) &&
+    boundedName(item.actor, FLOW_FIELD_LIMITS.actor) &&
+    boundedName(item.action, FLOW_FIELD_LIMITS.auditAction) &&
     boundedName(item.detail, FLOW_TEXT_LIMITS.auditDetail)
   );
 }
@@ -267,7 +307,7 @@ function validAnalysis(value: unknown) {
   const analysis = asRecord(value);
   return Boolean(
     analysis &&
-    boundedText(analysis.reportId, 200) &&
+    boundedText(analysis.reportId, FLOW_FIELD_LIMITS.id) &&
     optionalTimestamp(analysis.adminAt) &&
     optionalTimestamp(analysis.partnerAt),
   );
@@ -280,7 +320,7 @@ function validAi(value: unknown, projected: boolean) {
     typeof ai.enabled === 'boolean' &&
     (projected || boundedText(ai.sourceText, FLOW_TEXT_LIMITS.aiSourceText)) &&
     optionalTimestamp(ai.approvedAt) &&
-    optionalText(ai.approvedBy, 200),
+    optionalText(ai.approvedBy, FLOW_FIELD_LIMITS.id),
   );
 }
 
@@ -289,12 +329,14 @@ function validDecision(value: unknown) {
   const item = asRecord(value);
   return Boolean(
     item &&
-    boundedName(item.id, 200) &&
-    boundedName(item.reportId, 200) &&
+    boundedName(item.id, FLOW_FIELD_LIMITS.id) &&
+    boundedName(item.reportId, FLOW_FIELD_LIMITS.id) &&
     Array.isArray(item.solutions) &&
-    item.solutions.length <= 12 &&
-    item.solutions.every((solution) => boundedName(solution, 80)) &&
-    boundedText(item.note, 2000) &&
+    item.solutions.length <= FLOW_FIELD_LIMITS.decisionSolutionCount &&
+    item.solutions.every((solution) =>
+      boundedName(solution, FLOW_FIELD_LIMITS.decisionSolution),
+    ) &&
+    boundedText(item.note, FLOW_FIELD_LIMITS.decisionNote) &&
     typeof item.documentsNeeded === 'boolean' &&
     timestamp(item.at),
   );
@@ -305,13 +347,13 @@ function validContract(value: unknown) {
   const item = asRecord(value);
   return Boolean(
     item &&
-    boundedName(item.meetingId, 200) &&
-    boundedName(item.reportId, 200) &&
-    boundedName(item.signedFileId, 200) &&
+    boundedName(item.meetingId, FLOW_FIELD_LIMITS.id) &&
+    boundedName(item.reportId, FLOW_FIELD_LIMITS.id) &&
+    boundedName(item.signedFileId, FLOW_FIELD_LIMITS.id) &&
     calendarDate(item.signedAt) &&
     safeInteger(item.expectedDepositWon, 1) &&
     (item.expectedDepositWon as number) <= 1_000_000_000_000 &&
-    boundedName(item.recordedBy, 200),
+    boundedName(item.recordedBy, FLOW_FIELD_LIMITS.actor),
   );
 }
 
@@ -321,9 +363,9 @@ function validAftercare(value: unknown) {
   return Boolean(
     item &&
     timestamp(item.at) &&
-    boundedName(item.summary, 3000) &&
+    boundedName(item.summary, FLOW_FIELD_LIMITS.aftercareSummary) &&
     calendarDate(item.nextDate) &&
-    boundedName(item.owner, 100),
+    boundedName(item.owner, FLOW_FIELD_LIMITS.aftercareOwner),
   );
 }
 
@@ -336,10 +378,10 @@ function validReceipts(value: unknown) {
     Object.entries(receipts).every(([key, entry]) => {
       const receipt = asRecord(entry);
       return (
-        boundedName(key, 200) &&
+        boundedName(key, FLOW_FIELD_LIMITS.id) &&
         receipt &&
-        boundedName(receipt.actorKey, 500) &&
-        boundedName(receipt.fingerprint, 200)
+        boundedName(receipt.actorKey, FLOW_FIELD_LIMITS.receiptActorKey) &&
+        boundedName(receipt.fingerprint, FLOW_FIELD_LIMITS.receiptFingerprint)
       );
     }),
   );
@@ -485,10 +527,12 @@ function hasBaseStructure(value: unknown, mode: ShapeMode) {
   const requiredStrings = ['caseId', 'partnerId'];
   const valid =
     flow.schemaVersion === 1 &&
-    requiredStrings.every((key) => boundedName(flow[key], 200)) &&
-    boundedName(flow.company, 300) &&
-    boundedName(flow.partnerName, 200) &&
-    boundedText(flow.updatedAt, 40) &&
+    requiredStrings.every((key) =>
+      boundedName(flow[key], FLOW_FIELD_LIMITS.id),
+    ) &&
+    boundedName(flow.company, FLOW_FIELD_LIMITS.company) &&
+    boundedName(flow.partnerName, FLOW_FIELD_LIMITS.partnerName) &&
+    boundedText(flow.updatedAt, FLOW_FIELD_LIMITS.timestamp) &&
     safeInteger(flow.revision) &&
     validItems(flow.reports, FLOW_COLLECTION_LIMITS.reports, (item) =>
       validReport(item, projected),
@@ -517,7 +561,7 @@ function hasBaseStructure(value: unknown, mode: ShapeMode) {
     (projected ||
       (Array.isArray(flow.commandIds) &&
         flow.commandIds.length <= FLOW_COLLECTION_LIMITS.commandIds &&
-        flow.commandIds.every((id) => boundedName(id, 200)) &&
+        flow.commandIds.every((id) => boundedName(id, FLOW_FIELD_LIMITS.id)) &&
         new Set(flow.commandIds).size === flow.commandIds.length)) &&
     (projected || validReceipts(flow.commandReceipts));
   return (
