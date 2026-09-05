@@ -7,6 +7,16 @@ import {
   type FlowFile,
   type FlowJob,
 } from './consulting-flow';
+import {
+  FLOW_COLLECTION_LIMITS,
+  FLOW_TEXT_LIMITS,
+} from './consulting-flow-shape';
+
+const resultCapacityError = () =>
+  new FlowError(
+    '생성 결과를 저장할 진행 기록이 많습니다. 보관 범위 검토 후 계속해 주세요.',
+    409,
+  );
 
 export function jobIsCurrent(flow: ConsultingFlow, job: FlowJob) {
   if (!flow.ai.enabled || flow.contract) return false;
@@ -24,6 +34,12 @@ export function claimFlowJob(flow: ConsultingFlow, jobId: string, now: string) {
   const job = next.jobs.find((j) => j.id === jobId);
   if (!job || job.status !== 'queued')
     throw new FlowError('이미 처리 중이거나 완료된 생성 작업입니다.', 409);
+  if (
+    jobIsCurrent(next, job) &&
+    (next.reports.length >= FLOW_COLLECTION_LIMITS.reports ||
+      next.audit.length >= FLOW_COLLECTION_LIMITS.audit)
+  )
+    throw resultCapacityError();
   if (!jobIsCurrent(next, job)) {
     job.status = 'blocked';
     job.reason = '자동생성이 중지되었거나 근거 버전이 변경되었습니다.';
@@ -50,7 +66,25 @@ export function finishFlowJob(
       '생성 작업 상태가 변경되었습니다. 새로고침해 주세요.',
       409,
     );
-  if (!jobIsCurrent(next, job)) {
+  const current = jobIsCurrent(next, job);
+  if (next.audit.length >= FLOW_COLLECTION_LIMITS.audit)
+    throw resultCapacityError();
+  if (
+    current &&
+    typeof outcome.error === 'string' &&
+    outcome.error.length > FLOW_TEXT_LIMITS.jobReason
+  )
+    throw new FlowError('생성 실패 안내가 저장 한도를 초과했습니다.', 413);
+  if (current && !outcome.error) {
+    if (
+      next.reports.length >= FLOW_COLLECTION_LIMITS.reports ||
+      (outcome.file && next.files.length >= FLOW_COLLECTION_LIMITS.files)
+    )
+      throw resultCapacityError();
+    if (outcome.body && outcome.body.length > FLOW_TEXT_LIMITS.reportBody)
+      throw new FlowError('생성 보고서가 저장 한도를 초과했습니다.', 413);
+  }
+  if (!current) {
     job.status = 'blocked';
     job.reason =
       '생성 중 근거 또는 승인 상태가 바뀌었습니다. 최신 자료로 다시 확인해 주세요.';
@@ -92,5 +126,7 @@ export function finishFlowJob(
         ? `${reportLabels[job.stage]} 자동 저장 · 담당 파트너 공유`
         : `${reportLabels[job.stage]} ${job.status === 'blocked' ? '보류' : '실패'} · ${job.reason}`,
   });
+  if (next.audit.at(-1)!.detail.length > FLOW_TEXT_LIMITS.auditDetail)
+    throw new FlowError('생성 결과 감사기록이 저장 한도를 초과했습니다.', 413);
   return next;
 }

@@ -4,7 +4,10 @@ import {
   MAX_AI_SOURCE_FILES,
   MAX_AI_SOURCE_MEGABYTES,
 } from './intake-source-policy';
-import { FLOW_COLLECTION_LIMITS } from './consulting-flow-shape';
+import {
+  FLOW_COLLECTION_LIMITS,
+  FLOW_TEXT_LIMITS,
+} from './consulting-flow-shape';
 
 /** Pure, server-enforced consulting workflow. No browser state is authoritative. */
 export type FlowActor = { id: string; role: 'admin' | 'partner'; name: string };
@@ -564,7 +567,12 @@ export function applyFlowCommand(
         '1차 생성 중 또는 계약 후에는 근거자료를 변경할 수 없습니다.',
         409,
       );
-      s.ai.sourceText = txt(command, 'sourceText', 40000, false);
+      s.ai.sourceText = txt(
+        command,
+        'sourceText',
+        Math.min(40000, FLOW_TEXT_LIMITS.aiSourceText),
+        false,
+      );
       demand(
         s.ai.sourceText.length >= 20 || upload,
         '기업 근거자료 또는 20자 이상 정리한 내용을 등록해 주세요.',
@@ -690,7 +698,7 @@ export function applyFlowCommand(
           documentsDone(s),
           '솔루션 확정과 필수 서류 검토를 먼저 완료해 주세요.',
         );
-      const body = txt(command, 'body', 80000, false);
+      const body = txt(command, 'body', FLOW_TEXT_LIMITS.reportBody, false);
       const attachment = upload ?? (command.fileId ? file() : undefined);
       demand(
         body.length >= 80 || attachment,
@@ -836,7 +844,12 @@ export function applyFlowCommand(
         command.recordingConsent === true && command.privacyMasked === true,
         '녹취 활용 권한과 불필요한 개인정보 마스킹을 확인해 주세요.',
       );
-      const transcript = txt(command, 'transcript', 60000, false);
+      const transcript = txt(
+        command,
+        'transcript',
+        FLOW_TEXT_LIMITS.transcript,
+        false,
+      );
       const isDocument = upload && /\.(docx|txt)$/i.test(upload.name);
       demand(
         upload || audioUpload || transcript.length >= 20,
@@ -912,7 +925,11 @@ export function applyFlowCommand(
         '이미 생성된 전사문은 새 녹취 버전으로 등록해 주세요.',
         409,
       );
-      const transcript = txt(command, 'transcript', 60000);
+      const transcript = txt(
+        command,
+        'transcript',
+        FLOW_TEXT_LIMITS.transcript,
+      );
       demand(!transcriptProblem(transcript), transcriptProblem(transcript));
       demand(
         command.transcriptReviewed === true,

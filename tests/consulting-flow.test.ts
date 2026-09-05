@@ -31,6 +31,7 @@ import {
   escapeHtml,
   parseFlowRequest,
 } from '../lib/consulting-flow-http';
+import { FLOW_COLLECTION_LIMITS } from '../lib/consulting-flow-shape';
 
 function test(name: string, fn: () => void | Promise<void>) {
   void nodeTest(name, fn);
@@ -643,6 +644,46 @@ test('AI disabled by default; policy requires privacy, external processing and c
   assert.equal(done.jobs[0].status, 'complete');
   assert.equal(done.reports.length, 1);
   assert.equal(phaseOf(done), '공동분석');
+});
+test('AI result capacity and report size are rejected before an invalid state is returned', () => {
+  let flow = apply(start(), {
+    type: 'set_ai_policy',
+    enabled: true,
+    costConsent: true,
+    privacyMasked: true,
+    thirdPartyConsent: true,
+  });
+  flow = apply(flow, {
+    type: 'save_source',
+    sourceText: body,
+    privacyMasked: true,
+  });
+  flow = apply(flow, { type: 'queue_report1' });
+  const job = flow.jobs[0];
+  const atCapacity = structuredClone(flow);
+  while (atCapacity.audit.length < FLOW_COLLECTION_LIMITS.audit) {
+    const index = atCapacity.audit.length;
+    atCapacity.audit.push({
+      id: `capacity-audit-${index}`,
+      at: now,
+      actor: '가상 대표',
+      action: 'capacity_test',
+      detail: '가상 용량 검사',
+    });
+  }
+  assert.throws(
+    () => claimFlowJob(atCapacity, job.id, now),
+    (error) => error instanceof FlowError && error.status === 409,
+  );
+
+  const claimed = claimFlowJob(flow, job.id, now);
+  assert.throws(
+    () =>
+      finishFlowJob(claimed, job.id, now, now, {
+        body: '가'.repeat(80001),
+      }),
+    (error) => error instanceof FlowError && error.status === 413,
+  );
 });
 test('AI failures remain failed; stale/disabled job results cannot drive the workflow', () => {
   let s = apply(consulted(), {

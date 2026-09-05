@@ -19,6 +19,7 @@ import { GET as getState, PUT as saveState } from '@/app/api/state/route';
 import { POST as registerChatGPT } from '@/app/api/register/route';
 import { POST as createPartner } from '@/app/api/admin/partners/route';
 import { GET as getFlow, POST as postFlow } from '@/app/api/consulting-flow/[caseId]/route';
+import { POST as runFlow } from '@/app/api/consulting-flow/[caseId]/run/route';
 import { GET as getFlowFile } from '@/app/api/consulting-flow/[caseId]/files/[fileId]/route';
 import { GET as getFile, DELETE as deleteFile } from '@/app/api/files/[id]/route';
 import { POST as uploadFile } from '@/app/api/files/route';
@@ -37,6 +38,7 @@ export default { async fetch(request) {
     const [caseId, fileId] = pathname.slice(11).split('/');
     return getFlowFile(request, { params: Promise.resolve({ caseId, fileId }) });
   }
+  if (pathname.startsWith('/flow-run/') && request.method === 'POST') return runFlow(request, { params: Promise.resolve({ caseId: pathname.slice(10) }) });
   if (pathname.startsWith('/flow/') && ['GET', 'POST'].includes(request.method)) return (request.method === 'GET' ? getFlow : postFlow)(request, { params: Promise.resolve({ caseId: pathname.slice(6) }) });
   if (pathname.startsWith('/intake/') && request.method === 'GET') return intakeFiles(request, { params: Promise.resolve({ caseId: pathname.slice(8) }) });
   if (pathname.startsWith('/files/') && ['GET', 'DELETE'].includes(request.method)) return (request.method === 'GET' ? getFile : deleteFile)(request, { params: Promise.resolve({ id: pathname.slice(7) }) });
@@ -2107,13 +2109,60 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  const flowAtAiResultCapacity = JSON.parse(intactFlowPayload);
+  flowAtAiResultCapacity.ai = {
+    enabled: true,
+    sourceText: 'SYNTHETIC INTERNAL SOURCE FOR ISOLATED CAPACITY TEST',
+    approvedAt: flowAtAiResultCapacity.updatedAt,
+    approvedBy: 'synthetic-owner',
+  };
+  flowAtAiResultCapacity.jobs.push({
+    id: 'isolated-capacity-job',
+    stage: 1,
+    status: 'queued',
+    reason: '',
+    createdAt: flowAtAiResultCapacity.updatedAt,
+  });
+  flowAtAiResultCapacity.audit = Array.from({ length: 4000 }, (_, index) => ({
+    id: `isolated-capacity-audit-${index}`,
+    at: flowAtAiResultCapacity.updatedAt,
+    actor: '가상 대표',
+    action: 'capacity_test',
+    detail: '가상 용량 검사',
+  }));
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(flowAtAiResultCapacity), 'runtime-own')
+    .run();
+  const outboundBeforeCapacityRun = outboundRequests;
+  await expect(
+    await call('/flow-run/runtime-own', {}, ownerHeaders),
+    409,
+    'FLOW AI result capacity is rejected before an external request',
+  );
+  assert.equal(outboundRequests, outboundBeforeCapacityRun);
+  assert.equal(
+    JSON.parse(
+      (
+        await db
+          .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+          .bind('runtime-own')
+          .first()
+      ).payload,
+    ).jobs.at(-1).status,
+    'queued',
+  );
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   await expect(
     await call('/flow/runtime-own', undefined, { cookie }),
     200,
     'FLOW detail resumes after the native D1 payload identity is restored',
   );
   checks.push(
-    'FLOW D1 row identity, timestamp, structure, collection field, reference, state-evidence and resource-ceiling guards protect detail ACL and dashboard projection',
+    'FLOW D1 row identity, timestamp, structure, collection field, reference, state-evidence and resource-ceiling guards protect detail ACL, dashboard projection and AI result capacity',
   );
   assert.deepEqual(
     Object.keys(privateMimeFlow.commandReceipts[mimeCommand.commandId]).sort(),

@@ -103,6 +103,60 @@ void test('FLOW stops a queued model request when the caller is suspended during
   }
 });
 
+void test('FLOW rejects a decorated oversized AI result without leaving the job processing', async () => {
+  const flow = await fixture();
+  const queued = structuredClone(flow);
+  queued.revision++;
+  queued.updatedAt = new Date().toISOString();
+  queued.ai = {
+    enabled: true,
+    sourceText: 'SYNTHETIC INTERNAL SOURCE FOR LOCAL REGRESSION ONLY',
+    approvedAt: queued.updatedAt,
+    approvedBy: adminEmail,
+  };
+  queued.jobs.push({
+    id: 'oversized-ai-result-job',
+    stage: 1,
+    status: 'queued',
+    reason: '',
+    createdAt: queued.updatedAt,
+  });
+  await commitFlow(flow, queued);
+
+  const runtime = env as unknown as Record<string, unknown>;
+  const previousKey = runtime.ANTHROPIC_API_KEY;
+  const previousFetch = globalThis.fetch;
+  let calls = 0;
+  runtime.ANTHROPIC_API_KEY = 'SYNTHETIC_NOT_A_REAL_KEY';
+  globalThis.fetch = async () => {
+    calls++;
+    return Response.json({
+      stop_reason: 'end_turn',
+      content: [
+        {
+          type: 'text',
+          text: `${'가'.repeat(79990)}\n[분석 끝]`,
+        },
+      ],
+    });
+  };
+  try {
+    const response = await run(
+      request(flow.caseId, {}, 0, undefined, adminEmail),
+      context(flow.caseId),
+    );
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal(calls, 1);
+    const stored = (await readFlow(flow.caseId))!;
+    assert.equal(stored.jobs.at(-1)?.status, 'failed');
+    assert.equal(stored.reports.length, flow.reports.length);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousKey === undefined) delete runtime.ANTHROPIC_API_KEY;
+    else runtime.ANTHROPIC_API_KEY = previousKey;
+  }
+});
+
 void test('FLOW duplicate payment requests persist one payment and accept an exact retry', async () => {
   const flow = await fixture(),
     signed = structuredClone(flow);

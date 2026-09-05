@@ -16,6 +16,14 @@ export const FLOW_COLLECTION_LIMITS = {
   commandReceipts: 2000,
 } as const;
 
+export const FLOW_TEXT_LIMITS = {
+  reportBody: 80000,
+  transcript: 60000,
+  aiSourceText: 80000,
+  jobReason: 4000,
+  auditDetail: 2000,
+} as const;
+
 const asRecord = (value: unknown): JsonRecord | null =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as JsonRecord)
@@ -84,7 +92,7 @@ function validReport(item: JsonRecord, projected: boolean) {
   return (
     safeInteger(item.version, 1) &&
     boundedName(item.title, 200) &&
-    boundedText(item.body, 80000) &&
+    boundedText(item.body, FLOW_TEXT_LIMITS.reportBody) &&
     timestamp(item.createdAt) &&
     boundedName(item.createdBy, 200) &&
     oneOf(item.origin, ['manual', 'ai']) &&
@@ -143,7 +151,7 @@ function validRecording(item: JsonRecord, projected: boolean) {
     ['fileId', 'transcriptFileId', 'audioFileId', 'transcriptReviewedBy'].every(
       (key) => optionalText(item[key]),
     ) &&
-    boundedText(item.transcript, 60000) &&
+    boundedText(item.transcript, FLOW_TEXT_LIMITS.transcript) &&
     optionalTimestamp(item.transcriptReviewedAt) &&
     timestamp(item.consentAt) &&
     timestamp(item.createdAt)
@@ -215,7 +223,7 @@ function validJob(item: JsonRecord) {
       'failed',
       'complete',
     ]) ||
-    !boundedText(item.reason, 4000) ||
+    !boundedText(item.reason, FLOW_TEXT_LIMITS.jobReason) ||
     !timestamp(item.createdAt) ||
     !['sourceRecordingId', 'sourceReportId', 'reportId'].every((key) =>
       optionalText(item[key]),
@@ -251,7 +259,7 @@ function validAudit(item: JsonRecord) {
     timestamp(item.at) &&
     boundedName(item.actor, 200) &&
     boundedName(item.action, 100) &&
-    boundedName(item.detail, 2000)
+    boundedName(item.detail, FLOW_TEXT_LIMITS.auditDetail)
   );
 }
 
@@ -270,7 +278,7 @@ function validAi(value: unknown, projected: boolean) {
   return Boolean(
     ai &&
     typeof ai.enabled === 'boolean' &&
-    (projected || boundedText(ai.sourceText, 80000)) &&
+    (projected || boundedText(ai.sourceText, FLOW_TEXT_LIMITS.aiSourceText)) &&
     optionalTimestamp(ai.approvedAt) &&
     optionalText(ai.approvedBy, 200),
   );
