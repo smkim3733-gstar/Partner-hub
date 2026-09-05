@@ -1923,6 +1923,44 @@ try {
     new Uint8Array(await restoredFlowDownload.arrayBuffer()),
     flowFileBytes,
   );
+  const intactFlowPayload = (
+    await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind('runtime-own')
+      .first()
+  ).payload;
+  const mismatchedFlow = JSON.parse(intactFlowPayload);
+  mismatchedFlow.partnerId = peerId;
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(mismatchedFlow), 'runtime-own')
+    .run();
+  const mismatchedFlowRead = await expect(
+    await call('/flow/runtime-own', undefined, peerHeaders),
+    503,
+    'FLOW detail rejects a native D1 row and payload identity mismatch before ACL',
+  );
+  assertPrivateAuthResponse(mismatchedFlowRead);
+  assert.match((await mismatchedFlowRead.json()).error, /무결성/);
+  const mismatchedDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects a native D1 row and projected payload identity mismatch',
+  );
+  assertPrivateAuthResponse(mismatchedDashboard);
+  assert.match((await mismatchedDashboard.json()).error, /무결성/);
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
+  await expect(
+    await call('/flow/runtime-own', undefined, { cookie }),
+    200,
+    'FLOW detail resumes after the native D1 payload identity is restored',
+  );
+  checks.push(
+    'FLOW D1 row identity guards detail ACL and dashboard projection',
+  );
   assert.deepEqual(
     Object.keys(privateMimeFlow.commandReceipts[mimeCommand.commandId]).sort(),
     ['actorKey', 'fingerprint'],

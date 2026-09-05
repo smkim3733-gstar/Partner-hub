@@ -40,14 +40,57 @@ export function flowBucket() {
     throw new FlowError('보안 파일 저장소가 연결되지 않았습니다.', 503);
   return bucket;
 }
+type StoredFlowRow = {
+  case_id: string;
+  partner_id: string;
+  revision: number;
+  payload: string | null;
+};
+const storedFlowIntegrityError = () =>
+  new FlowError(
+    '저장된 상담 FLOW 무결성을 확인할 수 없습니다. 관리자 복구가 필요합니다.',
+    503,
+  );
+function storedFlowFromRow(
+  row: StoredFlowRow,
+  expectedCaseId?: string,
+): ConsultingFlow {
+  let value: unknown;
+  try {
+    value = typeof row.payload === 'string' ? JSON.parse(row.payload) : null;
+  } catch {
+    throw storedFlowIntegrityError();
+  }
+  if (!value || typeof value !== 'object' || Array.isArray(value))
+    throw storedFlowIntegrityError();
+  const flow = value as ConsultingFlow;
+  if (
+    flow.schemaVersion !== 1 ||
+    typeof row.case_id !== 'string' ||
+    !row.case_id ||
+    typeof row.partner_id !== 'string' ||
+    !row.partner_id ||
+    !Number.isSafeInteger(row.revision) ||
+    row.revision < 0 ||
+    flow.caseId !== row.case_id ||
+    (expectedCaseId !== undefined && flow.caseId !== expectedCaseId) ||
+    flow.partnerId !== row.partner_id ||
+    !Number.isSafeInteger(flow.revision) ||
+    flow.revision !== row.revision
+  )
+    throw storedFlowIntegrityError();
+  return flow;
+}
 export async function readFlow(caseId: string): Promise<ConsultingFlow | null> {
   const row = await (
     await flowDatabase()
   )
-    .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+    .prepare(
+      'SELECT case_id, partner_id, revision, payload FROM consulting_flows WHERE case_id = ?1',
+    )
     .bind(caseId)
-    .first<{ payload: string }>();
-  return row ? JSON.parse(row.payload) : null;
+    .first<StoredFlowRow>();
+  return row ? storedFlowFromRow(row, caseId) : null;
 }
 export async function stateWithConsultingFlows(raw: unknown) {
   if (raw !== null && !hasPortalStateStructure(raw))
@@ -59,19 +102,20 @@ export async function stateWithConsultingFlows(raw: unknown) {
     await flowDatabase()
   )
     // Project inside SQLite: a dashboard refresh must not load every firm's report or transcript.
-    .prepare(`SELECT json_set(
-      json_remove(payload, '$.files', '$.ai.sourceText', '$.audit', '$.commandIds', '$.commandReceipts', '$.jobs'),
-      '$.reports', json((SELECT json_group_array(json_object(
-        'id', json_extract(r.value, '$.id'), 'stage', json_extract(r.value, '$.stage'),
-        'sourceReportId', json_extract(r.value, '$.sourceReportId'), 'sourceRecordingId', json_extract(r.value, '$.sourceRecordingId'),
-        'decisionId', json_extract(r.value, '$.decisionId'), 'documentsKey', json_extract(r.value, '$.documentsKey')
-      )) FROM json_each(payload, '$.reports') r)),
-      '$.recordings', json((SELECT json_group_array(json_object('id', json_extract(v.value, '$.id'))) FROM json_each(payload, '$.recordings') v))
-    ) AS payload FROM consulting_flows`)
-    .all<{ payload: string }>();
+    .prepare(`SELECT case_id, partner_id, revision,
+      CASE WHEN json_valid(payload) THEN json_set(
+        json_remove(payload, '$.files', '$.ai.sourceText', '$.audit', '$.commandIds', '$.commandReceipts', '$.jobs'),
+        '$.reports', json((SELECT json_group_array(json_object(
+          'id', json_extract(r.value, '$.id'), 'stage', json_extract(r.value, '$.stage'),
+          'sourceReportId', json_extract(r.value, '$.sourceReportId'), 'sourceRecordingId', json_extract(r.value, '$.sourceRecordingId'),
+          'decisionId', json_extract(r.value, '$.decisionId'), 'documentsKey', json_extract(r.value, '$.documentsKey')
+        )) FROM json_each(payload, '$.reports') r)),
+        '$.recordings', json((SELECT json_group_array(json_object('id', json_extract(v.value, '$.id'))) FROM json_each(payload, '$.recordings') v))
+      ) ELSE NULL END AS payload FROM consulting_flows`)
+    .all<StoredFlowRow>();
   const projected = projectFlowState(
     raw,
-    rows.results.map((row) => JSON.parse(row.payload) as ConsultingFlow),
+    rows.results.map((row) => storedFlowFromRow(row)),
   );
   if (projected !== null && !hasPortalStateStructure(projected))
     throw new FlowError(

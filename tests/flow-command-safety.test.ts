@@ -6,6 +6,7 @@ import { env } from 'cloudflare:workers';
 import { GET as download } from '../app/api/consulting-flow/[caseId]/files/[fileId]/route';
 import {
   applyFlowCommand,
+  FlowError,
   newConsultingFlow,
   type ConsultingFlow,
 } from '../lib/consulting-flow';
@@ -14,6 +15,7 @@ import {
   readFlow,
   flowBucket,
   flowDatabase,
+  stateWithConsultingFlows,
 } from '../lib/consulting-flow-store';
 import { readPortalState, writePortalState } from '../lib/portal-state';
 import { readDuplicateRequestSummary } from '../lib/duplicate-request-metrics';
@@ -241,6 +243,21 @@ async function fixtureWithAttachment() {
   const saved = (await readFlow(flow.caseId))!;
   return { saved, file: saved.files[0] };
 }
+async function replaceStoredFlow(
+  caseId: string,
+  transform: (payload: Record<string, unknown>) => unknown,
+) {
+  const db = await flowDatabase();
+  const row = await db
+    .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+    .bind(caseId)
+    .first<{ payload: string }>();
+  assert.ok(row);
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(transform(JSON.parse(row.payload))), caseId)
+    .run();
+}
 async function suspend() {
   const state = (await readPortalState()) as {
     members: Array<{ status: string }>;
@@ -248,6 +265,64 @@ async function suspend() {
   state.members[0].status = '정지';
   await writePortalState(state);
 }
+
+void test('FLOW rejects a payload partner identity mismatch before access control', async () => {
+  const flow = await fixture();
+  await replaceStoredFlow(flow.caseId, (payload) => ({
+    ...payload,
+    partnerId: 'other',
+  }));
+  const response = await GET(
+    request(
+      flow.caseId,
+      undefined,
+      0,
+      undefined,
+      'other-flow@example.invalid',
+    ),
+    context(flow.caseId),
+  );
+  assert.equal(response.status, 503, await response.clone().text());
+});
+
+void test('FLOW rejects stored case and revision envelope mismatches', async () => {
+  const caseFlow = await fixture();
+  await replaceStoredFlow(caseFlow.caseId, (payload) => ({
+    ...payload,
+    caseId: `${caseFlow.caseId}-changed`,
+  }));
+  await assert.rejects(
+    readFlow(caseFlow.caseId),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+
+  const revisionFlow = await fixture();
+  await replaceStoredFlow(revisionFlow.caseId, (payload) => ({
+    ...payload,
+    revision: revisionFlow.revision + 1,
+  }));
+  await assert.rejects(
+    readFlow(revisionFlow.caseId),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+});
+
+void test('FLOW isolates malformed stored JSON from detail and dashboard reads', async () => {
+  const flow = await fixture();
+  const db = await flowDatabase();
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind('{malformed', flow.caseId)
+    .run();
+  await assert.rejects(
+    readFlow(flow.caseId),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    stateWithConsultingFlows(await readPortalState()),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+});
 
 void test('FLOW command denies a partner suspended while the request body is read', async () => {
   const flow = await fixture();
