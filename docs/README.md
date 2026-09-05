@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                     | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                  | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [기업자료 원본 보관 원장 무결성 경계](COMPANY_DOCUMENT_FILE_PROVENANCE_INTEGRITY_2026_09_05.md)                | 새 원본 연결의 D1 권위값·업로드 상태·R2 존재 대조와 저장 직전 경쟁 차단                   |
 | [기업자료 원본 메타데이터 무결성 경계](COMPANY_DOCUMENT_FILE_METADATA_INTEGRITY_2026_09_05.md)                  | 원본 ID·파일명·크기 조합 검증과 기존 원본 사실 변경·삭제 차단                            |
 | [업무·기업자료·일정 필드 무결성 경계](OPERATIONAL_RECORD_FIELD_INTEGRITY_2026_09_05.md)                         | 필수 표시값과 상태·분류·공개범위 허용값 검증, 손상 운영 상태 격리                        |
 | [진행 타임라인 기록 무결성 경계](TIMELINE_RECORD_INTEGRITY_2026_09_05.md)                                     | 필수 표시값·안정 ID·진행 연결 검증과 진행 이동·중복 병합 차단                            |

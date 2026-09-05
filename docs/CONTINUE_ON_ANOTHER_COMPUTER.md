@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `9d621808de552107c090ede857f8ab0280f4bdc2` (`fix: protect company original metadata`)
-- 최신 기능: 기업자료 원본 ID·파일명·크기 조합과 자료 종류별 형식을 검증하고 기존 원본 사실의 일반 저장 변경·삭제 차단
-- 검증: Node 회귀 검사 550개, 격리 workerd/D1/R2 검사 336개, 타입검사, 전체 lint, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200 통과
+- 최신 기능 커밋: `7aa4f2ac6915c41d31a4f203a97e16eeddf8fd40` (`fix: verify company original provenance`)
+- 최신 기능: 새 기업자료 원본 연결의 D1 파일 원장 권위값·업로드 상태·R2 존재를 대조하고 저장 직전 삭제·재배정 경쟁 차단
+- 검증: Node 회귀 검사 556개, 격리 workerd/D1/R2 검사 344개, 타입검사, 전체 lint, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200·CSP 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107, 배포 `appgdep_6a9ae289003c8191a503a7bf7599021e`
-- 최신 Sites 저장 버전: 137 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_8d247f2bebd4819192719da30d14aad2`), 소스 `9d621808de552107c090ede857f8ab0280f4bdc2`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108~136은 버전 137로 대체해 배포하지 않으며, 기업자료 원본 메타데이터 무결성 보완본 버전 137이 정확한 버전 운영 배포 승인 대기 중이다.
+- 최신 Sites 저장 버전: 138 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_2e8254af160c8191a792911e53931399`), 소스 `7aa4f2ac6915c41d31a4f203a97e16eeddf8fd40`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108~137은 버전 138로 대체해 배포하지 않으며, 기업자료 원본 보관 원장 무결성 보완본 버전 138이 정확한 버전 운영 배포 승인 대기 중이다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -45,37 +45,38 @@ node tests/password-worker-smoke.mjs
 ## 이어서 읽을 문서
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
-2. [기업자료 원본 메타데이터 무결성 경계](COMPANY_DOCUMENT_FILE_METADATA_INTEGRITY_2026_09_05.md)
-3. [업무·기업자료·일정 필드 무결성 경계](OPERATIONAL_RECORD_FIELD_INTEGRITY_2026_09_05.md)
-4. [진행 타임라인 기록 무결성 경계](TIMELINE_RECORD_INTEGRITY_2026_09_05.md)
-5. [업무·기업자료·일정 연결 무결성 경계](RELATED_RECORD_ASSIGNMENT_INTEGRITY_2026_09_05.md)
-6. [진행 기록 필드·담당 연결 무결성 경계](CASE_RECORD_INTEGRITY_2026_09_05.md)
-7. [진단평가 기록 무결성 경계](DIAGNOSIS_ASSESSMENT_INTEGRITY_2026_09_05.md)
-8. [포털 상태 메타데이터 무결성 경계](PORTAL_STATE_METADATA_INTEGRITY_2026_09_05.md)
-9. [포털 레코드 ID 무결성 경계](PORTAL_RECORD_ID_INTEGRITY_2026_09_05.md)
-10. [사건 ID 무결성 경계](CASE_ID_INTEGRITY_BOUNDARY_2026_09_05.md)
-11. [포털 레코드 구조 무결성 경계](PORTAL_RECORD_STRUCTURE_INTEGRITY_2026_09_05.md)
-12. [파트너 식별정보 실행 무결성 경계](MEMBER_IDENTITY_RUNTIME_INTEGRITY_2026_09_05.md)
-13. [파트너 권한 실행 무결성 경계](PARTNER_PERMISSION_RUNTIME_INTEGRITY_2026_09_05.md)
-14. [파트너 계정 편집 무결성 경계](PARTNER_ACCOUNT_EDIT_INTEGRITY_2026_09_05.md)
-15. [파트너 계정 삭제 무결성 경계](PARTNER_ACCOUNT_DELETION_INTEGRITY_2026_09_05.md)
-16. [파트너 감사 필드 무결성 경계](MEMBER_AUDIT_FIELD_INTEGRITY_2026_09_05.md)
-17. [파트너 안정 ID 생성 경계](STABLE_MEMBER_ID_CREATION_BOUNDARY_2026_09_05.md)
-18. [파트너 안정 ID 무결성](DUPLICATE_MEMBER_ID_INTEGRITY_2026_09_05.md)
-19. [ChatGPT 자가등록 중복 이메일 무결성](CHATGPT_REGISTRATION_AMBIGUOUS_EMAIL_INTEGRITY_2026_09_05.md)
-20. [ChatGPT 중복 이메일 결속 무결성](CHATGPT_AMBIGUOUS_EMAIL_BINDING_INTEGRITY_2026_09_05.md)
-21. [변경 요청 Origin 필수 보안 경계](MUTATION_ORIGIN_REQUIRED_BOUNDARY_2026_09_05.md)
-22. [ChatGPT 관리자 안정 ID 결속 무결성](CHATGPT_OWNER_STABLE_IDENTITY_INTEGRITY_2026_09_05.md)
-23. [제품 기획 검수](PRODUCT_PLANNING_REVIEW.md)
-24. [브라우저 화면 보안 헤더 경계](BROWSER_PAGE_SECURITY_HEADERS_2026_09_04.md)
-25. [빌드 도구와 운영 의존성 경계](BUILD_TOOL_RUNTIME_DEPENDENCY_BOUNDARY_2026_09_04.md)
-26. [운영 의존성 보안 패치와 잔여 위험](DEPENDENCY_SECURITY_PATCH_AND_RESIDUAL_RISK_2026_09_04.md)
-27. [협업신청 첨부 내용 확인 중 제출 잠금 정책](APPLICATION_ATTACHMENT_HASHING_SUBMISSION_LOCK_POLICY_2026_09_04.md)
-28. [협업신청 첨부 실제 내용 중복 판정 정책](APPLICATION_ATTACHMENT_CONTENT_DEDUPLICATION_POLICY_2026_09_04.md)
-29. [상담 FLOW 화면 재시도 지문 정책](FLOW_CLIENT_RETRY_FINGERPRINT_POLICY_2026_09_04.md)
-30. [업로드 멱등키·영수증 파일명 정규화 정책](UPLOAD_RECEIPT_FILENAME_NORMALIZATION_POLICY_2026_09_04.md)
-31. [신청 첨부 업로드 멱등키 Content-Type 정책](APPLICATION_UPLOAD_KEY_CONTENT_TYPE_POLICY_2026_09_04.md)
-32. [문서 전체 목록](README.md)
+2. [기업자료 원본 보관 원장 무결성 경계](COMPANY_DOCUMENT_FILE_PROVENANCE_INTEGRITY_2026_09_05.md)
+3. [기업자료 원본 메타데이터 무결성 경계](COMPANY_DOCUMENT_FILE_METADATA_INTEGRITY_2026_09_05.md)
+4. [업무·기업자료·일정 필드 무결성 경계](OPERATIONAL_RECORD_FIELD_INTEGRITY_2026_09_05.md)
+5. [진행 타임라인 기록 무결성 경계](TIMELINE_RECORD_INTEGRITY_2026_09_05.md)
+6. [업무·기업자료·일정 연결 무결성 경계](RELATED_RECORD_ASSIGNMENT_INTEGRITY_2026_09_05.md)
+7. [진행 기록 필드·담당 연결 무결성 경계](CASE_RECORD_INTEGRITY_2026_09_05.md)
+8. [진단평가 기록 무결성 경계](DIAGNOSIS_ASSESSMENT_INTEGRITY_2026_09_05.md)
+9. [포털 상태 메타데이터 무결성 경계](PORTAL_STATE_METADATA_INTEGRITY_2026_09_05.md)
+10. [포털 레코드 ID 무결성 경계](PORTAL_RECORD_ID_INTEGRITY_2026_09_05.md)
+11. [사건 ID 무결성 경계](CASE_ID_INTEGRITY_BOUNDARY_2026_09_05.md)
+12. [포털 레코드 구조 무결성 경계](PORTAL_RECORD_STRUCTURE_INTEGRITY_2026_09_05.md)
+13. [파트너 식별정보 실행 무결성 경계](MEMBER_IDENTITY_RUNTIME_INTEGRITY_2026_09_05.md)
+14. [파트너 권한 실행 무결성 경계](PARTNER_PERMISSION_RUNTIME_INTEGRITY_2026_09_05.md)
+15. [파트너 계정 편집 무결성 경계](PARTNER_ACCOUNT_EDIT_INTEGRITY_2026_09_05.md)
+16. [파트너 계정 삭제 무결성 경계](PARTNER_ACCOUNT_DELETION_INTEGRITY_2026_09_05.md)
+17. [파트너 감사 필드 무결성 경계](MEMBER_AUDIT_FIELD_INTEGRITY_2026_09_05.md)
+18. [파트너 안정 ID 생성 경계](STABLE_MEMBER_ID_CREATION_BOUNDARY_2026_09_05.md)
+19. [파트너 안정 ID 무결성](DUPLICATE_MEMBER_ID_INTEGRITY_2026_09_05.md)
+20. [ChatGPT 자가등록 중복 이메일 무결성](CHATGPT_REGISTRATION_AMBIGUOUS_EMAIL_INTEGRITY_2026_09_05.md)
+21. [ChatGPT 중복 이메일 결속 무결성](CHATGPT_AMBIGUOUS_EMAIL_BINDING_INTEGRITY_2026_09_05.md)
+22. [변경 요청 Origin 필수 보안 경계](MUTATION_ORIGIN_REQUIRED_BOUNDARY_2026_09_05.md)
+23. [ChatGPT 관리자 안정 ID 결속 무결성](CHATGPT_OWNER_STABLE_IDENTITY_INTEGRITY_2026_09_05.md)
+24. [제품 기획 검수](PRODUCT_PLANNING_REVIEW.md)
+25. [브라우저 화면 보안 헤더 경계](BROWSER_PAGE_SECURITY_HEADERS_2026_09_04.md)
+26. [빌드 도구와 운영 의존성 경계](BUILD_TOOL_RUNTIME_DEPENDENCY_BOUNDARY_2026_09_04.md)
+27. [운영 의존성 보안 패치와 잔여 위험](DEPENDENCY_SECURITY_PATCH_AND_RESIDUAL_RISK_2026_09_04.md)
+28. [협업신청 첨부 내용 확인 중 제출 잠금 정책](APPLICATION_ATTACHMENT_HASHING_SUBMISSION_LOCK_POLICY_2026_09_04.md)
+29. [협업신청 첨부 실제 내용 중복 판정 정책](APPLICATION_ATTACHMENT_CONTENT_DEDUPLICATION_POLICY_2026_09_04.md)
+30. [상담 FLOW 화면 재시도 지문 정책](FLOW_CLIENT_RETRY_FINGERPRINT_POLICY_2026_09_04.md)
+31. [업로드 멱등키·영수증 파일명 정규화 정책](UPLOAD_RECEIPT_FILENAME_NORMALIZATION_POLICY_2026_09_04.md)
+32. [신청 첨부 업로드 멱등키 Content-Type 정책](APPLICATION_UPLOAD_KEY_CONTENT_TYPE_POLICY_2026_09_04.md)
+33. [문서 전체 목록](README.md)
 
 ## Git에 넣지 않는 것
 
@@ -88,4 +89,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 버전 137 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108~136은 버전 137로 대체해 배포하지 않는다. 버전 137 공개 배포에는 정확히 `버전 137 운영 배포 승인`이라는 사용자 명시 승인이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 고우선순위 감사를 이어간다. 다음 감사는 새로 추가되는 완전한 원본 연결이 D1 파일 원장의 실제 ID·파일명·크기·기업·자료 종류·담당 계정·진행과 일치하는지 저장 직전에 확인하고 삭제·업로드 대기·미완료 원본 연결을 거절한다. 파일 없는 기존 요청 카드와 검증된 레거시 기록은 보존한다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
+Sites 버전 138 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108~137은 버전 138로 대체해 배포하지 않는다. 버전 138 공개 배포에는 정확히 `버전 138 운영 배포 승인`이라는 사용자 명시 승인이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 고우선순위 감사를 이어간다. 다음 감사는 기업자료 삭제 API가 이미 포털 상태에 연결된 원본을 제거해 카드만 남기지 못하도록 저장 상태와 삭제 결정을 원자적으로 대조한다. 업로드 직후 아직 연결되지 않은 원본의 기존 정리와 멱등 삭제는 유지하고 운영 원본·카드를 자동 삭제하거나 이관하지 않는다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
