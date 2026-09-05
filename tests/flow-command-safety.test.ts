@@ -40,6 +40,7 @@ import {
 import { MAX_AI_SOURCE_BYTES } from '../lib/intake-source-policy';
 import { MAX_TRANSCRIPT_FILE_BYTES } from '../lib/transcript-policy';
 import { flowFileStorageKey } from '../lib/consulting-flow-file-policy';
+import { claimFlowJob } from '../lib/consulting-flow-jobs';
 import {
   consultingFlowFileMetadataBackfillSql,
   consultingFlowFileOwnersBackfillSql,
@@ -745,7 +746,7 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
         processing.revision,
       )
       .run(),
-    /job transition audit is invalid/,
+    /(?:job transition audit|non-command scope) is invalid/,
   );
   const firstResult = structuredClone(processing);
   firstResult.revision++;
@@ -1860,6 +1861,54 @@ void test('FLOW initial append commands cannot preload extra targets', async () 
     /initial command target is invalid/,
   );
   assert.equal(await readFlow(initial.caseId), null);
+});
+
+void test('FLOW AI job transitions cannot change unrelated business state', async () => {
+  const queued = await queuedReportFixture(false);
+  const job = queued.jobs.at(-1)!;
+  const claimed = claimFlowJob(
+    queued,
+    job.id,
+    new Date(Date.parse(queued.updatedAt) + 1).toISOString(),
+  );
+  const forged = structuredClone(claimed);
+  forged.requests.push({
+    id: `hidden-transition-request-${++sequence}`,
+    title: 'AI 전이에 숨긴 가상 서류요청',
+    required: true,
+    channel: '이메일',
+    recipient: '가상 담당자',
+    dueDate: '',
+    status: 'requested',
+    note: '',
+    createdAt: claimed.updatedAt,
+  });
+  await assert.rejects(
+    commitFlow(queued, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+        queued.caseId,
+        queued.revision,
+      )
+      .run(),
+    /non-command scope is invalid/,
+  );
+  assert.deepEqual(
+    await readFlow(queued.caseId),
+    JSON.parse(JSON.stringify(queued)),
+  );
 });
 
 void test('FLOW new command receipts require canonical identity fields', async () => {

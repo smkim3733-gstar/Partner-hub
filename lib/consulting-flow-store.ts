@@ -44,6 +44,7 @@ import {
   consultingFlowsJobTransitionAuditTriggerSql,
   consultingFlowsJobTransitionTimestampTriggerSql,
   consultingFlowsNoDeleteTriggerSql,
+  consultingFlowsNonCommandScopeTriggerSql,
   consultingFlowsNewCommandEvidenceTriggerSql,
   consultingFlowsNewCommandReceiptIdentityTriggerSql,
   consultingFlowsNewCommandMemberActorTriggerSql,
@@ -154,6 +155,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandScopeTriggerSql),
         db.prepare(consultingFlowsCommandInsertTargetTriggerSql),
         db.prepare(consultingFlowsCommandTargetTriggerSql),
+        db.prepare(consultingFlowsNonCommandScopeTriggerSql),
         db.prepare(consultingFlowsCommandInsertReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsNewCommandReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsCommandInsertMemberActorTriggerSql),
@@ -1055,6 +1057,52 @@ function assertFlowCommitTransition(
     })
   )
     throw storedFlowIntegrityError();
+  if (newCommandIds.length === 0 && before.revision > 0) {
+    const nextJobs = new Map(after.jobs.map((job) => [job.id, job]));
+    const changedJobs = before.jobs.filter(
+      (job) => !sameValue(job, nextJobs.get(job.id)),
+    );
+    if (changedJobs.length > 0) {
+      const completed = changedJobs.some(
+        (job) =>
+          job.status === 'processing' &&
+          nextJobs.get(job.id)?.status === 'complete',
+      );
+      const audited = changedJobs.some(
+        (job) =>
+          (job.status === 'processing' &&
+            ['blocked', 'failed', 'complete'].includes(
+              String(nextJobs.get(job.id)?.status),
+            )) ||
+          (['blocked', 'failed', 'processing'].includes(job.status) &&
+            nextJobs.get(job.id)?.status === 'queued'),
+      );
+      const allowed = new Set<keyof ConsultingFlow>(['jobs']);
+      if (completed) {
+        allowed.add('reports');
+        allowed.add('files');
+        allowed.add('analysis');
+      }
+      if (audited) allowed.add('audit');
+      const withoutTransitionChanges = (flow: ConsultingFlow) => {
+        const value = structuredClone(flow) as unknown as Record<
+          string,
+          unknown
+        >;
+        delete value.revision;
+        delete value.updatedAt;
+        for (const key of allowed) delete value[key];
+        return value;
+      };
+      if (
+        !sameValue(
+          withoutTransitionChanges(before),
+          withoutTransitionChanges(after),
+        )
+      )
+        throw storedFlowIntegrityError();
+    }
+  }
   const commandTargetCollections = [
     'reports',
     'meetings',

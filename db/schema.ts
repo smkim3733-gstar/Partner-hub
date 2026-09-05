@@ -1644,6 +1644,79 @@ BEGIN
 END
 `;
 
+const consultingFlowNonCommandImmutablePaths = [
+  '$.company',
+  '$.partnerName',
+  '$.meetings',
+  '$.recordings',
+  '$.requests',
+  '$.decision',
+  '$.contract',
+  '$.payments',
+  '$.executionStartedAt',
+  '$.aftercare',
+  '$.ai',
+] as const;
+
+const consultingFlowNonCommandImmutableSql =
+  consultingFlowNonCommandImmutablePaths
+    .map(
+      (path) =>
+        `json_extract(NEW.payload, '${path}') IS NOT json_extract(OLD.payload, '${path}')`,
+    )
+    .join('\n    OR ');
+
+export const consultingFlowsNonCommandScopeTriggerSql = `
+CREATE TRIGGER IF NOT EXISTS consulting_flows_non_command_scope_guard
+BEFORE UPDATE ON consulting_flows
+WHEN COALESCE(json_array_length(NEW.payload, '$.commandIds'), 0) =
+    COALESCE(json_array_length(OLD.payload, '$.commandIds'), 0)
+  AND EXISTS (
+    SELECT 1 FROM json_each(OLD.payload, '$.jobs') AS previous
+    WHERE previous.value IS NOT json_extract(
+      NEW.payload,
+      '$.jobs[' || previous.key || ']'
+    )
+  )
+  AND (
+    ${consultingFlowNonCommandImmutableSql}
+    OR (
+      NOT EXISTS (
+        SELECT 1 FROM json_each(OLD.payload, '$.jobs') AS previous
+        WHERE json_extract(previous.value, '$.status') IS 'processing'
+          AND json_extract(
+            NEW.payload,
+            '$.jobs[' || previous.key || '].status'
+          ) IS 'complete'
+      )
+      AND (
+        json_extract(NEW.payload, '$.reports') IS NOT json_extract(OLD.payload, '$.reports')
+        OR json_extract(NEW.payload, '$.files') IS NOT json_extract(OLD.payload, '$.files')
+        OR json_extract(NEW.payload, '$.analysis') IS NOT json_extract(OLD.payload, '$.analysis')
+      )
+    )
+    OR (
+      NOT EXISTS (
+        SELECT 1 FROM json_each(OLD.payload, '$.jobs') AS previous
+        WHERE json_extract(previous.value, '$.status') IS 'processing'
+          AND json_extract(
+            NEW.payload,
+            '$.jobs[' || previous.key || '].status'
+          ) IN ('blocked', 'failed', 'complete')
+        OR json_extract(previous.value, '$.status') IN ('blocked', 'failed', 'processing')
+          AND json_extract(
+            NEW.payload,
+            '$.jobs[' || previous.key || '].status'
+          ) IS 'queued'
+      )
+      AND json_extract(NEW.payload, '$.audit') IS NOT json_extract(OLD.payload, '$.audit')
+    )
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'consulting flow non-command scope is invalid');
+END
+`;
+
 const consultingFlowCommandReceiptIdentityViolationSql = (receipt: string) => `
   COALESCE(json_type(${receipt}.value, '$.fingerprint'), '') <> 'text'
   OR length(json_extract(${receipt}.value, '$.fingerprint')) <> 64

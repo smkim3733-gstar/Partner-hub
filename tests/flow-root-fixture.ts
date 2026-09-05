@@ -23,6 +23,7 @@ import {
   consultingFlowsJobTransitionAuditTriggerSql,
   consultingFlowsJobTransitionTimestampTriggerSql,
   consultingFlowsNoDeleteTriggerSql,
+  consultingFlowsNonCommandScopeTriggerSql,
   consultingFlowsSuccessEvidenceTriggerSql,
   consultingFlowsTransitionTriggerSql,
 } from '../db/schema';
@@ -49,6 +50,7 @@ const transitionTriggers = [
   consultingFlowsCommandEffectTriggerSql,
   consultingFlowsCommandScopeTriggerSql,
   consultingFlowsCommandTargetTriggerSql,
+  consultingFlowsNonCommandScopeTriggerSql,
   consultingFlowsNewCommandReceiptIdentityTriggerSql,
   consultingFlowsNewCommandMemberActorTriggerSql,
   consultingFlowsNewCommandAdminActorTriggerSql,
@@ -77,6 +79,7 @@ const transitionTriggerNames = [
   'consulting_flows_command_effect_guard',
   'consulting_flows_command_scope_guard',
   'consulting_flows_command_target_guard',
+  'consulting_flows_non_command_scope_guard',
   'consulting_flows_new_command_receipt_identity_guard',
   'consulting_flows_new_command_member_actor_guard',
   'consulting_flows_new_command_admin_actor_guard',

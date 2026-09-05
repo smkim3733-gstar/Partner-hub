@@ -311,6 +311,12 @@ const flowCommandTargetTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowNonCommandScopeTriggerSql = migrationStatements(
+  await readFile(
+    path.join(project, 'drizzle', '0061_consulting_flow_non_command_scope.sql'),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -337,6 +343,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_command_effect_guard',
   'consulting_flows_command_scope_guard',
   'consulting_flows_command_target_guard',
+  'consulting_flows_non_command_scope_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -366,6 +373,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowCommandEffectTriggerSql[1],
       flowCommandScopeTriggerSql[1],
       flowCommandTargetTriggerSql[1],
+      flowNonCommandScopeTriggerSql[0],
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3828,6 +3836,26 @@ try {
     action: 'ai_result',
     detail: '1차 분석보고서 실패 · 두 번째 가상 공급자 오류',
   });
+  const crossStateFailureEvidenceFlow = structuredClone(failedEvidenceFlow);
+  crossStateFailureEvidenceFlow.requests.push({
+    id: 'native-hidden-ai-transition-request',
+    title: 'AI 작업 전이에 숨긴 가상 서류요청',
+    required: true,
+    channel: '이메일',
+    recipient: '가상 담당자',
+    dueDate: '',
+    status: 'requested',
+    note: '',
+    createdAt: failedEvidenceFlow.updatedAt,
+  });
+  await assert.rejects(
+    saveEvidenceTransition(
+      processingEvidenceFlow,
+      crossStateFailureEvidenceFlow,
+    ),
+    /non-command scope is invalid/,
+  );
+  checks.push('FLOW native D1 restricts AI transitions to AI result state');
   await saveEvidenceTransition(processingEvidenceFlow, failedEvidenceFlow);
   checks.push(
     'FLOW native D1 permits exact failure evidence history movement and new result evidence',
