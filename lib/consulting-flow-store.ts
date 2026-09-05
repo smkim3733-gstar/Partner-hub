@@ -19,7 +19,10 @@ import { isCrossSiteRequest } from '@/lib/request-origin';
 import { QueryRequestError } from '@/lib/request-query';
 import { readRouteParam, RouteParamError } from '@/lib/request-path';
 import { privateJsonResponse } from '@/lib/private-response';
-import { FLOW_FILE_STORAGE_PREFIX } from '@/lib/consulting-flow-file-policy';
+import {
+  FLOW_FILE_STORAGE_PREFIX,
+  storedFlowFileNameMatches,
+} from '@/lib/consulting-flow-file-policy';
 import {
   MAX_FLOW_UPLOAD_BYTES,
   storedFlowFileExtensionRules,
@@ -63,6 +66,10 @@ type StoredFlowRow = {
   revision: number;
   updated_at: string;
   payload: string | null;
+};
+type StoredFlowFileNamesRow = {
+  case_id: string;
+  names: string;
 };
 const storedFlowIntegrityError = () =>
   new FlowError(
@@ -248,6 +255,11 @@ export async function stateWithConsultingFlows(raw: unknown) {
   const database = await flowDatabase();
   const batch = await database.batch([
     database.prepare(hiddenFlowSemanticViolationSql),
+    database.prepare(`SELECT case_id,
+      (SELECT json_group_array(json_extract(f.value, '$.name'))
+        FROM json_each(payload, '$.files') f) AS names
+      FROM consulting_flows
+      WHERE json_valid(payload) AND json_type(payload, '$.files') = 'array'`),
     // Project inside SQLite: a dashboard refresh must not load every firm's report or transcript.
     database.prepare(`SELECT case_id, partner_id, revision, updated_at,
       CASE WHEN json_valid(payload) THEN CASE WHEN
@@ -418,8 +430,22 @@ export async function stateWithConsultingFlows(raw: unknown) {
         ) ELSE NULL END ELSE NULL END AS payload FROM consulting_flows`),
   ]);
   const semanticViolations = batch[0] as D1Result<{ invalid: number }>;
-  const rows = batch[1] as D1Result<StoredFlowRow>;
+  const fileNameRows = batch[1] as D1Result<StoredFlowFileNamesRow>;
+  const rows = batch[2] as D1Result<StoredFlowRow>;
   if (semanticViolations.results.length > 0) throw storedFlowIntegrityError();
+  for (const row of fileNameRows.results) {
+    let names: unknown;
+    try {
+      names = JSON.parse(row.names);
+    } catch {
+      throw storedFlowIntegrityError();
+    }
+    if (
+      !Array.isArray(names) ||
+      !names.every((name) => storedFlowFileNameMatches(name))
+    )
+      throw storedFlowIntegrityError();
+  }
   const projected = projectFlowState(
     raw,
     rows.results.map((row) => storedFlowFromRow(row, undefined, true)),

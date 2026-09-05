@@ -1014,6 +1014,51 @@ void test('FLOW detail and dashboard reject file extensions and MIME outside the
   }
 });
 
+void test('FLOW rejects stored filenames outside the canonical upload boundary before detail, dashboard and download', async () => {
+  const unsafeNames = [
+    'folder/report.txt',
+    ' report.txt',
+    'e\u0301-report.txt',
+    'report\u0000.txt',
+    `${'a'.repeat(181)}.txt`,
+  ];
+  for (const [index, name] of unsafeNames.entries()) {
+    await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+    const flow = await fixture();
+    const fileId = `unsafe-name-file-${++sequence}`;
+    const key = flowFileStorageKey(fileId);
+    await flowBucket().put(key, 'SYNTHETIC_UNSAFE_NAME_OBJECT');
+    await replaceStoredFlow(flow.caseId, (payload) => {
+      (payload.files as Array<Record<string, unknown>>).push({
+        id: fileId,
+        name,
+        contentType: 'text/plain',
+        size: 'SYNTHETIC_UNSAFE_NAME_OBJECT'.length,
+        key,
+        createdAt: payload.updatedAt,
+        purpose: 'report',
+      });
+      return payload;
+    });
+    await assert.rejects(
+      readFlow(flow.caseId),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    await assert.rejects(
+      stateWithConsultingFlows(await readPortalState()),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    const response = await download(request(flow.caseId, undefined), {
+      params: Promise.resolve({ caseId: flow.caseId, fileId }),
+    });
+    assert.equal(response.status, 503, await response.clone().text());
+    assert.ok(
+      await flowBucket().head(key),
+      `unsafe name ${index} preserves R2`,
+    );
+  }
+});
+
 void test('FLOW rejects a file key outside its ID-bound R2 namespace before detail, dashboard and download', async () => {
   const flow = await fixture();
   const foreignBytes = 'SYNTHETIC_FOREIGN_PRIVATE_OBJECT';

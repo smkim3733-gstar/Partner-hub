@@ -1,5 +1,8 @@
 import type { ConsultingFlow } from './consulting-flow';
-import { storedFlowFileKeyMatches } from './consulting-flow-file-policy';
+import {
+  storedFlowFileKeyMatches,
+  storedFlowFileNameMatches,
+} from './consulting-flow-file-policy';
 import {
   isStoredFlowFilePurpose,
   storedFlowFileFormat,
@@ -369,6 +372,7 @@ function validFile(item: JsonRecord, stored: boolean) {
   return (
     hasOnlyKeys(item, FLOW_OBJECT_KEYS.file) &&
     boundedName(item.name, FLOW_FIELD_LIMITS.fileName) &&
+    (!stored || storedFlowFileNameMatches(item.name)) &&
     boundedName(item.contentType, FLOW_FIELD_LIMITS.fileContentType) &&
     format !== undefined &&
     item.contentType === format.contentType &&

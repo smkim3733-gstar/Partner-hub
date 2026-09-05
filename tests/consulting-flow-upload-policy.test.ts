@@ -21,6 +21,7 @@ import { MAX_TRANSCRIPT_FILE_BYTES } from '../lib/transcript-policy';
 import {
   flowFileStorageKey,
   storedFlowFileKeyMatches,
+  storedFlowFileNameMatches,
 } from '../lib/consulting-flow-file-policy';
 
 void test('consulting flow upload policy owns purpose and command-specific formats', () => {
@@ -113,6 +114,10 @@ void test('consulting flow upload policy owns purpose and command-specific forma
     storedFlowFileKeyMatches('stored-file', 'company-source/stored-file'),
     false,
   );
+  assert.equal(storedFlowFileNameMatches('안전한 보고서.txt'), true);
+  assert.equal(storedFlowFileNameMatches('folder/report.txt'), false);
+  assert.equal(storedFlowFileNameMatches('e\u0301-report.txt'), false);
+  assert.equal(storedFlowFileNameMatches(`${'a'.repeat(181)}.txt`), false);
 });
 
 void test('server rejects files hidden by stage and AI-source controls', () => {

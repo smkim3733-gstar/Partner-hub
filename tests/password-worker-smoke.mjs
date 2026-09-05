@@ -2184,6 +2184,41 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  const unsafeFlowFileName = JSON.parse(intactFlowPayload);
+  const unsafeFlowFileNameId = unsafeFlowFileName.files.at(-1).id;
+  const unsafeFlowFileNameKey = unsafeFlowFileName.files.at(-1).key;
+  unsafeFlowFileName.files.at(-1).name = 'folder/report.txt';
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(unsafeFlowFileName), 'runtime-own')
+    .run();
+  await expect(
+    await call('/flow/runtime-own', undefined, ownerHeaders),
+    503,
+    'FLOW detail rejects a stored filename outside the canonical upload boundary',
+  );
+  const unsafeFlowFileNameDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects an unsafe filename before native SQLite projection',
+  );
+  assertPrivateAuthResponse(unsafeFlowFileNameDashboard);
+  assert.match((await unsafeFlowFileNameDashboard.json()).error, /무결성/);
+  await expect(
+    await call(
+      `/flow-file/runtime-own/${unsafeFlowFileNameId}`,
+      undefined,
+      ownerHeaders,
+    ),
+    503,
+    'FLOW download rejects an unsafe stored filename before reading its body',
+  );
+  assert.ok(await bucket.head(unsafeFlowFileNameKey));
+  checks.push('FLOW unsafe filename rejection preserves the private object');
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   const foreignFlowFileKey = JSON.parse(intactFlowPayload);
   const foreignFlowFileId = foreignFlowFileKey.files.at(-1).id;
   foreignFlowFileKey.files.at(-1).key = 'synthetic-private-file';
