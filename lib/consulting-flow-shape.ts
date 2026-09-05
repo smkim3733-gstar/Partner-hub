@@ -244,6 +244,7 @@ export const FLOW_OBJECT_KEYS = {
     'outputTokens',
   ],
   jobFailureEvidence: [
+    'auditId',
     'instructionVersion',
     'requestedModel',
     'httpStatus',
@@ -549,6 +550,7 @@ export function hasFlowAiFailureEvidenceStructure(
   return Boolean(
     evidence &&
     hasOnlyKeys(evidence, FLOW_OBJECT_KEYS.jobFailureEvidence) &&
+    boundedName(evidence.auditId, FLOW_FIELD_LIMITS.id) &&
     boundedExactName(
       evidence.instructionVersion,
       FLOW_AI_EVIDENCE_LIMITS.instructionVersion,
@@ -850,6 +852,7 @@ function hasStateIntegrity(flow: JsonRecord, mode: ShapeMode) {
   const executionStartedAt = reference(flow.executionStartedAt);
   const aftercare = flow.aftercare as JsonRecord | undefined;
   const updatedAt = Date.parse(flow.updatedAt as string);
+  const audits = flow.audit as Array<JsonRecord>;
   if (
     mode !== 'projected' &&
     (flow.jobs as Array<JsonRecord>).some((job) => {
@@ -857,11 +860,27 @@ function hasStateIntegrity(flow: JsonRecord, mode: ShapeMode) {
       const history = job.failureEvidenceHistory as
         | Array<JsonRecord>
         | undefined;
+      const evidence = [current, ...(history ?? [])].filter(
+        (entry): entry is JsonRecord => Boolean(entry),
+      );
+      const auditIds = evidence.map((entry) => entry.auditId as string);
       return (
-        (current && Date.parse(current.observedAt as string) > updatedAt) ||
-        history?.some(
-          (entry) => Date.parse(entry.observedAt as string) > updatedAt,
-        )
+        new Set(auditIds).size !== auditIds.length ||
+        evidence.some((entry) => {
+          const observedAt = Date.parse(entry.observedAt as string);
+          const matches = audits.filter((audit) => {
+            const auditAt = audit.at as string;
+            return (
+              audit.id === entry.auditId &&
+              audit.id === `${job.id as string}-${auditAt}` &&
+              audit.actor === '보고서 자동생성' &&
+              audit.action === 'ai_result' &&
+              Date.parse(auditAt) >= observedAt &&
+              Date.parse(auditAt) <= updatedAt
+            );
+          });
+          return observedAt > updatedAt || matches.length !== 1;
+        })
       );
     })
   )

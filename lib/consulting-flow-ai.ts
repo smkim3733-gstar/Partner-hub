@@ -8,7 +8,7 @@ import {
   latestReport,
   type ConsultingFlow,
   type FlowAiEvidence,
-  type FlowAiFailureEvidence,
+  type FlowAiFailureObservation,
   type FlowFile,
   type FlowJob,
 } from '@/lib/consulting-flow';
@@ -48,7 +48,7 @@ type Block = TextBlock | BinaryBlock;
 class FlowProviderResponseError extends FlowError {
   constructor(
     message: string,
-    readonly evidence: FlowAiFailureEvidence,
+    readonly evidence: FlowAiFailureObservation,
   ) {
     super(message);
   }
@@ -318,7 +318,7 @@ export async function runNextFlowJob(
     return claimed;
   let body: string | undefined;
   let evidence: FlowAiEvidence | undefined;
-  let failureEvidence: FlowAiFailureEvidence | undefined;
+  let failureEvidence: FlowAiFailureObservation | undefined;
   let error: string | undefined;
   try {
     const generated = await generate(claimed, job, async () => {

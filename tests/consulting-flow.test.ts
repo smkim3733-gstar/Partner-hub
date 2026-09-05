@@ -17,6 +17,7 @@ import {
   type ConsultingFlow,
   type FlowAiEvidence,
   type FlowAiFailureEvidence,
+  type FlowAiFailureObservation,
   type FlowActor,
   type FlowCommand,
   type FlowFile,
@@ -68,12 +69,16 @@ const aiEvidence: FlowAiEvidence = {
   inputTokens: 10,
   outputTokens: 20,
 };
-const aiFailureEvidence: FlowAiFailureEvidence = {
+const aiFailureObservation: FlowAiFailureObservation = {
   instructionVersion: 'synthetic-flow-instruction-v1',
   requestedModel: 'claude-requested-test-model',
   httpStatus: 429,
   observedAt: now,
   providerRequestId: 'req_synthetic_failure',
+};
+const aiFailureEvidence: FlowAiFailureEvidence = {
+  ...aiFailureObservation,
+  auditId: 'synthetic-ai-result-audit',
 };
 test('consequential yes-no workflow choices preserve an unselected state', () => {
   assert.equal(explicitFlowBooleanChoice('yes'), true);
@@ -819,15 +824,31 @@ test('AI failures remain failed; stale/disabled job results cannot drive the wor
   const claimed = claimFlowJob(s, j.id, now);
   const failed = finishFlowJob(claimed, j.id, now, now, {
     error: '가상 API 실패',
-    failureEvidence: aiFailureEvidence,
+    failureEvidence: aiFailureObservation,
   });
+  const storedFailureEvidence = {
+    ...aiFailureObservation,
+    auditId: `${j.id}-${now}`,
+  };
   assert.equal(failed.jobs[0].status, 'failed');
-  assert.deepEqual(failed.jobs[0].failureEvidence, aiFailureEvidence);
+  assert.deepEqual(failed.jobs[0].failureEvidence, storedFailureEvidence);
+  assert.equal(
+    failed.audit.filter(
+      (entry) =>
+        entry.id === storedFailureEvidence.auditId &&
+        entry.action === 'ai_result' &&
+        Date.parse(entry.at) >= Date.parse(storedFailureEvidence.observedAt),
+    ).length,
+    1,
+  );
   assert.equal(deepReport(failed), undefined);
   const atHistoryCapacity = structuredClone(failed);
   atHistoryCapacity.jobs[0].failureEvidenceHistory = Array.from(
     { length: FLOW_COLLECTION_LIMITS.aiFailureEvidenceHistory },
-    () => ({ ...aiFailureEvidence }),
+    (_, index) => ({
+      ...storedFailureEvidence,
+      auditId: `${j.id}-${now}-capacity-${index}`,
+    }),
   );
   assert.throws(
     () =>
@@ -845,7 +866,9 @@ test('AI failures remain failed; stale/disabled job results cannot drive the wor
   });
   assert.equal(retried.jobs[0].status, 'queued');
   assert.equal(retried.jobs[0].failureEvidence, undefined);
-  assert.deepEqual(retried.jobs[0].failureEvidenceHistory, [aiFailureEvidence]);
+  assert.deepEqual(retried.jobs[0].failureEvidenceHistory, [
+    storedFailureEvidence,
+  ]);
   const disabled = apply(claimed, { type: 'set_ai_policy', enabled: false });
   const discarded = finishFlowJob(disabled, j.id, now, now, { body });
   assert.equal(discarded.jobs[0].status, 'blocked');

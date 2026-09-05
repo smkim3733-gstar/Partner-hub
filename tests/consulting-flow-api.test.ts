@@ -494,8 +494,20 @@ void nodeTest(
         typeof providerFailureEvidence?.observedAt === 'string' &&
           Number.isFinite(Date.parse(providerFailureEvidence.observedAt)),
       );
-      const { observedAt: _observedAt, ...providerFailureFacts } =
-        providerFailureEvidence!;
+      const providerFailureAudit = flow.audit.find(
+        (entry) => entry.id === providerFailureEvidence?.auditId,
+      );
+      assert.equal(providerFailureAudit?.action, 'ai_result');
+      assert.equal(providerFailureAudit?.actor, '보고서 자동생성');
+      assert.ok(
+        Date.parse(providerFailureAudit!.at) >=
+          Date.parse(providerFailureEvidence!.observedAt),
+      );
+      const {
+        observedAt: _observedAt,
+        auditId: _auditId,
+        ...providerFailureFacts
+      } = providerFailureEvidence!;
       assert.deepEqual(providerFailureFacts, {
         instructionVersion: 'v2.5-partner-workflow-2026-08-30',
         requestedModel: 'claude-opus-5',

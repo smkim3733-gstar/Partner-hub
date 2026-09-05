@@ -1797,6 +1797,7 @@ void test('FLOW detail and dashboard reject undefined root and hidden nested pro
         createdAt: payload.updatedAt,
         startedAt: payload.updatedAt,
         failureEvidence: {
+          auditId: 'hidden-failure-evidence-audit',
           instructionVersion: 'synthetic-flow-instruction-v1',
           requestedModel: 'claude-requested-test-model',
           httpStatus: 429,
@@ -1815,6 +1816,7 @@ void test('FLOW detail and dashboard reject undefined root and hidden nested pro
         createdAt: payload.updatedAt,
         failureEvidenceHistory: [
           {
+            auditId: 'hidden-failure-history-audit',
             instructionVersion: 'synthetic-flow-instruction-v1',
             requestedModel: 'claude-requested-test-model',
             httpStatus: 429,
@@ -1831,6 +1833,83 @@ void test('FLOW detail and dashboard reject undefined root and hidden nested pro
     const flow = await fixture();
     await replaceStoredFlow(flow.caseId, (payload) => {
       corrupt(payload);
+      return payload;
+    });
+    await assert.rejects(
+      readFlow(flow.caseId),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    await assert.rejects(
+      stateWithConsultingFlows(await readPortalState()),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+  }
+});
+
+void test('FLOW failure evidence requires one exact AI result audit record', async () => {
+  const addLinkedFailure = (payload: Record<string, unknown>) => {
+    const jobId = 'linked-failure-job';
+    const at = payload.updatedAt as string;
+    const auditId = `${jobId}-${at}`;
+    const job = {
+      id: jobId,
+      stage: 1,
+      status: 'failed',
+      reason: '가상 공급자 오류',
+      createdAt: at,
+      startedAt: at,
+      failureEvidence: {
+        auditId,
+        instructionVersion: 'synthetic-flow-instruction-v1',
+        requestedModel: 'claude-requested-test-model',
+        httpStatus: 429,
+        observedAt: at,
+        providerRequestId: 'req_synthetic_failure',
+      },
+    };
+    const audit = {
+      id: auditId,
+      at,
+      actor: '보고서 자동생성',
+      action: 'ai_result',
+      detail: '1차 분석보고서 실패 · 가상 공급자 오류',
+    };
+    (payload.jobs as Array<Record<string, unknown>>).push(job);
+    (payload.audit as Array<Record<string, unknown>>).push(audit);
+    return { job, audit };
+  };
+
+  await deleteConsultingFlowFixture(await flowDatabase());
+  const validFlow = await fixture();
+  await replaceStoredFlow(validFlow.caseId, (payload) => {
+    addLinkedFailure(payload);
+    return payload;
+  });
+  assert.ok(await readFlow(validFlow.caseId));
+  await stateWithConsultingFlows(await readPortalState());
+
+  const corruptions: Array<
+    (job: Record<string, unknown>, audit: Record<string, unknown>) => void
+  > = [
+    (job) => {
+      (job.failureEvidence as Record<string, unknown>).auditId =
+        'missing-ai-result-audit';
+    },
+    (_job, audit) => {
+      audit.action = 'not_ai_result';
+    },
+    (job) => {
+      job.failureEvidenceHistory = [
+        { ...(job.failureEvidence as Record<string, unknown>) },
+      ];
+    },
+  ];
+  for (const corrupt of corruptions) {
+    await deleteConsultingFlowFixture(await flowDatabase());
+    const flow = await fixture();
+    await replaceStoredFlow(flow.caseId, (payload) => {
+      const { job, audit } = addLinkedFailure(payload);
+      corrupt(job, audit);
       return payload;
     });
     await assert.rejects(

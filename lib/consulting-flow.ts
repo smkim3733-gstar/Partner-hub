@@ -91,12 +91,15 @@ export type FlowAiEvidence = {
   inputTokens: number;
   outputTokens: number;
 };
-export type FlowAiFailureEvidence = {
+export type FlowAiFailureObservation = {
   instructionVersion: string;
   requestedModel: string;
   httpStatus: number;
   observedAt: string;
   providerRequestId?: string;
+};
+export type FlowAiFailureEvidence = FlowAiFailureObservation & {
+  auditId: string;
 };
 export type FlowJob = {
   id: string;

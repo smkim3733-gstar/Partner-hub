@@ -261,6 +261,9 @@ const hiddenFlowSemanticViolationSql = `SELECT 1 AS invalid FROM consulting_flow
 const invalidFlowAiFailureEvidenceSql = (expression: string) =>
   `json_type(${expression}) <> 'object' OR
     ${unexpectedJsonKeysSql(expression, FLOW_OBJECT_KEYS.jobFailureEvidence)} OR
+    COALESCE(json_type(${expression}, '$.auditId'), '') <> 'text' OR
+    length(json_extract(${expression}, '$.auditId')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.id} OR
+    json_extract(${expression}, '$.auditId') <> trim(json_extract(${expression}, '$.auditId')) OR
     COALESCE(json_type(${expression}, '$.instructionVersion'), '') <> 'text' OR
     length(json_extract(${expression}, '$.instructionVersion')) NOT BETWEEN 1 AND ${FLOW_AI_EVIDENCE_LIMITS.instructionVersion} OR
     json_extract(${expression}, '$.instructionVersion') <> trim(json_extract(${expression}, '$.instructionVersion')) OR
@@ -332,6 +335,40 @@ const flowAiEvidenceViolationSql = `SELECT 1 AS invalid FROM consulting_flows
               ON previous.key = history.key - 1
             WHERE julianday(json_extract(history.value, '$.observedAt')) <
               julianday(json_extract(previous.value, '$.observedAt'))))))
+  ELSE 0 END LIMIT 1`;
+const flowAiFailureAuditViolationSql = `SELECT 1 AS invalid FROM consulting_flows
+  WHERE CASE WHEN json_valid(payload) AND json_type(payload, '$.jobs') = 'array' AND
+    json_type(payload, '$.audit') = 'array' THEN
+    EXISTS (SELECT 1 FROM json_each(payload, '$.jobs') j WHERE
+      (json_type(j.value, '$.failureEvidence') IS NOT NULL AND
+        ((SELECT count(*) FROM json_each(payload, '$.audit') audit WHERE
+          json_extract(audit.value, '$.id') = json_extract(j.value, '$.failureEvidence.auditId') AND
+          json_extract(audit.value, '$.id') = json_extract(j.value, '$.id') || '-' || json_extract(audit.value, '$.at') AND
+          json_extract(audit.value, '$.actor') = '보고서 자동생성' AND
+          json_extract(audit.value, '$.action') = 'ai_result' AND
+          julianday(json_extract(audit.value, '$.at')) >=
+            julianday(json_extract(j.value, '$.failureEvidence.observedAt')) AND
+          julianday(json_extract(audit.value, '$.at')) <=
+            julianday(json_extract(payload, '$.updatedAt'))) <> 1 OR
+        EXISTS (SELECT 1 FROM json_each(j.value, '$.failureEvidenceHistory') history
+          WHERE json_extract(history.value, '$.auditId') =
+            json_extract(j.value, '$.failureEvidence.auditId')))) OR
+      (json_type(j.value, '$.failureEvidenceHistory') = 'array' AND
+        (EXISTS (SELECT 1 FROM json_each(j.value, '$.failureEvidenceHistory') history WHERE
+          (SELECT count(*) FROM json_each(payload, '$.audit') audit WHERE
+            json_extract(audit.value, '$.id') = json_extract(history.value, '$.auditId') AND
+            json_extract(audit.value, '$.id') = json_extract(j.value, '$.id') || '-' || json_extract(audit.value, '$.at') AND
+            json_extract(audit.value, '$.actor') = '보고서 자동생성' AND
+            json_extract(audit.value, '$.action') = 'ai_result' AND
+            julianday(json_extract(audit.value, '$.at')) >=
+              julianday(json_extract(history.value, '$.observedAt')) AND
+            julianday(json_extract(audit.value, '$.at')) <=
+              julianday(json_extract(payload, '$.updatedAt'))) <> 1) OR
+        EXISTS (SELECT 1 FROM json_each(j.value, '$.failureEvidenceHistory') history
+          JOIN json_each(j.value, '$.failureEvidenceHistory') duplicate
+            ON duplicate.key < history.key
+          WHERE json_extract(duplicate.value, '$.auditId') =
+            json_extract(history.value, '$.auditId')))))
   ELSE 0 END LIMIT 1`;
 const flowFileOwnershipViolationSql = (
   caseIdOnly: boolean,
@@ -613,6 +650,7 @@ export async function stateWithConsultingFlows(raw: unknown) {
   const batch = await database.batch([
     database.prepare(hiddenFlowSemanticViolationSql),
     database.prepare(flowAiEvidenceViolationSql),
+    database.prepare(flowAiFailureAuditViolationSql),
     database.prepare(flowFileOwnershipViolationSql(false)),
     database.prepare(`SELECT case_id,
       (SELECT json_group_array(json_extract(f.value, '$.name'))
@@ -790,12 +828,14 @@ export async function stateWithConsultingFlows(raw: unknown) {
   ]);
   const semanticViolations = batch[0] as D1Result<{ invalid: number }>;
   const evidenceViolations = batch[1] as D1Result<{ invalid: number }>;
-  const ownershipViolations = batch[2] as D1Result<{ invalid: number }>;
-  const fileNameRows = batch[3] as D1Result<StoredFlowFileNamesRow>;
-  const rows = batch[4] as D1Result<StoredFlowRow>;
+  const failureAuditViolations = batch[2] as D1Result<{ invalid: number }>;
+  const ownershipViolations = batch[3] as D1Result<{ invalid: number }>;
+  const fileNameRows = batch[4] as D1Result<StoredFlowFileNamesRow>;
+  const rows = batch[5] as D1Result<StoredFlowRow>;
   if (
     semanticViolations.results.length > 0 ||
     evidenceViolations.results.length > 0 ||
+    failureAuditViolations.results.length > 0 ||
     ownershipViolations.results.length > 0
   )
     throw storedFlowIntegrityError();

@@ -4,7 +4,7 @@ import {
   latestReport,
   reportLabels,
   type ConsultingFlow,
-  type FlowAiFailureEvidence,
+  type FlowAiFailureObservation,
   type FlowFile,
   type FlowAiEvidence,
   type FlowJob,
@@ -68,7 +68,7 @@ export function finishFlowJob(
     file?: FlowFile;
     error?: string;
     evidence?: FlowAiEvidence;
-    failureEvidence?: FlowAiFailureEvidence;
+    failureEvidence?: FlowAiFailureObservation;
   },
 ) {
   const next = structuredClone(flow);
@@ -93,7 +93,10 @@ export function finishFlowJob(
     typeof outcome.error === 'string' &&
     (outcome.evidence !== undefined ||
       (outcome.failureEvidence !== undefined &&
-        (!hasFlowAiFailureEvidenceStructure(outcome.failureEvidence) ||
+        (!hasFlowAiFailureEvidenceStructure({
+          ...outcome.failureEvidence,
+          auditId: `${job.id}-${now}`,
+        }) ||
           Date.parse(outcome.failureEvidence.observedAt) < Date.parse(lease) ||
           Date.parse(outcome.failureEvidence.observedAt) > Date.parse(now))))
   )
@@ -125,7 +128,7 @@ export function finishFlowJob(
     job.status = 'failed';
     job.reason = outcome.error;
     job.failureEvidence = outcome.failureEvidence
-      ? { ...outcome.failureEvidence }
+      ? { ...outcome.failureEvidence, auditId: `${job.id}-${now}` }
       : undefined;
   } else {
     if (!outcome.body || flowTextLength(outcome.body) < 200)
