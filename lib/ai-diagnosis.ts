@@ -4,12 +4,16 @@ import {
   aiDiagnosisRunsInsertEnvelopeTriggerSql,
   aiDiagnosisRunsNoDeleteTriggerSql,
   aiDiagnosisRunsPendingCaseIndexSql,
+  aiDiagnosisRunsPendingEnvelopeTriggerSql,
   aiDiagnosisRunsResultEnvelopeTriggerSql,
   aiDiagnosisRunsTableSql,
   aiDiagnosisRunsTransitionTriggerSql,
 } from '@/db/schema';
 import { companyFileDatabase } from '@/lib/company-files';
-import { STEP_ZERO_RESULT_LIMIT_BYTES } from '@/lib/storage-limits';
+import {
+  STEP_ZERO_PENDING_LIMIT_BYTES,
+  STEP_ZERO_RESULT_LIMIT_BYTES,
+} from '@/lib/storage-limits';
 
 export type StepZeroResult = {
   companyOverview: string;
@@ -60,11 +64,21 @@ export async function ensureAiDiagnosisTables(db: D1Database) {
     db.prepare(aiDiagnosisRunsCaseIndexSql),
     db.prepare(aiDiagnosisRunsPendingCaseIndexSql),
     db.prepare(aiDiagnosisRunsInsertEnvelopeTriggerSql),
+    db.prepare(aiDiagnosisRunsPendingEnvelopeTriggerSql),
     db.prepare(aiDiagnosisRunsIdentityTriggerSql),
     db.prepare(aiDiagnosisRunsTransitionTriggerSql),
     db.prepare(aiDiagnosisRunsResultEnvelopeTriggerSql),
     db.prepare(aiDiagnosisRunsNoDeleteTriggerSql),
   ]);
+}
+
+export function serializeStepZeroPendingEnvelope(requestFingerprint: string) {
+  if (!/^[0-9a-f]{64}$/.test(requestFingerprint))
+    throw new Error('AI 진단 요청 지문 형식이 올바르지 않습니다.');
+  const envelope = JSON.stringify({ _requestFingerprint: requestFingerprint });
+  if (new TextEncoder().encode(envelope).length > STEP_ZERO_PENDING_LIMIT_BYTES)
+    throw new Error('AI 진단 요청 잠금 허용 용량을 초과했습니다.');
+  return envelope;
 }
 
 function boundedText(value: unknown, maxLength: number, allowEmpty = false) {
@@ -235,7 +249,7 @@ export async function claimStepZeroRequest(
       input.company,
       input.instructionVersion,
       input.model,
-      JSON.stringify({ _requestFingerprint: input.requestFingerprint }),
+      serializeStepZeroPendingEnvelope(input.requestFingerprint),
       input.createdByUserId,
       input.createdAt,
     )

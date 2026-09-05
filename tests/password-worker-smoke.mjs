@@ -446,6 +446,30 @@ try {
   checks.push('portal state D1 writes enforce the UTF-8 payload capacity');
   const diagnosisFingerprint = 'a'.repeat(64);
   const diagnosisRunId = 'migration-diagnosis-lifecycle';
+  for (const [index, resultJson] of [
+    JSON.stringify({
+      _requestFingerprint: diagnosisFingerprint,
+      unexpected: true,
+    }),
+    `{${' '.repeat(300)}"_requestFingerprint":"${diagnosisFingerprint}"}`,
+  ].entries())
+    await assert.rejects(
+      db
+        .prepare(
+          `INSERT INTO ai_diagnosis_runs
+            (id, case_id, company, stage, status, instruction_version, model,
+             result_json, input_tokens, output_tokens, created_by_user_id, created_at)
+           VALUES (?1, ?2, '가상 진단기업', 'Step 0', '생성중', 'v1',
+             'model', ?3, 0, 0, 'admin', '2026-09-05T00:00:00.000Z')`,
+        )
+        .bind(
+          `migration-invalid-diagnosis-pending-${index}`,
+          `migration-invalid-diagnosis-case-${index}`,
+          resultJson,
+        )
+        .run(),
+      /pending envelope is invalid/,
+    );
   await db
     .prepare(
       `INSERT INTO ai_diagnosis_runs
@@ -464,6 +488,9 @@ try {
       '2026-09-05T00:00:00.000Z',
     )
     .run();
+  checks.push(
+    'AI diagnosis pending locks keep one bounded fingerprint envelope',
+  );
   await assert.rejects(
     db
       .prepare('UPDATE ai_diagnosis_runs SET case_id = ?1 WHERE id = ?2')

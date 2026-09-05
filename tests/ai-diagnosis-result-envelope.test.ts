@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseStepZeroResult } from '../lib/ai-diagnosis';
+import {
+  parseStepZeroResult,
+  serializeStepZeroPendingEnvelope,
+} from '../lib/ai-diagnosis';
 
 function validResult() {
   return {
@@ -16,6 +19,22 @@ function validResult() {
     nextAction: ' 대표 검토 ',
   };
 }
+
+void test('Step 0 pending serializer keeps one exact request fingerprint', () => {
+  const fingerprint = 'a'.repeat(64);
+  assert.equal(
+    serializeStepZeroPendingEnvelope(fingerprint),
+    JSON.stringify({ _requestFingerprint: fingerprint }),
+  );
+  assert.throws(
+    () => serializeStepZeroPendingEnvelope('A'.repeat(64)),
+    /요청 지문 형식이 올바르지 않습니다/,
+  );
+  assert.throws(
+    () => serializeStepZeroPendingEnvelope('a'.repeat(63)),
+    /요청 지문 형식이 올바르지 않습니다/,
+  );
+});
 
 void test('Step 0 parser preserves one strict normalized result envelope', () => {
   const input = { ...validResult(), ignoredProviderField: 'discarded' };
