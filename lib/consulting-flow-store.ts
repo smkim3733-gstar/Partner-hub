@@ -20,8 +20,8 @@ import { QueryRequestError } from '@/lib/request-query';
 import { readRouteParam, RouteParamError } from '@/lib/request-path';
 import { privateJsonResponse } from '@/lib/private-response';
 import {
-  hasConsultingFlowStructure,
   hasProjectedConsultingFlowStructure,
+  hasStoredConsultingFlowStructure,
 } from '@/lib/consulting-flow-shape';
 
 export function flowEnvironment() {
@@ -74,7 +74,7 @@ function storedFlowFromRow(
   if (
     !(projected
       ? hasProjectedConsultingFlowStructure(value)
-      : hasConsultingFlowStructure(value))
+      : hasStoredConsultingFlowStructure(value))
   )
     throw storedFlowIntegrityError();
   const flow = value as ConsultingFlow;
@@ -130,6 +130,15 @@ export async function stateWithConsultingFlows(raw: unknown) {
         json_type(payload, '$.requests') = 'array' AND json_type(payload, '$.payments') = 'array' AND
         json_type(payload, '$.jobs') = 'array' AND json_type(payload, '$.audit') = 'array' AND
         json_type(payload, '$.commandIds') = 'array' AND json_type(payload, '$.analysis') = 'object' AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.reports') e WHERE e.type <> 'object') AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.files') e WHERE e.type <> 'object') AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.meetings') e WHERE e.type <> 'object') AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.recordings') e WHERE e.type <> 'object') AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.requests') e WHERE e.type <> 'object') AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.payments') e WHERE e.type <> 'object') AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.jobs') e WHERE e.type <> 'object') AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.audit') e WHERE e.type <> 'object') AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.commandIds') e WHERE e.type <> 'text') AND
         json_type(payload, '$.analysis.reportId') = 'text' AND json_type(payload, '$.ai') = 'object' AND
         json_type(payload, '$.ai.enabled') IN ('true', 'false') AND json_type(payload, '$.ai.sourceText') = 'text' AND
         (json_type(payload, '$.decision') IS NULL OR json_type(payload, '$.decision') = 'object') AND

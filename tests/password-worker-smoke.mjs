@@ -1999,13 +1999,37 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  const malformedFlowEntry = JSON.parse(intactFlowPayload);
+  malformedFlowEntry.reports[0].stage = 9;
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(malformedFlowEntry), 'runtime-own')
+    .run();
+  const malformedEntryRead = await expect(
+    await call('/flow/runtime-own', undefined, ownerHeaders),
+    503,
+    'FLOW detail rejects malformed collection entry fields',
+  );
+  assertPrivateAuthResponse(malformedEntryRead);
+  assert.match((await malformedEntryRead.json()).error, /무결성/);
+  const malformedEntryDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects malformed projected collection entry fields',
+  );
+  assertPrivateAuthResponse(malformedEntryDashboard);
+  assert.match((await malformedEntryDashboard.json()).error, /무결성/);
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   await expect(
     await call('/flow/runtime-own', undefined, { cookie }),
     200,
     'FLOW detail resumes after the native D1 payload identity is restored',
   );
   checks.push(
-    'FLOW D1 row identity, timestamp and required structure guard detail ACL and dashboard projection',
+    'FLOW D1 row identity, timestamp, required structure and collection field guards protect detail ACL and dashboard projection',
   );
   assert.deepEqual(
     Object.keys(privateMimeFlow.commandReceipts[mimeCommand.commandId]).sort(),

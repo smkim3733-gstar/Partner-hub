@@ -417,6 +417,103 @@ void test('FLOW rejects malformed required payload structure before detail use',
   }
 });
 
+void test('FLOW rejects malformed collection entries before detail use', async () => {
+  const corruptions: Array<
+    [string, (payload: Record<string, unknown>) => unknown]
+  > = [
+    [
+      'report stage',
+      (payload) => ({
+        ...payload,
+        reports: (payload.reports as Array<Record<string, unknown>>).map(
+          (item: Record<string, unknown>, index: number) =>
+            index === 0 ? { ...item, stage: 9 } : item,
+        ),
+      }),
+    ],
+    [
+      'file size',
+      (payload) => ({
+        ...payload,
+        files: [
+          {
+            id: 'corrupt-file',
+            name: '손상.pdf',
+            contentType: 'application/pdf',
+            size: -1,
+            key: 'flow/corrupt.pdf',
+            createdAt: new Date().toISOString(),
+            purpose: 'source',
+          },
+        ],
+      }),
+    ],
+    [
+      'meeting status',
+      (payload) => ({
+        ...payload,
+        meetings: [
+          {
+            id: 'corrupt-meeting',
+            kind: 'first',
+            startsAt: '2026-09-05T00:00:00.000Z',
+            endsAt: '2026-09-05T01:00:00.000Z',
+            location: '온라인',
+            attendance: 'both',
+            status: 'unknown',
+            note: '',
+            createdBy: partner.id,
+          },
+        ],
+      }),
+    ],
+    [
+      'request required',
+      (payload) => ({
+        ...payload,
+        requests: [
+          {
+            id: 'corrupt-request',
+            title: '자료',
+            required: 'yes',
+            channel: '이메일',
+            recipient: partner.email,
+            dueDate: '2026-09-10',
+            status: 'requested',
+            note: '',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }),
+    ],
+    [
+      'payment amount',
+      (payload) => ({
+        ...payload,
+        payments: [
+          {
+            id: 'corrupt-payment',
+            amountWon: -1,
+            receivedAt: '2026-09-05',
+            reference: 'test',
+            confirmedBy: partner.id,
+            recordedAt: new Date().toISOString(),
+          },
+        ],
+      }),
+    ],
+  ];
+  for (const [name, corrupt] of corruptions) {
+    const flow = await fixture();
+    await replaceStoredFlow(flow.caseId, corrupt);
+    await assert.rejects(
+      readFlow(flow.caseId),
+      (error) => error instanceof FlowError && error.status === 503,
+      name,
+    );
+  }
+});
+
 void test('FLOW dashboard validates full stored structure before SQLite projection', async () => {
   await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
   const flow = await fixture();
@@ -424,6 +521,19 @@ void test('FLOW dashboard validates full stored structure before SQLite projecti
     const { files: _files, ...withoutFiles } = payload;
     return withoutFiles;
   });
+  await assert.rejects(
+    stateWithConsultingFlows(await readPortalState()),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+});
+
+void test('FLOW dashboard rejects non-object hidden collection entries', async () => {
+  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  const flow = await fixture();
+  await replaceStoredFlow(flow.caseId, (payload) => ({
+    ...payload,
+    files: [1],
+  }));
   await assert.rejects(
     stateWithConsultingFlows(await readPortalState()),
     (error) => error instanceof FlowError && error.status === 503,
