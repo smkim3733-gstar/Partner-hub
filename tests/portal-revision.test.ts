@@ -304,7 +304,7 @@ void test('duplicate-request summary read failure is isolated from administrator
 
 void test('joint-analysis summary read failure is isolated from administrator state', async () => {
   await writePortalState(seed());
-  failNextDatabaseStatement('$.analysis.reportId');
+  failNextDatabaseStatement('AS analysis_report_id');
   const response = await GET(request());
   assert.equal(response.status, 200, await response.clone().text());
   const payload = (await response.json()) as {

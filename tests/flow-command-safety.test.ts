@@ -389,6 +389,47 @@ void test('FLOW rejects a D1 updated timestamp that differs from its payload', a
   );
 });
 
+void test('FLOW rejects malformed required payload structure before detail use', async () => {
+  const corruptions: Array<
+    [string, (payload: Record<string, unknown>) => unknown]
+  > = [
+    ['company', (payload) => ({ ...payload, company: '' })],
+    ['partnerName', (payload) => ({ ...payload, partnerName: [] })],
+    ['reports', (payload) => ({ ...payload, reports: {} })],
+    ['files', (payload) => ({ ...payload, files: null })],
+    ['analysis', (payload) => ({ ...payload, analysis: null })],
+    [
+      'ai source',
+      (payload) => ({
+        ...payload,
+        ai: { ...(payload.ai as Record<string, unknown>), sourceText: 1 },
+      }),
+    ],
+  ];
+  for (const [name, corrupt] of corruptions) {
+    const flow = await fixture();
+    await replaceStoredFlow(flow.caseId, corrupt);
+    await assert.rejects(
+      readFlow(flow.caseId),
+      (error) => error instanceof FlowError && error.status === 503,
+      name,
+    );
+  }
+});
+
+void test('FLOW dashboard validates full stored structure before SQLite projection', async () => {
+  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  const flow = await fixture();
+  await replaceStoredFlow(flow.caseId, (payload) => {
+    const { files: _files, ...withoutFiles } = payload;
+    return withoutFiles;
+  });
+  await assert.rejects(
+    stateWithConsultingFlows(await readPortalState()),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+});
+
 void test('FLOW command denies a partner suspended while the request body is read', async () => {
   const flow = await fixture();
   const req = request(

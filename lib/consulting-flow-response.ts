@@ -1,4 +1,5 @@
 import type { ConsultingFlow } from './consulting-flow';
+import { hasConsultingFlowStructure } from './consulting-flow-shape';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -30,41 +31,6 @@ function asRecord(value: unknown): JsonRecord | null {
   return value !== null && typeof value === 'object'
     ? (value as JsonRecord)
     : null;
-}
-
-function flowShape(value: unknown): value is ConsultingFlow {
-  const flow = asRecord(value);
-  if (!flow) return false;
-  const analysis = asRecord(flow.analysis);
-  const ai = asRecord(flow.ai);
-  const arrayKeys = [
-    'reports',
-    'files',
-    'meetings',
-    'recordings',
-    'requests',
-    'payments',
-    'jobs',
-    'audit',
-    'commandIds',
-  ];
-  return (
-    flow.schemaVersion === 1 &&
-    typeof flow.caseId === 'string' &&
-    typeof flow.company === 'string' &&
-    typeof flow.partnerId === 'string' &&
-    typeof flow.partnerName === 'string' &&
-    typeof flow.revision === 'number' &&
-    Number.isInteger(flow.revision) &&
-    flow.revision >= 0 &&
-    typeof flow.updatedAt === 'string' &&
-    arrayKeys.every((key) => Array.isArray(flow[key])) &&
-    analysis !== null &&
-    typeof analysis.reportId === 'string' &&
-    ai !== null &&
-    typeof ai.enabled === 'boolean' &&
-    typeof ai.sourceText === 'string'
-  );
 }
 
 async function readJson(response: Response, unreadableMessage: string) {
@@ -108,9 +74,11 @@ export async function readConsultingFlowMutationResponse(
   messages: Partial<ResponseMessages> = {},
 ): Promise<ConsultingFlowMutationPayload> {
   const resolved = { ...defaultMessages, ...messages };
-  const payload = asRecord(await readJson(response, resolved.unreadableMessage));
+  const payload = asRecord(
+    await readJson(response, resolved.unreadableMessage),
+  );
   responseProblem(response, payload, resolved.failedMessage);
-  if (!payload || !flowShape(payload.flow))
+  if (!payload || !hasConsultingFlowStructure(payload.flow))
     throw new ConsultingFlowResponseError(resolved.invalidMessage, null);
   return payload as ConsultingFlowMutationPayload;
 }

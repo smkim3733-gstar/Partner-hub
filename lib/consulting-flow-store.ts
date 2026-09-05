@@ -19,6 +19,10 @@ import { isCrossSiteRequest } from '@/lib/request-origin';
 import { QueryRequestError } from '@/lib/request-query';
 import { readRouteParam, RouteParamError } from '@/lib/request-path';
 import { privateJsonResponse } from '@/lib/private-response';
+import {
+  hasConsultingFlowStructure,
+  hasProjectedConsultingFlowStructure,
+} from '@/lib/consulting-flow-shape';
 
 export function flowEnvironment() {
   return env as unknown as {
@@ -59,6 +63,7 @@ const validFlowTimestamp = (value: unknown): value is string =>
 function storedFlowFromRow(
   row: StoredFlowRow,
   expectedCaseId?: string,
+  projected = false,
 ): ConsultingFlow {
   let value: unknown;
   try {
@@ -66,7 +71,11 @@ function storedFlowFromRow(
   } catch {
     throw storedFlowIntegrityError();
   }
-  if (!value || typeof value !== 'object' || Array.isArray(value))
+  if (
+    !(projected
+      ? hasProjectedConsultingFlowStructure(value)
+      : hasConsultingFlowStructure(value))
+  )
     throw storedFlowIntegrityError();
   const flow = value as ConsultingFlow;
   if (
@@ -111,19 +120,36 @@ export async function stateWithConsultingFlows(raw: unknown) {
   )
     // Project inside SQLite: a dashboard refresh must not load every firm's report or transcript.
     .prepare(`SELECT case_id, partner_id, revision, updated_at,
-      CASE WHEN json_valid(payload) THEN json_set(
-        json_remove(payload, '$.files', '$.ai.sourceText', '$.audit', '$.commandIds', '$.commandReceipts', '$.jobs'),
-        '$.reports', json((SELECT json_group_array(json_object(
-          'id', json_extract(r.value, '$.id'), 'stage', json_extract(r.value, '$.stage'),
-          'sourceReportId', json_extract(r.value, '$.sourceReportId'), 'sourceRecordingId', json_extract(r.value, '$.sourceRecordingId'),
-          'decisionId', json_extract(r.value, '$.decisionId'), 'documentsKey', json_extract(r.value, '$.documentsKey')
-        )) FROM json_each(payload, '$.reports') r)),
-        '$.recordings', json((SELECT json_group_array(json_object('id', json_extract(v.value, '$.id'))) FROM json_each(payload, '$.recordings') v))
-      ) ELSE NULL END AS payload FROM consulting_flows`)
+      CASE WHEN json_valid(payload) THEN CASE WHEN
+        json_type(payload, '$.schemaVersion') = 'integer' AND
+        json_type(payload, '$.caseId') = 'text' AND json_type(payload, '$.company') = 'text' AND
+        json_type(payload, '$.partnerId') = 'text' AND json_type(payload, '$.partnerName') = 'text' AND
+        json_type(payload, '$.revision') = 'integer' AND json_type(payload, '$.updatedAt') = 'text' AND
+        json_type(payload, '$.reports') = 'array' AND json_type(payload, '$.files') = 'array' AND
+        json_type(payload, '$.meetings') = 'array' AND json_type(payload, '$.recordings') = 'array' AND
+        json_type(payload, '$.requests') = 'array' AND json_type(payload, '$.payments') = 'array' AND
+        json_type(payload, '$.jobs') = 'array' AND json_type(payload, '$.audit') = 'array' AND
+        json_type(payload, '$.commandIds') = 'array' AND json_type(payload, '$.analysis') = 'object' AND
+        json_type(payload, '$.analysis.reportId') = 'text' AND json_type(payload, '$.ai') = 'object' AND
+        json_type(payload, '$.ai.enabled') IN ('true', 'false') AND json_type(payload, '$.ai.sourceText') = 'text' AND
+        (json_type(payload, '$.decision') IS NULL OR json_type(payload, '$.decision') = 'object') AND
+        (json_type(payload, '$.contract') IS NULL OR json_type(payload, '$.contract') = 'object') AND
+        (json_type(payload, '$.aftercare') IS NULL OR json_type(payload, '$.aftercare') = 'object') AND
+        (json_type(payload, '$.executionStartedAt') IS NULL OR json_type(payload, '$.executionStartedAt') = 'text') AND
+        (json_type(payload, '$.commandReceipts') IS NULL OR json_type(payload, '$.commandReceipts') = 'object')
+      THEN json_set(
+          json_remove(payload, '$.files', '$.ai.sourceText', '$.audit', '$.commandIds', '$.commandReceipts', '$.jobs'),
+          '$.reports', json((SELECT json_group_array(json_object(
+            'id', json_extract(r.value, '$.id'), 'stage', json_extract(r.value, '$.stage'),
+            'sourceReportId', json_extract(r.value, '$.sourceReportId'), 'sourceRecordingId', json_extract(r.value, '$.sourceRecordingId'),
+            'decisionId', json_extract(r.value, '$.decisionId'), 'documentsKey', json_extract(r.value, '$.documentsKey')
+          )) FROM json_each(payload, '$.reports') r)),
+          '$.recordings', json((SELECT json_group_array(json_object('id', json_extract(v.value, '$.id'))) FROM json_each(payload, '$.recordings') v))
+        ) ELSE NULL END ELSE NULL END AS payload FROM consulting_flows`)
     .all<StoredFlowRow>();
   const projected = projectFlowState(
     raw,
-    rows.results.map((row) => storedFlowFromRow(row)),
+    rows.results.map((row) => storedFlowFromRow(row, undefined, true)),
   );
   if (projected !== null && !hasPortalStateStructure(projected))
     throw new FlowError(

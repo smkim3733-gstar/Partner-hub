@@ -1975,13 +1975,37 @@ try {
     .prepare('UPDATE consulting_flows SET updated_at = ?1 WHERE case_id = ?2')
     .bind(JSON.parse(intactFlowPayload).updatedAt, 'runtime-own')
     .run();
+  const malformedFlowStructure = JSON.parse(intactFlowPayload);
+  delete malformedFlowStructure.files;
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(malformedFlowStructure), 'runtime-own')
+    .run();
+  const malformedStructureRead = await expect(
+    await call('/flow/runtime-own', undefined, ownerHeaders),
+    503,
+    'FLOW detail rejects a native D1 payload missing a required collection',
+  );
+  assertPrivateAuthResponse(malformedStructureRead);
+  assert.match((await malformedStructureRead.json()).error, /무결성/);
+  const malformedStructureDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects malformed full structure before native SQLite projection',
+  );
+  assertPrivateAuthResponse(malformedStructureDashboard);
+  assert.match((await malformedStructureDashboard.json()).error, /무결성/);
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   await expect(
     await call('/flow/runtime-own', undefined, { cookie }),
     200,
     'FLOW detail resumes after the native D1 payload identity is restored',
   );
   checks.push(
-    'FLOW D1 row identity and timestamp guard detail ACL and dashboard projection',
+    'FLOW D1 row identity, timestamp and required structure guard detail ACL and dashboard projection',
   );
   assert.deepEqual(
     Object.keys(privateMimeFlow.commandReceipts[mimeCommand.commandId]).sort(),
