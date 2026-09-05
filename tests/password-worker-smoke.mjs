@@ -178,6 +178,11 @@ try {
     createdAt: '2026-09-05T00:00:00.000Z',
     purpose: 'report',
   };
+  const migrationCompanyFile = {
+    id: 'migration-v162-company-file',
+    key: 'company-source/migration-v162-company-file',
+    contentType: 'text/plain',
+  };
   for (let pass = 0; pass < 2; pass++) {
     for (const name of migrations) {
       const migration = await readFile(
@@ -219,6 +224,24 @@ try {
           )
           .run();
       }
+      if (
+        pass === 0 &&
+        name === '0016_consulting_flow_file_object_integrity.sql'
+      )
+        await db
+          .prepare(`INSERT INTO company_file_objects
+            (id, storage_key, original_name, company, category, title,
+             assigned_trainee, uploaded_by_user_id, uploaded_by_email,
+             content_type, size_bytes, created_at)
+            VALUES (?1, ?2, 'migration-v162.txt', '가상 마이그레이션기업',
+              '기타자료', '가상 원본', '가상 담당자', 'migration-user',
+              'migration@example.invalid', ?3, 1, '2026-09-05T00:00:00.000Z')`)
+          .bind(
+            migrationCompanyFile.id,
+            migrationCompanyFile.key,
+            migrationCompanyFile.contentType,
+          )
+          .run();
     }
   }
   assert.deepEqual(
@@ -265,6 +288,31 @@ try {
   checks.push(
     'version 159 files receive explicit legacy R2 metadata validation mode',
   );
+  assert.deepEqual(
+    await db
+      .prepare(
+        `SELECT validation_mode, r2_etag, r2_content_type
+        FROM company_file_object_integrity WHERE file_id = ?1`,
+      )
+      .bind(migrationCompanyFile.id)
+      .first(),
+    {
+      validation_mode: 'metadata',
+      r2_etag: null,
+      r2_content_type: migrationCompanyFile.contentType,
+    },
+  );
+  checks.push(
+    'version 162 company originals receive explicit legacy R2 metadata validation mode',
+  );
+  await db
+    .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
+    .bind(migrationCompanyFile.id)
+    .run();
+  await db
+    .prepare('DELETE FROM company_file_objects WHERE id = ?1')
+    .bind(migrationCompanyFile.id)
+    .run();
   await db
     .prepare(
       'DELETE FROM consulting_flow_file_object_integrity WHERE file_id = ?1',
@@ -1001,7 +1049,9 @@ try {
   checks.push('forged case assignment and membership changes do not persist');
 
   const bucket = await mf.getR2Bucket('AI_SOURCE_FILES');
-  await bucket.put('synthetic-private-file', 'SYNTHETIC_PRIVATE_CONTENT');
+  await bucket.put('synthetic-private-file', 'SYNTHETIC_PRIVATE_CONTENT', {
+    httpMetadata: { contentType: 'text/plain' },
+  });
   await db
     .prepare(`INSERT INTO company_file_objects
     (id, storage_key, original_name, company, category, title, assigned_trainee, uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
@@ -1020,6 +1070,11 @@ try {
       25,
       new Date().toISOString(),
     )
+    .run();
+  await db
+    .prepare(`INSERT INTO company_file_object_integrity
+      (file_id, validation_mode, r2_etag, r2_content_type)
+      VALUES ('runtime-private-file', 'metadata', NULL, 'text/plain')`)
     .run();
   await expect(
     await call('/files/runtime-private-file', undefined, { cookie }),
@@ -1092,11 +1147,10 @@ try {
     ).json()
   ).file;
   assert.equal(normalizedFile.contentType, 'text/plain');
-  assert.equal(
-    (await bucket.head(`company-source/${normalizedFile.id}`)).httpMetadata
-      .contentType,
-    'text/plain',
+  const normalizedFileHead = await bucket.head(
+    `company-source/${normalizedFile.id}`,
   );
+  assert.equal(normalizedFileHead.httpMetadata.contentType, 'text/plain');
   assert.equal(
     (
       await db
@@ -1106,7 +1160,54 @@ try {
     ).content_type,
     'text/plain',
   );
-  checks.push('registry MIME is identical across response, native D1 and R2');
+  assert.deepEqual(
+    await db
+      .prepare(
+        `SELECT validation_mode, r2_etag, r2_content_type
+        FROM company_file_object_integrity WHERE file_id = ?1`,
+      )
+      .bind(normalizedFile.id)
+      .first(),
+    {
+      validation_mode: 'etag',
+      r2_etag: normalizedFileHead.etag,
+      r2_content_type: 'text/plain',
+    },
+  );
+  checks.push(
+    'new company uploads bind registry MIME and native R2 ETag in D1',
+  );
+  const normalizedBytes = new TextEncoder().encode(
+    'SYNTHETIC_MIME_NORMALIZATION',
+  );
+  const normalizedReplacement = normalizedBytes.slice();
+  normalizedReplacement[normalizedReplacement.byteLength - 1] ^= 1;
+  await bucket.put(
+    `company-source/${normalizedFile.id}`,
+    normalizedReplacement,
+    { httpMetadata: { contentType: 'text/plain' } },
+  );
+  await expect(
+    await call(`/files/${normalizedFile.id}`, undefined, { cookie }),
+    409,
+    'company download rejects same-size native R2 byte replacement',
+  );
+  await bucket.put(`company-source/${normalizedFile.id}`, normalizedBytes, {
+    httpMetadata: { contentType: 'application/pdf' },
+  });
+  await expect(
+    await call(`/files/${normalizedFile.id}`, undefined, { cookie }),
+    409,
+    'company download rejects native R2 MIME replacement',
+  );
+  await bucket.put(`company-source/${normalizedFile.id}`, normalizedBytes, {
+    httpMetadata: { contentType: 'text/plain' },
+  });
+  await expect(
+    await call(`/files/${normalizedFile.id}`, undefined, { cookie }),
+    200,
+    'company download resumes after native R2 metadata is restored',
+  );
   const bridgeCaseId = 'runtime-upload-key-migration';
   const bridgeText = 'SYNTHETIC_UPLOAD_KEY_MIGRATION';
   const bridgeFileName = '한글자료.txt'.normalize('NFC');
@@ -3661,6 +3762,12 @@ try {
       )
       .run();
     await db
+      .prepare(`INSERT INTO company_file_object_integrity
+        (file_id, validation_mode, r2_etag, r2_content_type)
+        VALUES (?1, 'metadata', NULL, 'text/plain')`)
+      .bind(fileId)
+      .run();
+    await db
       .prepare(
         'INSERT INTO company_file_assignments (file_id, partner_member_id) VALUES (?1, ?2)',
       )
@@ -3687,7 +3794,9 @@ try {
         )
         .run();
     if (includeObject)
-      await bucket.put(`company-source/${fileId}`, new Uint8Array(objectSize));
+      await bucket.put(`company-source/${fileId}`, new Uint8Array(objectSize), {
+        httpMetadata: { contentType: 'text/plain' },
+      });
   }
   const missingProvenanceState = structuredClone(cleanMemberIdState);
   missingProvenanceState.companyDocuments = [
@@ -3785,6 +3894,7 @@ try {
       await bucket.put(
         `company-source/${fileId}`,
         provenanceBytes.subarray(0, provenanceBytes.byteLength - 1),
+        { httpMetadata: { contentType: 'text/plain' } },
       );
       const corruptedDownload = await expect(
         await call(`/files/${fileId}`, undefined, ownerHeaders),
@@ -3805,7 +3915,9 @@ try {
         provenanceBytes.byteLength,
       );
       checks.push('corrupt download denial preserves native D1 size metadata');
-      await bucket.put(`company-source/${fileId}`, provenanceBytes);
+      await bucket.put(`company-source/${fileId}`, provenanceBytes, {
+        httpMetadata: { contentType: 'text/plain' },
+      });
       const restoredDownload = await expect(
         await call(`/files/${fileId}`, undefined, ownerHeaders),
         200,

@@ -1,7 +1,9 @@
 import {
   companyFileBucket,
+  companyFileObjectMatchesIntegrity,
   findCompanyFile,
   isCompanyFileIntakeVisible,
+  readCompanyFileObjectIntegrity,
 } from './company-files';
 import { diagnosisDocumentsForCase } from './diagnosis-preflight';
 
@@ -76,7 +78,10 @@ export async function stepZeroPreflight(
     (item) => item?.caseId === caseId && item.company === company,
   );
   if (matchingCases.length !== 1 || matchingAssessments.length !== 1)
-    return { eligible: false, reason: '현재 진행과 사전판정을 하나로 확인할 수 없습니다.' };
+    return {
+      eligible: false,
+      reason: '현재 진행과 사전판정을 하나로 확인할 수 없습니다.',
+    };
 
   const selectedCase = matchingCases[0];
   const assessment = matchingAssessments[0];
@@ -89,7 +94,10 @@ export async function stepZeroPreflight(
     assessment.thirdPartyAiConsent === true &&
     assessment.transcriptConsent === true;
   if (!consentReady)
-    return { eligible: false, reason: '현재 판정과 필수 동의를 다시 확인해 주세요.' };
+    return {
+      eligible: false,
+      reason: '현재 판정과 필수 동의를 다시 확인해 주세요.',
+    };
 
   const evidence = diagnosisDocumentsForCase(
     caseId,
@@ -111,19 +119,24 @@ export async function stepZeroPreflight(
         row.partner_member_id !== selectedCase.partnerMemberId
       )
         return null;
+      const integrity = await readCompanyFileObjectIntegrity(row);
       const object = await companyFileBucket().head(row.storage_key);
-      if (!object || object.size !== row.size_bytes) return null;
+      if (!object || !companyFileObjectMatchesIntegrity(row, object, integrity))
+        return null;
       return document.category;
     }),
   );
-  const categories = new Set(stored.filter((item): item is string => item != null));
+  const categories = new Set(
+    stored.filter((item): item is string => item != null),
+  );
   if (
     !categories.has('사업자등록증') ||
     (!categories.has('크레탑') && !categories.has('재무제표'))
   )
     return {
       eligible: false,
-      reason: '이 진행에 연결된 사업자등록증과 재무·신용 원본을 다시 확인해 주세요.',
+      reason:
+        '이 진행에 연결된 사업자등록증과 재무·신용 원본을 다시 확인해 주세요.',
     };
 
   return { eligible: true };

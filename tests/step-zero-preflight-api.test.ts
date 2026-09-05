@@ -130,6 +130,12 @@ async function insertFile(id: string, category: string, linkedCaseId: string) {
     )
     .run();
   await db
+    .prepare(`INSERT INTO company_file_object_integrity
+      (file_id, validation_mode, r2_etag, r2_content_type)
+      VALUES (?1, 'metadata', NULL, 'application/pdf')`)
+    .bind(id)
+    .run();
+  await db
     .prepare(
       'INSERT INTO company_file_assignments (file_id, partner_member_id) VALUES (?1, ?2)',
     )
@@ -149,6 +155,7 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
   await writePortalState(state());
   await db.batch([
     db.prepare('DELETE FROM ai_diagnosis_runs'),
+    db.prepare('DELETE FROM company_file_object_integrity'),
     db.prepare('DELETE FROM company_file_case_links'),
     db.prepare('DELETE FROM company_file_assignments'),
     db.prepare('DELETE FROM company_file_upload_requests'),
@@ -248,11 +255,22 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
     await companyFileBucket().put(
       'company-source/step-zero-business',
       new Uint8Array([1, 2, 3, 4]),
+      { httpMetadata: { contentType: 'application/pdf' } },
     );
     await companyFileBucket().put(
       'company-source/step-zero-finance',
       new Uint8Array([1, 2, 3, 4]),
+      { httpMetadata: { contentType: 'application/pdf' } },
     );
+    for (const fileId of ['step-zero-business', 'step-zero-finance']) {
+      const object = await companyFileBucket().head(`company-source/${fileId}`);
+      assert.ok(object);
+      await db
+        .prepare(`UPDATE company_file_object_integrity
+          SET validation_mode = 'etag', r2_etag = ?1 WHERE file_id = ?2`)
+        .bind(object.etag, fileId)
+        .run();
+    }
     assert.equal((await POST(request())).status, 403);
     assert.equal(externalCalls, 0, 'another case file must fail before fetch');
 
@@ -273,7 +291,44 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
     await companyFileBucket().put(
       'company-source/step-zero-finance',
       new Uint8Array([1, 2, 3, 4]),
+      { httpMetadata: { contentType: 'application/pdf' } },
     );
+    await companyFileBucket().put(
+      'company-source/step-zero-finance',
+      new Uint8Array([4, 3, 2, 1]),
+      { httpMetadata: { contentType: 'application/pdf' } },
+    );
+    assert.equal((await POST(request())).status, 403);
+    assert.equal(
+      externalCalls,
+      0,
+      'same-size R2 replacement must fail before fetch',
+    );
+    await companyFileBucket().put(
+      'company-source/step-zero-finance',
+      new Uint8Array([1, 2, 3, 4]),
+      { httpMetadata: { contentType: 'application/pdf' } },
+    );
+    await db
+      .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
+      .bind('step-zero-finance')
+      .run();
+    assert.equal((await POST(request())).status, 503);
+    assert.equal(
+      externalCalls,
+      0,
+      'missing object-integrity ledger must fail before fetch',
+    );
+    await db
+      .prepare(`INSERT INTO company_file_object_integrity
+        (file_id, validation_mode, r2_etag, r2_content_type)
+        VALUES (?1, 'etag', ?2, 'application/pdf')`)
+      .bind(
+        'step-zero-finance',
+        (await companyFileBucket().head('company-source/step-zero-finance'))
+          ?.etag,
+      )
+      .run();
     await writePortalState(
       state({
         diagnosisAssessments: [{ ...assessment, transcriptConsent: false }],
@@ -443,6 +498,7 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
     await companyFileBucket().put(
       'company-source/step-zero-finance',
       new Uint8Array([1, 2, 3, 4]),
+      { httpMetadata: { contentType: 'application/pdf' } },
     );
   } finally {
     runtime.ANTHROPIC_API_KEY = oldKey;

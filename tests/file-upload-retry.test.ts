@@ -516,8 +516,8 @@ void test('R2 response loss and D1 failures before or after commit remain recove
       const key = afterCommit ? 'd1-response-lost' : 'd1-write-failed';
       once = true;
       db.batch = async <T = unknown>(statements: D1PreparedStatement[]) => {
-        // The upload commit has 3 statements (object, assignment, ledger); table setup has 6.
-        if (once && statements.length === 3) {
+        // Upload commit: object, integrity, assignment, ledger. Table setup has seven.
+        if (once && statements.length === 4) {
           once = false;
           if (afterCommit) await originalBatch.call(db, statements);
           throw new Error('Synthetic D1 commit uncertainty');

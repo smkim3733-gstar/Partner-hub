@@ -3,6 +3,7 @@ import { env } from 'cloudflare:workers';
 import {
   companyFileAssignmentsTableSql,
   companyFileCaseLinksTableSql,
+  companyFileObjectIntegrityTableSql,
   companyFileObjectsCompanyIndexSql,
   companyFileObjectsOwnerIndexSql,
   companyFileObjectsTableSql,
@@ -43,6 +44,25 @@ export type CompanyFileRow = {
   created_at: string;
 };
 
+type StoredCompanyFileObjectIntegrityRow = {
+  validation_mode: string;
+  r2_etag: string | null;
+  r2_content_type: string;
+};
+export type CompanyFileObjectBinding = {
+  etag: string;
+  contentType: string;
+};
+export type CompanyFileObjectIntegrity = {
+  validationMode: 'metadata' | 'etag';
+  etag: string | null;
+  contentType: string;
+};
+type CompanyFileObjectFacts = Pick<
+  CompanyFileRow,
+  'id' | 'storage_key' | 'content_type' | 'size_bytes'
+>;
+
 export class CompanyFileError extends Error {
   constructor(
     message: string,
@@ -77,10 +97,80 @@ export async function ensureCompanyFileTables(db: D1Database) {
     db.prepare(companyFileObjectsTableSql),
     db.prepare(companyFileObjectsOwnerIndexSql),
     db.prepare(companyFileObjectsCompanyIndexSql),
+    db.prepare(companyFileObjectIntegrityTableSql),
     db.prepare(companyFileAssignmentsTableSql),
     db.prepare(companyFileCaseLinksTableSql),
     db.prepare(companyFileUploadRequestsTableSql),
   ]);
+}
+
+const storedCompanyFileIntegrityError = () =>
+  new CompanyFileError(
+    '저장된 기업자료 원본 무결성을 확인할 수 없습니다. 관리자 복구가 필요합니다.',
+    503,
+  );
+
+export function companyFileObjectBinding(
+  file: CompanyFileObjectFacts,
+  object: R2Object,
+): CompanyFileObjectBinding {
+  if (
+    object.key !== file.storage_key ||
+    object.size !== file.size_bytes ||
+    object.httpMetadata?.contentType !== file.content_type ||
+    typeof object.etag !== 'string' ||
+    !object.etag.trim() ||
+    object.etag.length > 256
+  )
+    throw new CompanyFileError(
+      '기업자료 원본을 보안 저장소에 안전하게 기록하지 못했습니다.',
+      503,
+    );
+  return { etag: object.etag, contentType: file.content_type };
+}
+
+export function companyFileObjectMatchesIntegrity(
+  file: CompanyFileObjectFacts,
+  object: R2Object,
+  integrity: CompanyFileObjectIntegrity,
+) {
+  return (
+    object.key === file.storage_key &&
+    object.size === file.size_bytes &&
+    object.httpMetadata?.contentType === integrity.contentType &&
+    integrity.contentType === file.content_type &&
+    (integrity.validationMode === 'metadata' || object.etag === integrity.etag)
+  );
+}
+
+export async function readCompanyFileObjectIntegrity(
+  file: CompanyFileObjectFacts,
+): Promise<CompanyFileObjectIntegrity> {
+  const row = await companyFileDatabase()
+    .prepare(`SELECT integrity.validation_mode, integrity.r2_etag,
+      integrity.r2_content_type
+    FROM company_file_objects file
+    JOIN company_file_object_integrity integrity ON integrity.file_id = file.id
+    WHERE file.id = ?1 AND file.storage_key = ?2 AND file.content_type = ?3
+      AND file.size_bytes = ?4`)
+    .bind(file.id, file.storage_key, file.content_type, file.size_bytes)
+    .first<StoredCompanyFileObjectIntegrityRow>();
+  if (
+    !row ||
+    row.r2_content_type !== file.content_type ||
+    (row.validation_mode !== 'metadata' && row.validation_mode !== 'etag') ||
+    (row.validation_mode === 'metadata'
+      ? row.r2_etag !== null
+      : typeof row.r2_etag !== 'string' ||
+        !row.r2_etag.trim() ||
+        row.r2_etag.length > 256)
+  )
+    throw storedCompanyFileIntegrityError();
+  return {
+    validationMode: row.validation_mode,
+    etag: row.r2_etag,
+    contentType: row.r2_content_type,
+  };
 }
 
 export function mayUploadCompanyFiles(user: PortalUser) {

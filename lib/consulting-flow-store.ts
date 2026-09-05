@@ -27,6 +27,7 @@ import { isCrossSiteRequest } from '@/lib/request-origin';
 import { QueryRequestError } from '@/lib/request-query';
 import { readRouteParam, RouteParamError } from '@/lib/request-path';
 import { privateJsonResponse } from '@/lib/private-response';
+import { CompanyFileError } from '@/lib/company-files';
 import {
   FLOW_FILE_STORAGE_PREFIX,
   storedFlowFileNameMatches,
@@ -1010,6 +1011,7 @@ export function assertSameOrigin(request: Request) {
 export function flowErrorResponse(error: unknown) {
   if (
     error instanceof FlowError ||
+    error instanceof CompanyFileError ||
     error instanceof PortalAccessError ||
     error instanceof QueryRequestError ||
     error instanceof RouteParamError

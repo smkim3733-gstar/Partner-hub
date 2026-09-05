@@ -7,10 +7,7 @@ import {
   companyFileDatabase,
   ensureCompanyFileTables,
 } from '../lib/company-files';
-import {
-  readPortalState,
-  writePortalState,
-} from '../lib/portal-state';
+import { readPortalState, writePortalState } from '../lib/portal-state';
 import { portalRevision } from '../lib/portal-revision';
 import { objects } from './runtime-mock.mjs';
 
@@ -138,6 +135,12 @@ async function seedFile({
       sizeBytes,
     )
     .run();
+  await db
+    .prepare(`INSERT INTO company_file_object_integrity
+      (file_id, validation_mode, r2_etag, r2_content_type)
+      VALUES (?1, 'metadata', NULL, 'application/pdf')`)
+    .bind(fileId)
+    .run();
   if (partnerMemberId !== null)
     await db
       .prepare(
@@ -169,6 +172,7 @@ async function seedFile({
     await companyFileBucket().put(
       `company-source/${fileId}`,
       new Uint8Array(objectSize),
+      { httpMetadata: { contentType: 'application/pdf' } },
     );
 }
 
@@ -191,6 +195,7 @@ beforeEach(async () => {
   await ensureCompanyFileTables(db);
   await db.batch(
     [
+      'company_file_object_integrity',
       'company_file_case_links',
       'company_file_assignments',
       'company_file_objects',
@@ -270,12 +275,49 @@ void test('ready and legacy ledger originals with intact R2 bytes can be linked'
     const response = await save(next);
     assert.equal(response.status, 200, await response.clone().text());
     assert.deepEqual(
-      (await readPortalState() as ReturnType<typeof emptyState>)
+      ((await readPortalState()) as ReturnType<typeof emptyState>)
         .companyDocuments,
       [document(seed.fileId, { title: '포털 표시 제목은 별도 관리' })],
     );
     await writePortalState(emptyState());
   }
+});
+
+void test('a missing object-integrity ledger row fails a new document link closed', async () => {
+  await seedFile({ fileId: 'missing-integrity-file' });
+  await companyFileDatabase()
+    .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
+    .bind('missing-integrity-file')
+    .run();
+  const next = emptyState();
+  next.companyDocuments = [document('missing-integrity-file')];
+  const response = await save(next);
+  assert.equal(response.status, 503, await response.clone().text());
+  assert.deepEqual(await readPortalState(), emptyState());
+});
+
+void test('a same-size R2 replacement cannot become a new document original', async () => {
+  const fileId = 'replaced-original-file';
+  await seedFile({ fileId });
+  const bucket = companyFileBucket(),
+    key = `company-source/${fileId}`,
+    original = await bucket.head(key);
+  assert.ok(original);
+  await companyFileDatabase()
+    .prepare(`UPDATE company_file_object_integrity
+      SET validation_mode = 'etag', r2_etag = ?1 WHERE file_id = ?2`)
+    .bind(original.etag, fileId)
+    .run();
+  const replacement = new Uint8Array(1_024);
+  replacement[0] = 1;
+  await bucket.put(key, replacement, {
+    httpMetadata: { contentType: 'application/pdf' },
+  });
+  const next = emptyState();
+  next.companyDocuments = [document(fileId)];
+  const response = await save(next);
+  assert.equal(response.status, 409, await response.clone().text());
+  assert.deepEqual(await readPortalState(), emptyState());
 });
 
 void test('existing original links remain reviewable without retroactive ledger migration', async () => {

@@ -1,7 +1,9 @@
 import {
   companyFileBucket,
   companyFileDatabase,
+  companyFileObjectMatchesIntegrity,
   ensureCompanyFileTables,
+  readCompanyFileObjectIntegrity,
   type CompanyFileRow,
 } from './company-files';
 
@@ -17,9 +19,8 @@ export type CompanyDocumentFileProvenanceCheck = {
 
 function records(value: unknown): IntegrityRecord[] {
   return Array.isArray(value)
-    ? value.filter(
-        (item): item is IntegrityRecord =>
-          Boolean(item && typeof item === 'object' && !Array.isArray(item)),
+    ? value.filter((item): item is IntegrityRecord =>
+        Boolean(item && typeof item === 'object' && !Array.isArray(item)),
       )
     : [];
 }
@@ -102,8 +103,9 @@ export async function checkNewCompanyDocumentFileProvenance(
         error:
           '기업자료 원본 정보가 보관 원장과 일치하지 않습니다. 원본 보관 현황에서 다시 확인해 주세요.',
       };
+    const integrity = await readCompanyFileObjectIntegrity(row);
     const object = await bucket.head(row.storage_key);
-    if (!object || object.size !== row.size_bytes)
+    if (!object || !companyFileObjectMatchesIntegrity(row, object, integrity))
       return {
         requiresCommitGuard: true,
         error:
@@ -134,6 +136,7 @@ NOT EXISTS (
       LEFT JOIN company_file_assignments a ON a.file_id = f.id
       LEFT JOIN company_file_case_links c ON c.file_id = f.id
       LEFT JOIN company_file_upload_requests u ON u.file_id = f.id
+      JOIN company_file_object_integrity integrity ON integrity.file_id = f.id
       WHERE f.id = json_extract(proposed.value, '$.storageFileId')
         AND f.original_name = json_extract(proposed.value, '$.fileName')
         AND f.size_bytes = json_extract(proposed.value, '$.fileSize')
@@ -145,5 +148,9 @@ NOT EXISTS (
         AND (a.partner_member_id IS NOT NULL OR f.assigned_trainee =
           json_extract(proposed.value, '$.assignedTrainee'))
         AND (u.status IS NULL OR u.status = 'ready')
+        AND integrity.r2_content_type = f.content_type
+        AND ((integrity.validation_mode = 'metadata' AND integrity.r2_etag IS NULL)
+          OR (integrity.validation_mode = 'etag' AND typeof(integrity.r2_etag) = 'text'
+            AND length(integrity.r2_etag) BETWEEN 1 AND 256))
     )
 )`;

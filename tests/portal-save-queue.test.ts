@@ -403,9 +403,15 @@ void test('lost save response followed by retry retains one case, timeline and d
         '2026-09-05T00:00:00Z', 'ready')`)
     .bind(`admin:${identity}`)
     .run();
+  await db
+    .prepare(`INSERT INTO company_file_object_integrity
+      (file_id, validation_mode, r2_etag, r2_content_type)
+      VALUES ('stable-file', 'metadata', NULL, 'application/pdf')`)
+    .run();
   await companyFileBucket().put(
     'company-source/stable-file',
     new Uint8Array(1_024),
+    { httpMetadata: { contentType: 'application/pdf' } },
   );
   const state = {
     ...empty,
@@ -417,7 +423,16 @@ void test('lost save response followed by retry retains one case, timeline and d
         partnerMemberId: '',
       },
     ],
-    timeline: [{ caseId: 'stable-case', date: 'synthetic', title: '접수', detail: '가상 접수', type: '접수', tone: 'navy' }],
+    timeline: [
+      {
+        caseId: 'stable-case',
+        date: 'synthetic',
+        title: '접수',
+        detail: '가상 접수',
+        type: '접수',
+        tone: 'navy',
+      },
+    ],
     companyDocuments: [
       {
         id: 'stable-document',

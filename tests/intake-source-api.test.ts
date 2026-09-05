@@ -210,8 +210,8 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
       new File(
         [
           new Uint8Array([
-            0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41, 0x20, 0,
-            0, 0, 0, 0x4d, 0x34, 0x41, 0x20,
+            0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41, 0x20, 0, 0,
+            0, 0, 0x4d, 0x34, 0x41, 0x20,
           ]),
         ],
         'phone.m4a',
@@ -242,7 +242,9 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
     const corruptRow = await findCompanyFile(corrupt);
     assert.ok(corruptRow);
     const corruptBytes = new TextEncoder().encode('not a zip archive');
-    await companyFileBucket().put(corruptRow.storage_key, corruptBytes);
+    await companyFileBucket().put(corruptRow.storage_key, corruptBytes, {
+      httpMetadata: { contentType: corruptRow.content_type },
+    });
     await companyFileDatabase()
       .prepare('UPDATE company_file_objects SET size_bytes = ?1 WHERE id = ?2')
       .bind(corruptBytes.byteLength, corrupt)
@@ -254,7 +256,9 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
     const badPdfRow = await findCompanyFile(badPdf);
     assert.ok(badPdfRow);
     const badPdfBytes = new TextEncoder().encode('not a pdf');
-    await companyFileBucket().put(badPdfRow.storage_key, badPdfBytes);
+    await companyFileBucket().put(badPdfRow.storage_key, badPdfBytes, {
+      httpMetadata: { contentType: badPdfRow.content_type },
+    });
     await companyFileDatabase()
       .prepare('UPDATE company_file_objects SET size_bytes = ?1 WHERE id = ?2')
       .bind(badPdfBytes.byteLength, badPdf)
@@ -335,7 +339,12 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
         ).status,
         404,
       );
-    for (const id of [audioId, corrupt, badPdf, oversized])
+    for (const [label, id, status] of [
+      ['audioId', audioId, 400],
+      ['corrupt', corrupt, 409],
+      ['badPdf', badPdf, 409],
+      ['oversized', oversized, 400],
+    ] as const)
       assert.equal(
         (
           await intake(
@@ -343,7 +352,8 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
             context,
           )
         ).status,
-        400,
+        status,
+        `${label}:${id}`,
       );
     const docPreview = await preview(docId);
     assert.equal(docPreview.text, originalText);
@@ -409,7 +419,11 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
       (await post({ ...cmd, intakeFileId: otherCompany })).status,
       404,
     );
-    assert.equal((await post({ ...cmd, intakeFileId: audioId })).status, 400);
+    assert.equal(
+      (await post({ ...cmd, intakeFileId: audioId })).status,
+      400,
+      'audio import',
+    );
     assert.equal(await readFlow(caseId), null);
     await ok(cmd, 'intake-fixed-command');
     assert.equal(flow.files.length, 1);
@@ -482,13 +496,17 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
     ))!.arrayBuffer();
     const changed = new Uint8Array(originalBytes.slice(0));
     changed[0] ^= 1;
-    await bucket.put(row.storage_key, changed);
+    await bucket.put(row.storage_key, changed, {
+      httpMetadata: { contentType: row.content_type },
+    });
     assert.equal(
       (await post(importCommand(txtPreview, reviewedText))).status,
       409,
       'Changing bytes after review invalidates the review hash',
     );
-    await bucket.put(row.storage_key, originalBytes);
+    await bucket.put(row.storage_key, originalBytes, {
+      httpMetadata: { contentType: row.content_type },
+    });
     await ok(importCommand(txtPreview, txtPreview.text!));
     const pdfPreview = await preview(pdfId);
     assert.equal(pdfPreview.text, undefined);

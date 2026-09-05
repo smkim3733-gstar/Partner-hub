@@ -1,9 +1,11 @@
 import {
   companyFileBucket,
   companyFileDatabase,
+  companyFileObjectMatchesIntegrity,
   findCompanyFile,
   CompanyFileError,
   companyFileCategories,
+  readCompanyFileObjectIntegrity,
 } from './company-files';
 import { readPortalState, PortalStateConflict } from './portal-state';
 import {
@@ -125,8 +127,9 @@ async function inspect(id: string, state: RecoveryState) {
       flow.company !== file.company)
   )
     return reject('상담 기록의 기업·담당 계정이 원본과 다릅니다.');
+  const integrity = await readCompanyFileObjectIntegrity(file);
   const object = await companyFileBucket().head(file.storage_key);
-  if (!object || object.size !== file.size_bytes)
+  if (!object || !companyFileObjectMatchesIntegrity(file, object, integrity))
     return reject(
       '원본이 없거나 기록과 크기가 다릅니다. 원본을 먼저 확인해 주세요.',
     );
@@ -134,6 +137,7 @@ async function inspect(id: string, state: RecoveryState) {
     file,
     uploadStatus,
     flow,
+    integrity,
     etag: object.etag ?? null,
   });
   const preview: RecoveryPreview = {
@@ -151,7 +155,7 @@ async function inspect(id: string, state: RecoveryState) {
     stateRevision: await portalRevision(state),
     fileRevision,
   };
-  return { file, uploadStatus, flow, preview };
+  return { file, uploadStatus, flow, integrity, preview };
 }
 async function hasFlowReference(id: string) {
   return Boolean(
@@ -213,7 +217,10 @@ export async function recoverFile(request: Request, id: string) {
       403,
     );
   const state = checkedState(raw);
-  const { file, uploadStatus, flow, preview } = await inspect(id, state);
+  const { file, uploadStatus, flow, integrity, preview } = await inspect(
+    id,
+    state,
+  );
   if (body.caseId !== preview.caseId)
     return reject('원본에 기록된 신청에만 회수할 수 있습니다.');
   const prior = state.companyDocuments.filter(
@@ -323,6 +330,9 @@ export async function recoverFile(request: Request, id: string) {
       AND COALESCE((SELECT status FROM company_file_upload_requests WHERE file_id = ?5), 'legacy') = ?14
       AND ((?15 IS NULL AND NOT EXISTS (SELECT 1 FROM consulting_flows WHERE case_id = ?13))
         OR EXISTS (SELECT 1 FROM consulting_flows WHERE case_id = ?13 AND revision = ?15 AND partner_id = ?12 AND json_extract(payload, '$.company') = ?8))
+      AND EXISTS (SELECT 1 FROM company_file_object_integrity integrity
+        WHERE integrity.file_id = ?5 AND integrity.validation_mode = ?16
+          AND integrity.r2_etag IS ?17 AND integrity.r2_content_type = ?18)
       AND NOT EXISTS (SELECT 1 FROM consulting_flows c, json_each(c.payload, '$.files') f WHERE json_extract(f.value, '$.intakeFileId') = ?5)`)
     .bind(
       payload,
@@ -340,6 +350,9 @@ export async function recoverFile(request: Request, id: string) {
       file.case_id,
       uploadStatus,
       flow?.revision ?? null,
+      integrity.validationMode,
+      integrity.etag,
+      integrity.contentType,
     )
     .run();
   if (result.meta.changes !== 1)

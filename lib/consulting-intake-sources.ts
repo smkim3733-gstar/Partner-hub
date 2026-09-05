@@ -2,9 +2,11 @@ import {
   companyFileBucket,
   companyFileIntakeFilterSql,
   companyFileDatabase,
+  companyFileObjectMatchesIntegrity,
   ensureCompanyFileTables,
   findCompanyFile,
   isCompanyFileIntakeVisible,
+  readCompanyFileObjectIntegrity,
   safeFileName,
   type CompanyFileRow,
 } from './company-files';
@@ -95,15 +97,16 @@ async function loadSource(flow: ConsultingFlow, fileId: unknown) {
     );
   const file = option(row);
   if (file.blockedReason) throw new FlowError(file.blockedReason);
+  const integrity = await readCompanyFileObjectIntegrity(row);
   const object = await companyFileBucket().get(row.storage_key);
   if (!object)
     throw new FlowError(
       '원본이 없거나 삭제되었습니다. 자료함을 확인해 주세요.',
       404,
     );
-  if (object.size !== row.size_bytes)
+  if (!companyFileObjectMatchesIntegrity(row, object, integrity))
     throw new FlowError(
-      '원본 크기가 변경되었습니다. 자료를 다시 확인해 주세요.',
+      '원본 보관 정보가 변경되었습니다. 자료를 다시 확인해 주세요.',
       409,
     );
   const bytes = await object.arrayBuffer();

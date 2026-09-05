@@ -71,6 +71,7 @@ async function seed() {
   await flowDatabase();
   await db.batch(
     [
+      'company_file_object_integrity',
       'company_file_case_links',
       'company_file_assignments',
       'company_file_objects',
@@ -120,10 +121,17 @@ async function seed() {
     )
     .bind(`member:${member.id}`, id)
     .run();
-  await companyFileBucket().put(
+  const object = await companyFileBucket().put(
     `company-source/${id}`,
     'SYNTHETIC_ORIGINAL_BYTES',
+    { httpMetadata: { contentType: 'text/plain' } },
   );
+  await db
+    .prepare(`INSERT INTO company_file_object_integrity
+      (file_id, validation_mode, r2_etag, r2_content_type)
+      VALUES (?1, 'etag', ?2, 'text/plain')`)
+    .bind(id, object.etag)
+    .run();
 }
 
 async function ordinarySave(next: unknown, user: string = email) {
@@ -557,18 +565,20 @@ void test('stale state, wrong target case and changed file metadata are rejected
     409,
   );
   const changed = await state();
-  changed.tasks = [{
-    id: 'new-other-task',
-    company: '가상기업',
-    title: '다른 업무',
-    kind: '내부업무',
-    assignee: '김성민 대표',
-    due: '기한 확인',
-    dueState: 'upcoming',
-    status: '대기',
-    priority: '보통',
-    related: '복구 경합 검사',
-  }];
+  changed.tasks = [
+    {
+      id: 'new-other-task',
+      company: '가상기업',
+      title: '다른 업무',
+      kind: '내부업무',
+      assignee: '김성민 대표',
+      due: '기한 확인',
+      dueState: 'upcoming',
+      status: '대기',
+      priority: '보통',
+      related: '복구 경합 검사',
+    },
+  ];
   await writePortalState(changed);
   assert.equal((await recover(request(value), context)).status, 409);
   assert.deepEqual(await state(), changed);
@@ -618,6 +628,17 @@ void test('pending, deleted, missing originals and ambiguous or mismatched assig
     assert.equal((await preview(request(), context)).status, 409, kind);
     assert.equal((await state()).companyDocuments.length, 0);
   }
+});
+
+void test('a same-size R2 replacement cannot be recovered into portal state', async () => {
+  await seed();
+  const replacement = new TextEncoder().encode('SYNTHETIC_ORIGINAL_BYTES');
+  replacement[0] ^= 1;
+  await companyFileBucket().put(`company-source/${id}`, replacement, {
+    httpMetadata: { contentType: 'text/plain' },
+  });
+  assert.equal((await preview(request(), context)).status, 409);
+  assert.equal((await state()).companyDocuments.length, 0);
 });
 
 void test('deletion or reassignment immediately after the object check fails the atomic write guard', async () => {

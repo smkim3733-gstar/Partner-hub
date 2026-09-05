@@ -1,6 +1,9 @@
 import {
+  companyFileObjectBinding,
+  companyFileObjectMatchesIntegrity,
   CompanyFileError,
   findCompanyFile,
+  readCompanyFileObjectIntegrity,
   type CompanyFileRow,
 } from './company-files';
 import type { PortalUser } from './portal-auth';
@@ -186,13 +189,22 @@ export async function storeCompanyUpload(
       );
     await authorize();
     await assertNotDeleted(db, bucket, record.file_id, false);
+    const integrity = await readCompanyFileObjectIntegrity(saved);
+    const object = await bucket.head(saved.storage_key);
+    if (!object || !companyFileObjectMatchesIntegrity(saved, object, integrity))
+      throw new CompanyFileError(
+        '기존 파일의 보관 상태를 확인해야 합니다.',
+        409,
+      );
+    await authorize();
+    await assertNotDeleted(db, bucket, record.file_id, false);
     observe('safe_retry');
     return storedFileResult(saved);
   }
   const id = record.file_id;
   const storageKey = `company-source/${id}`;
   await authorize();
-  await bucket.put(storageKey, bytes, {
+  const object = await bucket.put(storageKey, bytes, {
     httpMetadata: { contentType: metadata.contentType },
     customMetadata: {
       fileId: id,
@@ -201,6 +213,15 @@ export async function storeCompanyUpload(
         : {}),
     },
   });
+  const objectBinding = companyFileObjectBinding(
+    {
+      id,
+      storage_key: storageKey,
+      content_type: metadata.contentType,
+      size_bytes: metadata.sizeBytes,
+    },
+    object,
+  );
   // A prior explicit deletion wins even if authorization was revoked during R2.put.
   await assertNotDeleted(db, bucket, id, true);
   let payload: string | null;
@@ -235,6 +256,21 @@ export async function storeCompanyUpload(
         payload,
       ),
     db
+      .prepare(`INSERT INTO company_file_object_integrity
+      (file_id, validation_mode, r2_etag, r2_content_type)
+      SELECT ?1, 'etag', ?2, ?3
+      WHERE EXISTS (SELECT 1 FROM company_file_objects WHERE id = ?1
+        AND storage_key = ?4 AND content_type = ?3 AND size_bytes = ?5)
+      AND EXISTS (SELECT 1 FROM company_file_upload_requests
+        WHERE file_id = ?1 AND status = 'pending')`)
+      .bind(
+        id,
+        objectBinding.etag,
+        objectBinding.contentType,
+        storageKey,
+        metadata.sizeBytes,
+      ),
+    db
       .prepare(`INSERT INTO company_file_assignments (file_id, partner_member_id)
       SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM company_file_objects WHERE id = ?1)
       AND EXISTS (SELECT 1 FROM company_file_upload_requests WHERE file_id = ?1 AND status = 'pending')
@@ -252,8 +288,11 @@ export async function storeCompanyUpload(
       : []),
     db
       .prepare(`UPDATE company_file_upload_requests SET status = 'ready' WHERE file_id = ?1 AND status = 'pending'
-      AND EXISTS (SELECT 1 FROM company_file_objects WHERE id = ?1) AND ${fileStateGuard('?2')}`)
-      .bind(id, payload),
+      AND EXISTS (SELECT 1 FROM company_file_objects WHERE id = ?1)
+      AND EXISTS (SELECT 1 FROM company_file_object_integrity WHERE file_id = ?1
+        AND validation_mode = 'etag' AND r2_etag = ?2 AND r2_content_type = ?3)
+      AND ${fileStateGuard('?4')}`)
+      .bind(id, objectBinding.etag, objectBinding.contentType, payload),
   ]);
   const status = await db
     .prepare(
@@ -268,6 +307,15 @@ export async function storeCompanyUpload(
   const row = await findCompanyFile(id);
   if (status?.status !== 'ready' || !row)
     throw new CompanyFileError('파일 저장 확인을 다시 시도해 주세요.', 503);
+  await assertNotDeleted(db, bucket, id, false);
+  const integrity = await readCompanyFileObjectIntegrity(row);
+  const storedObject = await bucket.head(row.storage_key);
+  if (
+    !storedObject ||
+    !companyFileObjectMatchesIntegrity(row, storedObject, integrity)
+  )
+    throw new CompanyFileError('파일 저장 확인을 다시 시도해 주세요.', 503);
+  await authorize();
   await assertNotDeleted(db, bucket, id, false);
   observe('safe_retry');
   return storedFileResult(row);

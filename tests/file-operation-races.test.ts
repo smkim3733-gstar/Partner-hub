@@ -377,6 +377,81 @@ void test('download rejects an R2 original whose size no longer matches the D1 l
   assert.equal((await bucket.head(key))?.size, 6);
 });
 
+void test('download rejects a same-size R2 byte replacement', async () => {
+  await seed();
+  const id = await create(),
+    bucket = companyFileBucket(),
+    key = `company-source/${id}`,
+    replacement = new TextEncoder().encode('SYNTHETIC_RACE_ORIGINAL');
+  replacement[replacement.byteLength - 1] ^= 1;
+  await bucket.put(key, replacement, {
+    httpMetadata: { contentType: 'text/plain' },
+  });
+  const response = await download(request('GET'), context(id));
+  assert.equal(response.status, 409, await response.clone().text());
+  assert.match(
+    ((await response.json()) as { error: string }).error,
+    /보관 상태/,
+  );
+});
+
+void test('new uploads bind the native R2 ETag and MIME in D1', async () => {
+  await seed();
+  const id = await create(),
+    head = await companyFileBucket().head(`company-source/${id}`),
+    integrity = await companyFileDatabase()
+      .prepare(`SELECT validation_mode, r2_etag, r2_content_type
+        FROM company_file_object_integrity WHERE file_id = ?1`)
+      .bind(id)
+      .first();
+  assert.ok(head);
+  assert.deepEqual(
+    { ...integrity },
+    {
+      validation_mode: 'etag',
+      r2_etag: head.etag,
+      r2_content_type: 'text/plain',
+    },
+  );
+});
+
+void test('download rejects an R2 MIME replacement', async () => {
+  await seed();
+  const id = await create(),
+    bucket = companyFileBucket(),
+    key = `company-source/${id}`;
+  await bucket.put(key, 'SYNTHETIC_RACE_ORIGINAL', {
+    httpMetadata: { contentType: 'application/pdf' },
+  });
+  assert.equal((await download(request('GET'), context(id))).status, 409);
+});
+
+void test('download fails closed when the object-integrity ledger row is missing', async () => {
+  await seed();
+  const id = await create();
+  await companyFileDatabase()
+    .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
+    .bind(id)
+    .run();
+  const response = await download(request('GET'), context(id));
+  assert.equal(response.status, 503, await response.clone().text());
+  assert.match(((await response.json()) as { error: string }).error, /무결성/);
+});
+
+void test('ready upload retry rejects a same-size R2 replacement', async () => {
+  await seed();
+  const requestKey = `operation-race-${++sequence}`,
+    first = await upload(request('POST', requestKey));
+  assert.equal(first.status, 201, await first.clone().text());
+  const id = ((await first.json()) as { file: { id: string } }).file.id,
+    replacement = new TextEncoder().encode('SYNTHETIC_RACE_ORIGINAL');
+  replacement[0] ^= 1;
+  await companyFileBucket().put(`company-source/${id}`, replacement, {
+    httpMetadata: { contentType: 'text/plain' },
+  });
+  assert.equal((await upload(request('POST', requestKey))).status, 409);
+});
+
 void test('download rejects a D1 size change committed while R2 resolves', async () => {
   await seed();
   const id = await create(),
@@ -386,7 +461,9 @@ void test('download rejects a D1 size change committed while R2 resolves', async
   bucket.get = async (...args: Parameters<R2Bucket['get']>) => {
     const object = await get(...args);
     await db
-      .prepare('UPDATE company_file_objects SET size_bytes = size_bytes + 1 WHERE id = ?1')
+      .prepare(
+        'UPDATE company_file_objects SET size_bytes = size_bytes + 1 WHERE id = ?1',
+      )
       .bind(id)
       .run();
     return object;
@@ -521,7 +598,7 @@ void test('suspension immediately before the metadata transaction cannot commit 
     batch = db.batch.bind(db);
   let once = true;
   db.batch = async <T = unknown>(statements: D1PreparedStatement[]) => {
-    if (once && statements.length === 3) {
+    if (once && statements.length === 4) {
       once = false;
       await suspend();
     }

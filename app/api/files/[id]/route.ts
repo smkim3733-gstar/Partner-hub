@@ -1,10 +1,12 @@
 import {
   companyFileBucket,
   companyFileDatabase,
+  companyFileObjectMatchesIntegrity,
   CompanyFileError,
   ensureCompanyFileTables,
   findCompanyFile,
   mayReadCompanyFile,
+  readCompanyFileObjectIntegrity,
 } from '@/lib/company-files';
 import { PortalAccessError, requirePortalUser } from '@/lib/portal-auth';
 import { readPortalState } from '@/lib/portal-state';
@@ -85,18 +87,28 @@ export async function GET(
     if (deleted)
       throw new CompanyFileError('삭제 처리 중인 기업자료입니다.', 404);
 
+    const integrity = await readCompanyFileObjectIntegrity(row);
     const object = await companyFileBucket().get(row.storage_key);
     if (!object)
       throw new CompanyFileError('원본파일을 찾을 수 없습니다.', 404);
     try {
-      if (object.size !== row.size_bytes) throw originalStorageConflict();
+      if (!companyFileObjectMatchesIntegrity(row, object, integrity))
+        throw originalStorageConflict();
       const latestRow = await findCompanyFile(id);
       const access = await currentFileAccess(request, currentUser);
       if (!latestRow || latestRow.storage_key !== row.storage_key)
         throw new CompanyFileError('요청한 기업자료를 찾을 수 없습니다.', 404);
       if (
         latestRow.size_bytes !== row.size_bytes ||
-        object.size !== latestRow.size_bytes
+        latestRow.content_type !== row.content_type
+      )
+        throw originalStorageConflict();
+      const latestIntegrity = await readCompanyFileObjectIntegrity(latestRow);
+      if (
+        latestIntegrity.validationMode !== integrity.validationMode ||
+        latestIntegrity.etag !== integrity.etag ||
+        latestIntegrity.contentType !== integrity.contentType ||
+        !companyFileObjectMatchesIntegrity(latestRow, object, latestIntegrity)
       )
         throw originalStorageConflict();
       if (!mayReadCompanyFile(access.user, latestRow, access.state))
@@ -110,13 +122,19 @@ export async function GET(
         WHERE f.id = ?1 AND f.storage_key = ?2 AND f.size_bytes = ?3
         AND a.partner_member_id IS ?4 AND f.assigned_trainee = ?5
         AND NOT EXISTS (SELECT 1 FROM company_file_upload_requests u WHERE u.file_id = f.id AND u.status = 'deleted')
-        AND ${fileStateGuard('?6')}`)
+        AND EXISTS (SELECT 1 FROM company_file_object_integrity integrity
+          WHERE integrity.file_id = f.id AND integrity.validation_mode = ?6
+          AND integrity.r2_etag IS ?7 AND integrity.r2_content_type = ?8)
+        AND ${fileStateGuard('?9')}`)
         .bind(
           id,
           row.storage_key,
           row.size_bytes,
           latestRow.partner_member_id ?? null,
           latestRow.assigned_trainee,
+          latestIntegrity.validationMode,
+          latestIntegrity.etag,
+          latestIntegrity.contentType,
           access.payload,
         )
         .first();
@@ -235,6 +253,9 @@ export async function DELETE(
     }
     await companyFileBucket().delete(row.storage_key);
     await db.batch([
+      db
+        .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
+        .bind(id),
       db
         .prepare('DELETE FROM company_file_case_links WHERE file_id = ?1')
         .bind(id),

@@ -16,6 +16,7 @@ import { portalRevision } from '@/lib/portal-revision';
 import { assertRecoveryProofUnchanged } from '@/lib/file-recovery-proof';
 import { companyDocumentFileMetadataMutationError } from '@/lib/company-document-file-metadata-integrity';
 import { checkNewCompanyDocumentFileProvenance } from '@/lib/company-document-file-provenance';
+import { CompanyFileError } from '@/lib/company-files';
 import { assertNewDraftCases } from '@/lib/application-draft-store';
 import {
   ApplicationDetailsError,
@@ -227,6 +228,8 @@ export async function GET(request: Request) {
     if (accessResponse) return accessResponse;
     if (error instanceof FlowError)
       return privateJson({ error: error.message }, { status: error.status });
+    if (error instanceof CompanyFileError)
+      return privateJson({ error: error.message }, { status: error.status });
     console.error(
       'Failed to read portal state',
       error instanceof Error ? error.name : 'unknown',
@@ -361,8 +364,7 @@ export async function PUT(request: Request) {
         );
         const documentFileMetadataError =
           companyDocumentFileMetadataMutationError(
-            (currentState as Record<string, unknown> | null)
-              ?.companyDocuments,
+            (currentState as Record<string, unknown> | null)?.companyDocuments,
             next.companyDocuments,
           );
         if (documentFileMetadataError)
@@ -372,8 +374,7 @@ export async function PUT(request: Request) {
           );
         const documentFileProvenance =
           await checkNewCompanyDocumentFileProvenance(
-            (currentState as Record<string, unknown> | null)
-              ?.companyDocuments,
+            (currentState as Record<string, unknown> | null)?.companyDocuments,
             next.companyDocuments,
           );
         requireDocumentFileCommitGuard =
@@ -470,6 +471,8 @@ export async function PUT(request: Request) {
     if (error instanceof HeaderRequestError)
       return privateJson({ error: error.message }, { status: error.status });
     if (error instanceof FlowError)
+      return privateJson({ error: error.message }, { status: error.status });
+    if (error instanceof CompanyFileError)
       return privateJson({ error: error.message }, { status: error.status });
     if (error instanceof SyntaxError)
       return privateJson(
