@@ -813,14 +813,14 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
       at: historyAt,
       actor: '보고서 자동생성',
       action: 'ai_result',
-      detail: '1차 분석보고서 실패 · 과거 가상 공급자 오류',
+      detail: '1차 정밀진단보고서 실패 · 과거 가상 공급자 오류',
     },
     {
       id: successAuditId,
       at: historyAt,
       actor: '보고서 자동생성',
       action: 'ai_result',
-      detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
+      detail: '1차 정밀진단보고서 자동 저장 · 담당 파트너 공유',
     },
   );
   await commitFlow(processing, firstResult);
@@ -872,7 +872,7 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
     at: failureAt,
     actor: '보고서 자동생성',
     action: 'ai_result',
-    detail: '1차 분석보고서 실패 · 가상 공급자 오류',
+    detail: '1차 정밀진단보고서 실패 · 가상 공급자 오류',
   });
   await commitFlow(restarted, failedAgain);
   const stored = (await readFlow(initial.caseId))!;
@@ -947,7 +947,7 @@ void test('FLOW commit requires a new AI job to start without terminal evidence'
     at,
     actor: '보고서 자동생성',
     action: 'ai_result',
-    detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
+    detail: '1차 정밀진단보고서 자동 저장 · 담당 파트너 공유',
   });
   await assert.rejects(
     commitFlow(initial, changed),
@@ -1027,7 +1027,7 @@ void test('FLOW native D1 rejects terminal AI evidence on the first root insert'
     at,
     actor: '보고서 자동생성',
     action: 'ai_result',
-    detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
+    detail: '1차 정밀진단보고서 자동 저장 · 담당 파트너 공유',
   });
   const db = await flowDatabase();
   await db
@@ -2100,6 +2100,57 @@ void test('FLOW AI completion cannot attach an unsupported result file', async (
   );
 });
 
+void test('FLOW AI result audit detail binds to stage, status and reason', async () => {
+  const queued = await queuedReportFixture(false);
+  const job = queued.jobs.at(-1)!;
+  const claimed = claimFlowJob(
+    queued,
+    job.id,
+    new Date(Date.parse(queued.updatedAt) + 1).toISOString(),
+  );
+  await commitFlow(queued, claimed);
+  const failedAt = new Date(Date.parse(claimed.updatedAt) + 1).toISOString();
+  const failed = finishFlowJob(claimed, job.id, claimed.updatedAt, failedAt, {
+    error: '가상 공급자 시간 초과',
+    failureEvidence: {
+      instructionVersion: 'synthetic-flow-instruction-v1',
+      requestedModel: 'claude-requested-test-model',
+      httpStatus: 504,
+      observedAt: failedAt,
+      providerRequestId: 'req_bound_result_audit',
+    },
+  });
+  const forged = structuredClone(failed);
+  forged.audit.at(-1)!.detail = '성공으로 위장한 AI 결과 감사기록';
+  await assert.rejects(
+    commitFlow(claimed, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+        claimed.caseId,
+        claimed.revision,
+      )
+      .run(),
+    /AI result audit detail is invalid/,
+  );
+  await commitFlow(claimed, failed);
+  assert.deepEqual(
+    await readFlow(failed.caseId),
+    JSON.parse(JSON.stringify(failed)),
+  );
+});
+
 void test('FLOW new command receipts require canonical identity fields', async () => {
   const initial = await fixture();
   const commandId = `command-receipt-identity-${++sequence}`;
@@ -2542,7 +2593,7 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
     at: completionAt,
     actor: '보고서 자동생성',
     action: 'ai_result',
-    detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
+    detail: '1차 정밀진단보고서 자동 저장 · 담당 파트너 공유',
   });
   const staleCompletion = structuredClone(completed);
   const staleCompletionAt = timestamp(6);
@@ -3849,7 +3900,7 @@ void test('FLOW failure evidence requires one exact AI result audit record', asy
       at,
       actor: '보고서 자동생성',
       action: 'ai_result',
-      detail: '1차 분석보고서 실패 · 가상 공급자 오류',
+      detail: '1차 정밀진단보고서 실패 · 가상 공급자 오류',
     };
     (payload.jobs as Array<Record<string, unknown>>).push(job);
     (payload.audit as Array<Record<string, unknown>>).push(audit);
@@ -3932,7 +3983,7 @@ void test('FLOW success evidence requires its exact completion audit record', as
       at,
       actor: '보고서 자동생성',
       action: 'ai_result',
-      detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
+      detail: '1차 정밀진단보고서 자동 저장 · 담당 파트너 공유',
     };
     (payload.jobs as Array<Record<string, unknown>>).push(job);
     (payload.audit as Array<Record<string, unknown>>).push(audit);

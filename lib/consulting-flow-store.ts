@@ -44,6 +44,7 @@ import {
   consultingFlowsJobTransitionAuditTriggerSql,
   consultingFlowsJobTransitionTimestampTriggerSql,
   consultingFlowsNoDeleteTriggerSql,
+  consultingFlowsAiResultAuditDetailTriggerSql,
   consultingFlowsAiResultReportTriggerSql,
   consultingFlowsAiResultFileTriggerSql,
   consultingFlowsNonCommandScopeTriggerSql,
@@ -61,6 +62,7 @@ import {
   portalStateId,
 } from '@/db/schema';
 import {
+  flowAiResultAuditDetail,
   FlowError,
   latestRecording,
   latestReport,
@@ -161,6 +163,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsNonCommandScopeTriggerSql),
         db.prepare(consultingFlowsAiResultReportTriggerSql),
         db.prepare(consultingFlowsAiResultFileTriggerSql),
+        db.prepare(consultingFlowsAiResultAuditDetailTriggerSql),
         db.prepare(consultingFlowsCommandInsertReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsNewCommandReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsCommandInsertMemberActorTriggerSql),
@@ -1438,7 +1441,8 @@ function assertFlowCommitTransition(
           entry.id === `${job.id}-${after.updatedAt}` &&
           entry.at === after.updatedAt &&
           entry.actor === '보고서 자동생성' &&
-          entry.action === 'ai_result',
+          entry.action === 'ai_result' &&
+          entry.detail === flowAiResultAuditDetail(next),
       ).length !== 1
     )
       throw storedFlowIntegrityError();

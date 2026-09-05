@@ -1,4 +1,5 @@
 import {
+  flowAiResultAuditDetail,
   FlowError,
   latestRecording,
   latestReport,
@@ -165,10 +166,7 @@ export function finishFlowJob(
     at: now,
     actor: '보고서 자동생성',
     action: 'ai_result',
-    detail:
-      job.status === 'complete'
-        ? `${reportLabels[job.stage]} 자동 저장 · 담당 파트너 공유`
-        : `${reportLabels[job.stage]} ${job.status === 'blocked' ? '보류' : '실패'} · ${job.reason}`,
+    detail: flowAiResultAuditDetail(job),
   });
   if (flowTextLength(next.audit.at(-1)!.detail) > FLOW_TEXT_LIMITS.auditDetail)
     throw new FlowError('생성 결과 감사기록이 저장 한도를 초과했습니다.', 413);

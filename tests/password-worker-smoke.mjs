@@ -329,6 +329,16 @@ const flowAiResultFileTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowAiResultAuditDetailTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0064_consulting_flow_ai_result_audit_detail.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -358,6 +368,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_non_command_scope_guard',
   'consulting_flows_ai_result_report_guard',
   'consulting_flows_ai_result_file_guard',
+  'consulting_flows_ai_result_audit_detail_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -390,6 +401,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowNonCommandScopeTriggerSql[0],
       flowAiResultReportTriggerSql[0],
       flowAiResultFileTriggerSql[0],
+      flowAiResultAuditDetailTriggerSql[0],
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3591,21 +3603,21 @@ try {
       at: evidenceTimes[0],
       actor: '보고서 자동생성',
       action: 'ai_result',
-      detail: '1차 분석보고서 실패 · 과거 가상 공급자 오류',
+      detail: '1차 정밀진단보고서 실패 · 과거 가상 공급자 오류',
     },
     {
       id: `native-immutable-success-${evidenceTimes[1]}`,
       at: evidenceTimes[1],
       actor: '보고서 자동생성',
       action: 'ai_result',
-      detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
+      detail: '1차 정밀진단보고서 자동 저장 · 담당 파트너 공유',
     },
     {
       id: `native-immutable-failure-${evidenceTimes[1]}`,
       at: evidenceTimes[1],
       actor: '보고서 자동생성',
       action: 'ai_result',
-      detail: '1차 분석보고서 실패 · 가상 공급자 오류',
+      detail: '1차 정밀진단보고서 실패 · 가상 공급자 오류',
     },
   ];
   const insertEvidenceFlow = () =>
@@ -3828,7 +3840,7 @@ try {
     at: evidenceTimes[4],
     actor: '보고서 자동생성',
     action: 'ai_result',
-    detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
+    detail: '1차 정밀진단보고서 자동 저장 · 담당 파트너 공유',
   });
   const mutatedCompletionReport = structuredClone(validCompletionEvidenceFlow);
   mutatedCompletionReport.reports[0].title = 'AI 완료에 숨긴 기존 보고서 변조';
@@ -3846,6 +3858,14 @@ try {
     /AI result report is invalid/,
   );
   checks.push('FLOW native D1 binds one exact AI result report');
+  const forgedResultAuditDetail = structuredClone(validCompletionEvidenceFlow);
+  forgedResultAuditDetail.audit.at(-1).detail =
+    '성공으로 위장한 AI 결과 감사기록';
+  await assert.rejects(
+    saveEvidenceTransition(processingEvidenceFlow, forgedResultAuditDetail),
+    /AI result audit detail is invalid/,
+  );
+  checks.push('FLOW native D1 binds AI result audit detail to job outcome');
   const completionWithFile = structuredClone(validCompletionEvidenceFlow);
   const completionFileId = 'native-hidden-ai-result-file';
   completionWithFile.files.push({
@@ -3910,7 +3930,7 @@ try {
     at: evidenceTimes[4],
     actor: '보고서 자동생성',
     action: 'ai_result',
-    detail: '1차 분석보고서 실패 · 두 번째 가상 공급자 오류',
+    detail: '1차 정밀진단보고서 실패 · 두 번째 가상 공급자 오류',
   });
   const crossStateFailureEvidenceFlow = structuredClone(failedEvidenceFlow);
   crossStateFailureEvidenceFlow.requests.push({
@@ -4328,7 +4348,7 @@ try {
           at: job.completedAt,
           actor: '보고서 자동생성',
           action: 'ai_result',
-          detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
+          detail: '1차 정밀진단보고서 자동 저장 · 담당 파트너 공유',
         });
       },
     },

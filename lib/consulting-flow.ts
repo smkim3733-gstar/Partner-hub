@@ -208,6 +208,13 @@ export const reportLabels: Record<ReportStage, string> = {
   5: '5차 견적서',
   6: '6차 경영자문용역계약서',
 };
+export function flowAiResultAuditDetail(
+  job: Pick<FlowJob, 'stage' | 'status' | 'reason'>,
+) {
+  if (job.status === 'complete')
+    return `${reportLabels[job.stage]} 자동 저장 · 담당 파트너 공유`;
+  return `${reportLabels[job.stage]} ${job.status === 'blocked' ? '보류' : '실패'} · ${job.reason}`;
+}
 export const flowPhases = [
   '1차 보고서',
   '공동분석',
