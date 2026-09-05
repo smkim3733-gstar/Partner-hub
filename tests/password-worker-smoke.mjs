@@ -237,6 +237,16 @@ const flowNewCommandEvidenceTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowCommandReceiptOriginTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0052_consulting_flow_command_receipt_origin.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -254,6 +264,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_command_history_guard',
   'consulting_flows_job_creation_command_guard',
   'consulting_flows_new_command_evidence_guard',
+  'consulting_flows_command_receipt_origin_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -274,6 +285,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowAiJobCreationAuditIdentityTriggerSql,
       ...flowCommandHistoryTriggerSql,
       ...flowNewCommandEvidenceTriggerSql,
+      ...flowCommandReceiptOriginTriggerSql,
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3507,6 +3519,32 @@ try {
         evidenceFlow.updatedAt,
       )
       .run();
+  const receiptOriginCaseId = 'native-flow-command-receipt-origin';
+  const legacyReceiptOriginFlow = structuredClone(evidenceFlow);
+  legacyReceiptOriginFlow.caseId = receiptOriginCaseId;
+  const legacyReceiptOriginCommandId = Object.keys(
+    legacyReceiptOriginFlow.commandReceipts ?? {},
+  )[0];
+  assert.ok(legacyReceiptOriginCommandId);
+  const lateReceipt = structuredClone(
+    legacyReceiptOriginFlow.commandReceipts[legacyReceiptOriginCommandId],
+  );
+  delete legacyReceiptOriginFlow.commandReceipts[legacyReceiptOriginCommandId];
+  const insertLegacyReceiptOriginFlow = () =>
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        receiptOriginCaseId,
+        legacyReceiptOriginFlow.partnerId,
+        legacyReceiptOriginFlow.revision,
+        JSON.stringify(legacyReceiptOriginFlow),
+        legacyReceiptOriginFlow.updatedAt,
+      )
+      .run();
   await assert.rejects(
     (async () => {
       await db
@@ -3534,6 +3572,7 @@ try {
   ]);
   try {
     await insertEvidenceFlow();
+    await insertLegacyReceiptOriginFlow();
   } finally {
     await db.batch([
       db.prepare(flowAiEvidenceInsertTriggerSql),
@@ -3541,6 +3580,29 @@ try {
       db.prepare(flowNewCommandEvidenceTriggerSql[0]),
     ]);
   }
+  const backfilledReceiptOriginFlow = structuredClone(legacyReceiptOriginFlow);
+  backfilledReceiptOriginFlow.revision++;
+  backfilledReceiptOriginFlow.updatedAt = evidenceTimes[2];
+  backfilledReceiptOriginFlow.commandReceipts[legacyReceiptOriginCommandId] =
+    lateReceipt;
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        backfilledReceiptOriginFlow.revision,
+        JSON.stringify(backfilledReceiptOriginFlow),
+        backfilledReceiptOriginFlow.updatedAt,
+        receiptOriginCaseId,
+        legacyReceiptOriginFlow.revision,
+      )
+      .run(),
+    /command receipt origin is invalid/,
+  );
+  checks.push('FLOW native D1 rejects late receipts for legacy command IDs');
   const saveEvidenceTransition = async (before, after) =>
     db
       .prepare(

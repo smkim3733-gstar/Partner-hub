@@ -13,6 +13,7 @@ import {
   consultingFlowsAuditAppendOnlyTriggerSql,
   consultingFlowsCommandHistoryTriggerSql,
   consultingFlowsCommandInsertEvidenceTriggerSql,
+  consultingFlowsCommandReceiptOriginTriggerSql,
   consultingFlowsFailureEvidenceTriggerSql,
   consultingFlowsFailureHistoryTriggerSql,
   consultingFlowsIdentityTriggerSql,
@@ -121,6 +122,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsJobCreationCommandTriggerSql),
         db.prepare(consultingFlowsCommandInsertEvidenceTriggerSql),
         db.prepare(consultingFlowsNewCommandEvidenceTriggerSql),
+        db.prepare(consultingFlowsCommandReceiptOriginTriggerSql),
         db.prepare(consultingFlowsNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),
@@ -984,6 +986,9 @@ function assertFlowCommitTransition(
   const newAudit = after.audit.slice(before.audit.length);
   const newCommandIds = after.commandIds.slice(before.commandIds.length);
   if (
+    Object.keys(afterReceipts).some(
+      (id) => !Object.hasOwn(beforeReceipts, id) && !newCommandIds.includes(id),
+    ) ||
     newCommandIds.some(
       (id) =>
         !Object.hasOwn(afterReceipts, id) ||

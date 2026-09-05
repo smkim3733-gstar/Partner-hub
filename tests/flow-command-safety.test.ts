@@ -1204,7 +1204,7 @@ void test('FLOW new AI job ID binds to one exact creation audit ID', async () =>
         initial.revision,
       )
       .run(),
-    /(?:job creation audit identity|new command evidence) is invalid/,
+    /(?:job creation audit identity|new command evidence|command receipt origin) is invalid/,
   );
   assert.deepEqual(await readFlow(initial.caseId), initial);
   const missingCommand = structuredClone(valid);
@@ -1228,7 +1228,7 @@ void test('FLOW new AI job ID binds to one exact creation audit ID', async () =>
         initial.revision,
       )
       .run(),
-    /job creation command identity is invalid/,
+    /(?:job creation command identity|command receipt origin) is invalid/,
   );
   assert.deepEqual(await readFlow(initial.caseId), initial);
   await commitFlow(initial, valid);
@@ -1354,6 +1354,69 @@ void test('FLOW new command IDs require one audit and immutable receipt', async 
     await readFlow(valid.caseId),
     JSON.parse(JSON.stringify(valid)),
   );
+});
+
+void test('FLOW command receipts originate only with same-revision commands', async () => {
+  const initial = await fixture();
+  const legacyCommandId = `legacy-command-without-receipt-${++sequence}`;
+  const saved = applyFlowCommand(
+    initial,
+    { type: 'set_ai_policy', enabled: false },
+    { id: adminEmail, role: 'admin', name: '가상 대표' },
+    {
+      commandId: legacyCommandId,
+      now: new Date(Date.parse(initial.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(saved, legacyCommandId);
+  await commitFlow(initial, saved);
+  const legacy = structuredClone(saved);
+  delete legacy.commandReceipts![legacyCommandId];
+  const db = await flowDatabase();
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    [JSON.stringify(legacy), legacy.caseId],
+  );
+  assert.deepEqual(await readFlow(legacy.caseId), legacy);
+
+  const nextCommandId = `new-command-with-receipt-${++sequence}`;
+  const changed = applyFlowCommand(
+    legacy,
+    { type: 'set_ai_policy', enabled: false },
+    { id: adminEmail, role: 'admin', name: '가상 대표' },
+    {
+      commandId: nextCommandId,
+      now: new Date(Date.parse(legacy.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(changed, nextCommandId);
+  changed.commandReceipts![legacyCommandId] = {
+    actorKey: `admin:${adminEmail}`,
+    fingerprint: 'forged-late-legacy-command-receipt',
+  };
+  await assert.rejects(
+    commitFlow(legacy, changed),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        changed.revision,
+        JSON.stringify(changed),
+        changed.updatedAt,
+        legacy.caseId,
+        legacy.revision,
+      )
+      .run(),
+    /command receipt origin is invalid/,
+  );
+  assert.deepEqual(await readFlow(legacy.caseId), legacy);
 });
 
 void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => {
