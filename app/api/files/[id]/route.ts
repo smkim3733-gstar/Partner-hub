@@ -53,6 +53,13 @@ function isLinkedPortalOriginal(state: unknown, fileId: string) {
   );
 }
 
+function originalStorageConflict() {
+  return new CompanyFileError(
+    '원본파일 보관 상태가 저장 원장과 일치하지 않습니다. 관리자에게 확인해 주세요.',
+    409,
+  );
+}
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> },
@@ -82,10 +89,16 @@ export async function GET(
     if (!object)
       throw new CompanyFileError('원본파일을 찾을 수 없습니다.', 404);
     try {
+      if (object.size !== row.size_bytes) throw originalStorageConflict();
       const latestRow = await findCompanyFile(id);
       const access = await currentFileAccess(request, currentUser);
       if (!latestRow || latestRow.storage_key !== row.storage_key)
         throw new CompanyFileError('요청한 기업자료를 찾을 수 없습니다.', 404);
+      if (
+        latestRow.size_bytes !== row.size_bytes ||
+        object.size !== latestRow.size_bytes
+      )
+        throw originalStorageConflict();
       if (!mayReadCompanyFile(access.user, latestRow, access.state))
         throw new CompanyFileError(
           '담당기업 자료만 내려받을 수 있습니다.',
@@ -94,12 +107,14 @@ export async function GET(
       const available = await companyFileDatabase()
         .prepare(`SELECT f.id FROM company_file_objects f
         LEFT JOIN company_file_assignments a ON a.file_id = f.id
-        WHERE f.id = ?1 AND f.storage_key = ?2 AND a.partner_member_id IS ?3 AND f.assigned_trainee = ?4
+        WHERE f.id = ?1 AND f.storage_key = ?2 AND f.size_bytes = ?3
+        AND a.partner_member_id IS ?4 AND f.assigned_trainee = ?5
         AND NOT EXISTS (SELECT 1 FROM company_file_upload_requests u WHERE u.file_id = f.id AND u.status = 'deleted')
-        AND ${fileStateGuard('?5')}`)
+        AND ${fileStateGuard('?6')}`)
         .bind(
           id,
           row.storage_key,
+          row.size_bytes,
           latestRow.partner_member_id ?? null,
           latestRow.assigned_trainee,
           access.payload,

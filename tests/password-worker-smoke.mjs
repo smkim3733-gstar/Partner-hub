@@ -2975,6 +2975,37 @@ try {
       checks.push('linked deletion denial preserves native D1 metadata');
       assert.ok(await bucket.get(`company-source/${fileId}`));
       checks.push('linked deletion denial preserves native R2 bytes');
+      await bucket.put(
+        `company-source/${fileId}`,
+        provenanceBytes.subarray(0, provenanceBytes.byteLength - 1),
+      );
+      const corruptedDownload = await expect(
+        await call(`/files/${fileId}`, undefined, ownerHeaders),
+        409,
+        'download rejects a native R2 original with the wrong size',
+      );
+      assertPrivateAuthResponse(corruptedDownload);
+      assert.match((await corruptedDownload.json()).error, /보관 상태/);
+      assert.equal(
+        (
+          await db
+            .prepare('SELECT size_bytes FROM company_file_objects WHERE id = ?1')
+            .bind(fileId)
+            .first()
+        ).size_bytes,
+        provenanceBytes.byteLength,
+      );
+      checks.push('corrupt download denial preserves native D1 size metadata');
+      await bucket.put(`company-source/${fileId}`, provenanceBytes);
+      const restoredDownload = await expect(
+        await call(`/files/${fileId}`, undefined, ownerHeaders),
+        200,
+        'download resumes after native R2 size is restored',
+      );
+      assert.deepEqual(
+        new Uint8Array(await restoredDownload.arrayBuffer()),
+        provenanceBytes,
+      );
     }
     await db
       .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')

@@ -361,6 +361,46 @@ void test('download denies a session suspended while R2 resolves and leaves the 
   assert.ok(await findCompanyFile(id));
 });
 
+void test('download rejects an R2 original whose size no longer matches the D1 ledger', async () => {
+  await seed();
+  const id = await create(),
+    bucket = companyFileBucket(),
+    key = `company-source/${id}`;
+  await bucket.put(key, 'BROKEN');
+  const response = await download(request('GET'), context(id));
+  assert.equal(response.status, 409, await response.clone().text());
+  assert.match(
+    ((await response.json()) as { error: string }).error,
+    /보관 상태/,
+  );
+  assert.ok(await findCompanyFile(id));
+  assert.equal((await bucket.head(key))?.size, 6);
+});
+
+void test('download rejects a D1 size change committed while R2 resolves', async () => {
+  await seed();
+  const id = await create(),
+    db = companyFileDatabase(),
+    bucket = companyFileBucket(),
+    get = bucket.get.bind(bucket);
+  bucket.get = async (...args: Parameters<R2Bucket['get']>) => {
+    const object = await get(...args);
+    await db
+      .prepare('UPDATE company_file_objects SET size_bytes = size_bytes + 1 WHERE id = ?1')
+      .bind(id)
+      .run();
+    return object;
+  };
+  try {
+    const response = await download(request('GET'), context(id));
+    assert.equal(response.status, 409, await response.clone().text());
+  } finally {
+    bucket.get = get;
+  }
+  assert.ok(await bucket.get(`company-source/${id}`));
+  assert.ok(await findCompanyFile(id));
+});
+
 void test('upload suspended while R2 stores bytes does not publish metadata and preserves the uncertain original', async () => {
   await seed();
   const key = `operation-race-${++sequence}`,
