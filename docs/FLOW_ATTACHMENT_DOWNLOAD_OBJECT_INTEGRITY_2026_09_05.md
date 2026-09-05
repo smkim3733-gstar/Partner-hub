@@ -39,6 +39,6 @@
 
 버전 108~140은 버전 141로 대체하며 공개 배포하지 않는다. 버전 141 공개 배포는 정확히 `버전 141 운영 배포 승인`이라는 사용자 명시 승인 뒤 진행한다.
 
-## 다음 감사
+## 다음 감사 결과
 
-`consulting_flows`의 D1 `case_id`·`partner_id`·`revision` 열과 JSON payload의 진행 ID·담당 계정 ID·revision이 정확히 같은지 서버 읽기 시 검증한다. 담당 ID는 접근권한 판단에 쓰이므로 불일치·손상 JSON은 일반 흐름으로 복구하거나 다른 계정에 제공하지 않고 관리자 복구가 필요한 상태로 격리한다.
+[상담 FLOW 저장 행·payload 무결성 경계](FLOW_STORAGE_ENVELOPE_INTEGRITY_2026_09_05.md)에서 D1 진행 ID·담당 계정 ID·revision 열과 JSON payload의 동일 값을 상세 조회와 대시보드 투영 전에 검증했다. ACL에 쓰이는 담당 ID 불일치와 손상 JSON은 다른 계정에 제공하거나 자동 수정하지 않고 관리자 복구가 필요한 HTTP 503 상태로 격리한다.

@@ -212,7 +212,9 @@
 
 [상담 FLOW 첨부 다운로드 원본 크기 무결성 경계](FLOW_ATTACHMENT_DOWNLOAD_OBJECT_INTEGRITY_2026_09_05.md)에서는 FLOW에 저장된 크기와 다른 R2 객체가 정상 첨부로 내려가던 문제를 재현하고 차단했다. R2 조회 직후 실제 크기를 대조하고 현재 진행·권한과 같은 파일 ID의 키·이름·크기를 다시 확인한다. 불일치 본문은 폐기하며 기존 FLOW·R2 객체·스키마는 자동 변경하지 않는다. 기능 커밋 `aa44eb8ea19e3b7b76216068f7336466f9fb15fb`를 GitHub `main`과 Sites 소스 저장소에 반영했고 Sites 버전 141 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_e9ceb01dcf6081918e4ae0aa8860842d`)로 저장했다. 현재 공개 운영본은 버전 107이며 버전 108~140은 버전 141로 대체해 배포하지 않는다. 버전 141은 정확한 버전 운영 배포 승인 전까지 공개 배포하지 않는다.
 
-현재 소스는 자동 테스트 562개와 격리 workerd/D1/R2 검증 353개를 기준으로 확인한다. 타입검사·전체 lint·프로덕션 빌드와 로컬 운영 화면 3곳의 HTTP 200 및 CSP·`nosniff`·`no-referrer`도 통과했다. 최신 검증·운영 경계 문서는 [개발 문서 목록](README.md)에 구분해 남긴다. 기존 DB/R2 연결과 추가형 DB 마이그레이션을 유지한다.
+[상담 FLOW 저장 행·payload 무결성 경계](FLOW_STORAGE_ENVELOPE_INTEGRITY_2026_09_05.md)에서는 D1 행과 JSON payload의 진행 ID·담당 계정 ID·revision 불일치를 감지하지 않고 payload 담당자가 ACL에 쓰이던 문제를 재현하고 차단했다. 상세 조회와 SQLite 내부 축소 대시보드 투영 모두 행의 권위 열과 payload를 먼저 대조하고 손상 JSON과 불일치를 HTTP 503 관리자 복구 상태로 격리한다. 기능 커밋 `c3b622247278a9175fdb2152691a41b223fea9a8`을 GitHub `main`과 Sites 소스 저장소에 반영했고 Sites 버전 142 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_6b17858082e48191a5af5c5edd36432f`)로 저장했다. 현재 공개 운영본은 버전 107이며 버전 108~141은 버전 142로 대체해 배포하지 않는다. 버전 142는 정확한 버전 운영 배포 승인 전까지 공개 배포하지 않는다.
+
+현재 소스는 자동 테스트 565개와 격리 workerd/D1/R2 검증 357개를 기준으로 확인한다. 타입검사·전체 lint·프로덕션 빌드와 로컬 운영 화면 3곳의 HTTP 200 및 CSP·`nosniff`·`no-referrer`도 통과했다. 최신 검증·운영 경계 문서는 [개발 문서 목록](README.md)에 구분해 남긴다. 기존 DB/R2 연결과 추가형 DB 마이그레이션을 유지한다.
 
 2026-09-04 사용자 운영 반영 승인 후 커밋 `8fa3091`까지 GitHub `main`과 기존 공개 Sites 버전 73에 반영했다. 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결을 유지했으며 `/`, `/account`, `/account/setup`의 HTTP 200 응답을 확인했다. 결과는 `outputs/release/client-response-boundary-deployment.json`에 기록한다.
 

@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `aa44eb8ea19e3b7b76216068f7336466f9fb15fb` (`fix: verify FLOW attachment size`)
-- 최신 기능: 상담 FLOW 첨부 다운로드의 저장 크기와 R2 실제 객체 크기를 응답 전후에 대조하고 조회 중 변경·손상된 본문 반환 차단
-- 검증: Node 회귀 검사 562개, 격리 workerd/D1/R2 검사 353개, 타입검사, 전체 lint, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200·CSP·`nosniff`·`no-referrer` 통과
+- 최신 기능 커밋: `c3b622247278a9175fdb2152691a41b223fea9a8` (`fix: verify FLOW storage envelope`)
+- 최신 기능: 상담 FLOW의 D1 진행·담당·revision 열과 JSON payload를 상세 조회·대시보드 투영 전에 대조하고 불일치·손상 JSON 격리
+- 검증: Node 회귀 검사 565개, 격리 workerd/D1/R2 검사 357개, 타입검사, 전체 lint, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200·CSP·`nosniff`·`no-referrer` 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107, 배포 `appgdep_6a9ae289003c8191a503a7bf7599021e`
-- 최신 Sites 저장 버전: 141 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_e9ceb01dcf6081918e4ae0aa8860842d`), 소스 `aa44eb8ea19e3b7b76216068f7336466f9fb15fb`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108~140은 버전 141로 대체해 배포하지 않으며, 상담 FLOW 첨부 다운로드 원본 크기 무결성 보완본 버전 141이 정확한 버전 운영 배포 승인 대기 중이다.
+- 최신 Sites 저장 버전: 142 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_6b17858082e48191a5af5c5edd36432f`), 소스 `c3b622247278a9175fdb2152691a41b223fea9a8`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108~141은 버전 142로 대체해 배포하지 않으며, 상담 FLOW 저장 행·payload 무결성 보완본 버전 142가 정확한 버전 운영 배포 승인 대기 중이다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -44,7 +44,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW 첨부 다운로드 원본 크기 무결성 경계](FLOW_ATTACHMENT_DOWNLOAD_OBJECT_INTEGRITY_2026_09_05.md)를 확인한다.
+먼저 [상담 FLOW 저장 행·payload 무결성 경계](FLOW_STORAGE_ENVELOPE_INTEGRITY_2026_09_05.md)를 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
@@ -92,4 +92,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 버전 141 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108~140은 버전 141로 대체해 배포하지 않는다. 버전 141 공개 배포에는 정확히 `버전 141 운영 배포 승인`이라는 사용자 명시 승인이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 고우선순위 감사를 이어간다. 다음 감사는 `consulting_flows`의 D1 진행 ID·담당 계정 ID·revision 열과 JSON payload의 동일 값이 정확히 일치하는지 서버 읽기 시 검증한다. ACL에 쓰이는 불일치 담당 ID와 손상 JSON은 자동 복구·수정하지 않고 관리자 복구가 필요한 상태로 격리한다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
+Sites 버전 142 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108~141은 버전 142로 대체해 배포하지 않는다. 버전 142 공개 배포에는 정확히 `버전 142 운영 배포 승인`이라는 사용자 명시 승인이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 고우선순위 감사를 이어간다. 다음 감사는 `commitFlow`의 진행 ID·담당 ID 불변, revision 정확히 1 증가, D1 `updated_at`과 payload `updatedAt` 일치를 저장 전에 강제한다. 잘못된 내부 상태 전이는 손상 행을 만든 뒤 읽기에서 발견하지 않고 D1 쓰기 전에 차단한다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
