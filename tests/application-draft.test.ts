@@ -7,6 +7,7 @@ import {
   mutatePortalState,
 } from '../lib/portal-state';
 import { applicationDraftDatabase } from '../lib/application-draft-store';
+import { applicationDraftsTransitionTriggerSql } from '../db/schema';
 import { PUT as saveState } from './state-request';
 import { PUT as rawSaveState } from '../app/api/state/route';
 import { portalRevision } from '../lib/portal-revision';
@@ -38,6 +39,23 @@ const draft = () => ({
   step: 2,
   hasLocalAttachments: true,
 });
+async function mutateApplicationDraftFixture(
+  db: D1Database,
+  sql: string,
+  values: unknown[],
+) {
+  await db
+    .prepare('DROP TRIGGER IF EXISTS application_drafts_transition_guard')
+    .run();
+  try {
+    return await db
+      .prepare(sql)
+      .bind(...values)
+      .run();
+  } finally {
+    await db.prepare(applicationDraftsTransitionTriggerSql).run();
+  }
+}
 async function setup(id: string) {
   const member = {
     id,
@@ -149,6 +167,76 @@ void test('private draft persists across requests and duplicate saves reuse its 
   );
   assert.deepEqual(await (await GET(request())).json(), saved);
   assert.deepEqual(await readPortalState(), before);
+});
+
+void test('draft root accepts only an owner-bound forward revision lifecycle', async () => {
+  const { request, body, member } = await setup('draft-d1-lifecycle');
+  assert.equal((await PUT(request(body()))).status, 200);
+  const db = await applicationDraftDatabase();
+  const owner = `member:${member.id}`;
+  const stored = await db
+    .prepare(
+      'SELECT owner_key, revision, draft_id, payload, updated_at FROM application_drafts WHERE owner_key = ?1',
+    )
+    .bind(owner)
+    .first<{
+      owner_key: string;
+      revision: number;
+      draft_id: string;
+      payload: string;
+      updated_at: string;
+    }>();
+  assert.ok(stored);
+
+  await assert.rejects(
+    db
+      .prepare(
+        'UPDATE application_drafts SET revision = ?1 WHERE owner_key = ?2',
+      )
+      .bind(stored.revision + 2, owner)
+      .run(),
+    /transition envelope is invalid/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'UPDATE application_drafts SET owner_key = ?1 WHERE owner_key = ?2',
+      )
+      .bind(`${owner}-other`, owner)
+      .run(),
+    /owner is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM application_drafts WHERE owner_key = ?1')
+      .bind(owner)
+      .run(),
+    /tombstone is durable/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'INSERT INTO application_drafts (owner_key, revision, draft_id, payload, updated_at) VALUES (?1, 0, ?2, ?3, ?4)',
+      )
+      .bind(
+        `${owner}-invalid`,
+        'invalid-draft-id',
+        stored.payload,
+        stored.updated_at,
+      )
+      .run(),
+    /insert envelope is invalid/,
+  );
+  assert.deepEqual(
+    await db
+      .prepare(
+        'SELECT owner_key, revision, draft_id, payload, updated_at FROM application_drafts WHERE owner_key = ?1',
+      )
+      .bind(owner)
+      .first(),
+    stored,
+  );
+  assert.equal((await GET(request())).status, 200);
 });
 
 void test('another account cannot read, replace, or clear a private draft; authentication, origin and permission remain required', async () => {
@@ -278,12 +366,11 @@ void test('final submission requires this account draft and its current revision
       async (current) => {
         if (first) {
           first = false;
-          await db
-            .prepare(
-              'UPDATE application_drafts SET revision = 2 WHERE owner_key = ?1',
-            )
-            .bind(`member:${member.id}`)
-            .run();
+          await mutateApplicationDraftFixture(
+            db,
+            'UPDATE application_drafts SET revision = 2 WHERE owner_key = ?1',
+            [`member:${member.id}`],
+          );
         }
         return {
           ...(current as object),

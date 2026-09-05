@@ -953,6 +953,49 @@ try {
       .hasLocalAttachments,
     true,
   );
+  const intactDraftRow = await db
+    .prepare(
+      'SELECT owner_key, revision, draft_id, payload, updated_at FROM application_drafts WHERE owner_key = ?1',
+    )
+    .bind(`member:${memberId}`)
+    .first();
+  await assert.rejects(
+    db
+      .prepare(
+        'UPDATE application_drafts SET revision = ?1 WHERE owner_key = ?2',
+      )
+      .bind(intactDraftRow.revision + 2, intactDraftRow.owner_key)
+      .run(),
+    /transition envelope is invalid/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'UPDATE application_drafts SET owner_key = ?1 WHERE owner_key = ?2',
+      )
+      .bind(`${intactDraftRow.owner_key}-other`, intactDraftRow.owner_key)
+      .run(),
+    /owner is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM application_drafts WHERE owner_key = ?1')
+      .bind(intactDraftRow.owner_key)
+      .run(),
+    /tombstone is durable/,
+  );
+  assert.deepEqual(
+    await db
+      .prepare(
+        'SELECT owner_key, revision, draft_id, payload, updated_at FROM application_drafts WHERE owner_key = ?1',
+      )
+      .bind(intactDraftRow.owner_key)
+      .first(),
+    intactDraftRow,
+  );
+  checks.push(
+    'application draft D1 roots enforce owner identity, forward revision transitions and durable tombstones',
+  );
   assert.equal(
     (await (await call('/draft', undefined, ownerHeaders)).json()).draft,
     null,

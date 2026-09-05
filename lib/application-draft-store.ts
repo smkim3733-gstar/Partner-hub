@@ -1,5 +1,11 @@
 import { env } from 'cloudflare:workers';
-import { applicationDraftsTableSql } from '@/db/schema';
+import {
+  applicationDraftsIdentityTriggerSql,
+  applicationDraftsInsertTriggerSql,
+  applicationDraftsNoDeleteTriggerSql,
+  applicationDraftsTableSql,
+  applicationDraftsTransitionTriggerSql,
+} from '@/db/schema';
 import { PortalAccessError, type PortalUser } from './portal-auth';
 import { FlowError } from './consulting-flow';
 import { draftCaseId } from './application-draft';
@@ -8,7 +14,13 @@ export const draftOwnerKey = (user: PortalUser) =>
   user.role === 'admin' ? `admin:${user.email}` : `member:${user.memberId}`;
 export async function applicationDraftDatabase() {
   const db = (env as unknown as { DB: D1Database }).DB;
-  await db.prepare(applicationDraftsTableSql).run();
+  await db.batch([
+    db.prepare(applicationDraftsTableSql),
+    db.prepare(applicationDraftsIdentityTriggerSql),
+    db.prepare(applicationDraftsInsertTriggerSql),
+    db.prepare(applicationDraftsTransitionTriggerSql),
+    db.prepare(applicationDraftsNoDeleteTriggerSql),
+  ]);
   return db;
 }
 
