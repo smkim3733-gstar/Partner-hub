@@ -7,41 +7,43 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                     | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                  | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
-| [상담 FLOW payload 최상위 구조 무결성 경계](FLOW_PAYLOAD_STRUCTURE_INTEGRITY_2026_09_05.md)                    | 필수 문자열·배열·객체를 저장 읽기·SQLite 축소·클라이언트에서 공통 검증                   |
-| [상담 FLOW 저장 전이·수정시각 무결성 경계](FLOW_COMMIT_TRANSITION_INTEGRITY_2026_09_05.md)                     | 진행·담당 ID 불변, revision 1단계 증가와 D1·payload 수정시각 일치 강제                    |
-| [상담 FLOW 저장 행·payload 무결성 경계](FLOW_STORAGE_ENVELOPE_INTEGRITY_2026_09_05.md)                          | D1 진행·담당·revision 열과 JSON payload 대조, 권한 판단 전 손상 상태 격리                 |
-| [상담 FLOW 첨부 다운로드 원본 크기 무결성 경계](FLOW_ATTACHMENT_DOWNLOAD_OBJECT_INTEGRITY_2026_09_05.md)       | FLOW 저장 크기와 R2 실제 크기 대조, 조회 중 변경·손상된 첨부 본문 반환 차단              |
-| [기업자료 다운로드 원본 크기 무결성 경계](COMPANY_FILE_DOWNLOAD_OBJECT_INTEGRITY_2026_09_05.md)                 | D1 원장과 R2 실제 크기 대조, 조회 중 메타데이터 변경과 손상 본문 반환 차단               |
-| [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)       | 포털 카드가 참조하는 원본의 직접·경합 삭제 차단과 D1/R2 보존                              |
-| [기업자료 원본 보관 원장 무결성 경계](COMPANY_DOCUMENT_FILE_PROVENANCE_INTEGRITY_2026_09_05.md)                | 새 원본 연결의 D1 권위값·업로드 상태·R2 존재 대조와 저장 직전 경쟁 차단                   |
-| [기업자료 원본 메타데이터 무결성 경계](COMPANY_DOCUMENT_FILE_METADATA_INTEGRITY_2026_09_05.md)                  | 원본 ID·파일명·크기 조합 검증과 기존 원본 사실 변경·삭제 차단                            |
-| [업무·기업자료·일정 필드 무결성 경계](OPERATIONAL_RECORD_FIELD_INTEGRITY_2026_09_05.md)                         | 필수 표시값과 상태·분류·공개범위 허용값 검증, 손상 운영 상태 격리                        |
-| [진행 타임라인 기록 무결성 경계](TIMELINE_RECORD_INTEGRITY_2026_09_05.md)                                     | 필수 표시값·안정 ID·진행 연결 검증과 진행 이동·중복 병합 차단                            |
-| [업무·기업자료·일정 연결 무결성 경계](RELATED_RECORD_ASSIGNMENT_INTEGRITY_2026_09_05.md)                        | 미존재 진행·담당 계정과 서로 상충하는 직접·진행 담당 연결 차단                           |
-| [진행 기록 필드·담당 연결 무결성 경계](CASE_RECORD_INTEGRITY_2026_09_05.md)                                    | 진행 기업명·담당자명과 명단 내 고유 담당 계정 연결 검증                                  |
-| [진단평가 기록 무결성 경계](DIAGNOSIS_ASSESSMENT_INTEGRITY_2026_09_05.md)                                      | 평가 필드·허용값·등급 결과 일관성과 정확한 진행 연결 검증                                |
-| [포털 상태 메타데이터 무결성 경계](PORTAL_STATE_METADATA_INTEGRITY_2026_09_05.md)                              | 상태 버전·상담번호·명단 revision·진단평가 배열과 고유 ID 검증                            |
-| [포털 레코드 ID 무결성 경계](PORTAL_RECORD_ID_INTEGRITY_2026_09_05.md)                                         | 업무·기업자료·일정의 공백·중복 ID 저장과 모호한 병합 차단                                |
-| [사건 ID 무결성 경계](CASE_ID_INTEGRITY_BOUNDARY_2026_09_05.md)                                                | 공백·중복 진행 ID의 타임라인·연결 기록 권한 충돌 차단                                    |
-| [포털 레코드 구조 무결성 경계](PORTAL_RECORD_STRUCTURE_INTEGRITY_2026_09_05.md)                                 | 여섯 상태 배열의 비객체 항목 저장 차단과 손상 상태 격리                                  |
-| [파트너 식별정보 실행 무결성 경계](MEMBER_IDENTITY_RUNTIME_INTEGRITY_2026_09_05.md)                             | 비문자 이메일·손상 이름의 저장·인증 실패 폐쇄                                            |
+| [상담 FLOW Unicode 문자열 길이 무결성 경계](FLOW_UNICODE_TEXT_LENGTH_INTEGRITY_2026_09_05.md)                    | JavaScript·SQLite의 코드 포인트 길이 계약 통일과 UTF-8 전체 바이트 상한 유지             |
+| [상담 FLOW 숨김 필드 의미 무결성 경계](FLOW_HIDDEN_SEMANTIC_INTEGRITY_2026_09_05.md)                             | 축소 전 Unicode 공백·잘못된 날짜·AI 작업 시간 역전 검사                                  |
+| [상담 FLOW payload 최상위 구조 무결성 경계](FLOW_PAYLOAD_STRUCTURE_INTEGRITY_2026_09_05.md)                      | 필수 문자열·배열·객체를 저장 읽기·SQLite 축소·클라이언트에서 공통 검증                   |
+| [상담 FLOW 저장 전이·수정시각 무결성 경계](FLOW_COMMIT_TRANSITION_INTEGRITY_2026_09_05.md)                       | 진행·담당 ID 불변, revision 1단계 증가와 D1·payload 수정시각 일치 강제                   |
+| [상담 FLOW 저장 행·payload 무결성 경계](FLOW_STORAGE_ENVELOPE_INTEGRITY_2026_09_05.md)                           | D1 진행·담당·revision 열과 JSON payload 대조, 권한 판단 전 손상 상태 격리                |
+| [상담 FLOW 첨부 다운로드 원본 크기 무결성 경계](FLOW_ATTACHMENT_DOWNLOAD_OBJECT_INTEGRITY_2026_09_05.md)         | FLOW 저장 크기와 R2 실제 크기 대조, 조회 중 변경·손상된 첨부 본문 반환 차단              |
+| [기업자료 다운로드 원본 크기 무결성 경계](COMPANY_FILE_DOWNLOAD_OBJECT_INTEGRITY_2026_09_05.md)                  | D1 원장과 R2 실제 크기 대조, 조회 중 메타데이터 변경과 손상 본문 반환 차단               |
+| [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)         | 포털 카드가 참조하는 원본의 직접·경합 삭제 차단과 D1/R2 보존                             |
+| [기업자료 원본 보관 원장 무결성 경계](COMPANY_DOCUMENT_FILE_PROVENANCE_INTEGRITY_2026_09_05.md)                  | 새 원본 연결의 D1 권위값·업로드 상태·R2 존재 대조와 저장 직전 경쟁 차단                  |
+| [기업자료 원본 메타데이터 무결성 경계](COMPANY_DOCUMENT_FILE_METADATA_INTEGRITY_2026_09_05.md)                   | 원본 ID·파일명·크기 조합 검증과 기존 원본 사실 변경·삭제 차단                            |
+| [업무·기업자료·일정 필드 무결성 경계](OPERATIONAL_RECORD_FIELD_INTEGRITY_2026_09_05.md)                          | 필수 표시값과 상태·분류·공개범위 허용값 검증, 손상 운영 상태 격리                        |
+| [진행 타임라인 기록 무결성 경계](TIMELINE_RECORD_INTEGRITY_2026_09_05.md)                                        | 필수 표시값·안정 ID·진행 연결 검증과 진행 이동·중복 병합 차단                            |
+| [업무·기업자료·일정 연결 무결성 경계](RELATED_RECORD_ASSIGNMENT_INTEGRITY_2026_09_05.md)                         | 미존재 진행·담당 계정과 서로 상충하는 직접·진행 담당 연결 차단                           |
+| [진행 기록 필드·담당 연결 무결성 경계](CASE_RECORD_INTEGRITY_2026_09_05.md)                                      | 진행 기업명·담당자명과 명단 내 고유 담당 계정 연결 검증                                  |
+| [진단평가 기록 무결성 경계](DIAGNOSIS_ASSESSMENT_INTEGRITY_2026_09_05.md)                                        | 평가 필드·허용값·등급 결과 일관성과 정확한 진행 연결 검증                                |
+| [포털 상태 메타데이터 무결성 경계](PORTAL_STATE_METADATA_INTEGRITY_2026_09_05.md)                                | 상태 버전·상담번호·명단 revision·진단평가 배열과 고유 ID 검증                            |
+| [포털 레코드 ID 무결성 경계](PORTAL_RECORD_ID_INTEGRITY_2026_09_05.md)                                           | 업무·기업자료·일정의 공백·중복 ID 저장과 모호한 병합 차단                                |
+| [사건 ID 무결성 경계](CASE_ID_INTEGRITY_BOUNDARY_2026_09_05.md)                                                  | 공백·중복 진행 ID의 타임라인·연결 기록 권한 충돌 차단                                    |
+| [포털 레코드 구조 무결성 경계](PORTAL_RECORD_STRUCTURE_INTEGRITY_2026_09_05.md)                                  | 여섯 상태 배열의 비객체 항목 저장 차단과 손상 상태 격리                                  |
+| [파트너 식별정보 실행 무결성 경계](MEMBER_IDENTITY_RUNTIME_INTEGRITY_2026_09_05.md)                              | 비문자 이메일·손상 이름의 저장·인증 실패 폐쇄                                            |
 | [파트너 권한 실행 무결성 경계](PARTNER_PERMISSION_RUNTIME_INTEGRITY_2026_09_05.md)                               | 레거시 비-boolean 권한의 인증·파트너 응답 최소권한 정규화                                |
-| [파트너 계정 편집 무결성 경계](PARTNER_ACCOUNT_EDIT_INTEGRITY_2026_09_05.md)                                    | 회원 편집 허용목록·상태 전이·권한 구조 검증과 레거시 보존                                |
-| [파트너 계정 삭제 무결성 경계](PARTNER_ACCOUNT_DELETION_INTEGRITY_2026_09_05.md)                                | 활성·연결 계정 삭제 차단과 정지·미배정 계정의 안전한 삭제                                |
-| [파트너 감사 필드 무결성 경계](MEMBER_AUDIT_FIELD_INTEGRITY_2026_09_05.md)                                     | 일반 상태 저장의 가입 출처·로그인 통계 위조 차단과 전용 서버 경로 보호                   |
-| [파트너 안정 ID 생성 경계](STABLE_MEMBER_ID_CREATION_BOUNDARY_2026_09_05.md)                                    | 일반 상태 저장의 신규·교체 ID 차단과 전용 가입·직접등록 경로 강제                        |
+| [파트너 계정 편집 무결성 경계](PARTNER_ACCOUNT_EDIT_INTEGRITY_2026_09_05.md)                                     | 회원 편집 허용목록·상태 전이·권한 구조 검증과 레거시 보존                                |
+| [파트너 계정 삭제 무결성 경계](PARTNER_ACCOUNT_DELETION_INTEGRITY_2026_09_05.md)                                 | 활성·연결 계정 삭제 차단과 정지·미배정 계정의 안전한 삭제                                |
+| [파트너 감사 필드 무결성 경계](MEMBER_AUDIT_FIELD_INTEGRITY_2026_09_05.md)                                       | 일반 상태 저장의 가입 출처·로그인 통계 위조 차단과 전용 서버 경로 보호                   |
+| [파트너 안정 ID 생성 경계](STABLE_MEMBER_ID_CREATION_BOUNDARY_2026_09_05.md)                                     | 일반 상태 저장의 신규·교체 ID 차단과 전용 가입·직접등록 경로 강제                        |
 | [파트너 안정 ID 무결성](DUPLICATE_MEMBER_ID_INTEGRITY_2026_09_05.md)                                             | 중복·빈 회원 ID의 계정 소유권 혼선과 인증·결속 우회 차단                                 |
-| [변경 요청 Origin 필수 보안 경계](MUTATION_ORIGIN_REQUIRED_BOUNDARY_2026_09_05.md)                              | Origin 없는 인증 변경 요청 차단과 정확한 동일 출처 증명                                  |
-| [ChatGPT 중복 이메일 결속 무결성](CHATGPT_AMBIGUOUS_EMAIL_BINDING_INTEGRITY_2026_09_05.md)                     | 레거시 중복 이메일의 임의 회원 선택·안정 ID 오결속 차단                                  |
-| [ChatGPT 자가등록 중복 이메일 무결성](CHATGPT_REGISTRATION_AMBIGUOUS_EMAIL_INTEGRITY_2026_09_05.md)            | 레거시 중복 이메일의 첫 승인대기 계정 선택·자가등록 오결속 차단                          |
+| [변경 요청 Origin 필수 보안 경계](MUTATION_ORIGIN_REQUIRED_BOUNDARY_2026_09_05.md)                               | Origin 없는 인증 변경 요청 차단과 정확한 동일 출처 증명                                  |
+| [ChatGPT 중복 이메일 결속 무결성](CHATGPT_AMBIGUOUS_EMAIL_BINDING_INTEGRITY_2026_09_05.md)                       | 레거시 중복 이메일의 임의 회원 선택·안정 ID 오결속 차단                                  |
+| [ChatGPT 자가등록 중복 이메일 무결성](CHATGPT_REGISTRATION_AMBIGUOUS_EMAIL_INTEGRITY_2026_09_05.md)              | 레거시 중복 이메일의 첫 승인대기 계정 선택·자가등록 오결속 차단                          |
 | [ChatGPT 가입 계정 상태 무결성 경계](CHATGPT_REGISTRATION_INTEGRITY_BOUNDARY_2026_09_05.md)                      | 정지 계정 보존, 동일 재시도 무기록과 사용자 ID 기반 반복 가입 제한                       |
-| [계정 상태 변경 인증수단 폐기 무결성 경계](PASSWORD_ACCESS_REVOCATION_INTEGRITY_2026_09_05.md)                  | 정지·재활성화·이메일 변경·삭제와 세션·설정 링크의 원자적 폐기                            |
-| [로그인 세션·설정 링크 발급 커밋 무결성 경계](PASSWORD_ISSUANCE_COMMIT_GUARD_2026_09_05.md)                   | 동시 상태·비밀번호 변경 뒤 늦은 세션·링크 재생성과 최신 링크 삭제 차단                   |
-| [비밀번호 자격 생명주기 무결성 경계](PASSWORD_CREDENTIAL_LIFECYCLE_INTEGRITY_2026_09_05.md)                  | 이메일 변경·회원 삭제의 고아 비밀번호 자격 제거와 정지 계정 자격 보존                   |
-| [비밀번호 자격 이메일 예약 무결성 경계](PASSWORD_CREDENTIAL_EMAIL_RESERVATION_INTEGRITY_2026_09_05.md)    | 분리된 자격 이메일의 대표 직접등록·회원 변경 차단과 동일 회원 복구 허용                 |
-| [ChatGPT 등록 비밀번호 자격 소유자 결속 무결성](CHATGPT_CREDENTIAL_EMAIL_OWNERSHIP_INTEGRITY_2026_09_05.md) | ChatGPT 등록 이메일의 회원 ID·비밀번호 자격 소유자 결속과 분리 자격 차단              |
-| [ChatGPT 안정 ID-회원 결속 무결성](CHATGPT_STABLE_IDENTITY_BINDING_INTEGRITY_2026_09_05.md)              | 동일 이메일 재할당 접근 차단, 안정 ID 해시 결속과 회원 변경·삭제 원자적 해제            |
-| [ChatGPT 관리자 안정 ID 결속 무결성](CHATGPT_OWNER_STABLE_IDENTITY_INTEGRITY_2026_09_05.md)            | 대표 이메일 재할당 권한 승계 차단, 관리자·회원 통합 ID 결속과 수동 복구 경계            |
+| [계정 상태 변경 인증수단 폐기 무결성 경계](PASSWORD_ACCESS_REVOCATION_INTEGRITY_2026_09_05.md)                   | 정지·재활성화·이메일 변경·삭제와 세션·설정 링크의 원자적 폐기                            |
+| [로그인 세션·설정 링크 발급 커밋 무결성 경계](PASSWORD_ISSUANCE_COMMIT_GUARD_2026_09_05.md)                      | 동시 상태·비밀번호 변경 뒤 늦은 세션·링크 재생성과 최신 링크 삭제 차단                   |
+| [비밀번호 자격 생명주기 무결성 경계](PASSWORD_CREDENTIAL_LIFECYCLE_INTEGRITY_2026_09_05.md)                      | 이메일 변경·회원 삭제의 고아 비밀번호 자격 제거와 정지 계정 자격 보존                    |
+| [비밀번호 자격 이메일 예약 무결성 경계](PASSWORD_CREDENTIAL_EMAIL_RESERVATION_INTEGRITY_2026_09_05.md)           | 분리된 자격 이메일의 대표 직접등록·회원 변경 차단과 동일 회원 복구 허용                  |
+| [ChatGPT 등록 비밀번호 자격 소유자 결속 무결성](CHATGPT_CREDENTIAL_EMAIL_OWNERSHIP_INTEGRITY_2026_09_05.md)      | ChatGPT 등록 이메일의 회원 ID·비밀번호 자격 소유자 결속과 분리 자격 차단                 |
+| [ChatGPT 안정 ID-회원 결속 무결성](CHATGPT_STABLE_IDENTITY_BINDING_INTEGRITY_2026_09_05.md)                      | 동일 이메일 재할당 접근 차단, 안정 ID 해시 결속과 회원 변경·삭제 원자적 해제             |
+| [ChatGPT 관리자 안정 ID 결속 무결성](CHATGPT_OWNER_STABLE_IDENTITY_INTEGRITY_2026_09_05.md)                      | 대표 이메일 재할당 권한 승계 차단, 관리자·회원 통합 ID 결속과 수동 복구 경계             |
 | [파트너 유형 명시 선택 안전성](PARTNER_TYPE_SELECTION_SAFETY_2026_09_03.md)                                      | 직접등록·승인대기 유형 자동선택 제거와 허용 유형 검증                                    |
 | [대표 직접등록 응답 검증 안전성](PARTNER_REGISTRATION_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                  | 등록 입력·최소 권한·명단 일관성 검증과 손상 응답 재시도 보호                             |
 | [원본 보관 현황 응답 검증 안전성](FILE_INVENTORY_RESPONSE_VALIDATION_SAFETY_2026_09_04.md)                       | 목록·필터·커서·파일 ID·원본 존재와 크기 관계 검증                                        |

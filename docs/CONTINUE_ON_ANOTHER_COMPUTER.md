@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `142e2b144b90dfe14823ba02d573c7c1b2383ef7` (`fix: validate hidden FLOW field semantics`)
-- 최신 기능: SQLite 축소 투영 전 숨김 FLOW 필드의 Unicode 공백 전용 값·잘못된 날짜·AI 작업 시간 역전 검사, D1 표현식 깊이 제한을 지키는 분리 의미 검증 배치
-- 검증: Node 회귀 검사 585개, 격리 workerd/D1/R2 검사 372개, 타입검사, 전체 lint, 포맷 검사, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200·CSP·`DENY`·`nosniff`·`no-referrer` 통과
+- 최신 기능 커밋: `56a40d16ae0ba0db2e43f8036bc6923922a9d0d1` (`fix: align FLOW Unicode text limits`)
+- 최신 기능: 수동 입력·저장 구조·AI 입력과 결과·사전점검의 FLOW 문자열 길이를 SQLite와 같은 Unicode 코드 포인트 기준으로 통일, UTF-8 전체 payload 바이트 상한 유지
+- 검증: Node 회귀 검사 587개, 격리 workerd/D1/R2 검사 375개, 타입검사, 전체 lint, 변경 파일 포맷 검사, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200·CSP·`DENY`·`nosniff`·`no-referrer` 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107, 배포 `appgdep_6a9ae289003c8191a503a7bf7599021e`
-- 최신 Sites 저장 버전: 151 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_7e0ab4ccb2c08191a078f523a00b52ca`), 소스 `142e2b144b90dfe14823ba02d573c7c1b2383ef7`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108~150은 버전 151로 대체해 배포하지 않으며, FLOW 숨김 의미 무결성 보완본 버전 151이 정확한 버전 운영 배포 승인 대기 중이다.
+- 최신 Sites 저장 버전: 152 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_111c8c4bf62c8191ae2f4c8e1461ba73`), 소스 `56a40d16ae0ba0db2e43f8036bc6923922a9d0d1`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108~151은 버전 152로 대체해 배포하지 않으며, FLOW Unicode 길이 무결성 보완본 버전 152가 정확한 버전 운영 배포 승인 대기 중이다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -44,7 +44,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW 숨김 필드 의미 무결성 경계](FLOW_HIDDEN_SEMANTIC_INTEGRITY_2026_09_05.md)를 확인한다.
+먼저 [상담 FLOW Unicode 문자열 길이 무결성 경계](FLOW_UNICODE_TEXT_LENGTH_INTEGRITY_2026_09_05.md)를 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
@@ -92,4 +92,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 버전 151 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108~150은 버전 151로 대체해 배포하지 않는다. 버전 151 공개 배포에는 정확히 `버전 151 운영 배포 승인`이라는 사용자 명시 승인이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 고우선순위 감사를 이어간다. 다음 감사는 SQLite `length()`의 Unicode 코드 포인트 길이와 JavaScript `String.length`의 UTF-16 코드 단위 길이 차이가 숨김 문자열 상한을 우회하는지 확인한다. 정상 한국어 문자열을 잘못 차단하지 않으면서 상세 조회와 축소 대시보드의 상한 판정을 일치시킨다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
+Sites 버전 152 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108~151은 버전 152로 대체해 배포하지 않는다. 버전 152 공개 배포에는 정확히 `버전 152 운영 배포 승인`이라는 사용자 명시 승인이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 고우선순위 감사를 이어간다. 다음 감사는 짝이 없는 UTF-16 surrogate가 JSON 직렬화와 SQLite `json_extract()`를 지날 때 상세 조회·축소 대시보드·명령 입력에서 같은 값과 길이로 판정되는지 확인한다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
