@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `03b024f8afe2595bf5d5950cbfd5a1ce4bab9276` (`fix: timestamp FLOW AI failures`)
-- 최신 기능: 상담 FLOW 공급자 HTTP 실패의 UTC 관측시각 보존과 작업·FLOW 시간선 및 재시도 이력 순서 결속
-- 검증: Node 회귀 검사 644개, 격리 workerd/D1/R2 검사 451개, 타입검사, 전체 lint, 변경 파일 포맷 검사, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200·CSP·`DENY`·`nosniff`·`no-referrer` 통과
+- 최신 기능 커밋: `039bb134fc4a05a94e232504c964f89e7301c022` (`fix: bind FLOW failures to audits`)
+- 최신 기능: 상담 FLOW 공급자 실패 증거와 같은 작업의 단일 `ai_result` 감사기록 결속
+- 검증: Node 회귀 검사 645개, 격리 workerd/D1/R2 검사 451개, 타입검사, 전체 lint, 변경 파일 포맷 검사, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200·CSP·`DENY`·`nosniff`·`no-referrer` 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 198 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_02d8a0a32cb08191b9abffa10ec325ce`), 소스 `03b024f8afe2595bf5d5950cbfd5a1ce4bab9276`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–197은 버전 198로 대체해 배포하지 않으며, FLOW AI 실패 관측시각 보완본 버전 198이 정확한 버전 운영 배포 승인 대기 중이다.
+- 최신 Sites 저장 버전: 199 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_b6e557f2efd8819187e703de6fb14acd`), 소스 `039bb134fc4a05a94e232504c964f89e7301c022`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–198은 버전 199로 대체해 배포하지 않으며, FLOW AI 실패 감사 결속 보완본 버전 199가 정확한 버전 운영 배포 승인 대기 중이다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -44,7 +44,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW AI 실패 관측시각 무결성 경계](FLOW_AI_FAILURE_TIMESTAMP_INTEGRITY_2026_09_06.md)를 확인한다.
+먼저 [상담 FLOW AI 실패 증거·감사기록 결속](FLOW_AI_FAILURE_AUDIT_LINK_INTEGRITY_2026_09_06.md)을 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
