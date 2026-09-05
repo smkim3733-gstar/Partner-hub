@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                     | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                  | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [원본 보관 현황 객체 무결성 진단](FILE_INVENTORY_OBJECT_INTEGRITY_DIAGNOSTICS_2026_09_05.md)                     | 대표 전용 R2 `head`에서 ETag·MIME·원장 불일치와 기존 검증 범위 표시                      |
 | [기업자료 R2 객체 무결성 경계](COMPANY_FILE_R2_OBJECT_INTEGRITY_2026_09_05.md)                                   | 신규 원본 ETag·고정 MIME 결속, 다운로드·AI 입력·회수 전 객체 변조 차단                   |
 | [상담 FLOW R2 객체 무결성 경계](FLOW_FILE_R2_OBJECT_INTEGRITY_2026_09_05.md)                                     | 신규 파일 ETag·고정 MIME 결속, 같은 크기 바이트·객체 MIME 교체 차단                      |
 | [상담 FLOW 파일 메타데이터 원장 무결성 경계](FLOW_FILE_METADATA_LEDGER_INTEGRITY_2026_09_05.md)                  | 이름·MIME·크기·용도·유입 증빙 결속과 v159 호환 가산 마이그레이션                         |
