@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `df95dbe73510341533157d4da085fc146d70fa89` (`fix: preserve portal state root lifecycle`)
-- 최신 기능: 전체 운영 상태의 단일 고정 D1 루트 ID와 루트 행 삭제 차단
-- 검증: Node 회귀 검사 633개, 격리 workerd/D1/R2 검사 441개, 타입검사, 전체 lint, 변경 파일 포맷 검사, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200·CSP·`DENY`·`nosniff`·`no-referrer` 통과
+- 최신 기능 커밋: `5d197a8c667f32bb5fafd368d54109c1e06bed19` (`fix: validate portal state storage envelope`)
+- 최신 기능: 전체 운영 상태의 D1 payload JSON 객체와 수정시각 UTC 형식 강제
+- 검증: Node 회귀 검사 633개, 격리 workerd/D1/R2 검사 442개, 타입검사, 전체 lint, 변경 파일 포맷 검사, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200·CSP·`DENY`·`nosniff`·`no-referrer` 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 179 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_10d11ab341dc819191e10997125d30a2`), 소스 `df95dbe73510341533157d4da085fc146d70fa89`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108~178은 버전 179로 대체해 배포하지 않으며, 포털 상태 루트 수명주기 보완본 버전 179가 정확한 버전 운영 배포 승인 대기 중이다.
+- 최신 Sites 저장 버전: 180 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_31f321dbdf7481919dbccb4519bceef8`), 소스 `5d197a8c667f32bb5fafd368d54109c1e06bed19`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108~179는 버전 180으로 대체해 배포하지 않으며, 포털 상태 저장 envelope 보완본 버전 180이 정확한 버전 운영 배포 승인 대기 중이다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -44,7 +44,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [포털 상태 루트 행 수명주기 무결성 경계](PORTAL_STATE_ROOT_LIFECYCLE_INTEGRITY_2026_09_05.md)를 확인한다.
+먼저 [포털 상태 저장 envelope 무결성 경계](PORTAL_STATE_STORAGE_ENVELOPE_INTEGRITY_2026_09_05.md)를 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
@@ -92,4 +92,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 버전 179 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108~178은 버전 179로 대체해 배포하지 않는다. 버전 179 공개 배포에는 정확히 `버전 179 운영 배포 승인`이라는 사용자 명시 승인이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 고우선순위 감사를 이어간다. 다음 감사는 `portal_state`의 payload가 JSON 객체이고 수정시각이 정상 UTC 형식인 저장 envelope를 D1에서 강제한다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
+Sites 버전 180 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108~179는 버전 180으로 대체해 배포하지 않는다. 버전 180 공개 배포에는 정확히 `버전 180 운영 배포 승인`이라는 사용자 명시 승인이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 고우선순위 감사를 이어간다. 다음 감사는 애플리케이션의 900,000바이트 포털 상태 상한을 D1의 UTF-8 payload 저장 경계에도 적용한다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
