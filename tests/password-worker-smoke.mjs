@@ -2047,13 +2047,47 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  const inconsistentFlowState = JSON.parse(intactFlowPayload);
+  inconsistentFlowState.meetings.push({
+    id: 'inconsistent-completed-meeting',
+    kind: 'first',
+    startsAt: '2026-09-05T00:00:00.000Z',
+    endsAt: '2026-09-05T01:00:00.000Z',
+    location: '온라인',
+    attendance: 'both',
+    status: 'completed',
+    note: '',
+    createdBy: memberId,
+  });
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(inconsistentFlowState), 'runtime-own')
+    .run();
+  const inconsistentStateRead = await expect(
+    await call('/flow/runtime-own', undefined, ownerHeaders),
+    503,
+    'FLOW detail rejects completed meeting state without completion evidence',
+  );
+  assertPrivateAuthResponse(inconsistentStateRead);
+  assert.match((await inconsistentStateRead.json()).error, /무결성/);
+  const inconsistentStateDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects completed meeting state without completion evidence',
+  );
+  assertPrivateAuthResponse(inconsistentStateDashboard);
+  assert.match((await inconsistentStateDashboard.json()).error, /무결성/);
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   await expect(
     await call('/flow/runtime-own', undefined, { cookie }),
     200,
     'FLOW detail resumes after the native D1 payload identity is restored',
   );
   checks.push(
-    'FLOW D1 row identity, timestamp, structure, collection field and internal reference guards protect detail ACL and dashboard projection',
+    'FLOW D1 row identity, timestamp, structure, collection field, reference and state-evidence guards protect detail ACL and dashboard projection',
   );
   assert.deepEqual(
     Object.keys(privateMimeFlow.commandReceipts[mimeCommand.commandId]).sort(),

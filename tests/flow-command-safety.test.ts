@@ -692,6 +692,118 @@ void test('FLOW commit rejects an orphaned reference before D1 writes', async ()
   assert.equal(await readFlow(initial.caseId), null);
 });
 
+void test('FLOW rejects inconsistent time and status evidence before detail use', async () => {
+  const corruptions: Array<
+    [string, (payload: Record<string, unknown>) => unknown]
+  > = [
+    [
+      'completed meeting without completion time',
+      (payload) => ({
+        ...payload,
+        meetings: [
+          {
+            id: 'invalid-completed-meeting',
+            kind: 'first',
+            startsAt: '2026-09-05T00:00:00.000Z',
+            endsAt: '2026-09-05T01:00:00.000Z',
+            location: '온라인',
+            attendance: 'both',
+            status: 'completed',
+            note: '',
+            createdBy: partner.id,
+          },
+        ],
+      }),
+    ],
+    [
+      'verified request without verification time',
+      (payload) => ({
+        ...payload,
+        files: [
+          {
+            id: 'status-file',
+            name: 'status.pdf',
+            contentType: 'application/pdf',
+            size: 1,
+            key: 'flow/status.pdf',
+            createdAt: '2026-09-05T00:00:00.000Z',
+            purpose: 'requested_document',
+          },
+        ],
+        requests: [
+          {
+            id: 'invalid-verified-request',
+            title: '자료',
+            required: true,
+            channel: '이메일',
+            recipient: partner.email,
+            dueDate: '2026-09-06',
+            status: 'verified',
+            fileId: 'status-file',
+            note: '',
+            createdAt: '2026-09-05T00:00:00.000Z',
+            receivedAt: '2026-09-05T01:00:00.000Z',
+            reviewedAt: '2026-09-05T02:00:00.000Z',
+          },
+        ],
+      }),
+    ],
+    [
+      'queued AI job with a start time',
+      (payload) => ({
+        ...payload,
+        jobs: [
+          {
+            id: 'invalid-queued-job',
+            stage: 1,
+            status: 'queued',
+            reason: '',
+            createdAt: '2026-09-05T00:00:00.000Z',
+            startedAt: '2026-09-05T01:00:00.000Z',
+          },
+        ],
+      }),
+    ],
+  ];
+  for (const [name, corrupt] of corruptions) {
+    const flow = await fixture();
+    await replaceStoredFlow(flow.caseId, corrupt);
+    await assert.rejects(
+      readFlow(flow.caseId),
+      (error) => error instanceof FlowError && error.status === 503,
+      name,
+    );
+  }
+});
+
+void test('FLOW commit rejects inconsistent state evidence before D1 writes', async () => {
+  const initial = newConsultingFlow(
+    `flow-state-commit-${++sequence}`,
+    '가상기업',
+    partner.id,
+    partner.name,
+  );
+  const changed = applyFlowCommand(
+    initial,
+    { type: 'save_report', stage: 1, body },
+    { id: adminEmail, role: 'admin', name: '가상 대표' },
+    { commandId: `state-${++sequence}`, now: new Date().toISOString() },
+  );
+  changed.jobs.push({
+    id: 'invalid-queued-job',
+    stage: 1,
+    status: 'queued',
+    reason: '',
+    createdAt: changed.updatedAt,
+    startedAt: changed.updatedAt,
+  });
+  await assert.rejects(
+    commitFlow(initial, changed),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  assert.equal(await readFlow(initial.caseId), null);
+});
+
 void test('FLOW dashboard validates full stored structure before SQLite projection', async () => {
   await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
   const flow = await fixture();
@@ -735,6 +847,27 @@ void test('FLOW dashboard rejects a hidden orphaned file reference', async () =>
         fileId: 'missing-file',
         note: '',
         createdAt: new Date().toISOString(),
+      },
+    ],
+  }));
+  await assert.rejects(
+    stateWithConsultingFlows(await readPortalState()),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+});
+
+void test('FLOW dashboard rejects inconsistent hidden AI job state', async () => {
+  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  const flow = await fixture();
+  await replaceStoredFlow(flow.caseId, (payload) => ({
+    ...payload,
+    jobs: [
+      {
+        id: 'invalid-dashboard-job',
+        stage: 1,
+        status: 'complete',
+        reason: '',
+        createdAt: '2026-09-05T00:00:00.000Z',
       },
     ],
   }));

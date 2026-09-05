@@ -10,11 +10,20 @@ const asRecord = (value: unknown): JsonRecord | null =>
 const text = (value: unknown): value is string => typeof value === 'string';
 const named = (value: unknown): value is string =>
   text(value) && value.trim().length > 0;
-const timestamp = (value: unknown) =>
+const timestamp = (value: unknown): value is string =>
   text(value) && value.length > 0 && Number.isFinite(Date.parse(value));
 const optionalText = (value: unknown) => value === undefined || named(value);
 const optionalTimestamp = (value: unknown) =>
   value === undefined || timestamp(value);
+const calendarDate = (value: unknown) => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value))
+    return false;
+  const parsed = Date.parse(`${value}T00:00:00.000Z`);
+  return (
+    Number.isFinite(parsed) &&
+    new Date(parsed).toISOString().slice(0, 10) === value
+  );
+};
 const safeInteger = (value: unknown, minimum = 0) =>
   Number.isSafeInteger(value) && (value as number) >= minimum;
 const oneOf = (value: unknown, allowed: readonly unknown[]) =>
@@ -75,6 +84,11 @@ function validFile(item: JsonRecord, stored: boolean) {
 }
 
 function validMeeting(item: JsonRecord) {
+  const validStatusTime =
+    item.status === 'completed'
+      ? timestamp(item.completedAt) &&
+        Date.parse(item.completedAt) >= Date.parse(item.startsAt as string)
+      : item.completedAt === undefined;
   return (
     oneOf(item.kind, ['first', 'followup', 'contract']) &&
     timestamp(item.startsAt) &&
@@ -85,7 +99,7 @@ function validMeeting(item: JsonRecord) {
     oneOf(item.status, ['scheduled', 'completed', 'cancelled']) &&
     text(item.note) &&
     named(item.createdBy) &&
-    optionalTimestamp(item.completedAt)
+    validStatusTime
   );
 }
 
@@ -104,19 +118,46 @@ function validRecording(item: JsonRecord, projected: boolean) {
 }
 
 function validRequest(item: JsonRecord) {
-  return (
-    named(item.title) &&
-    typeof item.required === 'boolean' &&
-    oneOf(item.channel, ['카카오톡', '이메일', '기타']) &&
-    named(item.recipient) &&
-    text(item.dueDate) &&
-    oneOf(item.status, ['requested', 'received', 'verified', 'needs_fix']) &&
-    optionalText(item.fileId) &&
-    text(item.note) &&
-    timestamp(item.createdAt) &&
-    ['sentAt', 'receivedAt', 'reviewedAt', 'verifiedAt'].every((key) =>
+  if (
+    !named(item.title) ||
+    typeof item.required !== 'boolean' ||
+    !oneOf(item.channel, ['카카오톡', '이메일', '기타']) ||
+    !named(item.recipient) ||
+    !(item.dueDate === '' || calendarDate(item.dueDate)) ||
+    !oneOf(item.status, ['requested', 'received', 'verified', 'needs_fix']) ||
+    !optionalText(item.fileId) ||
+    !text(item.note) ||
+    !timestamp(item.createdAt) ||
+    !['sentAt', 'receivedAt', 'reviewedAt', 'verifiedAt'].every((key) =>
       optionalTimestamp(item[key]),
     )
+  )
+    return false;
+  const fileId = reference(item.fileId);
+  const receivedAt = reference(item.receivedAt);
+  const reviewedAt = reference(item.reviewedAt);
+  const verifiedAt = reference(item.verifiedAt);
+  const statusEvidence =
+    item.status === 'requested'
+      ? !fileId && !receivedAt && !reviewedAt && !verifiedAt
+      : item.status === 'received'
+        ? fileId && receivedAt && !reviewedAt && !verifiedAt
+        : item.status === 'needs_fix'
+          ? fileId && receivedAt && reviewedAt && !verifiedAt
+          : fileId && receivedAt && reviewedAt && verifiedAt;
+  const timeline = [
+    item.createdAt as string,
+    reference(item.sentAt),
+    receivedAt,
+    reviewedAt,
+    verifiedAt,
+  ].filter((value): value is string => Boolean(value));
+  return Boolean(
+    statusEvidence &&
+    timeline.every(
+      (value, index) =>
+        index === 0 || Date.parse(value) >= Date.parse(timeline[index - 1]),
+    ),
   );
 }
 
@@ -124,7 +165,7 @@ function validPayment(item: JsonRecord) {
   return (
     safeInteger(item.amountWon, 1) &&
     (item.amountWon as number) <= 1_000_000_000_000 &&
-    named(item.receivedAt) &&
+    calendarDate(item.receivedAt) &&
     named(item.reference) &&
     named(item.confirmedBy) &&
     timestamp(item.recordedAt)
@@ -132,22 +173,43 @@ function validPayment(item: JsonRecord) {
 }
 
 function validJob(item: JsonRecord) {
-  return (
-    oneOf(item.stage, [1, 4]) &&
-    oneOf(item.status, [
+  if (
+    !oneOf(item.stage, [1, 4]) ||
+    !oneOf(item.status, [
       'queued',
       'processing',
       'blocked',
       'failed',
       'complete',
-    ]) &&
-    text(item.reason) &&
-    timestamp(item.createdAt) &&
-    ['sourceRecordingId', 'sourceReportId', 'reportId'].every((key) =>
+    ]) ||
+    !text(item.reason) ||
+    !timestamp(item.createdAt) ||
+    !['sourceRecordingId', 'sourceReportId', 'reportId'].every((key) =>
       optionalText(item[key]),
-    ) &&
-    optionalTimestamp(item.startedAt) &&
-    optionalTimestamp(item.completedAt)
+    ) ||
+    !optionalTimestamp(item.startedAt) ||
+    !optionalTimestamp(item.completedAt)
+  )
+    return false;
+  const startedAt = reference(item.startedAt);
+  const completedAt = reference(item.completedAt);
+  const reportId = reference(item.reportId);
+  const statusEvidence =
+    item.status === 'queued'
+      ? !startedAt && !completedAt && !reportId
+      : item.status === 'processing'
+        ? startedAt && !completedAt && !reportId
+        : item.status === 'complete'
+          ? startedAt && completedAt && reportId
+          : item.status === 'failed'
+            ? startedAt && !completedAt && !reportId
+            : !completedAt && !reportId;
+  return Boolean(
+    statusEvidence &&
+    (!startedAt ||
+      Date.parse(startedAt) >= Date.parse(item.createdAt as string)) &&
+    (!completedAt ||
+      (startedAt && Date.parse(completedAt) >= Date.parse(startedAt))),
   );
 }
 
@@ -204,7 +266,7 @@ function validContract(value: unknown) {
     named(item.meetingId) &&
     named(item.reportId) &&
     named(item.signedFileId) &&
-    named(item.signedAt) &&
+    calendarDate(item.signedAt) &&
     safeInteger(item.expectedDepositWon, 1) &&
     (item.expectedDepositWon as number) <= 1_000_000_000_000 &&
     named(item.recordedBy),
@@ -218,7 +280,7 @@ function validAftercare(value: unknown) {
     item &&
     timestamp(item.at) &&
     named(item.summary) &&
-    named(item.nextDate) &&
+    calendarDate(item.nextDate) &&
     named(item.owner),
   );
 }
@@ -325,6 +387,53 @@ function hasReferenceIntegrity(flow: JsonRecord, mode: ShapeMode) {
   ).every((id) => commandIds.has(id));
 }
 
+function koreanDate(value: string) {
+  return new Date(Date.parse(value) + 9 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+}
+
+function hasStateIntegrity(flow: JsonRecord, mode: ShapeMode) {
+  const meetings = flow.meetings as Array<JsonRecord>;
+  const contract = flow.contract as JsonRecord | undefined;
+  const payments = flow.payments as Array<JsonRecord>;
+  const executionStartedAt = reference(flow.executionStartedAt);
+  const aftercare = flow.aftercare as JsonRecord | undefined;
+  if (
+    contract &&
+    meetings.find((item) => item.id === contract.meetingId)?.status !==
+      'completed'
+  )
+    return false;
+  if (
+    payments.some(
+      (item) =>
+        !contract ||
+        (item.receivedAt as string) > koreanDate(item.recordedAt as string),
+    )
+  )
+    return false;
+  const paid = payments.reduce(
+    (total, item) => total + (item.amountWon as number),
+    0,
+  );
+  const depositComplete = Boolean(
+    contract && paid >= (contract.expectedDepositWon as number),
+  );
+  if (Boolean(executionStartedAt) !== depositComplete) return false;
+  if (
+    aftercare &&
+    (!executionStartedAt ||
+      Date.parse(aftercare.at as string) < Date.parse(executionStartedAt))
+  )
+    return false;
+  if (mode === 'projected' || !contract) return true;
+  const signedFile = (flow.files as Array<JsonRecord>).find(
+    (item) => item.id === contract.signedFileId,
+  );
+  return signedFile?.purpose === 'signed_contract';
+}
+
 function hasBaseStructure(value: unknown, mode: ShapeMode) {
   const flow = asRecord(value);
   if (!flow) return false;
@@ -356,7 +465,9 @@ function hasBaseStructure(value: unknown, mode: ShapeMode) {
         flow.commandIds.every(named) &&
         new Set(flow.commandIds).size === flow.commandIds.length)) &&
     (projected || validReceipts(flow.commandReceipts));
-  return valid && hasReferenceIntegrity(flow, mode);
+  return (
+    valid && hasReferenceIntegrity(flow, mode) && hasStateIntegrity(flow, mode)
+  );
 }
 
 export function hasConsultingFlowStructure(

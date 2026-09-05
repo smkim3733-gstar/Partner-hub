@@ -164,6 +164,7 @@ export async function stateWithConsultingFlows(raw: unknown) {
         (json_type(payload, '$.contract') IS NULL OR EXISTS (
           SELECT 1 FROM json_each(payload, '$.files') f
           WHERE json_extract(f.value, '$.id') = json_extract(payload, '$.contract.signedFileId')
+            AND json_extract(f.value, '$.purpose') = 'signed_contract'
         )) AND
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.jobs') j WHERE
           (json_type(j.value, '$.sourceRecordingId') IS NOT NULL AND NOT EXISTS (
@@ -175,6 +176,21 @@ export async function stateWithConsultingFlows(raw: unknown) {
           (json_type(j.value, '$.reportId') IS NOT NULL AND NOT EXISTS (
             SELECT 1 FROM json_each(payload, '$.reports') r
             WHERE json_extract(r.value, '$.id') = json_extract(j.value, '$.reportId')))) AND
+        NOT EXISTS (SELECT 1 FROM json_each(payload, '$.jobs') j WHERE
+          CASE json_extract(j.value, '$.status')
+            WHEN 'queued' THEN json_type(j.value, '$.startedAt') IS NOT NULL OR
+              json_type(j.value, '$.completedAt') IS NOT NULL OR json_type(j.value, '$.reportId') IS NOT NULL
+            WHEN 'processing' THEN COALESCE(json_type(j.value, '$.startedAt'), '') <> 'text' OR
+              json_type(j.value, '$.completedAt') IS NOT NULL OR json_type(j.value, '$.reportId') IS NOT NULL
+            WHEN 'blocked' THEN json_type(j.value, '$.completedAt') IS NOT NULL OR
+              json_type(j.value, '$.reportId') IS NOT NULL
+            WHEN 'failed' THEN COALESCE(json_type(j.value, '$.startedAt'), '') <> 'text' OR
+              json_type(j.value, '$.completedAt') IS NOT NULL OR json_type(j.value, '$.reportId') IS NOT NULL
+            WHEN 'complete' THEN COALESCE(json_type(j.value, '$.startedAt'), '') <> 'text' OR
+              COALESCE(json_type(j.value, '$.completedAt'), '') <> 'text' OR
+              COALESCE(json_type(j.value, '$.reportId'), '') <> 'text'
+            ELSE 1
+          END) AND
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.commandReceipts') receipt WHERE
           NOT EXISTS (SELECT 1 FROM json_each(payload, '$.commandIds') command
             WHERE command.value = receipt.key)) AND
