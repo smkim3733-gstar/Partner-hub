@@ -1,5 +1,6 @@
 import {
   uploadFileAccept,
+  uploadFileExtension,
   type UploadFileExtension,
 } from './upload-file-formats';
 import { MAX_AI_SOURCE_BYTES } from './intake-source-policy';
@@ -8,17 +9,47 @@ import {
   MAX_TRANSCRIPT_FILE_BYTES,
 } from './transcript-policy';
 
-export type FlowUploadPurpose =
-  | 'source'
-  | 'report'
-  | 'recording'
-  | 'transcript'
-  | 'requested_document'
-  | 'signed_contract';
+export const storedFlowFilePurposes = [
+  'source',
+  'source_archived',
+  'report',
+  'recording',
+  'transcript',
+  'requested_document',
+  'signed_contract',
+] as const;
+export type StoredFlowFilePurpose = (typeof storedFlowFilePurposes)[number];
+export type FlowUploadPurpose = Exclude<
+  StoredFlowFilePurpose,
+  'source_archived'
+>;
 
 export type FlowUploadCommand = { type: string; stage?: unknown };
 export type FlowUploadSlot = 'file' | 'audio' | 'document';
 export const MAX_FLOW_UPLOAD_BYTES = 25 * 1024 * 1024;
+
+export function isStoredFlowFilePurpose(
+  value: unknown,
+): value is StoredFlowFilePurpose {
+  return (
+    typeof value === 'string' &&
+    storedFlowFilePurposes.includes(value as StoredFlowFilePurpose)
+  );
+}
+
+export function storedFlowFileMaxBytes(purpose: unknown, name: unknown) {
+  if (!isStoredFlowFilePurpose(purpose) || typeof name !== 'string')
+    return undefined;
+  if (purpose === 'source' || purpose === 'source_archived')
+    return MAX_AI_SOURCE_BYTES;
+  if (
+    purpose === 'transcript' ||
+    (purpose === 'recording' &&
+      ['docx', 'txt'].includes(uploadFileExtension(name)))
+  )
+    return MAX_TRANSCRIPT_FILE_BYTES;
+  return MAX_FLOW_UPLOAD_BYTES;
+}
 
 const audioExtensions = ['mp3', 'm4a', 'wav'] as const;
 const transcriptExtensions = ['docx', 'txt'] as const;

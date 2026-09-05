@@ -9,7 +9,12 @@ import {
   flowUploadExtensions,
   flowUploadMaxMegabytes,
   flowUploadPurpose,
+  isStoredFlowFilePurpose,
+  MAX_FLOW_UPLOAD_BYTES,
+  storedFlowFileMaxBytes,
 } from '../lib/consulting-flow-upload-policy';
+import { MAX_AI_SOURCE_BYTES } from '../lib/intake-source-policy';
+import { MAX_TRANSCRIPT_FILE_BYTES } from '../lib/transcript-policy';
 
 void test('consulting flow upload policy owns purpose and command-specific formats', () => {
   assert.equal(flowUploadPurpose({ type: 'save_source' }), 'source');
@@ -45,10 +50,34 @@ void test('consulting flow upload policy owns purpose and command-specific forma
   );
   assert.equal(flowUploadMaxMegabytes({ type: 'save_recording' }, 'audio'), 25);
   assert.equal(flowUploadMaxMegabytes({ type: 'save_report', stage: 2 }), 25);
+  assert.equal(
+    storedFlowFileMaxBytes('source_archived', 'source.pdf'),
+    MAX_AI_SOURCE_BYTES,
+  );
+  assert.equal(
+    storedFlowFileMaxBytes('recording', 'recording.docx'),
+    MAX_TRANSCRIPT_FILE_BYTES,
+  );
+  assert.equal(
+    storedFlowFileMaxBytes('recording', 'recording.wav'),
+    MAX_FLOW_UPLOAD_BYTES,
+  );
+  assert.equal(storedFlowFileMaxBytes('unknown', 'file.pdf'), undefined);
+  assert.equal(isStoredFlowFilePurpose('signed_contract'), true);
+  assert.equal(isStoredFlowFilePurpose('unknown'), false);
 });
 
 void test('server rejects files hidden by stage and AI-source controls', () => {
   const now = '2026-09-04T00:00:00.000Z';
+  assert.throws(
+    () =>
+      describeUpload(
+        new File([], 'empty.pdf'),
+        { type: 'save_report', stage: 2, fileConsent: true },
+        now,
+      ),
+    /비어/,
+  );
   assert.throws(
     () =>
       describeUpload(

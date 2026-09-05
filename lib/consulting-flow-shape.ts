@@ -1,4 +1,8 @@
 import type { ConsultingFlow } from './consulting-flow';
+import {
+  isStoredFlowFilePurpose,
+  storedFlowFileMaxBytes,
+} from './consulting-flow-upload-policy';
 
 type JsonRecord = Record<string, unknown>;
 type ShapeMode = 'public' | 'stored' | 'projected';
@@ -358,15 +362,18 @@ function validReport(item: JsonRecord, projected: boolean) {
 }
 
 function validFile(item: JsonRecord, stored: boolean) {
+  const maximumSize = storedFlowFileMaxBytes(item.purpose, item.name);
   return (
     hasOnlyKeys(item, FLOW_OBJECT_KEYS.file) &&
     boundedName(item.name, FLOW_FIELD_LIMITS.fileName) &&
     boundedName(item.contentType, FLOW_FIELD_LIMITS.fileContentType) &&
-    safeInteger(item.size) &&
+    isStoredFlowFilePurpose(item.purpose) &&
+    safeInteger(item.size, 1) &&
+    maximumSize !== undefined &&
+    (item.size as number) <= maximumSize &&
     boundedText(item.key, FLOW_FIELD_LIMITS.fileKey) &&
     (!stored || boundedName(item.key, FLOW_FIELD_LIMITS.fileKey)) &&
     timestamp(item.createdAt) &&
-    boundedName(item.purpose, FLOW_FIELD_LIMITS.filePurpose) &&
     ['intakeFileId', 'intakeSourceHash', 'sourceReviewedBy'].every((key) =>
       optionalText(item[key], FLOW_FIELD_LIMITS.fileMetadata),
     ) &&

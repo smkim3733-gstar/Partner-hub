@@ -111,6 +111,8 @@ export function describeUpload(
     );
   const ext = uploadFileExtension(file.name);
   const maxBytes = flowUploadMaxBytes(command, slot, ext);
+  if (!Number.isSafeInteger(file.size) || file.size <= 0)
+    throw new FlowError('비어 있거나 크기를 확인할 수 없는 첨부파일입니다.');
   if (maxBytes !== undefined && file.size > maxBytes)
     throw new FlowError(
       `첨부파일은 ${flowUploadMaxMegabytes(command, slot, ext)}MB 이하여야 합니다.`,

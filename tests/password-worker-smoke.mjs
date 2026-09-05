@@ -2109,6 +2109,31 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  const oversizedFlowFile = JSON.parse(intactFlowPayload);
+  oversizedFlowFile.files.at(-1).size = 25 * 1024 * 1024 + 1;
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(oversizedFlowFile), 'runtime-own')
+    .run();
+  await expect(
+    await call('/flow/runtime-own', undefined, ownerHeaders),
+    503,
+    'FLOW detail rejects file metadata above its upload ceiling',
+  );
+  const oversizedFlowFileDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects oversized file metadata before native SQLite projection',
+  );
+  assertPrivateAuthResponse(oversizedFlowFileDashboard);
+  assert.match((await oversizedFlowFileDashboard.json()).error, /무결성/);
+  checks.push(
+    'FLOW stored file size limits match upload ceilings in detail and dashboard reads',
+  );
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   const flowAtAiResultCapacity = JSON.parse(intactFlowPayload);
   flowAtAiResultCapacity.ai = {
     enabled: true,

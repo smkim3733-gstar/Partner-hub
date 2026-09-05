@@ -20,6 +20,12 @@ import { QueryRequestError } from '@/lib/request-query';
 import { readRouteParam, RouteParamError } from '@/lib/request-path';
 import { privateJsonResponse } from '@/lib/private-response';
 import {
+  MAX_FLOW_UPLOAD_BYTES,
+  storedFlowFilePurposes,
+} from '@/lib/consulting-flow-upload-policy';
+import { MAX_AI_SOURCE_BYTES } from '@/lib/intake-source-policy';
+import { MAX_TRANSCRIPT_FILE_BYTES } from '@/lib/transcript-policy';
+import {
   FLOW_COLLECTION_LIMITS,
   FLOW_FIELD_LIMITS,
   FLOW_OBJECT_KEYS,
@@ -98,6 +104,16 @@ const unexpectedCollectionObjectKeysSql = (
       `CASE WHEN ${alias}.type = 'object' THEN ${alias}.value ELSE '{}' END`,
       allowed,
     )})`;
+const storedFlowFilePurposesSql = storedFlowFilePurposes
+  .map((purpose) => `'${purpose}'`)
+  .join(', ');
+const storedFlowFileSizeLimitSql = `CASE
+  WHEN json_extract(f.value, '$.purpose') IN ('source', 'source_archived') THEN ${MAX_AI_SOURCE_BYTES}
+  WHEN json_extract(f.value, '$.purpose') = 'transcript' THEN ${MAX_TRANSCRIPT_FILE_BYTES}
+  WHEN json_extract(f.value, '$.purpose') = 'recording' AND
+    (substr(lower(json_extract(f.value, '$.name')), -5) = '.docx' OR
+      substr(lower(json_extract(f.value, '$.name')), -4) = '.txt') THEN ${MAX_TRANSCRIPT_FILE_BYTES}
+  ELSE ${MAX_FLOW_UPLOAD_BYTES} END`;
 // Keep this separate from the large projection predicate so both stay below D1's depth ceiling.
 const hiddenFlowSemanticViolationSql = `SELECT 1 AS invalid FROM consulting_flows
   WHERE CASE WHEN json_valid(payload) THEN
@@ -121,6 +137,8 @@ const hiddenFlowSemanticViolationSql = `SELECT 1 AS invalid FROM consulting_flow
       ${blankJsonTextSql('f', 'id')} OR ${blankJsonTextSql('f', 'name')} OR
       ${blankJsonTextSql('f', 'contentType')} OR ${blankJsonTextSql('f', 'key')} OR
       ${invalidJsonTimestampSql('f', 'createdAt')} OR ${blankJsonTextSql('f', 'purpose')} OR
+      json_extract(f.value, '$.purpose') NOT IN (${storedFlowFilePurposesSql}) OR
+      json_extract(f.value, '$.size') NOT BETWEEN 1 AND ${storedFlowFileSizeLimitSql} OR
       ${blankJsonTextSql('f', 'intakeFileId')} OR ${blankJsonTextSql('f', 'intakeSourceHash')} OR
       ${blankJsonTextSql('f', 'sourceReviewedBy')} OR
       ${invalidOptionalJsonTimestampSql('f', 'sourceReviewedAt')}) OR

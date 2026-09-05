@@ -30,6 +30,12 @@ import {
   FLOW_COLLECTION_LIMITS,
   FLOW_TEXT_LIMITS,
 } from '../lib/consulting-flow-shape';
+import {
+  MAX_FLOW_UPLOAD_BYTES,
+  type StoredFlowFilePurpose,
+} from '../lib/consulting-flow-upload-policy';
+import { MAX_AI_SOURCE_BYTES } from '../lib/intake-source-policy';
+import { MAX_TRANSCRIPT_FILE_BYTES } from '../lib/transcript-policy';
 
 const partner = {
   id: 'safety-partner',
@@ -891,6 +897,64 @@ void test('FLOW rejects excessive collections and oversized fields before detail
     readFlow(fieldFlow.caseId),
     (error) => error instanceof FlowError && error.status === 503,
   );
+});
+
+void test('FLOW detail and dashboard reject empty, oversized and unknown-purpose file metadata', async () => {
+  const corruptions: Array<{
+    name: string;
+    purpose: StoredFlowFilePurpose | 'unknown';
+    size: number;
+  }> = [
+    {
+      name: 'empty.pdf',
+      purpose: 'report',
+      size: 0,
+    },
+    {
+      name: 'oversized-report.pdf',
+      purpose: 'report',
+      size: MAX_FLOW_UPLOAD_BYTES + 1,
+    },
+    {
+      name: 'oversized-source.pdf',
+      purpose: 'source_archived',
+      size: MAX_AI_SOURCE_BYTES + 1,
+    },
+    {
+      name: 'oversized-transcript.txt',
+      purpose: 'transcript',
+      size: MAX_TRANSCRIPT_FILE_BYTES + 1,
+    },
+    {
+      name: 'unknown.pdf',
+      purpose: 'unknown',
+      size: 1,
+    },
+  ];
+  for (const [index, corruption] of corruptions.entries()) {
+    await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+    const flow = await fixture();
+    await replaceStoredFlow(flow.caseId, (payload) => {
+      (payload.files as Array<Record<string, unknown>>).push({
+        id: `invalid-file-${index}`,
+        name: corruption.name,
+        contentType: 'application/octet-stream',
+        size: corruption.size,
+        key: `synthetic/invalid-file-${index}`,
+        createdAt: payload.updatedAt,
+        purpose: corruption.purpose,
+      });
+      return payload;
+    });
+    await assert.rejects(
+      readFlow(flow.caseId),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    await assert.rejects(
+      stateWithConsultingFlows(await readPortalState()),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+  }
 });
 
 void test('FLOW commit rejects an oversized field before D1 writes', async () => {
