@@ -253,6 +253,16 @@ const flowCommandSemanticsTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowCommandReceiptIdentityTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0054_consulting_flow_command_receipt_identity.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -272,6 +282,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_new_command_evidence_guard',
   'consulting_flows_command_receipt_origin_guard',
   'consulting_flows_command_semantics_guard',
+  'consulting_flows_new_command_receipt_identity_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -294,6 +305,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowNewCommandEvidenceTriggerSql,
       ...flowCommandReceiptOriginTriggerSql,
       flowCommandSemanticsTriggerSql[1],
+      flowCommandReceiptIdentityTriggerSql[1],
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3822,7 +3834,7 @@ try {
         flow.commandIds.push(commandId);
         flow.commandReceipts[commandId] = {
           actorKey: 'admin:synthetic-owner',
-          fingerprint: 'native-command-without-audit-fingerprint',
+          fingerprint: 'd'.repeat(64),
           actor: '가상 대표',
           action: 'set_ai_policy',
         };
@@ -3843,9 +3855,51 @@ try {
         });
         flow.commandReceipts[commandId] = {
           actorKey: 'admin:synthetic-owner',
-          fingerprint: 'native-command-semantic-mismatch-fingerprint',
+          fingerprint: 'e'.repeat(64),
           actor: '가상 대표',
           action: 'save_report',
+        };
+      },
+    },
+    {
+      name: 'FLOW native D1 requires a lowercase SHA-256 command fingerprint',
+      pattern: /new command receipt identity is invalid/,
+      apply(flow) {
+        const commandId = 'native-command-uppercase-fingerprint';
+        flow.commandIds.push(commandId);
+        flow.audit.push({
+          id: commandId,
+          at: flow.updatedAt,
+          actor: '가상 대표',
+          action: 'set_ai_policy',
+          detail: '가상 명령 지문 정규형 검사',
+        });
+        flow.commandReceipts[commandId] = {
+          actorKey: 'admin:synthetic-owner',
+          fingerprint: 'A'.repeat(64),
+          actor: '가상 대표',
+          action: 'set_ai_policy',
+        };
+      },
+    },
+    {
+      name: 'FLOW native D1 requires a namespaced command actor key',
+      pattern: /new command receipt identity is invalid/,
+      apply(flow) {
+        const commandId = 'native-command-invalid-actor-key';
+        flow.commandIds.push(commandId);
+        flow.audit.push({
+          id: commandId,
+          at: flow.updatedAt,
+          actor: '가상 대표',
+          action: 'set_ai_policy',
+          detail: '가상 명령 행위자 키 검사',
+        });
+        flow.commandReceipts[commandId] = {
+          actorKey: 'operator:synthetic-owner',
+          fingerprint: 'f'.repeat(64),
+          actor: '가상 대표',
+          action: 'set_ai_policy',
         };
       },
     },

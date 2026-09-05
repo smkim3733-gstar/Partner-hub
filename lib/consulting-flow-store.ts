@@ -14,6 +14,7 @@ import {
   consultingFlowsCommandHistoryTriggerSql,
   consultingFlowsCommandInsertEvidenceTriggerSql,
   consultingFlowsCommandInsertSemanticsTriggerSql,
+  consultingFlowsCommandInsertReceiptIdentityTriggerSql,
   consultingFlowsCommandReceiptOriginTriggerSql,
   consultingFlowsCommandSemanticsTriggerSql,
   consultingFlowsFailureEvidenceTriggerSql,
@@ -35,6 +36,7 @@ import {
   consultingFlowsJobTransitionTimestampTriggerSql,
   consultingFlowsNoDeleteTriggerSql,
   consultingFlowsNewCommandEvidenceTriggerSql,
+  consultingFlowsNewCommandReceiptIdentityTriggerSql,
   consultingFlowsSuccessEvidenceTriggerSql,
   consultingFlowsTransitionTriggerSql,
   consultingFlowsTableSql,
@@ -127,6 +129,8 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandReceiptOriginTriggerSql),
         db.prepare(consultingFlowsCommandInsertSemanticsTriggerSql),
         db.prepare(consultingFlowsCommandSemanticsTriggerSql),
+        db.prepare(consultingFlowsCommandInsertReceiptIdentityTriggerSql),
+        db.prepare(consultingFlowsNewCommandReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),
@@ -1005,6 +1009,8 @@ function assertFlowCommitTransition(
       );
       return (
         !receipt ||
+        !/^[0-9a-f]{64}$/.test(receipt.fingerprint) ||
+        !/^(?:admin|member):[^ \t\r\n]+$/.test(receipt.actorKey) ||
         matchingAudit.length !== 1 ||
         receipt.actor !== matchingAudit[0].actor ||
         receipt.action !== matchingAudit[0].action

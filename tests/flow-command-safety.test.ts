@@ -81,7 +81,7 @@ function addSyntheticCommandReceipt(flow: ConsultingFlow, commandId: string) {
     ...flow.commandReceipts,
     [commandId]: {
       actorKey: `admin:${adminEmail}`,
-      fingerprint: `synthetic-${commandId}`,
+      fingerprint: 'a'.repeat(64),
       actor: audit.actor,
       action: audit.action,
     },
@@ -1258,7 +1258,7 @@ void test('FLOW command IDs and receipts remain append-only', async () => {
   saved.commandReceipts = {
     [commandId]: {
       actorKey: `admin:${adminEmail}`,
-      fingerprint: 'synthetic-command-history-fingerprint',
+      fingerprint: 'b'.repeat(64),
       actor: '가상 대표',
       action: 'save_report',
     },
@@ -1515,6 +1515,60 @@ void test('FLOW command receipt semantics match and preserve their audit', async
       JSON.parse(JSON.stringify(valid)),
     );
   }
+});
+
+void test('FLOW new command receipts require canonical identity fields', async () => {
+  const initial = await fixture();
+  const commandId = `command-receipt-identity-${++sequence}`;
+  const valid = applyFlowCommand(
+    initial,
+    { type: 'set_ai_policy', enabled: false },
+    { id: adminEmail, role: 'admin', name: '가상 대표' },
+    {
+      commandId,
+      now: new Date(Date.parse(initial.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(valid, commandId);
+  const db = await flowDatabase();
+  for (const mutate of [
+    (flow: ConsultingFlow) => {
+      flow.commandReceipts![commandId].fingerprint = 'A'.repeat(64);
+    },
+    (flow: ConsultingFlow) => {
+      flow.commandReceipts![commandId].actorKey = `operator:${adminEmail}`;
+    },
+  ]) {
+    const changed = structuredClone(valid);
+    mutate(changed);
+    await assert.rejects(
+      commitFlow(initial, changed),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          changed.revision,
+          JSON.stringify(changed),
+          changed.updatedAt,
+          initial.caseId,
+          initial.revision,
+        )
+        .run(),
+      /new command receipt identity is invalid/,
+    );
+    assert.deepEqual(await readFlow(initial.caseId), initial);
+  }
+  await commitFlow(initial, valid);
+  assert.deepEqual(
+    await readFlow(valid.caseId),
+    JSON.parse(JSON.stringify(valid)),
+  );
 });
 
 void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => {
