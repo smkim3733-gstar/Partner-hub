@@ -20,6 +20,7 @@ import {
   AI_DIAGNOSIS_RUN_FIELD_LIMITS,
   STEP_ZERO_PENDING_LIMIT_BYTES,
   STEP_ZERO_MAX_OUTPUT_TOKENS,
+  STEP_ZERO_PENDING_STALE_MS,
   STEP_ZERO_RESULT_LIMIT_BYTES,
 } from '@/lib/storage-limits';
 import { isSafeStoredText } from '@/lib/unicode-text';
@@ -310,6 +311,17 @@ export async function claimStepZeroRequest(
   assertValidStepZeroClaimInput(input);
   const db = companyFileDatabase();
   await ensureAiDiagnosisTables(db);
+  const staleBefore = new Date(
+    Date.parse(input.createdAt) - STEP_ZERO_PENDING_STALE_MS,
+  ).toISOString();
+  await db
+    .prepare(`
+      UPDATE ai_diagnosis_runs SET status = '생성실패'
+      WHERE case_id = ?1 AND stage = 'Step 0' AND status = '생성중'
+        AND created_at <= ?2
+    `)
+    .bind(input.caseId, staleBefore)
+    .run();
   const result = await db
     .prepare(`
     INSERT INTO ai_diagnosis_runs (

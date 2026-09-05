@@ -28,6 +28,7 @@ import { privateJsonResponse } from '@/lib/private-response';
 import {
   AI_DIAGNOSIS_RUN_FIELD_LIMITS,
   STEP_ZERO_MAX_OUTPUT_TOKENS,
+  STEP_ZERO_REQUEST_TIMEOUT_MS,
 } from '@/lib/storage-limits';
 import { isSafeStoredText } from '@/lib/unicode-text';
 
@@ -293,6 +294,7 @@ export async function POST(request: Request) {
             { role: 'user', content: stepZeroPrompt(company, pilotContext) },
           ],
         }),
+        signal: AbortSignal.timeout(STEP_ZERO_REQUEST_TIMEOUT_MS),
       });
       const payload = await readAnthropicMessageResponse(response);
       if (!response.ok) {

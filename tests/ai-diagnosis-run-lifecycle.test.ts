@@ -11,6 +11,10 @@ import {
   type SavedStepZeroRun,
 } from '../lib/ai-diagnosis';
 import { companyFileDatabase } from '../lib/company-files';
+import {
+  STEP_ZERO_PENDING_STALE_MS,
+  STEP_ZERO_REQUEST_TIMEOUT_MS,
+} from '../lib/storage-limits';
 
 const fingerprint = 'a'.repeat(64);
 
@@ -262,6 +266,71 @@ void test('AI diagnosis runs preserve one durable forward lifecycle', async () =
       .bind(failedId)
       .run(),
     /transition is invalid/,
+  );
+});
+
+void test('stale AI diagnosis locks fail closed before a new explicit request', async () => {
+  assert.ok(STEP_ZERO_PENDING_STALE_MS > STEP_ZERO_REQUEST_TIMEOUT_MS);
+  const db = companyFileDatabase();
+  await ensureAiDiagnosisTables(db);
+  const caseId = 'diagnosis-stale-lock-case';
+  const staleId = 'diagnosis-stale-lock-original';
+  const startedAt = Date.parse('2026-09-06T00:00:00.000Z');
+  assert.deepEqual(
+    await claimStepZeroRequest({
+      ...claimInput(staleId, caseId),
+      createdAt: new Date(startedAt).toISOString(),
+    }),
+    { state: 'claimed' },
+  );
+  assert.deepEqual(
+    await claimStepZeroRequest({
+      ...claimInput('diagnosis-stale-lock-too-early', caseId),
+      createdAt: new Date(
+        startedAt + STEP_ZERO_PENDING_STALE_MS - 1,
+      ).toISOString(),
+    }),
+    { state: 'pending' },
+  );
+  const replacementId = 'diagnosis-stale-lock-replacement';
+  assert.deepEqual(
+    await claimStepZeroRequest({
+      ...claimInput(replacementId, caseId),
+      createdAt: new Date(startedAt + STEP_ZERO_PENDING_STALE_MS).toISOString(),
+    }),
+    { state: 'claimed' },
+  );
+  const rows = await db
+    .prepare(
+      'SELECT id, status, created_at FROM ai_diagnosis_runs WHERE case_id = ?1 ORDER BY created_at',
+    )
+    .bind(caseId)
+    .all();
+  assert.deepEqual(
+    rows.results.map((row) => ({ ...row })),
+    [
+      {
+        id: staleId,
+        status: '생성실패',
+        created_at: '2026-09-06T00:00:00.000Z',
+      },
+      {
+        id: replacementId,
+        status: '생성중',
+        created_at: '2026-09-06T00:05:00.000Z',
+      },
+    ],
+  );
+  assert.equal(
+    await completeStepZeroRequest(
+      {
+        ...completedRun(staleId, caseId),
+        createdAt: '2026-09-06T00:05:01.000Z',
+      },
+      'synthetic-admin',
+      fingerprint,
+    ),
+    false,
   );
 });
 

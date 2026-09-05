@@ -220,7 +220,9 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
     });
   runtime.ANTHROPIC_API_KEY = 'synthetic-step-zero-key';
   runtime.ANTHROPIC_MODEL = 'synthetic-step-zero-model';
-  globalThis.fetch = async () => {
+  globalThis.fetch = async (_input, init) => {
+    assert.ok(init?.signal instanceof AbortSignal);
+    assert.equal(init.signal.aborted, false);
     externalCalls++;
     return modelResponse();
   };
