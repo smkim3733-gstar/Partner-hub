@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [협업신청 임시저장 수명주기 무결성 경계](APPLICATION_DRAFT_LIFECYCLE_INTEGRITY_2026_09_05.md)                        | 소유자 불변, revision 전진, 초안 ID 전이와 clear tombstone 영구 보존                     |
 | [상담 FLOW 루트 전이 envelope 무결성 경계](FLOW_ROOT_TRANSITION_ENVELOPE_INTEGRITY_2026_09_05.md)                    | 진행·담당·revision·수정시각 권위 열과 JSON payload의 원자적 삽입·전이 강제               |
 | [상담 FLOW 루트 행 수명주기 무결성 경계](FLOW_ROOT_LIFECYCLE_INTEGRITY_2026_09_05.md)                                | 진행·담당 계정 불변과 운영 루트 행 직접 삭제 차단                                        |
 | [상담 FLOW 파일 원장 수명주기 무결성 경계](FLOW_FILE_LEDGER_LIFECYCLE_INTEGRITY_2026_09_05.md)                       | 소유권·객체 증거 불변, 삭제 차단과 원본 보관 목적의 단방향 전이 강제                     |

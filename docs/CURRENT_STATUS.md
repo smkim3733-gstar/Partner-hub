@@ -4,11 +4,13 @@
 
 ## 최신 연속 개발 지점
 
-- 최신 기능 커밋은 `a6162bf2e9741b0202d204084829111e7cd16b28`, Sites 저장 버전은 177이다.
-- 상담 FLOW 루트 행의 삽입과 수정은 진행·담당·revision·수정시각 권위 열과 JSON payload가 일치하고 revision이 한 단계 증가할 때만 D1에서 허용한다.
-- Node 629/629, 격리 workerd+D1+R2 439/439, 타입검사, lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 운영 화면 3곳을 통과했다.
-- 공개 운영본은 버전 107이다. 버전 108~176은 버전 177로 대체하며 공개하지 않는다.
-- 다음 감사는 `application_drafts`의 소유자·초안 ID·revision·payload·수정시각 전이를 하나의 정상 D1 envelope로 결속한다.
+- 최신 기능 커밋은 `f5fc52c37d045430375d10371218bfd5b1c0c189`, Sites 저장 버전은 178이다.
+- 협업신청 임시저장 루트는 소유자 불변, revision 1단계 전진, 작성·clear tombstone·새 초안 시작 순서와 직접 삭제 차단을 D1에서 강제한다.
+- Node 631/631, 격리 workerd+D1+R2 440/440, 타입검사, lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 운영 화면 3곳을 통과했다.
+- 공개 운영본은 버전 107이다. 버전 108~177은 버전 178로 대체하며 공개하지 않는다.
+- 다음 감사는 전체 운영 상태를 보관하는 `portal_state` 루트 행의 고정 ID와 내구성 삭제 경계를 D1에서 강제한다.
+
+[협업신청 임시저장 수명주기 무결성 경계](APPLICATION_DRAFT_LIFECYCLE_INTEGRITY_2026_09_05.md)에서는 API가 계정 소유권과 revision을 검사하더라도 D1 직접 SQL이 소유자·revision·초안 ID·payload를 임의 전환하고 clear tombstone을 제거할 수 있던 저장소 계약 공백을 차단했다. `0028` 추가형 마이그레이션과 런타임 준비에 소유자 불변·삽입·전이·삭제 방지 트리거를 적용했다. 정상 저장, clear와 다른 ID의 새 초안 시작만 허용하며 운영 저장 SQL은 API 경로 한 곳으로 고정했다. 기능 커밋 `f5fc52c37d045430375d10371218bfd5b1c0c189`를 GitHub `main`과 Sites 소스 저장소에 반영했고 Sites 버전 178 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_d3bd29e1ec608191a84ac943d4860819`)로 저장했다. 현재 공개 운영본은 버전 107이며 버전 108~177은 버전 178로 대체해 배포하지 않는다. 버전 178은 정확한 버전 운영 배포 승인 전까지 공개 배포하지 않는다.
 
 [상담 FLOW 루트 전이 envelope 무결성 경계](FLOW_ROOT_TRANSITION_ENVELOPE_INTEGRITY_2026_09_05.md)에서는 정상 `commitFlow`가 revision과 payload·수정시각을 함께 저장하더라도 D1 직접 SQL이 일부 필드만 바꾸거나 revision을 건너뛰는 저장소 계약 공백을 차단했다. `0027` 추가형 마이그레이션과 런타임 준비에 삽입·전이 트리거를 적용해 네 권위 열과 JSON payload가 정확히 일치하고 revision이 한 단계 증가할 때만 저장한다. 운영 루트 저장 SQL은 `lib/consulting-flow-store.ts` 한 곳으로 고정했다. 기능 커밋 `a6162bf2e9741b0202d204084829111e7cd16b28`을 GitHub `main`과 Sites 소스 저장소에 반영했고 Sites 버전 177 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_de3950ac414481919e6f142a70e54609`)로 저장했다. 현재 공개 운영본은 버전 107이며 버전 108~176은 버전 177로 대체해 배포하지 않는다. 버전 177은 정확한 버전 운영 배포 승인 전까지 공개 배포하지 않는다.
 
