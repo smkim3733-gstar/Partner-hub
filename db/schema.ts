@@ -16,6 +16,16 @@ CREATE TABLE IF NOT EXISTS portal_login_stats (
 )
 `;
 
+const invalidUtcMillisecondTimestampSql = (column: string) =>
+  `typeof(${column}) <> 'text' OR length(${column}) <> 24 OR substr(${column}, 5, 1) <> '-' OR substr(${column}, 8, 1) <> '-' OR substr(${column}, 11, 1) <> 'T' OR substr(${column}, 14, 1) <> ':' OR substr(${column}, 17, 1) <> ':' OR substr(${column}, 20, 1) <> '.' OR substr(${column}, 24, 1) <> 'Z' OR julianday(${column}) IS NULL`;
+
+export const portalLoginStatsInsertEnvelopeTriggerSql = `CREATE TRIGGER IF NOT EXISTS portal_login_stats_insert_envelope_guard BEFORE INSERT ON portal_login_stats WHEN typeof(NEW.member_id) <> 'text' OR NEW.member_id = '' OR trim(NEW.member_id) <> NEW.member_id OR ${invalidUtcMillisecondTimestampSql('NEW.last_login_at')} OR typeof(NEW.login_count) <> 'integer' OR NEW.login_count <> 1 BEGIN SELECT RAISE(ABORT, 'portal login stat insert envelope is invalid'); END`;
+
+export const portalLoginStatsIdentityTriggerSql =
+  "CREATE TRIGGER IF NOT EXISTS portal_login_stats_identity_immutable BEFORE UPDATE ON portal_login_stats WHEN NEW.member_id IS NOT OLD.member_id BEGIN SELECT RAISE(ABORT, 'portal login stat identity is immutable'); END";
+
+export const portalLoginStatsUpdateEnvelopeTriggerSql = `CREATE TRIGGER IF NOT EXISTS portal_login_stats_update_envelope_guard BEFORE UPDATE ON portal_login_stats WHEN NEW.member_id IS OLD.member_id AND (${invalidUtcMillisecondTimestampSql('NEW.last_login_at')} OR typeof(NEW.login_count) <> 'integer' OR NEW.login_count < 1 OR NEW.login_count > 9007199254740991 OR NEW.last_login_at < OLD.last_login_at OR NOT (NEW.login_count = OLD.login_count OR (NEW.login_count = OLD.login_count + 1 AND NEW.last_login_at >= strftime('%Y-%m-%dT%H:%M:%fZ', OLD.last_login_at, '+30 minutes')))) BEGIN SELECT RAISE(ABORT, 'portal login stat update envelope is invalid'); END`;
+
 export const portalSaveConflictStatsTableSql = `
 CREATE TABLE IF NOT EXISTS portal_save_conflict_stats (
   bucket_date TEXT NOT NULL,

@@ -970,11 +970,66 @@ try {
     .bind(memberId)
     .first();
   assert.equal(loginStat.login_count, 1);
+  const intactLoginStat = await db
+    .prepare(
+      'SELECT member_id, last_login_at, login_count FROM portal_login_stats WHERE member_id = ?1',
+    )
+    .bind(memberId)
+    .first();
+  await assert.rejects(
+    db
+      .prepare(
+        'UPDATE portal_login_stats SET member_id = ?1 WHERE member_id = ?2',
+      )
+      .bind(peerId, memberId)
+      .run(),
+    /identity is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'UPDATE portal_login_stats SET last_login_at = ?1 WHERE member_id = ?2',
+      )
+      .bind('not-a-timestamp', memberId)
+      .run(),
+    /update envelope is invalid/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'UPDATE portal_login_stats SET login_count = ?1 WHERE member_id = ?2',
+      )
+      .bind(3, memberId)
+      .run(),
+    /update envelope is invalid/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'UPDATE portal_login_stats SET login_count = ?1 WHERE member_id = ?2',
+      )
+      .bind(2, memberId)
+      .run(),
+    /update envelope is invalid/,
+  );
+  assert.deepEqual(
+    await db
+      .prepare(
+        'SELECT member_id, last_login_at, login_count FROM portal_login_stats WHERE member_id = ?1',
+      )
+      .bind(memberId)
+      .first(),
+    intactLoginStat,
+  );
+  await db
+    .prepare('DELETE FROM portal_login_stats WHERE member_id = ?1')
+    .bind(memberId)
+    .run();
   await db
     .prepare(
-      'UPDATE portal_login_stats SET last_login_at = ?1 WHERE member_id = ?2',
+      'INSERT INTO portal_login_stats (member_id, last_login_at, login_count) VALUES (?1, ?2, 1)',
     )
-    .bind('2000-01-01T00:00:00.000Z', memberId)
+    .bind(memberId, '2000-01-01T00:00:00.000Z')
     .run();
   await expect(
     await call('/state', undefined, { cookie }),
@@ -989,6 +1044,7 @@ try {
     .first();
   assert.equal(loginStat.login_count, 2);
   assert.notEqual(loginStat.last_login_at, '2000-01-01T00:00:00.000Z');
+  checks.push('portal login statistics keep one forward session envelope');
   await db
     .prepare(`CREATE TRIGGER synthetic_login_stats_failure
       BEFORE UPDATE ON portal_login_stats
