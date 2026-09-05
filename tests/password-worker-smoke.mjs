@@ -2204,6 +2204,32 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  const undefinedPropertyFlow = JSON.parse(intactFlowPayload);
+  undefinedPropertyFlow.reports[0].futurePrivateValue = '숨김 보고서 값';
+  undefinedPropertyFlow.audit[0].futurePrivateValue = '숨김 감사 값';
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(undefinedPropertyFlow), 'runtime-own')
+    .run();
+  await expect(
+    await call('/flow/runtime-own', undefined, ownerHeaders),
+    503,
+    'FLOW detail rejects undefined nested properties',
+  );
+  const undefinedPropertyDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects undefined fields removed by native SQLite projection',
+  );
+  assertPrivateAuthResponse(undefinedPropertyDashboard);
+  assert.match((await undefinedPropertyDashboard.json()).error, /무결성/);
+  checks.push(
+    'FLOW exact object shapes block future private fields before detail and dashboard exposure',
+  );
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   const oversizedHiddenAudit = JSON.parse(intactFlowPayload);
   oversizedHiddenAudit.audit[0].detail = '가'.repeat(2001);
   await db

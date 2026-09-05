@@ -53,6 +53,166 @@ export const FLOW_FIELD_LIMITS = {
   receiptFingerprint: 200,
 } as const;
 
+export const FLOW_OBJECT_KEYS = {
+  root: [
+    'schemaVersion',
+    'caseId',
+    'company',
+    'partnerId',
+    'partnerName',
+    'revision',
+    'updatedAt',
+    'reports',
+    'files',
+    'analysis',
+    'meetings',
+    'recordings',
+    'requests',
+    'decision',
+    'contract',
+    'payments',
+    'executionStartedAt',
+    'aftercare',
+    'ai',
+    'jobs',
+    'audit',
+    'commandIds',
+    'commandReceipts',
+  ],
+  projectedRoot: [
+    'schemaVersion',
+    'caseId',
+    'company',
+    'partnerId',
+    'partnerName',
+    'revision',
+    'updatedAt',
+    'reports',
+    'analysis',
+    'meetings',
+    'recordings',
+    'requests',
+    'decision',
+    'contract',
+    'payments',
+    'executionStartedAt',
+    'aftercare',
+    'ai',
+  ],
+  report: [
+    'id',
+    'stage',
+    'version',
+    'title',
+    'body',
+    'fileId',
+    'sourceReportId',
+    'sourceRecordingId',
+    'decisionId',
+    'documentsKey',
+    'createdAt',
+    'createdBy',
+    'origin',
+  ],
+  projectedReport: [
+    'id',
+    'stage',
+    'sourceReportId',
+    'sourceRecordingId',
+    'decisionId',
+    'documentsKey',
+  ],
+  file: [
+    'id',
+    'name',
+    'contentType',
+    'size',
+    'key',
+    'createdAt',
+    'purpose',
+    'intakeFileId',
+    'intakeSourceHash',
+    'sourceReviewedAt',
+    'sourceReviewedBy',
+  ],
+  analysis: ['reportId', 'adminAt', 'partnerAt'],
+  meeting: [
+    'id',
+    'kind',
+    'startsAt',
+    'endsAt',
+    'location',
+    'attendance',
+    'status',
+    'note',
+    'createdBy',
+    'completedAt',
+  ],
+  recording: [
+    'id',
+    'meetingId',
+    'fileId',
+    'transcriptFileId',
+    'audioFileId',
+    'transcript',
+    'transcriptReviewedAt',
+    'transcriptReviewedBy',
+    'consentAt',
+    'createdAt',
+  ],
+  projectedRecording: ['id'],
+  request: [
+    'id',
+    'title',
+    'required',
+    'channel',
+    'recipient',
+    'dueDate',
+    'status',
+    'fileId',
+    'sentAt',
+    'note',
+    'createdAt',
+    'receivedAt',
+    'reviewedAt',
+    'verifiedAt',
+  ],
+  decision: ['id', 'reportId', 'solutions', 'note', 'documentsNeeded', 'at'],
+  contract: [
+    'meetingId',
+    'reportId',
+    'signedFileId',
+    'signedAt',
+    'expectedDepositWon',
+    'recordedBy',
+  ],
+  payment: [
+    'id',
+    'amountWon',
+    'receivedAt',
+    'reference',
+    'confirmedBy',
+    'recordedAt',
+  ],
+  aftercare: ['at', 'summary', 'nextDate', 'owner'],
+  ai: ['enabled', 'approvedAt', 'approvedBy', 'sourceText'],
+  projectedAi: ['enabled', 'approvedAt', 'approvedBy'],
+  job: [
+    'id',
+    'stage',
+    'sourceRecordingId',
+    'sourceReportId',
+    'status',
+    'reason',
+    'createdAt',
+    'startedAt',
+    'completedAt',
+    'reportId',
+  ],
+  audit: ['id', 'at', 'actor', 'action', 'detail'],
+  receipt: ['actorKey', 'fingerprint'],
+} as const;
+
 const asRecord = (value: unknown): JsonRecord | null =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as JsonRecord)
@@ -123,6 +283,8 @@ const safeInteger = (value: unknown, minimum = 0) =>
   Number.isSafeInteger(value) && (value as number) >= minimum;
 const oneOf = (value: unknown, allowed: readonly unknown[]) =>
   allowed.includes(value);
+const hasOnlyKeys = (value: JsonRecord, allowed: readonly string[]) =>
+  Object.keys(value).every((key) => allowed.includes(key));
 
 function validItems(
   value: unknown,
@@ -146,7 +308,15 @@ function validItems(
 }
 
 function validReport(item: JsonRecord, projected: boolean) {
-  if (!safeInteger(item.stage, 1) || (item.stage as number) > 6) return false;
+  if (
+    !hasOnlyKeys(
+      item,
+      projected ? FLOW_OBJECT_KEYS.projectedReport : FLOW_OBJECT_KEYS.report,
+    ) ||
+    !safeInteger(item.stage, 1) ||
+    (item.stage as number) > 6
+  )
+    return false;
   if (projected)
     return [
       'sourceReportId',
@@ -189,6 +359,7 @@ function validReport(item: JsonRecord, projected: boolean) {
 
 function validFile(item: JsonRecord, stored: boolean) {
   return (
+    hasOnlyKeys(item, FLOW_OBJECT_KEYS.file) &&
     boundedName(item.name, FLOW_FIELD_LIMITS.fileName) &&
     boundedName(item.contentType, FLOW_FIELD_LIMITS.fileContentType) &&
     safeInteger(item.size) &&
@@ -210,6 +381,7 @@ function validMeeting(item: JsonRecord) {
         Date.parse(item.completedAt) >= Date.parse(item.startsAt as string)
       : item.completedAt === undefined;
   return (
+    hasOnlyKeys(item, FLOW_OBJECT_KEYS.meeting) &&
     oneOf(item.kind, ['first', 'followup', 'contract']) &&
     timestamp(item.startsAt) &&
     timestamp(item.endsAt) &&
@@ -224,8 +396,9 @@ function validMeeting(item: JsonRecord) {
 }
 
 function validRecording(item: JsonRecord, projected: boolean) {
-  if (projected) return true;
+  if (projected) return hasOnlyKeys(item, FLOW_OBJECT_KEYS.projectedRecording);
   return (
+    hasOnlyKeys(item, FLOW_OBJECT_KEYS.recording) &&
     named(item.meetingId) &&
     ['fileId', 'transcriptFileId', 'audioFileId', 'transcriptReviewedBy'].every(
       (key) => optionalText(item[key]),
@@ -239,6 +412,7 @@ function validRecording(item: JsonRecord, projected: boolean) {
 
 function validRequest(item: JsonRecord) {
   if (
+    !hasOnlyKeys(item, FLOW_OBJECT_KEYS.request) ||
     !boundedName(item.title, FLOW_FIELD_LIMITS.requestTitle) ||
     typeof item.required !== 'boolean' ||
     !oneOf(item.channel, ['카카오톡', '이메일', '기타']) ||
@@ -283,6 +457,7 @@ function validRequest(item: JsonRecord) {
 
 function validPayment(item: JsonRecord) {
   return (
+    hasOnlyKeys(item, FLOW_OBJECT_KEYS.payment) &&
     safeInteger(item.amountWon, 1) &&
     (item.amountWon as number) <= 1_000_000_000_000 &&
     calendarDate(item.receivedAt) &&
@@ -294,6 +469,7 @@ function validPayment(item: JsonRecord) {
 
 function validJob(item: JsonRecord) {
   if (
+    !hasOnlyKeys(item, FLOW_OBJECT_KEYS.job) ||
     !oneOf(item.stage, [1, 4]) ||
     !oneOf(item.status, [
       'queued',
@@ -335,6 +511,7 @@ function validJob(item: JsonRecord) {
 
 function validAudit(item: JsonRecord) {
   return (
+    hasOnlyKeys(item, FLOW_OBJECT_KEYS.audit) &&
     timestamp(item.at) &&
     boundedName(item.actor, FLOW_FIELD_LIMITS.actor) &&
     boundedName(item.action, FLOW_FIELD_LIMITS.auditAction) &&
@@ -346,6 +523,7 @@ function validAnalysis(value: unknown) {
   const analysis = asRecord(value);
   return Boolean(
     analysis &&
+    hasOnlyKeys(analysis, FLOW_OBJECT_KEYS.analysis) &&
     boundedText(analysis.reportId, FLOW_FIELD_LIMITS.id) &&
     optionalTimestamp(analysis.adminAt) &&
     optionalTimestamp(analysis.partnerAt),
@@ -356,6 +534,10 @@ function validAi(value: unknown, projected: boolean) {
   const ai = asRecord(value);
   return Boolean(
     ai &&
+    hasOnlyKeys(
+      ai,
+      projected ? FLOW_OBJECT_KEYS.projectedAi : FLOW_OBJECT_KEYS.ai,
+    ) &&
     typeof ai.enabled === 'boolean' &&
     (projected || boundedText(ai.sourceText, FLOW_TEXT_LIMITS.aiSourceText)) &&
     optionalTimestamp(ai.approvedAt) &&
@@ -368,6 +550,7 @@ function validDecision(value: unknown) {
   const item = asRecord(value);
   return Boolean(
     item &&
+    hasOnlyKeys(item, FLOW_OBJECT_KEYS.decision) &&
     boundedName(item.id, FLOW_FIELD_LIMITS.id) &&
     boundedName(item.reportId, FLOW_FIELD_LIMITS.id) &&
     Array.isArray(item.solutions) &&
@@ -386,6 +569,7 @@ function validContract(value: unknown) {
   const item = asRecord(value);
   return Boolean(
     item &&
+    hasOnlyKeys(item, FLOW_OBJECT_KEYS.contract) &&
     boundedName(item.meetingId, FLOW_FIELD_LIMITS.id) &&
     boundedName(item.reportId, FLOW_FIELD_LIMITS.id) &&
     boundedName(item.signedFileId, FLOW_FIELD_LIMITS.id) &&
@@ -401,6 +585,7 @@ function validAftercare(value: unknown) {
   const item = asRecord(value);
   return Boolean(
     item &&
+    hasOnlyKeys(item, FLOW_OBJECT_KEYS.aftercare) &&
     timestamp(item.at) &&
     boundedName(item.summary, FLOW_FIELD_LIMITS.aftercareSummary) &&
     calendarDate(item.nextDate) &&
@@ -419,6 +604,7 @@ function validReceipts(value: unknown) {
       return (
         boundedName(key, FLOW_FIELD_LIMITS.id) &&
         receipt &&
+        hasOnlyKeys(receipt, FLOW_OBJECT_KEYS.receipt) &&
         boundedName(receipt.actorKey, FLOW_FIELD_LIMITS.receiptActorKey) &&
         boundedName(receipt.fingerprint, FLOW_FIELD_LIMITS.receiptFingerprint)
       );
@@ -565,6 +751,10 @@ function hasBaseStructure(value: unknown, mode: ShapeMode) {
   const stored = mode === 'stored';
   const requiredStrings = ['caseId', 'partnerId'];
   const valid =
+    hasOnlyKeys(
+      flow,
+      projected ? FLOW_OBJECT_KEYS.projectedRoot : FLOW_OBJECT_KEYS.root,
+    ) &&
     flow.schemaVersion === 1 &&
     requiredStrings.every((key) =>
       boundedName(flow[key], FLOW_FIELD_LIMITS.id),

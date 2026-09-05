@@ -22,6 +22,7 @@ import { privateJsonResponse } from '@/lib/private-response';
 import {
   FLOW_COLLECTION_LIMITS,
   FLOW_FIELD_LIMITS,
+  FLOW_OBJECT_KEYS,
   FLOW_TEXT_LIMITS,
   hasProjectedConsultingFlowStructure,
   hasStoredConsultingFlowStructure,
@@ -80,9 +81,33 @@ const invalidOptionalJsonTimestampSql = (alias: string, field: string) =>
 // JSON1 exposes an unpaired UTF-16 surrogate as its invalid UTF-8 byte form ED A0..BF 80..BF.
 const malformedUnicodeSql = (expression: string) =>
   `hex(${expression}) GLOB '*ED[AB][0-9A-F][89AB][0-9A-F]*'`;
+const unexpectedJsonKeysSql = (
+  expression: string,
+  allowed: readonly string[],
+) =>
+  `EXISTS (SELECT 1 FROM json_each(${expression}) unexpected_field WHERE
+    typeof(unexpected_field.key) <> 'text' OR
+    unexpected_field.key NOT IN (${allowed.map((key) => `'${key}'`).join(', ')}))`;
+const unexpectedCollectionObjectKeysSql = (
+  path: string,
+  alias: string,
+  allowed: readonly string[],
+) =>
+  `EXISTS (SELECT 1 FROM json_each(payload, '${path}') ${alias} WHERE
+    ${unexpectedJsonKeysSql(
+      `CASE WHEN ${alias}.type = 'object' THEN ${alias}.value ELSE '{}' END`,
+      allowed,
+    )})`;
 // Keep this separate from the large projection predicate so both stay below D1's depth ceiling.
 const hiddenFlowSemanticViolationSql = `SELECT 1 AS invalid FROM consulting_flows
   WHERE CASE WHEN json_valid(payload) THEN
+    ${unexpectedJsonKeysSql('payload', FLOW_OBJECT_KEYS.root)} OR
+    ${unexpectedCollectionObjectKeysSql('$.reports', 'r', FLOW_OBJECT_KEYS.report)} OR
+    ${unexpectedCollectionObjectKeysSql('$.files', 'f', FLOW_OBJECT_KEYS.file)} OR
+    ${unexpectedCollectionObjectKeysSql('$.recordings', 'r', FLOW_OBJECT_KEYS.recording)} OR
+    ${unexpectedCollectionObjectKeysSql('$.jobs', 'j', FLOW_OBJECT_KEYS.job)} OR
+    ${unexpectedCollectionObjectKeysSql('$.audit', 'a', FLOW_OBJECT_KEYS.audit)} OR
+    ${unexpectedCollectionObjectKeysSql('$.commandReceipts', 'receipt', FLOW_OBJECT_KEYS.receipt)} OR
     (instr(lower(payload), '\\ud') > 0 AND
       EXISTS (SELECT 1 FROM json_tree(payload) node WHERE
         (node.type = 'text' AND ${malformedUnicodeSql('node.value')}) OR

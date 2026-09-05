@@ -1,4 +1,5 @@
 import { FlowError, type ConsultingFlow } from './consulting-flow';
+import { FLOW_OBJECT_KEYS } from './consulting-flow-shape';
 import type { PortalUser } from './portal-auth';
 
 type Member = { id: string; name: string; status: string };
@@ -64,10 +65,51 @@ export function resolveFlowAssignment(
   };
 }
 
+function selectKeys<T extends object, K extends keyof T>(
+  value: T,
+  keys: readonly K[],
+): Pick<T, K> {
+  return Object.fromEntries(keys.map((key) => [key, value[key]])) as Pick<T, K>;
+}
+
 export function publicFlow(flow: ConsultingFlow): ConsultingFlow {
   return {
-    ...flow,
-    files: flow.files.map((f) => ({ ...f, key: '' })),
+    ...selectKeys(flow, FLOW_OBJECT_KEYS.root),
+    reports: flow.reports.map((report) =>
+      selectKeys(report, FLOW_OBJECT_KEYS.report),
+    ),
+    files: flow.files.map((file) => ({
+      ...selectKeys(file, FLOW_OBJECT_KEYS.file),
+      key: '',
+    })),
+    analysis: selectKeys(flow.analysis, FLOW_OBJECT_KEYS.analysis),
+    meetings: flow.meetings.map((meeting) =>
+      selectKeys(meeting, FLOW_OBJECT_KEYS.meeting),
+    ),
+    recordings: flow.recordings.map((recording) =>
+      selectKeys(recording, FLOW_OBJECT_KEYS.recording),
+    ),
+    requests: flow.requests.map((request) =>
+      selectKeys(request, FLOW_OBJECT_KEYS.request),
+    ),
+    decision: flow.decision
+      ? {
+          ...selectKeys(flow.decision, FLOW_OBJECT_KEYS.decision),
+          solutions: [...flow.decision.solutions],
+        }
+      : undefined,
+    contract: flow.contract
+      ? selectKeys(flow.contract, FLOW_OBJECT_KEYS.contract)
+      : undefined,
+    payments: flow.payments.map((payment) =>
+      selectKeys(payment, FLOW_OBJECT_KEYS.payment),
+    ),
+    aftercare: flow.aftercare
+      ? selectKeys(flow.aftercare, FLOW_OBJECT_KEYS.aftercare)
+      : undefined,
+    ai: selectKeys(flow.ai, FLOW_OBJECT_KEYS.ai),
+    jobs: flow.jobs.map((job) => selectKeys(job, FLOW_OBJECT_KEYS.job)),
+    audit: flow.audit.map((entry) => selectKeys(entry, FLOW_OBJECT_KEYS.audit)),
     commandIds: [],
     commandReceipts: undefined,
   };

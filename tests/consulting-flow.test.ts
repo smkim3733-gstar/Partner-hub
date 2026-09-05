@@ -816,9 +816,23 @@ test('stable member ID prevents another partner or same-name claimant reading re
     resolveFlowAssignment(duplicate, 'test-case', user, reported()).partnerId,
     'partner-one',
   );
-  const safe = publicFlow({ ...reported(), files: [file()] });
+  const report = reported();
+  const safe = publicFlow({
+    ...report,
+    files: [{ ...file(), futureFileSecret: '숨김 파일 값' }],
+    reports: report.reports.map((item) => ({
+      ...item,
+      futureReportSecret: '숨김 보고서 값',
+    })),
+    ai: { ...report.ai, futureAiSecret: '숨김 AI 값' },
+    futureRootSecret: '숨김 루트 값',
+  } as unknown as ConsultingFlow);
   assert.equal(safe.files[0].key, '');
   assert.deepEqual(safe.commandIds, []);
+  assert.equal('futureRootSecret' in safe, false);
+  assert.equal('futureFileSecret' in safe.files[0], false);
+  assert.equal('futureReportSecret' in safe.reports[0], false);
+  assert.equal('futureAiSecret' in safe.ai, false);
 });
 test('pipeline stages derive from verified events; partner-only meeting omitted from representative shared schedule', () => {
   const s = pay(signed());
