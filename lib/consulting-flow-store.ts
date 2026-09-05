@@ -17,7 +17,9 @@ import {
   consultingFlowsInsertEnvelopeTriggerSql,
   consultingFlowsJobsInsertTriggerSql,
   consultingFlowsJobsTransitionTriggerSql,
+  consultingFlowsJobCreationOriginTriggerSql,
   consultingFlowsJobIdentityTriggerSql,
+  consultingFlowsJobInsertOriginTriggerSql,
   consultingFlowsJobLifecycleTriggerSql,
   consultingFlowsJobStatusTriggerSql,
   consultingFlowsJobTransitionAuditTriggerSql,
@@ -30,6 +32,8 @@ import {
 } from '@/db/schema';
 import {
   FlowError,
+  latestRecording,
+  latestReport,
   newConsultingFlow,
   type ConsultingFlow,
   type FlowFile,
@@ -101,6 +105,8 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsJobLifecycleTriggerSql),
         db.prepare(consultingFlowsJobTransitionTimestampTriggerSql),
         db.prepare(consultingFlowsJobTransitionAuditTriggerSql),
+        db.prepare(consultingFlowsJobInsertOriginTriggerSql),
+        db.prepare(consultingFlowsJobCreationOriginTriggerSql),
         db.prepare(consultingFlowsNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),
@@ -956,20 +962,38 @@ function assertFlowCommitTransition(
     throw storedFlowIntegrityError();
   const newAudit = after.audit.slice(before.audit.length);
   const previousJobIds = new Set(before.jobs.map((job) => job.id));
+  const newJobs = after.jobs.filter((job) => !previousJobIds.has(job.id));
   if (
-    after.jobs.some(
+    newJobs.some(
       (job) =>
-        !previousJobIds.has(job.id) &&
-        ((job.status !== 'queued' && job.status !== 'blocked') ||
-          job.startedAt !== undefined ||
-          job.completedAt !== undefined ||
-          job.reportId !== undefined ||
-          job.evidence !== undefined ||
-          job.failureEvidence !== undefined ||
-          job.failureEvidenceHistory !== undefined),
+        (job.status !== 'queued' && job.status !== 'blocked') ||
+        job.startedAt !== undefined ||
+        job.completedAt !== undefined ||
+        job.reportId !== undefined ||
+        job.evidence !== undefined ||
+        job.failureEvidence !== undefined ||
+        job.failureEvidenceHistory !== undefined ||
+        job.createdAt !== after.updatedAt ||
+        (job.stage === 1 &&
+          (job.sourceRecordingId !== undefined ||
+            job.sourceReportId !== undefined)) ||
+        (job.stage === 4 &&
+          (job.sourceRecordingId !== latestRecording(after)?.id ||
+            job.sourceReportId !== latestReport(after, 1)?.id)),
     )
   )
     throw storedFlowIntegrityError();
+  for (const stage of [1, 4] as const) {
+    const expectedAction = stage === 1 ? 'queue_report1' : 'save_recording';
+    if (
+      newJobs.filter((job) => job.stage === stage).length !==
+      newAudit.filter(
+        (entry) =>
+          entry.at === after.updatedAt && entry.action === expectedAction,
+      ).length
+    )
+      throw storedFlowIntegrityError();
+  }
   const nextJobs = new Map(after.jobs.map((job) => [job.id, job]));
   const retryTransitionCount = before.jobs.filter(
     (job) =>

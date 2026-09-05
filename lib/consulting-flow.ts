@@ -487,7 +487,7 @@ function createJob(
     id,
     stage,
     sourceRecordingId: recording?.id,
-    sourceReportId: latestReport(s, 1)?.id,
+    sourceReportId: stage === 4 ? latestReport(s, 1)?.id : undefined,
     status: reason ? 'blocked' : 'queued',
     reason,
     createdAt: now,

@@ -3,6 +3,7 @@ import {
   consultingFlowsFailureEvidenceTriggerSql,
   consultingFlowsFailureHistoryTriggerSql,
   consultingFlowsJobsTransitionTriggerSql,
+  consultingFlowsJobCreationOriginTriggerSql,
   consultingFlowsJobIdentityTriggerSql,
   consultingFlowsJobLifecycleTriggerSql,
   consultingFlowsJobStatusTriggerSql,
@@ -25,6 +26,7 @@ const transitionTriggers = [
   consultingFlowsJobLifecycleTriggerSql,
   consultingFlowsJobTransitionTimestampTriggerSql,
   consultingFlowsJobTransitionAuditTriggerSql,
+  consultingFlowsJobCreationOriginTriggerSql,
 ] as const;
 
 const transitionTriggerNames = [
@@ -39,6 +41,7 @@ const transitionTriggerNames = [
   'consulting_flows_job_lifecycle_guard',
   'consulting_flows_job_transition_timestamp_guard',
   'consulting_flows_job_transition_audit_guard',
+  'consulting_flows_job_creation_origin_guard',
 ] as const;
 
 /** Remove synthetic FLOW roots, then immediately restore the runtime guard. */

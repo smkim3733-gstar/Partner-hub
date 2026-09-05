@@ -201,6 +201,16 @@ const flowAiJobTransitionAuditTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowAiJobCreationOriginTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0048_consulting_flow_ai_job_creation_origin.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -213,6 +223,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_job_lifecycle_guard',
   'consulting_flows_job_transition_timestamp_guard',
   'consulting_flows_job_transition_audit_guard',
+  'consulting_flows_job_creation_origin_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -229,6 +240,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowAiJobLifecycleTriggerSql,
       ...flowAiJobTransitionTimestampTriggerSql,
       ...flowAiJobTransitionAuditTriggerSql,
+      ...flowAiJobCreationOriginTriggerSql,
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3462,15 +3474,24 @@ try {
         evidenceFlow.updatedAt,
       )
       .run();
-  await assert.rejects(insertEvidenceFlow(), /initial job is invalid/);
+  await assert.rejects(
+    insertEvidenceFlow(),
+    /initial job(?: origin)? is invalid/,
+  );
   checks.push('FLOW native D1 rejects terminal AI evidence on root insert');
-  await db
-    .prepare('DROP TRIGGER IF EXISTS consulting_flows_jobs_insert_guard')
-    .run();
+  await db.batch([
+    db.prepare('DROP TRIGGER IF EXISTS consulting_flows_jobs_insert_guard'),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_job_insert_origin_guard',
+    ),
+  ]);
   try {
     await insertEvidenceFlow();
   } finally {
-    await db.prepare(flowAiEvidenceInsertTriggerSql).run();
+    await db.batch([
+      db.prepare(flowAiEvidenceInsertTriggerSql),
+      db.prepare(flowAiJobCreationOriginTriggerSql[0]),
+    ]);
   }
   const saveEvidenceTransition = async (before, after) =>
     db
@@ -3632,8 +3653,21 @@ try {
       },
     },
     {
+      name: 'FLOW native D1 rejects an unaudited new AI job',
+      pattern: /job creation origin is invalid/,
+      apply(flow) {
+        flow.jobs.push({
+          id: 'native-unaudited-new-job',
+          stage: 1,
+          status: 'queued',
+          reason: '',
+          createdAt: flow.updatedAt,
+        });
+      },
+    },
+    {
       name: 'FLOW native D1 rejects an invented terminal AI job',
-      pattern: /job transition is invalid/,
+      pattern: /(?:job transition|job creation origin) is invalid/,
       apply(flow) {
         const job = structuredClone(flow.jobs[0]);
         job.id = 'native-invented-terminal-job';
