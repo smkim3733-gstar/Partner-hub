@@ -1110,6 +1110,161 @@ void test('FLOW rejects a file ID and key copied from another case before detail
   );
 });
 
+void test('FLOW rejects valid-looking metadata drift for an existing owned file', async () => {
+  const mutations: Array<{
+    name: string;
+    apply: (file: Record<string, unknown>) => void;
+  }> = [
+    {
+      name: 'renamed file and matching MIME',
+      apply: (file) => {
+        file.name = 'renamed-report.md';
+        file.contentType = 'text/markdown';
+      },
+    },
+    {
+      name: 'changed size',
+      apply: (file) => {
+        file.size = Number(file.size) + 1;
+      },
+    },
+    {
+      name: 'changed creation time',
+      apply: (file) => {
+        file.createdAt = '2026-09-05T03:00:00.000Z';
+      },
+    },
+    {
+      name: 'changed valid purpose',
+      apply: (file) => {
+        file.purpose = 'transcript';
+      },
+    },
+    {
+      name: 'added intake provenance',
+      apply: (file) => {
+        file.intakeFileId = 'different-intake-file';
+      },
+    },
+  ];
+  for (const mutation of mutations) {
+    await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+    const { saved, file } = await fixtureWithAttachment();
+    const changed = structuredClone(saved);
+    changed.revision++;
+    changed.updatedAt = new Date().toISOString();
+    const changedFile = changed.files.find((item) => item.id === file.id);
+    assert.ok(changedFile);
+    mutation.apply(changedFile as unknown as Record<string, unknown>);
+    await assert.rejects(
+      commitFlow(saved, changed),
+      (error) => error instanceof FlowError && error.status === 503,
+      `${mutation.name} before write`,
+    );
+    assert.deepEqual(await readFlow(saved.caseId), saved);
+    await replaceStoredFlow(saved.caseId, (payload) => {
+      const stored = (payload.files as Array<Record<string, unknown>>).find(
+        (item) => item.id === file.id,
+      );
+      assert.ok(stored);
+      mutation.apply(stored);
+      return payload;
+    });
+    await assert.rejects(
+      readFlow(saved.caseId),
+      (error) => error instanceof FlowError && error.status === 503,
+      mutation.name,
+    );
+  }
+});
+
+void test('FLOW metadata backfill restores every authoritative field for a clean existing file', async () => {
+  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  const { saved, file } = await fixtureWithAttachment();
+  const db = await flowDatabase();
+  await db
+    .prepare('DELETE FROM consulting_flow_file_owners WHERE file_id = ?1')
+    .bind(file.id)
+    .run();
+  await assert.rejects(
+    readFlow(saved.caseId),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await db.prepare(consultingFlowFileOwnersBackfillSql).run();
+  const owner = await db
+    .prepare(
+      `SELECT case_id, storage_key, original_name, content_type, size_bytes,
+          created_at, purpose, intake_file_id, intake_source_hash,
+          source_reviewed_at, source_reviewed_by
+        FROM consulting_flow_file_owners WHERE file_id = ?1`,
+    )
+    .bind(file.id)
+    .first<Record<string, unknown>>();
+  assert.ok(owner);
+  assert.deepEqual(
+    { ...owner },
+    {
+      case_id: saved.caseId,
+      storage_key: file.key,
+      original_name: file.name,
+      content_type: file.contentType,
+      size_bytes: file.size,
+      created_at: file.createdAt,
+      purpose: file.purpose,
+      intake_file_id: null,
+      intake_source_hash: null,
+      source_reviewed_at: null,
+      source_reviewed_by: null,
+    },
+  );
+  assert.deepEqual(await readFlow(saved.caseId), saved);
+});
+
+void test('FLOW source archival advances the authoritative purpose in the same commit', async () => {
+  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  const flow = await fixture();
+  const withSource = structuredClone(flow);
+  const now = new Date().toISOString();
+  const fileId = `archive-source-${++sequence}`;
+  withSource.revision++;
+  withSource.updatedAt = now;
+  withSource.files.push({
+    id: fileId,
+    name: 'archive-source.txt',
+    contentType: 'text/plain',
+    size: 12,
+    key: flowFileStorageKey(fileId),
+    createdAt: now,
+    purpose: 'source',
+  });
+  await commitFlow(flow, withSource);
+  const current = (await readFlow(flow.caseId))!;
+  const archived = applyFlowCommand(
+    current,
+    { type: 'exclude_source', fileId },
+    { id: adminEmail, role: 'admin', name: '가상 대표' },
+    { commandId: `archive-${++sequence}`, now: new Date().toISOString() },
+  );
+  await commitFlow(current, archived);
+  assert.equal(
+    (
+      await (
+        await flowDatabase()
+      )
+        .prepare(
+          'SELECT purpose FROM consulting_flow_file_owners WHERE file_id = ?1',
+        )
+        .bind(fileId)
+        .first<{ purpose: string }>()
+    )?.purpose,
+    'source_archived',
+  );
+  assert.equal(
+    (await readFlow(flow.caseId))?.files.at(-1)?.purpose,
+    'source_archived',
+  );
+});
+
 void test('FLOW rejects a file key outside its ID-bound R2 namespace before detail, dashboard and download', async () => {
   const flow = await fixture();
   const foreignBytes = 'SYNTHETIC_FOREIGN_PRIVATE_OBJECT';
@@ -2060,29 +2215,30 @@ void test('FLOW attachment download rejects an R2 body whose size differs from s
   assert.equal((await bucket.head(file.key))?.size, 3);
 });
 
-void test('FLOW attachment download rejects a stored size change committed while R2 resolves', async () => {
+void test('FLOW attachment download rejects stored metadata corruption introduced while R2 resolves', async () => {
   const { saved, file } = await fixtureWithAttachment(),
     bucket = flowBucket(),
     get = bucket.get.bind(bucket);
   bucket.get = async (...args: Parameters<R2Bucket['get']>) => {
     const object = await get(...args);
-    const current = (await readFlow(saved.caseId))!,
-      changed = structuredClone(current);
-    changed.files[0].size += 1;
-    changed.revision += 1;
-    changed.updatedAt = new Date().toISOString();
-    await commitFlow(current, changed);
+    await replaceStoredFlow(saved.caseId, (payload) => {
+      (payload.files as Array<Record<string, unknown>>)[0].size = file.size + 1;
+      return payload;
+    });
     return object;
   };
   try {
     const response = await download(request(saved.caseId, undefined), {
       params: Promise.resolve({ caseId: saved.caseId, fileId: file.id }),
     });
-    assert.equal(response.status, 409, await response.clone().text());
+    assert.equal(response.status, 503, await response.clone().text());
   } finally {
     bucket.get = get;
   }
-  assert.equal((await readFlow(saved.caseId))!.files[0].size, file.size + 1);
+  await assert.rejects(
+    readFlow(saved.caseId),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
   assert.equal((await bucket.head(file.key))?.size, file.size);
 });
 

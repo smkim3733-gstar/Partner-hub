@@ -2219,6 +2219,45 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  const changedOwnedFlowMetadata = JSON.parse(intactFlowPayload);
+  const changedOwnedFlowMetadataFile = changedOwnedFlowMetadata.files.at(-1);
+  changedOwnedFlowMetadataFile.name = 'renamed-report.md';
+  changedOwnedFlowMetadataFile.contentType = 'text/markdown';
+  changedOwnedFlowMetadataFile.createdAt = '2026-09-05T03:00:00.000Z';
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(changedOwnedFlowMetadata), 'runtime-own')
+    .run();
+  await expect(
+    await call('/flow/runtime-own', undefined, ownerHeaders),
+    503,
+    'FLOW detail rejects valid-looking drift from owned file metadata',
+  );
+  const changedOwnedFlowMetadataDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects owned file metadata drift before projection',
+  );
+  assertPrivateAuthResponse(changedOwnedFlowMetadataDashboard);
+  assert.match(
+    (await changedOwnedFlowMetadataDashboard.json()).error,
+    /무결성/,
+  );
+  await expect(
+    await call(
+      `/flow-file/runtime-own/${changedOwnedFlowMetadataFile.id}`,
+      undefined,
+      ownerHeaders,
+    ),
+    503,
+    'FLOW download rejects owned file metadata drift before R2 delivery',
+  );
+  assert.ok(await bucket.head(changedOwnedFlowMetadataFile.key));
+  checks.push('FLOW metadata drift rejection preserves the private object');
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   const foreignOwnedFlowFile = {
     id: 'foreign-owned-flow-file',
     name: 'foreign-report.txt',
@@ -2232,13 +2271,19 @@ try {
   await db
     .prepare(
       `INSERT INTO consulting_flow_file_owners
-        (file_id, case_id, storage_key, created_at) VALUES (?1, ?2, ?3, ?4)`,
+        (file_id, case_id, storage_key, original_name, content_type, size_bytes,
+          created_at, purpose)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
     )
     .bind(
       foreignOwnedFlowFile.id,
       'foreign-flow-case',
       foreignOwnedFlowFile.key,
+      foreignOwnedFlowFile.name,
+      foreignOwnedFlowFile.contentType,
+      foreignOwnedFlowFile.size,
       foreignOwnedFlowFile.createdAt,
+      foreignOwnedFlowFile.purpose,
     )
     .run();
   const copiedForeignFlowFile = JSON.parse(intactFlowPayload);

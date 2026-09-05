@@ -1,6 +1,5 @@
 import { env } from 'cloudflare:workers';
 import {
-  consultingFlowFileOwnersBackfillSql,
   consultingFlowFileOwnersCaseIndexSql,
   consultingFlowFileOwnersTableSql,
   consultingFlowsTableSql,
@@ -10,6 +9,7 @@ import {
   FlowError,
   newConsultingFlow,
   type ConsultingFlow,
+  type FlowFile,
 } from '@/lib/consulting-flow';
 import { resolveFlowAssignment } from '@/lib/consulting-flow-access';
 import {
@@ -64,7 +64,6 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsTableSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersCaseIndexSql),
-        db.prepare(consultingFlowFileOwnersBackfillSql),
       ])
       .then(() => undefined);
     flowDatabaseInitialization = initialization.catch((error) => {
@@ -226,23 +225,69 @@ const flowFileOwnershipViolationSql = (
   LEFT JOIN consulting_flow_file_owners owner
     ON owner.file_id = json_extract(file.value, '$.id')
   WHERE ${caseIdOnly ? 'flow.case_id = ?1 AND ' : ''}(
-    owner.file_id IS NULL OR owner.case_id <> flow.case_id OR
-    owner.storage_key <> json_extract(file.value, '$.key'))
+    owner.file_id IS NULL OR owner.case_id IS NOT flow.case_id OR
+    owner.storage_key IS NOT json_extract(file.value, '$.key') OR
+    owner.original_name IS NOT json_extract(file.value, '$.name') OR
+    owner.content_type IS NOT json_extract(file.value, '$.contentType') OR
+    owner.size_bytes IS NOT json_extract(file.value, '$.size') OR
+    owner.created_at IS NOT json_extract(file.value, '$.createdAt') OR
+    owner.purpose IS NOT json_extract(file.value, '$.purpose') OR
+    owner.intake_file_id IS NOT json_extract(file.value, '$.intakeFileId') OR
+    owner.intake_source_hash IS NOT json_extract(file.value, '$.intakeSourceHash') OR
+    owner.source_reviewed_at IS NOT json_extract(file.value, '$.sourceReviewedAt') OR
+    owner.source_reviewed_by IS NOT json_extract(file.value, '$.sourceReviewedBy'))
   LIMIT 1`;
 const claimFlowFileOwnershipSql = `INSERT INTO consulting_flow_file_owners
-    (file_id, case_id, storage_key, created_at)
-  SELECT ?1, ?2, ?3, ?4
+    (file_id, case_id, storage_key, original_name, content_type, size_bytes,
+      created_at, purpose, intake_file_id, intake_source_hash,
+      source_reviewed_at, source_reviewed_by)
+  SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12
   WHERE EXISTS (SELECT 1 FROM consulting_flows
-      WHERE case_id = ?2 AND revision = ?5 AND payload = ?6)
+      WHERE case_id = ?2 AND revision = ?13 AND payload = ?14)
     AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners
       WHERE file_id = ?1 OR storage_key = ?3)
   UNION ALL
-  SELECT NULL, ?2, ?3, ?4
+  SELECT NULL, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12
   WHERE NOT EXISTS (SELECT 1 FROM consulting_flows
-      WHERE case_id = ?2 AND revision = ?5 AND payload = ?6)
+      WHERE case_id = ?2 AND revision = ?13 AND payload = ?14)
     OR EXISTS (SELECT 1 FROM consulting_flow_file_owners
       WHERE (file_id = ?1 OR storage_key = ?3)
-        AND NOT (file_id = ?1 AND case_id = ?2 AND storage_key = ?3))`;
+        AND NOT (file_id = ?1 AND case_id = ?2 AND storage_key = ?3 AND
+          original_name = ?4 AND content_type = ?5 AND size_bytes = ?6 AND
+          created_at = ?7 AND purpose = ?8 AND intake_file_id IS ?9 AND
+          intake_source_hash IS ?10 AND source_reviewed_at IS ?11 AND
+          source_reviewed_by IS ?12))`;
+const transitionFlowFilePurposeSql = `INSERT INTO consulting_flow_file_owners
+    (file_id, case_id, storage_key, original_name, content_type, size_bytes,
+      created_at, purpose, intake_file_id, intake_source_hash,
+      source_reviewed_at, source_reviewed_by)
+  SELECT CASE WHEN
+    EXISTS (SELECT 1 FROM consulting_flows
+      WHERE case_id = ?2 AND revision = ?14 AND payload = ?15) AND
+    EXISTS (SELECT 1 FROM consulting_flow_file_owners WHERE
+      file_id = ?1 AND case_id = ?2 AND storage_key = ?3 AND
+      original_name = ?4 AND content_type = ?5 AND size_bytes = ?6 AND
+      created_at = ?7 AND purpose = ?8 AND intake_file_id IS ?10 AND
+      intake_source_hash IS ?11 AND source_reviewed_at IS ?12 AND
+      source_reviewed_by IS ?13)
+    THEN ?1 ELSE NULL END,
+    ?2, ?3, ?4, ?5, ?6, ?7, ?9, ?10, ?11, ?12, ?13
+  ON CONFLICT(file_id) DO UPDATE SET purpose = excluded.purpose`;
+function flowFileOwnershipValues(file: FlowFile) {
+  return [
+    file.id,
+    file.key,
+    file.name,
+    file.contentType,
+    file.size,
+    file.createdAt,
+    file.purpose,
+    file.intakeFileId ?? null,
+    file.intakeSourceHash ?? null,
+    file.sourceReviewedAt ?? null,
+    file.sourceReviewedBy ?? null,
+  ] as const;
+}
 function storedFlowFromRow(
   row: StoredFlowRow,
   expectedCaseId?: string,
@@ -535,9 +580,25 @@ function assertFlowCommitTransition(
     !validFlowTimestamp(after.updatedAt)
   )
     throw storedFlowIntegrityError();
-  const nextKeys = new Map(after.files.map((file) => [file.id, file.key]));
-  if (before.files.some((file) => nextKeys.get(file.id) !== file.key))
-    throw storedFlowIntegrityError();
+  const nextFiles = new Map(after.files.map((file) => [file.id, file]));
+  for (const file of before.files) {
+    const next = nextFiles.get(file.id);
+    if (
+      !next ||
+      next.key !== file.key ||
+      next.name !== file.name ||
+      next.contentType !== file.contentType ||
+      next.size !== file.size ||
+      next.createdAt !== file.createdAt ||
+      next.intakeFileId !== file.intakeFileId ||
+      next.intakeSourceHash !== file.intakeSourceHash ||
+      next.sourceReviewedAt !== file.sourceReviewedAt ||
+      next.sourceReviewedBy !== file.sourceReviewedBy ||
+      (next.purpose !== file.purpose &&
+        !(file.purpose === 'source' && next.purpose === 'source_archived'))
+    )
+      throw storedFlowIntegrityError();
+  }
 }
 export async function commitFlow(
   before: ConsultingFlow,
@@ -586,13 +647,53 @@ export async function commitFlow(
           );
   const previousFileIds = new Set(before.files.map((file) => file.id));
   const newFiles = after.files.filter((file) => !previousFileIds.has(file.id));
+  const nextFiles = new Map(after.files.map((file) => [file.id, file]));
+  const purposeChanges = before.files.flatMap((file) => {
+    const next = nextFiles.get(file.id);
+    return next && next.purpose !== file.purpose ? [[file, next] as const] : [];
+  });
   let result: D1Result;
-  if (!newFiles.length) result = await flowWrite.run();
+  if (!newFiles.length && !purposeChanges.length)
+    result = await flowWrite.run();
   else {
     let results: D1Result[];
     try {
       results = await db.batch([
         flowWrite,
+        ...purposeChanges.map(([file, next]) => {
+          const [
+            id,
+            key,
+            name,
+            contentType,
+            size,
+            createdAt,
+            purpose,
+            intakeFileId,
+            intakeSourceHash,
+            sourceReviewedAt,
+            sourceReviewedBy,
+          ] = flowFileOwnershipValues(file);
+          return db
+            .prepare(transitionFlowFilePurposeSql)
+            .bind(
+              id,
+              after.caseId,
+              key,
+              name,
+              contentType,
+              size,
+              createdAt,
+              purpose,
+              next.purpose,
+              intakeFileId,
+              intakeSourceHash,
+              sourceReviewedAt,
+              sourceReviewedBy,
+              after.revision,
+              payload,
+            );
+        }),
         ...newFiles.map((file) =>
           db
             .prepare(claimFlowFileOwnershipSql)
@@ -600,7 +701,15 @@ export async function commitFlow(
               file.id,
               after.caseId,
               file.key,
+              file.name,
+              file.contentType,
+              file.size,
               file.createdAt,
+              file.purpose,
+              file.intakeFileId ?? null,
+              file.intakeSourceHash ?? null,
+              file.sourceReviewedAt ?? null,
+              file.sourceReviewedBy ?? null,
               after.revision,
               payload,
             ),
