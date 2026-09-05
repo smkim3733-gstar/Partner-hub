@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [AI 중단 잠금 회수 무결성 경계](AI_STALE_LOCK_RECOVERY_INTEGRITY_2026_09_06.md)                                     | 외부 요청 제한과 만료 생성 잠금의 보존형 실패 전환·늦은 완료 차단                       |
 | [AI 토큰 사용량 증거 무결성 경계](AI_TOKEN_USAGE_EVIDENCE_INTEGRITY_2026_09_06.md)                                  | 성공 Anthropic 응답의 입력·출력 토큰 증거와 Step 0 출력 상한 결속                       |
 | [AI 진단 실행 메타데이터 무결성 경계](AI_DIAGNOSIS_RUN_METADATA_INTEGRITY_2026_09_05.md)                             | 정확한 UTC 달력 시각·토큰 정수·모델과 지침 재시도 신원 검증                              |
 | [AI 진단 문자열 무결성 경계](AI_DIAGNOSIS_TEXT_INTEGRITY_2026_09_05.md)                                              | 실행 신원·완료 결과의 손상 UTF-16, 제어문자와 대체문자 저장 차단                         |
