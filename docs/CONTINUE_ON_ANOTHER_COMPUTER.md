@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `234cc6e470b9c825deff95c70dd02667e37286ad` (`fix: retain AI provider model evidence`)
-- 최신 기능: Step 0 요청 모델과 Anthropic 성공 응답 모델의 별도 원장 증거 보존
+- 최신 기능 커밋: `ab7a71ea7d969b5b45bc5f615fb6bec08a35a76b` (`fix: retain AI provider message evidence`)
+- 최신 기능: Anthropic 성공 Message의 `type`·`role`·고유 ID 검증과 Step 0 완료 증거 보존
 - 검증: Node 회귀 검사 643개, 격리 workerd/D1/R2 검사 451개, 타입검사, 전체 lint, 변경 파일 포맷 검사, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200·CSP·`DENY`·`nosniff`·`no-referrer` 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 192 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_766a0a3782908191beab2783a1b50986`), 소스 `234cc6e470b9c825deff95c70dd02667e37286ad`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–191은 버전 192로 대체해 배포하지 않으며, AI 공급자 응답 모델 증거 보완본 버전 192가 정확한 버전 운영 배포 승인 대기 중이다.
+- 최신 Sites 저장 버전: 193 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_de3ace62450881919d0503c58243264b`), 소스 `ab7a71ea7d969b5b45bc5f615fb6bec08a35a76b`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–192는 버전 193으로 대체해 배포하지 않으며, AI 공급자 Message 신원 보완본 버전 193이 정확한 버전 운영 배포 승인 대기 중이다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -44,7 +44,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [AI 공급자 응답 모델 증거 무결성 경계](AI_PROVIDER_MODEL_EVIDENCE_INTEGRITY_2026_09_06.md)를 확인한다.
+먼저 [AI 공급자 Message 신원 무결성 경계](AI_PROVIDER_MESSAGE_IDENTITY_INTEGRITY_2026_09_06.md)를 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
@@ -92,4 +92,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 버전 192 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108–191은 버전 192로 대체해 배포하지 않는다. 버전 192 공개 배포에는 정확히 `버전 192 운영 배포 승인`이라는 사용자 명시 승인이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 고우선순위 감사를 이어간다. 다음 감사는 Anthropic 성공 Message의 `type`, `role`, 메시지 ID envelope 신원을 확인한다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
+Sites 버전 193 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108–192는 버전 193으로 대체해 배포하지 않는다. 버전 193 공개 배포에는 정확히 `버전 193 운영 배포 승인`이라는 사용자 명시 승인이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 고우선순위 감사를 이어간다. 다음 감사는 성공 응답의 예상하지 않은 비텍스트 content block 처리를 확인한다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.

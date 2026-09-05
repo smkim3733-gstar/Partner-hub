@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [AI 공급자 Message 신원 무결성 경계](AI_PROVIDER_MESSAGE_IDENTITY_INTEGRITY_2026_09_06.md)                           | 성공 Message의 고정 type·role, 고유 ID 검증과 완료 원장 증거 보존                        |
 | [AI 공급자 응답 모델 증거 무결성 경계](AI_PROVIDER_MODEL_EVIDENCE_INTEGRITY_2026_09_06.md)                           | 요청 모델과 실제 Anthropic 응답 모델의 별도 원장 증거 보존                               |
 | [AI 공급자 요청 추적 증거 무결성 경계](AI_PROVIDER_REQUEST_EVIDENCE_INTEGRITY_2026_09_06.md)                         | 성공 `request-id`, 오류 ID 일치 검증과 완료 원장의 공급자 추적 증거 보존                 |
 | [AI 중단 잠금 회수 무결성 경계](AI_STALE_LOCK_RECOVERY_INTEGRITY_2026_09_06.md)                                      | 외부 요청 제한과 만료 생성 잠금의 보존형 실패 전환·늦은 완료 차단                        |

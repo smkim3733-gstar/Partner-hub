@@ -4,11 +4,13 @@
 
 ## 최신 연속 개발 지점
 
-- 최신 기능 커밋은 `234cc6e470b9c825deff95c70dd02667e37286ad`, Sites 저장 버전은 192이다.
-- Step 0 완료 원장은 요청 모델과 Anthropic 성공 응답의 실제 모델을 별도 증거로 보존한다.
+- 최신 기능 커밋은 `ab7a71ea7d969b5b45bc5f615fb6bec08a35a76b`, Sites 저장 버전은 193이다.
+- Anthropic 성공 Message의 고정 `type`·`role`과 고유 메시지 ID를 검증하고 Step 0 완료 증거로 보존한다.
 - Node 643/643, 격리 workerd+D1+R2 451/451, 타입검사, lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 운영 화면 3곳을 통과했다.
-- 공개 운영본은 버전 107이다. 버전 108–191은 버전 192로 대체하며 공개하지 않는다.
-- 다음 감사는 Anthropic 성공 Message의 `type`, `role`, 메시지 ID envelope 신원을 확인한다.
+- 공개 운영본은 버전 107이다. 버전 108–192는 버전 193으로 대체하며 공개하지 않는다.
+- 다음 감사는 성공 응답의 예상하지 않은 비텍스트 content block 처리를 확인한다.
+
+[AI 공급자 Message 신원 무결성 경계](AI_PROVIDER_MESSAGE_IDENTITY_INTEGRITY_2026_09_06.md)에서는 Anthropic 성공 응답의 `type`, `role`, `id`를 검증하지 않던 공백을 차단했다. 성공 응답은 `message`·`assistant` 신원과 안전한 고유 ID를 필수로 제공하고, Step 0는 이 ID를 `_providerMessageId`로 저장한다. `0042` 추가형 마이그레이션은 새 완료 결과의 12개 키 envelope를 강제하며 기존 행은 수정하지 않는다. 기능 커밋 `ab7a71ea7d969b5b45bc5f615fb6bec08a35a76b`를 GitHub `main`과 Sites 소스에 반영했고 Sites 버전 193 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_de3ace62450881919d0503c58243264b`)으로 저장했다. 현재 공개 운영본은 버전 107이며 버전 108–192는 버전 193으로 대체해 배포하지 않는다.
 
 [AI 공급자 응답 모델 증거 무결성 경계](AI_PROVIDER_MODEL_EVIDENCE_INTEGRITY_2026_09_06.md)에서는 요청 모델만 원장에 남고 실제 Anthropic 응답 모델은 사라지던 공백을 차단했다. 성공 응답은 모델 신원을 필수로 제공하고, 요청 모델은 불변 열에, 응답 모델은 `_providerModel`에 별도 보존한다. `0041` 추가형 마이그레이션은 새 완료 결과의 11개 키 envelope를 강제하며 기존 행은 수정하지 않는다. 기능 커밋 `234cc6e470b9c825deff95c70dd02667e37286ad`를 GitHub `main`과 Sites 소스에 반영했고 Sites 버전 192 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_766a0a3782908191beab2783a1b50986`)로 저장했다. 현재 공개 운영본은 버전 107이며 버전 108–191은 버전 192로 대체해 배포하지 않는다.
 
