@@ -269,6 +269,9 @@ const invalidFlowAiFailureEvidenceSql = (expression: string) =>
     json_extract(${expression}, '$.requestedModel') <> trim(json_extract(${expression}, '$.requestedModel')) OR
     COALESCE(json_type(${expression}, '$.httpStatus'), '') <> 'integer' OR
     json_extract(${expression}, '$.httpStatus') NOT BETWEEN 400 AND 599 OR
+    COALESCE(json_type(${expression}, '$.observedAt'), '') <> 'text' OR
+    length(json_extract(${expression}, '$.observedAt')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.timestamp} OR
+    julianday(json_extract(${expression}, '$.observedAt')) IS NULL OR
     (json_type(${expression}, '$.providerRequestId') IS NOT NULL AND
       (json_type(${expression}, '$.providerRequestId') <> 'text' OR
         length(json_extract(${expression}, '$.providerRequestId')) NOT BETWEEN 1 AND ${FLOW_AI_EVIDENCE_LIMITS.providerRequestId} OR
@@ -309,11 +312,26 @@ const flowAiEvidenceViolationSql = `SELECT 1 AS invalid FROM consulting_flows
         )})) OR
       (json_extract(j.value, '$.status') <> 'failed' AND
         json_type(j.value, '$.failureEvidence') IS NOT NULL) OR
+      (json_type(j.value, '$.failureEvidence') IS NOT NULL AND
+        julianday(json_extract(j.value, '$.failureEvidence.observedAt')) <
+          julianday(json_extract(j.value, '$.startedAt'))) OR
+      (json_type(j.value, '$.failureEvidence') IS NOT NULL AND
+        julianday(json_extract(j.value, '$.failureEvidence.observedAt')) >
+          julianday(json_extract(payload, '$.updatedAt'))) OR
       (json_type(j.value, '$.failureEvidenceHistory') IS NOT NULL AND
         (json_type(j.value, '$.failureEvidenceHistory') <> 'array' OR
           json_array_length(j.value, '$.failureEvidenceHistory') NOT BETWEEN 1 AND ${FLOW_COLLECTION_LIMITS.aiFailureEvidenceHistory} OR
           EXISTS (SELECT 1 FROM json_each(j.value, '$.failureEvidenceHistory') history WHERE
-            ${invalidFlowAiFailureEvidenceSql('history.value')}))))
+            ${invalidFlowAiFailureEvidenceSql('history.value')} OR
+            julianday(json_extract(history.value, '$.observedAt')) <
+              julianday(json_extract(j.value, '$.createdAt')) OR
+            julianday(json_extract(history.value, '$.observedAt')) >
+              julianday(json_extract(payload, '$.updatedAt'))) OR
+          EXISTS (SELECT 1 FROM json_each(j.value, '$.failureEvidenceHistory') history
+            JOIN json_each(j.value, '$.failureEvidenceHistory') previous
+              ON previous.key = history.key - 1
+            WHERE julianday(json_extract(history.value, '$.observedAt')) <
+              julianday(json_extract(previous.value, '$.observedAt'))))))
   ELSE 0 END LIMIT 1`;
 const flowFileOwnershipViolationSql = (
   caseIdOnly: boolean,

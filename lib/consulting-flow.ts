@@ -95,6 +95,7 @@ export type FlowAiFailureEvidence = {
   instructionVersion: string;
   requestedModel: string;
   httpStatus: number;
+  observedAt: string;
   providerRequestId?: string;
 };
 export type FlowJob = {

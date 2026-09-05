@@ -65,6 +65,7 @@ function providerResponseError(
     instructionVersion: CLAUDE_FLOW_INSTRUCTION_VERSION,
     requestedModel,
     httpStatus: response.status,
+    observedAt: new Date().toISOString(),
     ...(providerRequestId ? { providerRequestId } : {}),
   });
 }

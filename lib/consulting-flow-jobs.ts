@@ -93,7 +93,9 @@ export function finishFlowJob(
     typeof outcome.error === 'string' &&
     (outcome.evidence !== undefined ||
       (outcome.failureEvidence !== undefined &&
-        !hasFlowAiFailureEvidenceStructure(outcome.failureEvidence)))
+        (!hasFlowAiFailureEvidenceStructure(outcome.failureEvidence) ||
+          Date.parse(outcome.failureEvidence.observedAt) < Date.parse(lease) ||
+          Date.parse(outcome.failureEvidence.observedAt) > Date.parse(now))))
   )
     throw new FlowError('Claude 실패 응답 추적 증거 형식이 올바르지 않습니다.');
   if (current && !outcome.error) {

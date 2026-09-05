@@ -1,4 +1,4 @@
-import type { ConsultingFlow } from './consulting-flow';
+import type { ConsultingFlow, FlowAiFailureEvidence } from './consulting-flow';
 import {
   storedFlowFileKeyMatches,
   storedFlowFileNameMatches,
@@ -247,6 +247,7 @@ export const FLOW_OBJECT_KEYS = {
     'instructionVersion',
     'requestedModel',
     'httpStatus',
+    'observedAt',
     'providerRequestId',
   ],
   audit: ['id', 'at', 'actor', 'action', 'detail'],
@@ -541,7 +542,9 @@ export function hasFlowAiEvidenceStructure(value: unknown) {
   );
 }
 
-export function hasFlowAiFailureEvidenceStructure(value: unknown) {
+export function hasFlowAiFailureEvidenceStructure(
+  value: unknown,
+): value is FlowAiFailureEvidence {
   const evidence = asRecord(value);
   return Boolean(
     evidence &&
@@ -553,6 +556,7 @@ export function hasFlowAiFailureEvidenceStructure(value: unknown) {
     boundedExactName(evidence.requestedModel, FLOW_AI_EVIDENCE_LIMITS.model) &&
     safeInteger(evidence.httpStatus, 400) &&
     (evidence.httpStatus as number) <= 599 &&
+    timestamp(evidence.observedAt) &&
     (evidence.providerRequestId === undefined ||
       boundedExactName(
         evidence.providerRequestId,
@@ -561,12 +565,20 @@ export function hasFlowAiFailureEvidenceStructure(value: unknown) {
   );
 }
 
-export function hasFlowAiFailureEvidenceHistoryStructure(value: unknown) {
+export function hasFlowAiFailureEvidenceHistoryStructure(
+  value: unknown,
+): value is FlowAiFailureEvidence[] {
   return (
     Array.isArray(value) &&
     value.length >= 1 &&
     value.length <= FLOW_COLLECTION_LIMITS.aiFailureEvidenceHistory &&
-    value.every(hasFlowAiFailureEvidenceStructure)
+    value.every(hasFlowAiFailureEvidenceStructure) &&
+    value.every(
+      (evidence, index) =>
+        index === 0 ||
+        Date.parse(evidence.observedAt) >=
+          Date.parse(value[index - 1].observedAt),
+    )
   );
 }
 
@@ -604,6 +616,18 @@ function validJob(item: JsonRecord) {
     (failureEvidence !== undefined && item.status !== 'failed') ||
     (failureEvidenceHistory !== undefined &&
       !hasFlowAiFailureEvidenceHistoryStructure(failureEvidenceHistory))
+  )
+    return false;
+  if (
+    failureEvidence !== undefined &&
+    Date.parse(failureEvidence.observedAt) < Date.parse(startedAt as string)
+  )
+    return false;
+  if (
+    failureEvidenceHistory?.some(
+      (entry) =>
+        Date.parse(entry.observedAt) < Date.parse(item.createdAt as string),
+    )
   )
     return false;
   const statusEvidence =
@@ -825,6 +849,23 @@ function hasStateIntegrity(flow: JsonRecord, mode: ShapeMode) {
   const payments = flow.payments as Array<JsonRecord>;
   const executionStartedAt = reference(flow.executionStartedAt);
   const aftercare = flow.aftercare as JsonRecord | undefined;
+  const updatedAt = Date.parse(flow.updatedAt as string);
+  if (
+    mode !== 'projected' &&
+    (flow.jobs as Array<JsonRecord>).some((job) => {
+      const current = asRecord(job.failureEvidence);
+      const history = job.failureEvidenceHistory as
+        | Array<JsonRecord>
+        | undefined;
+      return (
+        (current && Date.parse(current.observedAt as string) > updatedAt) ||
+        history?.some(
+          (entry) => Date.parse(entry.observedAt as string) > updatedAt,
+        )
+      );
+    })
+  )
+    return false;
   if (
     contract &&
     meetings.find((item) => item.id === contract.meetingId)?.status !==

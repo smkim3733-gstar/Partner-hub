@@ -489,7 +489,14 @@ void nodeTest(
       assert.equal(providerFailed.status, 200);
       flow = (await responseData(providerFailed)).flow;
       assert.equal(flow.jobs.at(-1)?.status, 'failed');
-      assert.deepEqual(flow.jobs.at(-1)?.failureEvidence, {
+      const providerFailureEvidence = flow.jobs.at(-1)?.failureEvidence;
+      assert.ok(
+        typeof providerFailureEvidence?.observedAt === 'string' &&
+          Number.isFinite(Date.parse(providerFailureEvidence.observedAt)),
+      );
+      const { observedAt: _observedAt, ...providerFailureFacts } =
+        providerFailureEvidence!;
+      assert.deepEqual(providerFailureFacts, {
         instructionVersion: 'v2.5-partner-workflow-2026-08-30',
         requestedModel: 'claude-opus-5',
         httpStatus: 429,
@@ -508,12 +515,7 @@ void nodeTest(
       ).flow;
       assert.equal(flow.jobs.at(-1)?.failureEvidence, undefined);
       assert.deepEqual(flow.jobs.at(-1)?.failureEvidenceHistory, [
-        {
-          instructionVersion: 'v2.5-partner-workflow-2026-08-30',
-          requestedModel: 'claude-opus-5',
-          httpStatus: 429,
-          providerRequestId: 'req_consulting_flow_failure',
-        },
+        providerFailureEvidence,
       ]);
       const runs = await Promise.all([
         run(

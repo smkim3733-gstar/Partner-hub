@@ -72,6 +72,7 @@ const aiFailureEvidence: FlowAiFailureEvidence = {
   instructionVersion: 'synthetic-flow-instruction-v1',
   requestedModel: 'claude-requested-test-model',
   httpStatus: 429,
+  observedAt: now,
   providerRequestId: 'req_synthetic_failure',
 };
 test('consequential yes-no workflow choices preserve an unselected state', () => {
@@ -695,6 +696,7 @@ test('FLOW AI evidence accepts only complete exact bounded provider records', ()
     { ...aiFailureEvidence, futureField: 'blocked' },
     { ...aiFailureEvidence, httpStatus: 399 },
     { ...aiFailureEvidence, httpStatus: 600 },
+    { ...aiFailureEvidence, observedAt: 'not-a-date' },
     { ...aiFailureEvidence, providerRequestId: ' req_padded' },
   ])
     assert.equal(hasFlowAiFailureEvidenceStructure(evidence), false);
@@ -703,6 +705,13 @@ test('FLOW AI evidence accepts only complete exact bounded provider records', ()
     true,
   );
   assert.equal(hasFlowAiFailureEvidenceHistoryStructure([]), false);
+  assert.equal(
+    hasFlowAiFailureEvidenceHistoryStructure([
+      { ...aiFailureEvidence, observedAt: '2026-08-30T12:00:00.000Z' },
+      aiFailureEvidence,
+    ]),
+    false,
+  );
   assert.equal(
     hasFlowAiFailureEvidenceHistoryStructure(
       Array.from(
