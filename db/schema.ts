@@ -295,6 +295,12 @@ CREATE TABLE IF NOT EXISTS consulting_flows (
 )
 `;
 
+export const consultingFlowsIdentityTriggerSql =
+  "CREATE TRIGGER IF NOT EXISTS consulting_flows_identity_immutable BEFORE UPDATE ON consulting_flows WHEN NEW.case_id IS NOT OLD.case_id OR NEW.partner_id IS NOT OLD.partner_id BEGIN SELECT RAISE(ABORT, 'consulting flow identity is immutable'); END";
+
+export const consultingFlowsNoDeleteTriggerSql =
+  "CREATE TRIGGER IF NOT EXISTS consulting_flows_no_delete BEFORE DELETE ON consulting_flows BEGIN SELECT RAISE(ABORT, 'consulting flow root is durable'); END";
+
 export const consultingFlowFileOwnersTableSql = `
 CREATE TABLE IF NOT EXISTS consulting_flow_file_owners (
   file_id TEXT PRIMARY KEY NOT NULL,

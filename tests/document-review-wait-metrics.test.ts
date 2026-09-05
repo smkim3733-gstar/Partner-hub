@@ -11,6 +11,7 @@ import {
 } from '../lib/consulting-flow-metrics';
 import { flowDatabase } from '../lib/consulting-flow-store';
 import { newConsultingFlow } from '../lib/consulting-flow';
+import { deleteConsultingFlowFixture } from './flow-root-fixture';
 
 const now = '2026-08-10T00:00:00.000Z';
 
@@ -125,8 +126,7 @@ void test('document review wait snapshot is exhaustive, operational-only and ind
   const belowThreshold = await readDocumentReviewWaitSummary(
     { cases },
     rows.filter(
-      (item) =>
-        item.case_id !== 'pending-4' && item.case_id !== 'completed-4',
+      (item) => item.case_id !== 'pending-4' && item.case_id !== 'completed-4',
     ),
     now,
   );
@@ -136,7 +136,7 @@ void test('document review wait snapshot is exhaustive, operational-only and ind
 
 void test('shared FLOW scan projects only request transition fields for metrics', async () => {
   const db = await flowDatabase();
-  await db.prepare('DELETE FROM consulting_flows').run();
+  await deleteConsultingFlowFixture(db);
   const flow = newConsultingFlow(
     'metric-projection',
     '가상 비공개 기업명',

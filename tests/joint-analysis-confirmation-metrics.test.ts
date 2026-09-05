@@ -9,6 +9,7 @@ import {
 } from '../lib/consulting-flow';
 import { readConsultingFlowMetricRows } from '../lib/consulting-flow-metrics';
 import { readJointAnalysisConfirmationSummary } from '../lib/joint-analysis-confirmation-metrics';
+import { deleteConsultingFlowFixture } from './flow-root-fixture';
 
 const partnerAt = '2026-08-01T00:00:00.000Z';
 
@@ -39,7 +40,9 @@ async function insertFlow(
   const old = report(`${caseId}-old`, 99);
   const latest = report(`${caseId}-latest`, 1);
   flow.reports = [old, latest];
-  flow.analysis = mismatch ? { ...analysis, reportId: old.id } : { ...analysis, reportId: latest.id };
+  flow.analysis = mismatch
+    ? { ...analysis, reportId: old.id }
+    : { ...analysis, reportId: latest.id };
   flow.revision = 1;
   flow.updatedAt = '2026-08-10T00:00:00.000Z';
   await (
@@ -60,7 +63,7 @@ async function insertFlow(
 
 void test('joint-analysis snapshot is exhaustive, operational-only and uses latest report array order', async () => {
   const db = await flowDatabase();
-  await db.prepare('DELETE FROM consulting_flows').run();
+  await deleteConsultingFlowFixture(db);
   const cases = [
     'awaiting-both',
     'partner-pending',
@@ -131,11 +134,12 @@ void test('joint-analysis snapshot is exhaustive, operational-only and uses late
     },
   );
 
-  await db
-    .prepare("DELETE FROM consulting_flows WHERE case_id = 'partner-complete-b'")
-    .run();
+  await deleteConsultingFlowFixture(db, 'partner-complete-b');
   const belowThreshold = await readJointAnalysisConfirmationSummary({ cases });
   assert.equal(belowThreshold.partnerFirstCompleted, 4);
   assert.equal(belowThreshold.durationBuckets, null);
-  assert.doesNotMatch(JSON.stringify(belowThreshold), /가상 공동분석기업|synthetic/);
+  assert.doesNotMatch(
+    JSON.stringify(belowThreshold),
+    /가상 공동분석기업|synthetic/,
+  );
 });

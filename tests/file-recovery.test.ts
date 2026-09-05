@@ -21,6 +21,7 @@ import { portalRevision } from '../lib/portal-revision';
 import { FileRecoverySubmission } from '../lib/file-recovery-submission';
 import { PortalSaveQueue } from '../lib/portal-save-queue';
 import { mutateCompanyFileObjectFixture } from './company-file-object-fixture';
+import { deleteConsultingFlowFixture } from './flow-root-fixture';
 
 const email = 'seedy@sites.test';
 const member = {
@@ -82,12 +83,11 @@ async function seed({
     .prepare('DROP TRIGGER IF EXISTS company_file_upload_requests_no_delete')
     .run();
   try {
+    await deleteConsultingFlowFixture(db);
     await db.batch(
-      [
-        'company_file_objects',
-        'company_file_upload_requests',
-        'consulting_flows',
-      ].map((table) => db.prepare(`DELETE FROM ${table}`)),
+      ['company_file_objects', 'company_file_upload_requests'].map((table) =>
+        db.prepare(`DELETE FROM ${table}`),
+      ),
     );
   } finally {
     await ensureCompanyFileTables(db);

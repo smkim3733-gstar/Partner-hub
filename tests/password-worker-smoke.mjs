@@ -163,6 +163,8 @@ const uploadRequestNoDeleteTriggerSql =
   "CREATE TRIGGER IF NOT EXISTS company_file_upload_requests_no_delete BEFORE DELETE ON company_file_upload_requests BEGIN SELECT RAISE(ABORT, 'company file upload request is durable'); END";
 const companyFileObjectsNoUpdateTriggerSql =
   "CREATE TRIGGER IF NOT EXISTS company_file_objects_no_update BEFORE UPDATE ON company_file_objects BEGIN SELECT RAISE(ABORT, 'company file object is immutable'); END";
+const consultingFlowsNoDeleteTriggerSql =
+  "CREATE TRIGGER IF NOT EXISTS consulting_flows_no_delete BEFORE DELETE ON consulting_flows BEGIN SELECT RAISE(ABORT, 'consulting flow root is durable'); END";
 const flowLedgerNoDeleteTriggerSql = {
   consulting_flow_file_owners:
     "CREATE TRIGGER IF NOT EXISTS consulting_flow_file_owners_no_delete BEFORE DELETE ON consulting_flow_file_owners BEGIN SELECT RAISE(ABORT, 'consulting FLOW file owner is durable'); END",
@@ -204,6 +206,17 @@ async function deleteFlowFileLedgerFixture(db, table, fileId) {
       .run();
   } finally {
     await db.prepare(flowLedgerNoDeleteTriggerSql[table]).run();
+  }
+}
+async function deleteConsultingFlowFixture(db, caseId) {
+  await db.prepare('DROP TRIGGER IF EXISTS consulting_flows_no_delete').run();
+  try {
+    return await db
+      .prepare('DELETE FROM consulting_flows WHERE case_id = ?1')
+      .bind(caseId)
+      .run();
+  } finally {
+    await db.prepare(consultingFlowsNoDeleteTriggerSql).run();
   }
 }
 try {
@@ -484,6 +497,28 @@ try {
   checks.push(
     'FLOW file ledgers reject rewrites and deletion while permitting source archival',
   );
+  await assert.rejects(
+    db
+      .prepare('UPDATE consulting_flows SET case_id = ?1 WHERE case_id = ?2')
+      .bind('migration-other-flow', 'migration-v159-case')
+      .run(),
+    /flow identity is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare('UPDATE consulting_flows SET partner_id = ?1 WHERE case_id = ?2')
+      .bind('migration-other-partner', 'migration-v159-case')
+      .run(),
+    /flow identity is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM consulting_flows WHERE case_id = ?1')
+      .bind('migration-v159-case')
+      .run(),
+    /flow root is durable/,
+  );
+  checks.push('FLOW root identity and durable row are enforced in native D1');
   await db
     .prepare('DELETE FROM company_file_objects WHERE id = ?1')
     .bind(migrationCompanyFile.id)
@@ -503,10 +538,7 @@ try {
     'consulting_flow_file_owners',
     migrationCompatibilityFile.id,
   );
-  await db
-    .prepare('DELETE FROM consulting_flows WHERE case_id = ?1')
-    .bind('migration-v159-case')
-    .run();
+  await deleteConsultingFlowFixture(db, 'migration-v159-case');
   await expect(await call('/state'), 401, 'anonymous private-state denial');
   await expect(
     await call('/signup', {

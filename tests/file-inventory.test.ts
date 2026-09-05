@@ -15,6 +15,7 @@ import {
   readFileInventoryPresenceResponse,
 } from '../lib/file-inventory-response';
 import { mutateCompanyFileObjectFixture } from './company-file-object-fixture';
+import { deleteConsultingFlowFixture } from './flow-root-fixture';
 
 const owner = 'seedy@sites.test';
 const member = {
@@ -43,10 +44,10 @@ async function seed(documents: unknown[] = []) {
     .prepare('DROP TRIGGER IF EXISTS company_file_upload_requests_no_delete')
     .run();
   try {
+    await deleteConsultingFlowFixture(db);
     await db.batch([
       db.prepare('DELETE FROM company_file_objects'),
       db.prepare('DELETE FROM company_file_upload_requests'),
-      db.prepare('DELETE FROM consulting_flows'),
     ]);
   } finally {
     await ensureCompanyFileTables(db);

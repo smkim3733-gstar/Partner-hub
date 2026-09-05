@@ -10,6 +10,8 @@ import {
   consultingFlowFileOwnersNoUpdateTriggerSql,
   consultingFlowFileOwnersCaseIndexSql,
   consultingFlowFileOwnersTableSql,
+  consultingFlowsIdentityTriggerSql,
+  consultingFlowsNoDeleteTriggerSql,
   consultingFlowsTableSql,
   portalStateId,
 } from '@/db/schema';
@@ -71,6 +73,8 @@ export async function flowDatabase() {
     const initialization = db
       .batch([
         db.prepare(consultingFlowsTableSql),
+        db.prepare(consultingFlowsIdentityTriggerSql),
+        db.prepare(consultingFlowsNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),
         db.prepare(consultingFlowFileOwnersNoDeleteTriggerSql),

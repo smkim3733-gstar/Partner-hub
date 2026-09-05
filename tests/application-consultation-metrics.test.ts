@@ -11,6 +11,7 @@ import {
   type ConsultingFlow,
   type FlowMeeting,
 } from '../lib/consulting-flow';
+import { deleteConsultingFlowFixture } from './flow-root-fixture';
 
 const submittedAt = '2026-08-01T00:00:00.000Z';
 
@@ -126,7 +127,7 @@ async function insertFlow(caseId: string, meeting: FlowMeeting) {
 
 void test('funnel summary excludes seed and legacy records, separates FLOW denominator, and suppresses small duration groups', async () => {
   const db = await flowDatabase();
-  await db.prepare('DELETE FROM consulting_flows').run();
+  await deleteConsultingFlowFixture(db);
   const tracked = (id: string, extra: Record<string, unknown> = {}) => ({
     id,
     submittedAt,
@@ -184,9 +185,7 @@ void test('funnel summary excludes seed and legacy records, separates FLOW denom
   });
   assert.doesNotMatch(JSON.stringify(summary), /가상 지표기업|tracked-/);
 
-  await db
-    .prepare("DELETE FROM consulting_flows WHERE case_id = 'tracked-under-b'")
-    .run();
+  await deleteConsultingFlowFixture(db, 'tracked-under-b');
   const belowThreshold = await readApplicationConsultationSummary({ cases });
   assert.equal(belowThreshold.firstConsultationsCompleted, 5);
   assert.equal(belowThreshold.durationBuckets, null);

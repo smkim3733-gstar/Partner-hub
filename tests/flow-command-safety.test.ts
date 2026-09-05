@@ -43,6 +43,7 @@ import {
   consultingFlowFileOwnersBackfillSql,
 } from '../db/schema';
 import { deleteFlowFileLedgerFixture } from './flow-file-ledger-fixture';
+import { deleteConsultingFlowFixture } from './flow-root-fixture';
 
 const partner = {
   id: 'safety-partner',
@@ -460,6 +461,31 @@ void test('FLOW commit refuses case and partner identity changes before D1 write
     assert.equal(await readFlow(initial.caseId), null);
     assert.equal(await readFlow(changed.caseId), null);
   }
+});
+
+void test('FLOW root identity and durable row reject direct D1 rewrite or deletion', async () => {
+  const flow = await fixture();
+  const db = await flowDatabase();
+  for (const [field, value] of [
+    ['case_id', `${flow.caseId}-changed`],
+    ['partner_id', `${flow.partnerId}-changed`],
+  ] as const) {
+    await assert.rejects(
+      db
+        .prepare(`UPDATE consulting_flows SET ${field} = ?1 WHERE case_id = ?2`)
+        .bind(value, flow.caseId)
+        .run(),
+      /flow identity is immutable/,
+    );
+  }
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM consulting_flows WHERE case_id = ?1')
+      .bind(flow.caseId)
+      .run(),
+    /flow root is durable/,
+  );
+  assert.deepEqual(await readFlow(flow.caseId), flow);
 });
 
 void test('FLOW commit requires exactly one revision and a valid stored timestamp', async () => {
@@ -963,7 +989,7 @@ void test('FLOW detail and dashboard reject empty, oversized and unknown-purpose
     },
   ];
   for (const [index, corruption] of corruptions.entries()) {
-    await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+    await deleteConsultingFlowFixture(await flowDatabase());
     const flow = await fixture();
     await replaceStoredFlow(flow.caseId, (payload) => {
       (payload.files as Array<Record<string, unknown>>).push({
@@ -1013,7 +1039,7 @@ void test('FLOW detail and dashboard reject file extensions and MIME outside the
     },
   ] as const;
   for (const [index, corruption] of corruptions.entries()) {
-    await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+    await deleteConsultingFlowFixture(await flowDatabase());
     const flow = await fixture();
     await replaceStoredFlow(flow.caseId, (payload) => {
       (payload.files as Array<Record<string, unknown>>).push({
@@ -1047,7 +1073,7 @@ void test('FLOW rejects stored filenames outside the canonical upload boundary b
     `${'a'.repeat(181)}.txt`,
   ];
   for (const [index, name] of unsafeNames.entries()) {
-    await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+    await deleteConsultingFlowFixture(await flowDatabase());
     const flow = await fixture();
     const fileId = `unsafe-name-file-${++sequence}`;
     const key = flowFileStorageKey(fileId);
@@ -1084,7 +1110,7 @@ void test('FLOW rejects stored filenames outside the canonical upload boundary b
 });
 
 void test('FLOW rejects a file ID and key copied from another case before detail, dashboard and download', async () => {
-  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  await deleteConsultingFlowFixture(await flowDatabase());
   const source = await fixtureWithAttachment();
   const target = await fixture();
   const copied = structuredClone(target);
@@ -1172,7 +1198,7 @@ void test('FLOW rejects valid-looking metadata drift for an existing owned file'
     },
   ];
   for (const mutation of mutations) {
-    await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+    await deleteConsultingFlowFixture(await flowDatabase());
     const { saved, file } = await fixtureWithAttachment();
     const changed = structuredClone(saved);
     changed.revision++;
@@ -1203,7 +1229,7 @@ void test('FLOW rejects valid-looking metadata drift for an existing owned file'
 });
 
 void test('FLOW metadata backfill restores every authoritative field for a clean existing file', async () => {
-  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  await deleteConsultingFlowFixture(await flowDatabase());
   const { saved, file } = await fixtureWithAttachment();
   const db = await flowDatabase();
   await deleteFlowFileLedgerFixture(
@@ -1250,7 +1276,7 @@ void test('FLOW metadata backfill restores every authoritative field for a clean
 });
 
 void test('FLOW requires an R2 write binding and fails closed when its integrity row disappears', async () => {
-  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  await deleteConsultingFlowFixture(await flowDatabase());
   const flow = await fixture();
   const missingBinding = structuredClone(flow);
   const now = new Date().toISOString();
@@ -1321,7 +1347,7 @@ void test('FLOW requires an R2 write binding and fails closed when its integrity
 });
 
 void test('FLOW source archival advances the authoritative purpose in the same commit', async () => {
-  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  await deleteConsultingFlowFixture(await flowDatabase());
   const flow = await fixture();
   const withSource = structuredClone(flow);
   const now = new Date().toISOString();
@@ -1491,7 +1517,7 @@ void test('FLOW commit rejects an oversized field before D1 writes', async () =>
 });
 
 void test('FLOW dashboard validates full stored structure before SQLite projection', async () => {
-  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  await deleteConsultingFlowFixture(await flowDatabase());
   const flow = await fixture();
   await replaceStoredFlow(flow.caseId, (payload) => {
     const { files: _files, ...withoutFiles } = payload;
@@ -1504,7 +1530,7 @@ void test('FLOW dashboard validates full stored structure before SQLite projecti
 });
 
 void test('FLOW dashboard rejects non-object hidden collection entries', async () => {
-  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  await deleteConsultingFlowFixture(await flowDatabase());
   const flow = await fixture();
   await replaceStoredFlow(flow.caseId, (payload) => ({
     ...payload,
@@ -1517,7 +1543,7 @@ void test('FLOW dashboard rejects non-object hidden collection entries', async (
 });
 
 void test('FLOW dashboard rejects a hidden orphaned file reference', async () => {
-  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  await deleteConsultingFlowFixture(await flowDatabase());
   const flow = await fixture();
   await replaceStoredFlow(flow.caseId, (payload) => ({
     ...payload,
@@ -1543,7 +1569,7 @@ void test('FLOW dashboard rejects a hidden orphaned file reference', async () =>
 });
 
 void test('FLOW dashboard rejects inconsistent hidden AI job state', async () => {
-  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  await deleteConsultingFlowFixture(await flowDatabase());
   const flow = await fixture();
   await replaceStoredFlow(flow.caseId, (payload) => ({
     ...payload,
@@ -1564,7 +1590,7 @@ void test('FLOW dashboard rejects inconsistent hidden AI job state', async () =>
 });
 
 void test('FLOW dashboard rejects excessive hidden collection entries', async () => {
-  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  await deleteConsultingFlowFixture(await flowDatabase());
   const flow = await fixture();
   await replaceStoredFlow(flow.caseId, (payload) => ({
     ...payload,
@@ -1583,7 +1609,7 @@ void test('FLOW dashboard rejects excessive hidden collection entries', async ()
 });
 
 void test('FLOW detail and dashboard share SQLite Unicode code-point limits', async () => {
-  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  await deleteConsultingFlowFixture(await flowDatabase());
   const flow = await fixture();
   await replaceStoredFlow(flow.caseId, (payload) => {
     const audit = payload.audit as Array<Record<string, unknown>>;
@@ -1624,7 +1650,7 @@ void test('FLOW detail and dashboard reject unpaired UTF-16 surrogates', async (
     },
   ];
   for (const corrupt of corruptions) {
-    await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+    await deleteConsultingFlowFixture(await flowDatabase());
     const flow = await fixture();
     await replaceStoredFlow(flow.caseId, (payload) => {
       corrupt(payload);
@@ -1656,7 +1682,7 @@ void test('FLOW detail and dashboard reject undefined root and hidden nested pro
     },
   ];
   for (const corrupt of corruptions) {
-    await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+    await deleteConsultingFlowFixture(await flowDatabase());
     const flow = await fixture();
     await replaceStoredFlow(flow.caseId, (payload) => {
       corrupt(payload);
@@ -1813,7 +1839,7 @@ void test('FLOW dashboard rejects malformed or oversized fields removed by SQLit
   ];
 
   for (const corruption of corruptions) {
-    await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+    await deleteConsultingFlowFixture(await flowDatabase());
     const flow = await fixture();
     await replaceStoredFlow(flow.caseId, (payload) => {
       corruption.apply(payload);
@@ -1975,7 +2001,7 @@ void test('FLOW dashboard rejects blank or invalid-date fields removed by SQLite
   ];
 
   for (const corruption of corruptions) {
-    await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+    await deleteConsultingFlowFixture(await flowDatabase());
     const flow = await fixture();
     await replaceStoredFlow(flow.caseId, (payload) => {
       corruption.apply(payload);
