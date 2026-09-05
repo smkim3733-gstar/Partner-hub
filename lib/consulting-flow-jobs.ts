@@ -4,6 +4,7 @@ import {
   latestReport,
   reportLabels,
   type ConsultingFlow,
+  type FlowAiFailureEvidence,
   type FlowFile,
   type FlowAiEvidence,
   type FlowJob,
@@ -12,6 +13,7 @@ import {
   FLOW_COLLECTION_LIMITS,
   FLOW_TEXT_LIMITS,
   flowTextLength,
+  hasFlowAiFailureEvidenceStructure,
   hasFlowAiEvidenceStructure,
   isWellFormedFlowText,
 } from './consulting-flow-shape';
@@ -66,6 +68,7 @@ export function finishFlowJob(
     file?: FlowFile;
     error?: string;
     evidence?: FlowAiEvidence;
+    failureEvidence?: FlowAiFailureEvidence;
   },
 ) {
   const next = structuredClone(flow);
@@ -85,6 +88,14 @@ export function finishFlowJob(
       flowTextLength(outcome.error) > FLOW_TEXT_LIMITS.jobReason)
   )
     throw new FlowError('생성 실패 안내가 저장 한도를 초과했습니다.', 413);
+  if (
+    current &&
+    typeof outcome.error === 'string' &&
+    (outcome.evidence !== undefined ||
+      (outcome.failureEvidence !== undefined &&
+        !hasFlowAiFailureEvidenceStructure(outcome.failureEvidence)))
+  )
+    throw new FlowError('Claude 실패 응답 추적 증거 형식이 올바르지 않습니다.');
   if (current && !outcome.error) {
     if (
       next.reports.length >= FLOW_COLLECTION_LIMITS.reports ||
@@ -101,6 +112,8 @@ export function finishFlowJob(
       throw new FlowError(
         'Claude 응답 추적 증거를 확인하지 못해 정식 보고서로 저장하지 않았습니다.',
       );
+    if (outcome.failureEvidence !== undefined)
+      throw new FlowError('완료 결과에 실패 응답 증거를 저장할 수 없습니다.');
   }
   if (!current) {
     job.status = 'blocked';
@@ -109,6 +122,9 @@ export function finishFlowJob(
   } else if (outcome.error) {
     job.status = 'failed';
     job.reason = outcome.error;
+    job.failureEvidence = outcome.failureEvidence
+      ? { ...outcome.failureEvidence }
+      : undefined;
   } else {
     if (!outcome.body || flowTextLength(outcome.body) < 200)
       throw new FlowError('완성된 분석 결과가 없습니다.');

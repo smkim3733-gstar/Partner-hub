@@ -16,6 +16,7 @@ import {
   signingPreparationDone,
   type ConsultingFlow,
   type FlowAiEvidence,
+  type FlowAiFailureEvidence,
   type FlowActor,
   type FlowCommand,
   type FlowFile,
@@ -37,6 +38,7 @@ import {
   FLOW_COLLECTION_LIMITS,
   FLOW_TEXT_LIMITS,
   flowTextLength,
+  hasFlowAiFailureEvidenceStructure,
   hasFlowAiEvidenceStructure,
   isWellFormedFlowText,
 } from '../lib/consulting-flow-shape';
@@ -64,6 +66,12 @@ const aiEvidence: FlowAiEvidence = {
   providerMessageId: 'msg_synthetic_flow',
   inputTokens: 10,
   outputTokens: 20,
+};
+const aiFailureEvidence: FlowAiFailureEvidence = {
+  instructionVersion: 'synthetic-flow-instruction-v1',
+  requestedModel: 'claude-requested-test-model',
+  httpStatus: 429,
+  providerRequestId: 'req_synthetic_failure',
 };
 test('consequential yes-no workflow choices preserve an unselected state', () => {
   assert.equal(explicitFlowBooleanChoice('yes'), true);
@@ -681,6 +689,14 @@ test('FLOW AI evidence accepts only complete exact bounded provider records', ()
     { ...aiEvidence, outputTokens: Number.MAX_SAFE_INTEGER + 1 },
   ])
     assert.equal(hasFlowAiEvidenceStructure(evidence), false);
+  assert.equal(hasFlowAiFailureEvidenceStructure(aiFailureEvidence), true);
+  for (const evidence of [
+    { ...aiFailureEvidence, futureField: 'blocked' },
+    { ...aiFailureEvidence, httpStatus: 399 },
+    { ...aiFailureEvidence, httpStatus: 600 },
+    { ...aiFailureEvidence, providerRequestId: ' req_padded' },
+  ])
+    assert.equal(hasFlowAiFailureEvidenceStructure(evidence), false);
 });
 test('AI result capacity and report size are rejected before an invalid state is returned', () => {
   let flow = apply(start(), {
@@ -779,9 +795,18 @@ test('AI failures remain failed; stale/disabled job results cannot drive the wor
   const claimed = claimFlowJob(s, j.id, now);
   const failed = finishFlowJob(claimed, j.id, now, now, {
     error: '가상 API 실패',
+    failureEvidence: aiFailureEvidence,
   });
   assert.equal(failed.jobs[0].status, 'failed');
+  assert.deepEqual(failed.jobs[0].failureEvidence, aiFailureEvidence);
   assert.equal(deepReport(failed), undefined);
+  const retried = apply(failed, {
+    type: 'retry_job',
+    jobId: j.id,
+    costConsent: true,
+  });
+  assert.equal(retried.jobs[0].status, 'queued');
+  assert.equal(retried.jobs[0].failureEvidence, undefined);
   const disabled = apply(claimed, { type: 'set_ai_policy', enabled: false });
   const discarded = finishFlowJob(disabled, j.id, now, now, { body });
   assert.equal(discarded.jobs[0].status, 'blocked');
@@ -856,6 +881,31 @@ test('stable member ID prevents another partner or same-name claimant reading re
       ...item,
       futureReportSecret: '숨김 보고서 값',
     })),
+    jobs: [
+      {
+        id: 'safe-projection-job',
+        stage: 1,
+        status: 'complete',
+        reason: '',
+        createdAt: now,
+        startedAt: now,
+        completedAt: now,
+        reportId: report.reports[0].id,
+        evidence: { ...aiEvidence, futureEvidenceSecret: '숨김 증거 값' },
+      },
+      {
+        id: 'safe-failure-projection-job',
+        stage: 1,
+        status: 'failed',
+        reason: '가상 실패',
+        createdAt: now,
+        startedAt: now,
+        failureEvidence: {
+          ...aiFailureEvidence,
+          futureFailureSecret: '숨김 실패 값',
+        },
+      },
+    ],
     ai: { ...report.ai, futureAiSecret: '숨김 AI 값' },
     futureRootSecret: '숨김 루트 값',
   } as unknown as ConsultingFlow);
@@ -865,6 +915,8 @@ test('stable member ID prevents another partner or same-name claimant reading re
   assert.equal('futureFileSecret' in safe.files[0], false);
   assert.equal('futureReportSecret' in safe.reports[0], false);
   assert.equal('futureAiSecret' in safe.ai, false);
+  assert.equal('futureEvidenceSecret' in safe.jobs[0].evidence!, false);
+  assert.equal('futureFailureSecret' in safe.jobs[1].failureEvidence!, false);
 });
 test('pipeline stages derive from verified events; partner-only meeting omitted from representative shared schedule', () => {
   const s = pay(signed());

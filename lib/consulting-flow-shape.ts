@@ -230,6 +230,7 @@ export const FLOW_OBJECT_KEYS = {
     'completedAt',
     'reportId',
     'evidence',
+    'failureEvidence',
   ],
   jobEvidence: [
     'instructionVersion',
@@ -239,6 +240,12 @@ export const FLOW_OBJECT_KEYS = {
     'providerMessageId',
     'inputTokens',
     'outputTokens',
+  ],
+  jobFailureEvidence: [
+    'instructionVersion',
+    'requestedModel',
+    'httpStatus',
+    'providerRequestId',
   ],
   audit: ['id', 'at', 'actor', 'action', 'detail'],
   receipt: ['actorKey', 'fingerprint'],
@@ -532,6 +539,26 @@ export function hasFlowAiEvidenceStructure(value: unknown) {
   );
 }
 
+export function hasFlowAiFailureEvidenceStructure(value: unknown) {
+  const evidence = asRecord(value);
+  return Boolean(
+    evidence &&
+    hasOnlyKeys(evidence, FLOW_OBJECT_KEYS.jobFailureEvidence) &&
+    boundedExactName(
+      evidence.instructionVersion,
+      FLOW_AI_EVIDENCE_LIMITS.instructionVersion,
+    ) &&
+    boundedExactName(evidence.requestedModel, FLOW_AI_EVIDENCE_LIMITS.model) &&
+    safeInteger(evidence.httpStatus, 400) &&
+    (evidence.httpStatus as number) <= 599 &&
+    (evidence.providerRequestId === undefined ||
+      boundedExactName(
+        evidence.providerRequestId,
+        FLOW_AI_EVIDENCE_LIMITS.providerRequestId,
+      )),
+  );
+}
+
 function validJob(item: JsonRecord) {
   if (
     !hasOnlyKeys(item, FLOW_OBJECT_KEYS.job) ||
@@ -556,9 +583,13 @@ function validJob(item: JsonRecord) {
   const completedAt = reference(item.completedAt);
   const reportId = reference(item.reportId);
   const evidence = item.evidence;
+  const failureEvidence = item.failureEvidence;
   if (
     (evidence !== undefined && !hasFlowAiEvidenceStructure(evidence)) ||
-    (evidence !== undefined && item.status !== 'complete')
+    (evidence !== undefined && item.status !== 'complete') ||
+    (failureEvidence !== undefined &&
+      !hasFlowAiFailureEvidenceStructure(failureEvidence)) ||
+    (failureEvidence !== undefined && item.status !== 'failed')
   )
     return false;
   const statusEvidence =

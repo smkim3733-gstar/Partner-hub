@@ -8,6 +8,7 @@ import {
   latestReport,
   type ConsultingFlow,
   type FlowAiEvidence,
+  type FlowAiFailureEvidence,
   type FlowFile,
   type FlowJob,
 } from '@/lib/consulting-flow';
@@ -44,6 +45,29 @@ type BinaryBlock = {
   source: { type: 'base64'; media_type: string; data: string };
 };
 type Block = TextBlock | BinaryBlock;
+class FlowProviderResponseError extends FlowError {
+  constructor(
+    message: string,
+    readonly evidence: FlowAiFailureEvidence,
+  ) {
+    super(message);
+  }
+}
+function providerResponseError(
+  message: string,
+  requestedModel: string,
+  response: Response,
+  providerRequestId?: string | null,
+) {
+  if (response.status < 400 || response.status > 599)
+    return new FlowError(message);
+  return new FlowProviderResponseError(message, {
+    instructionVersion: CLAUDE_FLOW_INSTRUCTION_VERSION,
+    requestedModel,
+    httpStatus: response.status,
+    ...(providerRequestId ? { providerRequestId } : {}),
+  });
+}
 function invalidTextCharacters(value: string) {
   for (const character of value) {
     const code = character.charCodeAt(0);
@@ -216,22 +240,31 @@ async function generate(
     }),
     signal: AbortSignal.timeout(85000),
   });
-  if (!response.ok)
+  let result: Awaited<ReturnType<typeof readAnthropicMessageResponse>>;
+  try {
+    result = await readAnthropicMessageResponse(response);
+  } catch {
+    if (!response.ok)
+      throw providerResponseError(
+        `Claude 응답 오류(${response.status}). 비용·연결 상태 확인 후 재시도해 주세요.`,
+        requestedModel,
+        response,
+      );
     throw new FlowError(
+      'Claude 응답 형식을 확인하지 못해 정식 보고서로 저장하지 않았습니다. 비용·연결 상태 확인 후 재시도해 주세요.',
+    );
+  }
+  if (!response.ok)
+    throw providerResponseError(
       response.status === 429
         ? 'API 사용 한도에 도달했습니다. 자동 재시도하지 않습니다.'
         : response.status === 401
           ? 'Claude API 인증 설정을 확인해 주세요.'
           : `Claude 응답 오류(${response.status}). 비용·연결 상태 확인 후 재시도해 주세요.`,
+      requestedModel,
+      response,
+      result.requestId,
     );
-  let result: Awaited<ReturnType<typeof readAnthropicMessageResponse>>;
-  try {
-    result = await readAnthropicMessageResponse(response);
-  } catch {
-    throw new FlowError(
-      'Claude 응답 형식을 확인하지 못해 정식 보고서로 저장하지 않았습니다. 비용·연결 상태 확인 후 재시도해 주세요.',
-    );
-  }
   const body = result.text;
   if (
     result.stopReason !== 'end_turn' ||
@@ -284,6 +317,7 @@ export async function runNextFlowJob(
     return claimed;
   let body: string | undefined;
   let evidence: FlowAiEvidence | undefined;
+  let failureEvidence: FlowAiFailureEvidence | undefined;
   let error: string | undefined;
   try {
     const generated = await generate(claimed, job, async () => {
@@ -305,6 +339,7 @@ export async function runNextFlowJob(
     body = generated.body;
     evidence = generated.evidence;
   } catch (e) {
+    if (e instanceof FlowProviderResponseError) failureEvidence = e.evidence;
     error =
       e instanceof FlowError || e instanceof PortalAccessError
         ? e.message
@@ -321,7 +356,7 @@ export async function runNextFlowJob(
       job.id,
       lease,
       new Date().toISOString(),
-      { body, error, evidence },
+      { body, error, evidence, failureEvidence },
     );
     try {
       await commitFlow(current, next);

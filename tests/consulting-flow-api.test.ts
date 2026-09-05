@@ -439,6 +439,7 @@ void nodeTest(
     const runtime = env as unknown as { ANTHROPIC_API_KEY?: string };
     const originalFetch = globalThis.fetch;
     let calls = 0;
+    let providerFailure = true;
     runtime.ANTHROPIC_API_KEY = 'test-only-not-a-real-key';
     globalThis.fetch = async (input, init) => {
       assert.equal(input, 'https://api.anthropic.com/v1/messages');
@@ -450,6 +451,14 @@ void nodeTest(
       assert.equal(data.model, 'claude-opus-5');
       assert.ok(data.messages.length);
       calls++;
+      if (providerFailure)
+        return Response.json(
+          { request_id: 'req_consulting_flow_failure' },
+          {
+            status: 429,
+            headers: { 'request-id': 'req_consulting_flow_failure' },
+          },
+        );
       return Response.json(
         {
           id: 'msg_consulting_flow',
@@ -473,6 +482,31 @@ void nodeTest(
           }),
         )
       ).flow;
+      const providerFailed = await run(
+        request('/api/consulting-flow/api-case/run', {}),
+        context('api-case'),
+      );
+      assert.equal(providerFailed.status, 200);
+      flow = (await responseData(providerFailed)).flow;
+      assert.equal(flow.jobs.at(-1)?.status, 'failed');
+      assert.deepEqual(flow.jobs.at(-1)?.failureEvidence, {
+        instructionVersion: 'v2.5-partner-workflow-2026-08-30',
+        requestedModel: 'claude-opus-5',
+        httpStatus: 429,
+        providerRequestId: 'req_consulting_flow_failure',
+      });
+      assert.equal(calls, 1);
+      providerFailure = false;
+      flow = (
+        await responseData(
+          await command('api-case', flow, {
+            type: 'retry_job',
+            jobId: flow.jobs.at(-1)!.id,
+            costConsent: true,
+          }),
+        )
+      ).flow;
+      assert.equal(flow.jobs.at(-1)?.failureEvidence, undefined);
       const runs = await Promise.all([
         run(
           request('/api/consulting-flow/api-case/run', {}),
@@ -484,7 +518,7 @@ void nodeTest(
         ),
       ]);
       assert.ok(runs.every((r) => r.status === 200 || r.status === 409));
-      assert.equal(calls, 1);
+      assert.equal(calls, 2);
       flow = (
         await responseData(
           await GET(
@@ -615,7 +649,7 @@ void nodeTest(
         inputTokens: 10,
         outputTokens: 20,
       });
-      assert.equal(calls, 2);
+      assert.equal(calls, 3);
     } finally {
       globalThis.fetch = originalFetch;
       delete runtime.ANTHROPIC_API_KEY;

@@ -91,6 +91,12 @@ export type FlowAiEvidence = {
   inputTokens: number;
   outputTokens: number;
 };
+export type FlowAiFailureEvidence = {
+  instructionVersion: string;
+  requestedModel: string;
+  httpStatus: number;
+  providerRequestId?: string;
+};
 export type FlowJob = {
   id: string;
   stage: 1 | 4;
@@ -103,6 +109,7 @@ export type FlowJob = {
   completedAt?: string;
   reportId?: string;
   evidence?: FlowAiEvidence;
+  failureEvidence?: FlowAiFailureEvidence;
 };
 export type ConsultingFlow = {
   schemaVersion: 1;
@@ -1012,6 +1019,7 @@ export function applyFlowCommand(
       job.status = 'queued';
       job.reason = '';
       job.startedAt = undefined;
+      job.failureEvidence = undefined;
       detail = '대표 확인 후 AI 생성 재시도';
       break;
     }

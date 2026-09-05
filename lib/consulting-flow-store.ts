@@ -287,7 +287,27 @@ const flowAiEvidenceViolationSql = `SELECT 1 AS invalid FROM consulting_flows
           COALESCE(json_type(j.value, '$.evidence.outputTokens'), '') <> 'integer' OR
           json_extract(j.value, '$.evidence.outputTokens') NOT BETWEEN 1 AND 9007199254740991)) OR
       (json_extract(j.value, '$.status') <> 'complete' AND
-        json_type(j.value, '$.evidence') IS NOT NULL))
+        json_type(j.value, '$.evidence') IS NOT NULL) OR
+      (json_type(j.value, '$.failureEvidence') IS NOT NULL AND
+        (json_type(j.value, '$.failureEvidence') <> 'object' OR
+          ${unexpectedJsonKeysSql(
+            "json_extract(j.value, '$.failureEvidence')",
+            FLOW_OBJECT_KEYS.jobFailureEvidence,
+          )} OR
+          COALESCE(json_type(j.value, '$.failureEvidence.instructionVersion'), '') <> 'text' OR
+          length(json_extract(j.value, '$.failureEvidence.instructionVersion')) NOT BETWEEN 1 AND ${FLOW_AI_EVIDENCE_LIMITS.instructionVersion} OR
+          json_extract(j.value, '$.failureEvidence.instructionVersion') <> trim(json_extract(j.value, '$.failureEvidence.instructionVersion')) OR
+          COALESCE(json_type(j.value, '$.failureEvidence.requestedModel'), '') <> 'text' OR
+          length(json_extract(j.value, '$.failureEvidence.requestedModel')) NOT BETWEEN 1 AND ${FLOW_AI_EVIDENCE_LIMITS.model} OR
+          json_extract(j.value, '$.failureEvidence.requestedModel') <> trim(json_extract(j.value, '$.failureEvidence.requestedModel')) OR
+          COALESCE(json_type(j.value, '$.failureEvidence.httpStatus'), '') <> 'integer' OR
+          json_extract(j.value, '$.failureEvidence.httpStatus') NOT BETWEEN 400 AND 599 OR
+          (json_type(j.value, '$.failureEvidence.providerRequestId') IS NOT NULL AND
+            (json_type(j.value, '$.failureEvidence.providerRequestId') <> 'text' OR
+              length(json_extract(j.value, '$.failureEvidence.providerRequestId')) NOT BETWEEN 1 AND ${FLOW_AI_EVIDENCE_LIMITS.providerRequestId} OR
+              json_extract(j.value, '$.failureEvidence.providerRequestId') <> trim(json_extract(j.value, '$.failureEvidence.providerRequestId')))))) OR
+      (json_extract(j.value, '$.status') <> 'failed' AND
+        json_type(j.value, '$.failureEvidence') IS NOT NULL))
   ELSE 0 END LIMIT 1`;
 const flowFileOwnershipViolationSql = (
   caseIdOnly: boolean,
