@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [상담 FLOW AI 실패 이력 무결성 경계](FLOW_AI_FAILURE_HISTORY_INTEGRITY_2026_09_06.md)                                | 수동 재시도 전 공급자 실패 증거 이동·20건 보존과 비용 전 용량 차단                       |
 | [상담 FLOW AI 실패 증거 무결성 경계](FLOW_AI_FAILURE_EVIDENCE_INTEGRITY_2026_09_06.md)                               | 공급자 4xx·5xx의 HTTP 상태·요청 ID와 요청 신원 원자 저장                                 |
 | [상담 FLOW AI 공급자 증거 무결성 경계](FLOW_AI_PROVIDER_EVIDENCE_INTEGRITY_2026_09_06.md)                            | 1차·4차 AI 완료 작업의 요청·모델·Message·토큰 증거 원자 저장                             |
 | [AI content block 무결성 경계](AI_CONTENT_BLOCK_INTEGRITY_2026_09_06.md)                                             | 도구 미요청 성공 응답의 빈·비텍스트·손상 content block 차단                              |
