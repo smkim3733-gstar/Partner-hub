@@ -174,6 +174,7 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
             ) + '[분석 끝]',
         },
       ],
+      usage: { input_tokens: 10, output_tokens: 20 },
     });
   };
   const environment = flowEnvironment();

@@ -34,6 +34,16 @@ void test('Anthropic response parser rejects malformed blocks, token counts and 
     { content: {} },
     { content: [null] },
     { content: [{ type: 'text' }] },
+    { content: [{ type: 'text', text: 'ok' }] },
+    { content: [{ type: 'text', text: 'ok' }], usage: {} },
+    {
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { input_tokens: 0, output_tokens: 1 },
+    },
+    {
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { input_tokens: 1, output_tokens: 0 },
+    },
     { content: [{ type: 'text', text: 'ok' }], usage: { input_tokens: -1 } },
     { content: [{ type: 'text', text: 'ok' }], usage: { output_tokens: 1.5 } },
     { content: [{ type: 'text', text: '가'.repeat(100_001) }] },
@@ -52,6 +62,17 @@ void test('unreadable Anthropic response hides provider payload details', async 
       assert.match(error.message, /JSON으로 읽지 못했습니다/);
       assert.doesNotMatch(error.message, /provider secret|SyntaxError/);
       return true;
+    },
+  );
+  assert.deepEqual(
+    await readAnthropicMessageResponse(
+      Response.json({ request_id: 'failed-request' }, { status: 429 }),
+    ),
+    {
+      stopReason: null,
+      text: '',
+      usage: { inputTokens: 0, outputTokens: 0 },
+      requestId: 'failed-request',
     },
   );
 });

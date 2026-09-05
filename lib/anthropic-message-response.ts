@@ -18,19 +18,24 @@ function optionalText(
 ): string | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== 'string' || !value.trim() || value.length > maxLength)
-    throw new AnthropicMessageResponseError(`${label} 형식이 올바르지 않습니다.`);
+    throw new AnthropicMessageResponseError(
+      `${label} 형식이 올바르지 않습니다.`,
+    );
   return value;
 }
 
-function tokenCount(value: unknown, label: string) {
-  if (value === undefined) return 0;
-  if (!Number.isSafeInteger(value) || (value as number) < 0)
-    throw new AnthropicMessageResponseError(`${label} 형식이 올바르지 않습니다.`);
+function tokenCount(value: unknown, label: string, required: boolean) {
+  if (value === undefined && !required) return 0;
+  if (!Number.isSafeInteger(value) || (value as number) < (required ? 1 : 0))
+    throw new AnthropicMessageResponseError(
+      `${label} 형식이 올바르지 않습니다.`,
+    );
   return value as number;
 }
 
 export function parseAnthropicMessageResponse(
   value: unknown,
+  options: { requireUsage?: boolean } = {},
 ): ParsedAnthropicMessage {
   if (!isObject(value))
     throw new AnthropicMessageResponseError(
@@ -71,7 +76,8 @@ export function parseAnthropicMessageResponse(
     );
 
   const usage = value.usage;
-  if (usage !== undefined && !isObject(usage))
+  const requireUsage = options.requireUsage ?? true;
+  if ((requireUsage || usage !== undefined) && !isObject(usage))
     throw new AnthropicMessageResponseError(
       'Claude 토큰 사용량 형식이 올바르지 않습니다.',
     );
@@ -80,8 +86,16 @@ export function parseAnthropicMessageResponse(
     stopReason,
     text,
     usage: {
-      inputTokens: tokenCount(usage?.input_tokens, 'Claude 입력 토큰 수'),
-      outputTokens: tokenCount(usage?.output_tokens, 'Claude 출력 토큰 수'),
+      inputTokens: tokenCount(
+        usage?.input_tokens,
+        'Claude 입력 토큰 수',
+        requireUsage,
+      ),
+      outputTokens: tokenCount(
+        usage?.output_tokens,
+        'Claude 출력 토큰 수',
+        requireUsage,
+      ),
     },
     requestId,
   };
@@ -96,5 +110,5 @@ export async function readAnthropicMessageResponse(response: Response) {
       'Claude 응답을 JSON으로 읽지 못했습니다.',
     );
   }
-  return parseAnthropicMessageResponse(value);
+  return parseAnthropicMessageResponse(value, { requireUsage: response.ok });
 }

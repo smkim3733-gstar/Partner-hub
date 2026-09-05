@@ -585,7 +585,7 @@ try {
       )
       .bind(diagnosisRunId)
       .run(),
-    /result envelope is invalid/,
+    /result envelope|usage envelope is invalid/,
   );
   const completedDiagnosisResult = JSON.stringify({
     _requestFingerprint: diagnosisFingerprint,
@@ -656,6 +656,28 @@ try {
       .run(),
     /text envelope is invalid/,
   );
+  for (const [inputTokens, outputTokens] of [
+    [0, 20],
+    [10, 0],
+    [10, 4_001],
+  ])
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE ai_diagnosis_runs SET status = '대표 검토 대기',
+            result_json = ?1, input_tokens = ?2, output_tokens = ?3,
+            created_at = ?4 WHERE id = ?5`,
+        )
+        .bind(
+          completedDiagnosisResult,
+          inputTokens,
+          outputTokens,
+          '2026-09-05T00:01:00.000Z',
+          diagnosisRunId,
+        )
+        .run(),
+      /usage envelope|transition is invalid/,
+    );
   await db
     .prepare(
       `UPDATE ai_diagnosis_runs SET status = '대표 검토 대기',
@@ -682,6 +704,7 @@ try {
   checks.push('AI diagnosis completed results keep one exact bounded envelope');
   checks.push('AI diagnosis identity and result text reject unsafe Unicode');
   checks.push('AI diagnosis timestamps require exact UTC calendar instants');
+  checks.push('AI diagnosis completions require observed positive token usage');
   assert.deepEqual(
     await db
       .prepare(

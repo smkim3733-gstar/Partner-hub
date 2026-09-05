@@ -13,11 +13,13 @@ import {
   aiDiagnosisRunsResultTextTriggerSql,
   aiDiagnosisRunsTableSql,
   aiDiagnosisRunsTransitionTriggerSql,
+  aiDiagnosisRunsUsageEnvelopeTriggerSql,
 } from '@/db/schema';
 import { companyFileDatabase } from '@/lib/company-files';
 import {
   AI_DIAGNOSIS_RUN_FIELD_LIMITS,
   STEP_ZERO_PENDING_LIMIT_BYTES,
+  STEP_ZERO_MAX_OUTPUT_TOKENS,
   STEP_ZERO_RESULT_LIMIT_BYTES,
 } from '@/lib/storage-limits';
 import { isSafeStoredText } from '@/lib/unicode-text';
@@ -76,6 +78,7 @@ export async function ensureAiDiagnosisTables(db: D1Database) {
     db.prepare(aiDiagnosisRunsFieldEnvelopeTriggerSql),
     db.prepare(aiDiagnosisRunsCreatedAtInsertTriggerSql),
     db.prepare(aiDiagnosisRunsCreatedAtUpdateTriggerSql),
+    db.prepare(aiDiagnosisRunsUsageEnvelopeTriggerSql),
     db.prepare(aiDiagnosisRunsFieldTextTriggerSql),
     db.prepare(aiDiagnosisRunsIdentityTriggerSql),
     db.prepare(aiDiagnosisRunsTransitionTriggerSql),
@@ -233,8 +236,12 @@ export type StepZeroClaim =
   | { state: 'pending' | 'conflict' | 'failed' }
   | { state: 'completed'; run: SavedStepZeroRun };
 
-function safeTokenCount(value: unknown) {
-  return Number.isSafeInteger(value) && Number(value) >= 0;
+function safeTokenCount(value: unknown, maximum = Number.MAX_SAFE_INTEGER) {
+  return (
+    Number.isSafeInteger(value) &&
+    Number(value) >= 1 &&
+    Number(value) <= maximum
+  );
 }
 
 function runFromRow(row: AiDiagnosisRunRow): SavedStepZeroRun | null {
@@ -253,7 +260,7 @@ function runFromRow(row: AiDiagnosisRunRow): SavedStepZeroRun | null {
       row.stage !== 'Step 0' ||
       row.status !== '대표 검토 대기' ||
       !safeTokenCount(row.input_tokens) ||
-      !safeTokenCount(row.output_tokens)
+      !safeTokenCount(row.output_tokens, STEP_ZERO_MAX_OUTPUT_TOKENS)
     )
       return null;
     return {
@@ -370,7 +377,7 @@ export async function completeStepZeroRequest(
       run.stage !== 'Step 0' ||
       run.status !== '대표 검토 대기' ||
       !safeTokenCount(run.usage.inputTokens) ||
-      !safeTokenCount(run.usage.outputTokens)
+      !safeTokenCount(run.usage.outputTokens, STEP_ZERO_MAX_OUTPUT_TOKENS)
     )
       throw new Error('invalid completion metadata');
   } catch {

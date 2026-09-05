@@ -9,3 +9,4 @@ export const AI_DIAGNOSIS_RUN_FIELD_LIMITS = {
 } as const;
 export const STEP_ZERO_PENDING_LIMIT_BYTES = 256;
 export const STEP_ZERO_RESULT_LIMIT_BYTES = 320_000;
+export const STEP_ZERO_MAX_OUTPUT_TOKENS = 4_000;

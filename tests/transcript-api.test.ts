@@ -154,8 +154,8 @@ void test('DOCX review -> private files -> one mocked fourth report; audio-only 
   const audio = new File(
     [
       new Uint8Array([
-        0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41, 0x20, 0, 0, 0,
-        0, 0x4d, 0x34, 0x41, 0x20,
+        0, 0, 0, 20, 0x66, 0x74, 0x79, 0x70, 0x4d, 0x34, 0x41, 0x20, 0, 0, 0, 0,
+        0x4d, 0x34, 0x41, 0x20,
       ]),
     ],
     'original.m4a',
@@ -280,6 +280,7 @@ void test('DOCX review -> private files -> one mocked fourth report; audio-only 
             ) + '[분석 끝]',
         },
       ],
+      usage: { input_tokens: 10, output_tokens: 20 },
     });
   };
   try {

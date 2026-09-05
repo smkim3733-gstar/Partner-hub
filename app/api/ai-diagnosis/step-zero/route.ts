@@ -25,7 +25,10 @@ import { JsonRequestError, readBoundedJsonObject } from '@/lib/request-json';
 import { isCrossSiteRequest } from '@/lib/request-origin';
 import { QueryRequestError, readSingleQueryParam } from '@/lib/request-query';
 import { privateJsonResponse } from '@/lib/private-response';
-import { AI_DIAGNOSIS_RUN_FIELD_LIMITS } from '@/lib/storage-limits';
+import {
+  AI_DIAGNOSIS_RUN_FIELD_LIMITS,
+  STEP_ZERO_MAX_OUTPUT_TOKENS,
+} from '@/lib/storage-limits';
 import { isSafeStoredText } from '@/lib/unicode-text';
 
 export const dynamic = 'force-dynamic';
@@ -284,7 +287,7 @@ export async function POST(request: Request) {
         },
         body: JSON.stringify({
           model,
-          max_tokens: 4_000,
+          max_tokens: STEP_ZERO_MAX_OUTPUT_TOKENS,
           system: CLAUDE_FLOW_PROJECT_INSTRUCTION,
           messages: [
             { role: 'user', content: stepZeroPrompt(company, pilotContext) },

@@ -1,4 +1,5 @@
 import type { SavedStepZeroRun, StepZeroResult } from './ai-diagnosis';
+import { STEP_ZERO_MAX_OUTPUT_TOKENS } from './storage-limits';
 import { isSafeStoredText } from './unicode-text';
 import { isUtcMillisecondTimestamp } from './utc-timestamp';
 
@@ -42,8 +43,12 @@ function text(value: unknown, maxLength = 12_000) {
   );
 }
 
-function safeInteger(value: unknown) {
-  return Number.isSafeInteger(value) && Number(value) >= 0;
+function safeInteger(value: unknown, maximum = Number.MAX_SAFE_INTEGER) {
+  return (
+    Number.isSafeInteger(value) &&
+    Number(value) >= 1 &&
+    Number(value) <= maximum
+  );
 }
 
 function serverError(value: unknown) {
@@ -187,7 +192,7 @@ function parseRun(
     !result ||
     !usage ||
     !safeInteger(usage.inputTokens) ||
-    !safeInteger(usage.outputTokens) ||
+    !safeInteger(usage.outputTokens, STEP_ZERO_MAX_OUTPUT_TOKENS) ||
     !isUtcMillisecondTimestamp(run.createdAt)
   )
     return null;

@@ -189,6 +189,22 @@ void test('AI diagnosis runs preserve one durable forward lifecycle', async () =
       .run(),
     /text envelope is invalid/,
   );
+  for (const [inputTokens, outputTokens] of [
+    [0, 20],
+    [10, 0],
+    [10, 4_001],
+  ])
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE ai_diagnosis_runs SET status = '대표 검토 대기',
+            result_json = ?1, input_tokens = ?2, output_tokens = ?3,
+            created_at = '2026-09-05T00:01:00.000Z' WHERE id = ?4`,
+        )
+        .bind(JSON.stringify(validEnvelope), inputTokens, outputTokens, runId)
+        .run(),
+      /usage envelope|transition is invalid/,
+    );
   assert.deepEqual(
     await db
       .prepare('SELECT * FROM ai_diagnosis_runs WHERE id = ?1')
@@ -201,6 +217,9 @@ void test('AI diagnosis runs preserve one durable forward lifecycle', async () =
   for (const invalid of [
     { ...completed, createdAt: '2026-02-30T00:01:00.000Z' },
     { ...completed, usage: { inputTokens: -1, outputTokens: 20 } },
+    { ...completed, usage: { inputTokens: 0, outputTokens: 20 } },
+    { ...completed, usage: { inputTokens: 10, outputTokens: 0 } },
+    { ...completed, usage: { inputTokens: 10, outputTokens: 4_001 } },
   ])
     await assert.rejects(
       completeStepZeroRequest(invalid, 'synthetic-admin', fingerprint),

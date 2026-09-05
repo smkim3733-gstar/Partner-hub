@@ -112,6 +112,7 @@ void test('FLOW stops a queued model request when the caller is suspended during
     return Response.json({
       stop_reason: 'end_turn',
       content: [{ type: 'text', text: body + '[분석 끝]' }],
+      usage: { input_tokens: 10, output_tokens: 20 },
     });
   };
   bucket.get = async (...args: Parameters<R2Bucket['get']>) => {
@@ -171,6 +172,7 @@ void test('FLOW rejects a decorated oversized AI result without leaving the job 
           text: `${'가'.repeat(79990)}\n[분석 끝]`,
         },
       ],
+      usage: { input_tokens: 10, output_tokens: 20 },
     });
   };
   try {
