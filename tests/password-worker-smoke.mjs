@@ -317,6 +317,12 @@ const flowNonCommandScopeTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowAiResultReportTriggerSql = migrationStatements(
+  await readFile(
+    path.join(project, 'drizzle', '0062_consulting_flow_ai_result_report.sql'),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -344,6 +350,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_command_scope_guard',
   'consulting_flows_command_target_guard',
   'consulting_flows_non_command_scope_guard',
+  'consulting_flows_ai_result_report_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -374,6 +381,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowCommandScopeTriggerSql[1],
       flowCommandTargetTriggerSql[1],
       flowNonCommandScopeTriggerSql[0],
+      flowAiResultReportTriggerSql[0],
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3770,34 +3778,77 @@ try {
   );
   checks.push('FLOW native D1 binds AI job claim time to the root update');
   await saveEvidenceTransition(retriedEvidenceFlow, processingEvidenceFlow);
-  const staleCompletionEvidenceFlow = structuredClone(processingEvidenceFlow);
-  staleCompletionEvidenceFlow.revision++;
-  staleCompletionEvidenceFlow.updatedAt = evidenceTimes[4];
-  const staleCompletionJob = staleCompletionEvidenceFlow.jobs[1];
-  const staleCompletedAt = evidenceTimes[3];
-  const staleCompletionAuditId = `${staleCompletionJob.id}-${staleCompletedAt}`;
-  staleCompletionJob.status = 'complete';
-  staleCompletionJob.reason = '';
-  staleCompletionJob.completedAt = staleCompletedAt;
-  staleCompletionJob.reportId = staleCompletionEvidenceFlow.reports[0].id;
-  staleCompletionJob.evidence = {
-    auditId: staleCompletionAuditId,
+  const validCompletionEvidenceFlow = structuredClone(processingEvidenceFlow);
+  validCompletionEvidenceFlow.revision++;
+  validCompletionEvidenceFlow.updatedAt = evidenceTimes[4];
+  const validCompletionJob = validCompletionEvidenceFlow.jobs[1];
+  const validCompletionAuditId = `${validCompletionJob.id}-${evidenceTimes[4]}`;
+  const validCompletionReportId = `${validCompletionJob.id}-result`;
+  validCompletionJob.status = 'complete';
+  validCompletionJob.reason = '';
+  validCompletionJob.completedAt = evidenceTimes[4];
+  validCompletionJob.reportId = validCompletionReportId;
+  validCompletionJob.evidence = {
+    auditId: validCompletionAuditId,
     instructionVersion: 'synthetic-flow-instruction-v1',
     requestedModel: 'claude-requested-test-model',
-    providerRequestId: 'req_native_stale_completion',
+    providerRequestId: 'req_native_bound_completion',
     providerModel: 'claude-resolved-test-model',
-    providerMessageId: 'msg_native_stale_completion',
+    providerMessageId: 'msg_native_bound_completion',
     inputTokens: 10,
     outputTokens: 20,
-    observedAt: staleCompletedAt,
+    observedAt: evidenceTimes[4],
   };
-  staleCompletionEvidenceFlow.audit.push({
-    id: staleCompletionAuditId,
-    at: staleCompletedAt,
+  validCompletionEvidenceFlow.reports.push({
+    id: validCompletionReportId,
+    stage: validCompletionJob.stage,
+    version:
+      validCompletionEvidenceFlow.reports.filter(
+        (report) => report.stage === validCompletionJob.stage,
+      ).length + 1,
+    title: '1차 정밀진단보고서',
+    body: '가상 AI 결과 보고서 본문입니다. '.repeat(20),
+    createdAt: evidenceTimes[4],
+    createdBy: 'Claude · 대표 검토 전',
+    origin: 'ai',
+  });
+  validCompletionEvidenceFlow.analysis = {
+    reportId: validCompletionReportId,
+  };
+  validCompletionEvidenceFlow.audit.push({
+    id: validCompletionAuditId,
+    at: evidenceTimes[4],
     actor: '보고서 자동생성',
     action: 'ai_result',
     detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
   });
+  const mutatedCompletionReport = structuredClone(validCompletionEvidenceFlow);
+  mutatedCompletionReport.reports[0].title = 'AI 완료에 숨긴 기존 보고서 변조';
+  await assert.rejects(
+    saveEvidenceTransition(processingEvidenceFlow, mutatedCompletionReport),
+    /AI result report is invalid/,
+  );
+  const extraCompletionReport = structuredClone(validCompletionEvidenceFlow);
+  extraCompletionReport.reports.push({
+    ...structuredClone(extraCompletionReport.reports.at(-1)),
+    id: 'native-hidden-ai-result-report',
+  });
+  await assert.rejects(
+    saveEvidenceTransition(processingEvidenceFlow, extraCompletionReport),
+    /AI result report is invalid/,
+  );
+  checks.push('FLOW native D1 binds one exact AI result report');
+  const staleCompletionEvidenceFlow = structuredClone(
+    validCompletionEvidenceFlow,
+  );
+  const staleCompletionJob = staleCompletionEvidenceFlow.jobs[1];
+  const staleCompletedAt = evidenceTimes[3];
+  const staleCompletionAuditId = `${staleCompletionJob.id}-${staleCompletedAt}`;
+  staleCompletionJob.completedAt = staleCompletedAt;
+  staleCompletionJob.evidence.auditId = staleCompletionAuditId;
+  staleCompletionJob.evidence.observedAt = staleCompletedAt;
+  staleCompletionEvidenceFlow.audit.at(-1).id = staleCompletionAuditId;
+  staleCompletionEvidenceFlow.audit.at(-1).at = staleCompletedAt;
   await assert.rejects(
     saveEvidenceTransition(processingEvidenceFlow, staleCompletionEvidenceFlow),
     /job transition (?:timestamp|audit) is invalid/,

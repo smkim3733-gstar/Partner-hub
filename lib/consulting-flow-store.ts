@@ -44,6 +44,7 @@ import {
   consultingFlowsJobTransitionAuditTriggerSql,
   consultingFlowsJobTransitionTimestampTriggerSql,
   consultingFlowsNoDeleteTriggerSql,
+  consultingFlowsAiResultReportTriggerSql,
   consultingFlowsNonCommandScopeTriggerSql,
   consultingFlowsNewCommandEvidenceTriggerSql,
   consultingFlowsNewCommandReceiptIdentityTriggerSql,
@@ -63,6 +64,7 @@ import {
   latestRecording,
   latestReport,
   newConsultingFlow,
+  reportLabels,
   type ConsultingFlow,
   type FlowFile,
 } from '@/lib/consulting-flow';
@@ -156,6 +158,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandInsertTargetTriggerSql),
         db.prepare(consultingFlowsCommandTargetTriggerSql),
         db.prepare(consultingFlowsNonCommandScopeTriggerSql),
+        db.prepare(consultingFlowsAiResultReportTriggerSql),
         db.prepare(consultingFlowsCommandInsertReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsNewCommandReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsCommandInsertMemberActorTriggerSql),
@@ -1303,6 +1306,50 @@ function assertFlowCommitTransition(
       throw storedFlowIntegrityError();
   }
   const nextJobs = new Map(after.jobs.map((job) => [job.id, job]));
+  const completedJobs = before.jobs.filter(
+    (job) =>
+      job.status === 'processing' &&
+      nextJobs.get(job.id)?.status === 'complete',
+  );
+  if (completedJobs.length > 0) {
+    const job = completedJobs[0];
+    const nextJob = nextJobs.get(job.id)!;
+    const report = after.reports[before.reports.length];
+    const reportId = `${job.id}-result`;
+    const analysisKeys = Object.keys(after.analysis);
+    if (
+      newCommandIds.length !== 0 ||
+      completedJobs.length !== 1 ||
+      after.reports.length !== before.reports.length + 1 ||
+      before.reports.some(
+        (previous, index) => !sameValue(previous, after.reports[index]),
+      ) ||
+      !report ||
+      report.id !== reportId ||
+      nextJob.reportId !== reportId ||
+      report.stage !== job.stage ||
+      report.version !==
+        before.reports.filter((previous) => previous.stage === job.stage)
+          .length +
+          1 ||
+      report.title !== reportLabels[job.stage] ||
+      report.createdAt !== after.updatedAt ||
+      report.createdBy !== 'Claude · 대표 검토 전' ||
+      report.origin !== 'ai' ||
+      report.decisionId !== undefined ||
+      report.documentsKey !== undefined ||
+      (job.stage === 1 &&
+        (report.sourceReportId !== undefined ||
+          report.sourceRecordingId !== undefined ||
+          analysisKeys.length !== 1 ||
+          after.analysis.reportId !== reportId)) ||
+      (job.stage === 4 &&
+        (report.sourceReportId !== job.sourceReportId ||
+          report.sourceRecordingId !== job.sourceRecordingId ||
+          !sameValue(before.analysis, after.analysis)))
+    )
+      throw storedFlowIntegrityError();
+  }
   const retryTransitionCount = before.jobs.filter(
     (job) =>
       ['blocked', 'failed', 'processing'].includes(job.status) &&

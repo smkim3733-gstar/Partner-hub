@@ -8,6 +8,7 @@ import {
   applyFlowCommand,
   FlowError,
   newConsultingFlow,
+  reportLabels,
   type ConsultingFlow,
 } from '../lib/consulting-flow';
 import {
@@ -40,7 +41,7 @@ import {
 import { MAX_AI_SOURCE_BYTES } from '../lib/intake-source-policy';
 import { MAX_TRANSCRIPT_FILE_BYTES } from '../lib/transcript-policy';
 import { flowFileStorageKey } from '../lib/consulting-flow-file-policy';
-import { claimFlowJob } from '../lib/consulting-flow-jobs';
+import { claimFlowJob, finishFlowJob } from '../lib/consulting-flow-jobs';
 import {
   consultingFlowFileMetadataBackfillSql,
   consultingFlowFileOwnersBackfillSql,
@@ -91,6 +92,35 @@ function addSyntheticCommandReceipt(flow: ConsultingFlow, commandId: string) {
       action: audit.action,
     },
   };
+}
+
+function addSyntheticAiReport(
+  flow: ConsultingFlow,
+  job: ConsultingFlow['jobs'][number],
+  at: string,
+) {
+  const report = {
+    id: `${job.id}-result`,
+    stage: job.stage,
+    version:
+      flow.reports.filter((existing) => existing.stage === job.stage).length +
+      1,
+    title: reportLabels[job.stage],
+    body,
+    ...(job.stage === 4
+      ? {
+          sourceReportId: job.sourceReportId,
+          sourceRecordingId: job.sourceRecordingId,
+        }
+      : {}),
+    createdAt: at,
+    createdBy: 'Claude · 대표 검토 전',
+    origin: 'ai' as const,
+  };
+  flow.reports.push(report);
+  job.reportId = report.id;
+  if (job.stage === 1) flow.analysis = { reportId: report.id };
+  return report;
 }
 
 async function queuedReportFixture(withSourceFile: boolean) {
@@ -754,7 +784,7 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
   const successJob = firstResult.jobs.find((job) => job.id === successJobId)!;
   successJob.status = 'complete';
   successJob.completedAt = historyAt;
-  successJob.reportId = firstResult.reports[0].id;
+  addSyntheticAiReport(firstResult, successJob, historyAt);
   successJob.evidence = {
     auditId: successAuditId,
     instructionVersion: 'synthetic-flow-instruction-v1',
@@ -1911,6 +1941,96 @@ void test('FLOW AI job transitions cannot change unrelated business state', asyn
   );
 });
 
+void test('FLOW AI completion binds one exact report and preserves report history', async () => {
+  const queued = await queuedReportFixture(false);
+  const job = queued.jobs.at(-1)!;
+  const claimed = claimFlowJob(
+    queued,
+    job.id,
+    new Date(Date.parse(queued.updatedAt) + 1).toISOString(),
+  );
+  await commitFlow(queued, claimed);
+  const completedAt = new Date(Date.parse(claimed.updatedAt) + 1).toISOString();
+  const completed = finishFlowJob(
+    claimed,
+    job.id,
+    claimed.updatedAt,
+    completedAt,
+    {
+      body,
+      evidence: {
+        instructionVersion: 'synthetic-flow-instruction-v1',
+        requestedModel: 'claude-requested-test-model',
+        providerRequestId: 'req_bound_result_report',
+        providerModel: 'claude-resolved-test-model',
+        providerMessageId: 'msg_bound_result_report',
+        inputTokens: 10,
+        outputTokens: 20,
+        observedAt: completedAt,
+      },
+    },
+  );
+  const corruptions: Array<{
+    name: string;
+    apply: (flow: ConsultingFlow) => void;
+  }> = [
+    {
+      name: 'existing report mutation',
+      apply(flow) {
+        flow.reports[0].title = 'AI 완료에 숨긴 기존 보고서 변조';
+      },
+    },
+    {
+      name: 'extra report append',
+      apply(flow) {
+        flow.reports.push({
+          ...structuredClone(flow.reports.at(-1)!),
+          id: `hidden-ai-result-${++sequence}`,
+        });
+      },
+    },
+    {
+      name: 'wrong result identity',
+      apply(flow) {
+        flow.reports.at(-1)!.id = `wrong-ai-result-${++sequence}`;
+      },
+    },
+  ];
+  const db = await flowDatabase();
+  for (const corruption of corruptions) {
+    const forged = structuredClone(completed);
+    corruption.apply(forged);
+    await assert.rejects(
+      commitFlow(claimed, forged),
+      (error) => error instanceof FlowError && error.status === 503,
+      `application accepted ${corruption.name}`,
+    );
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          forged.revision,
+          JSON.stringify(forged),
+          forged.updatedAt,
+          claimed.caseId,
+          claimed.revision,
+        )
+        .run(),
+      /AI result report is invalid/,
+      `D1 accepted ${corruption.name}`,
+    );
+  }
+  await commitFlow(claimed, completed);
+  assert.deepEqual(
+    await readFlow(completed.caseId),
+    JSON.parse(JSON.stringify(completed)),
+  );
+});
+
 void test('FLOW new command receipts require canonical identity fields', async () => {
   const initial = await fixture();
   const commandId = `command-receipt-identity-${++sequence}`;
@@ -2336,7 +2456,7 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
   const completedJob = completed.jobs.at(-1)!;
   completedJob.status = 'complete';
   completedJob.completedAt = completionAt;
-  completedJob.reportId = completed.reports[0].id;
+  addSyntheticAiReport(completed, completedJob, completionAt);
   completedJob.evidence = {
     auditId: completionAuditId,
     instructionVersion: 'synthetic-flow-instruction-v1',
