@@ -211,6 +211,16 @@ const flowAiJobCreationOriginTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowAiJobCreationAuditIdentityTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0049_consulting_flow_ai_job_creation_audit_identity.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -224,6 +234,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_job_transition_timestamp_guard',
   'consulting_flows_job_transition_audit_guard',
   'consulting_flows_job_creation_origin_guard',
+  'consulting_flows_job_creation_audit_identity_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -241,6 +252,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowAiJobTransitionTimestampTriggerSql,
       ...flowAiJobTransitionAuditTriggerSql,
       ...flowAiJobCreationOriginTriggerSql,
+      ...flowAiJobCreationAuditIdentityTriggerSql,
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3654,7 +3666,7 @@ try {
     },
     {
       name: 'FLOW native D1 rejects an unaudited new AI job',
-      pattern: /job creation origin is invalid/,
+      pattern: /(?:job creation origin|job creation audit identity) is invalid/,
       apply(flow) {
         flow.jobs.push({
           id: 'native-unaudited-new-job',
@@ -3662,6 +3674,26 @@ try {
           status: 'queued',
           reason: '',
           createdAt: flow.updatedAt,
+        });
+      },
+    },
+    {
+      name: 'FLOW native D1 binds each new AI job to its creation audit ID',
+      pattern: /job creation audit identity is invalid/,
+      apply(flow) {
+        flow.jobs.push({
+          id: 'native-substituted-creation-job',
+          stage: 1,
+          status: 'queued',
+          reason: '',
+          createdAt: flow.updatedAt,
+        });
+        flow.audit.push({
+          id: 'native-different-creation',
+          at: flow.updatedAt,
+          actor: '가상 대표',
+          action: 'queue_report1',
+          detail: '1차 분석보고서 생성 요청',
         });
       },
     },

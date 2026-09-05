@@ -17,8 +17,10 @@ import {
   consultingFlowsInsertEnvelopeTriggerSql,
   consultingFlowsJobsInsertTriggerSql,
   consultingFlowsJobsTransitionTriggerSql,
+  consultingFlowsJobCreationAuditIdentityTriggerSql,
   consultingFlowsJobCreationOriginTriggerSql,
   consultingFlowsJobIdentityTriggerSql,
+  consultingFlowsJobInsertAuditIdentityTriggerSql,
   consultingFlowsJobInsertOriginTriggerSql,
   consultingFlowsJobLifecycleTriggerSql,
   consultingFlowsJobStatusTriggerSql,
@@ -107,6 +109,8 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsJobTransitionAuditTriggerSql),
         db.prepare(consultingFlowsJobInsertOriginTriggerSql),
         db.prepare(consultingFlowsJobCreationOriginTriggerSql),
+        db.prepare(consultingFlowsJobInsertAuditIdentityTriggerSql),
+        db.prepare(consultingFlowsJobCreationAuditIdentityTriggerSql),
         db.prepare(consultingFlowsNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),
@@ -991,6 +995,18 @@ function assertFlowCommitTransition(
         (entry) =>
           entry.at === after.updatedAt && entry.action === expectedAction,
       ).length
+    )
+      throw storedFlowIntegrityError();
+  }
+  for (const job of newJobs) {
+    const expectedAction = job.stage === 1 ? 'queue_report1' : 'save_recording';
+    if (
+      newAudit.filter(
+        (entry) =>
+          `${entry.id}-job` === job.id &&
+          entry.at === after.updatedAt &&
+          entry.action === expectedAction,
+      ).length !== 1
     )
       throw storedFlowIntegrityError();
   }

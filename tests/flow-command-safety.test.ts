@@ -96,7 +96,7 @@ void test('FLOW stops a queued model request when the caller is suspended during
     createdAt: next.updatedAt,
   });
   next.audit.push({
-    id: 'synthetic-job-creation-audit',
+    id: 'synthetic',
     at: next.updatedAt,
     actor: '가상 대표',
     action: 'queue_report1',
@@ -171,7 +171,7 @@ void test('FLOW rejects a decorated oversized AI result without leaving the job 
     createdAt: queued.updatedAt,
   });
   queued.audit.push({
-    id: 'oversized-ai-result-job-creation-audit',
+    id: 'oversized-ai-result',
     at: queued.updatedAt,
     actor: '가상 대표',
     action: 'queue_report1',
@@ -629,8 +629,10 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
   const restartedAt = timestamp(5);
   const failureAt = timestamp(6);
   const nextAt = timestamp(7);
-  const successJobId = `immutable-success-${++sequence}`;
-  const failureJobId = `immutable-failure-${++sequence}`;
+  const successCreationAuditId = `immutable-success-creation-${++sequence}`;
+  const failureCreationAuditId = `immutable-failure-creation-${++sequence}`;
+  const successJobId = `${successCreationAuditId}-job`;
+  const failureJobId = `${failureCreationAuditId}-job`;
   const successAuditId = `${successJobId}-${historyAt}`;
   const failureAuditId = `${failureJobId}-${failureAt}`;
   const historyAuditId = `${failureJobId}-${historyAt}`;
@@ -655,14 +657,14 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
   );
   queued.audit.push(
     {
-      id: `immutable-success-creation-${++sequence}`,
+      id: successCreationAuditId,
       at: queuedAt,
       actor: '가상 대표',
       action: 'queue_report1',
       detail: '1차 분석보고서 생성 요청',
     },
     {
-      id: `immutable-failure-creation-${++sequence}`,
+      id: failureCreationAuditId,
       at: queuedAt,
       actor: '가상 대표',
       action: 'queue_report1',
@@ -988,15 +990,16 @@ void test('FLOW native D1 rejects terminal AI evidence on the first root insert'
   const queued = structuredClone(queuedInitial);
   queued.revision++;
   queued.updatedAt = new Date(Date.parse(at) + 1).toISOString();
+  const queuedAuditId = `native-insert-queued-${++sequence}`;
   queued.jobs.push({
-    id: `native-insert-queued-${++sequence}`,
+    id: `${queuedAuditId}-job`,
     stage: 1,
     status: 'queued',
     reason: '',
     createdAt: queued.updatedAt,
   });
   queued.audit.push({
-    id: `lifecycle-job-creation-${++sequence}`,
+    id: queuedAuditId,
     at: queued.updatedAt,
     actor: '가상 대표',
     action: 'queue_report1',
@@ -1023,6 +1026,25 @@ void test('FLOW native D1 rejects terminal AI evidence on the first root insert'
       .run(),
     /initial job origin is invalid/,
   );
+  const mismatchedQueued = structuredClone(queued);
+  mismatchedQueued.jobs[0].id = `native-insert-mismatched-${++sequence}-job`;
+  await assert.rejects(
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        mismatchedQueued.caseId,
+        mismatchedQueued.partnerId,
+        mismatchedQueued.revision,
+        JSON.stringify(mismatchedQueued),
+        mismatchedQueued.updatedAt,
+      )
+      .run(),
+    /initial job audit identity is invalid/,
+  );
   await db
     .prepare(
       `INSERT INTO consulting_flows
@@ -1044,7 +1066,8 @@ void test('FLOW native D1 rejects terminal AI evidence on the first root insert'
 void test('FLOW new AI jobs bind creation time, stage source and audit', async () => {
   const initial = await fixture();
   const at = new Date(Date.parse(initial.updatedAt) + 2).toISOString();
-  const jobId = `creation-origin-job-${++sequence}`;
+  const auditId = `creation-origin-${++sequence}`;
+  const jobId = `${auditId}-job`;
   const valid = structuredClone(initial);
   valid.revision++;
   valid.updatedAt = at;
@@ -1056,7 +1079,7 @@ void test('FLOW new AI jobs bind creation time, stage source and audit', async (
     createdAt: at,
   });
   valid.audit.push({
-    id: `creation-origin-audit-${++sequence}`,
+    id: auditId,
     at,
     actor: '가상 대표',
     action: 'queue_report1',
@@ -1096,10 +1119,60 @@ void test('FLOW new AI jobs bind creation time, stage source and audit', async (
           initial.revision,
         )
         .run(),
-      /job creation origin is invalid/,
+      /job creation (?:origin|audit identity) is invalid/,
     );
     assert.deepEqual(await readFlow(initial.caseId), initial);
   }
+  await commitFlow(initial, valid);
+  assert.deepEqual(await readFlow(valid.caseId), valid);
+});
+
+void test('FLOW new AI job ID binds to one exact creation audit ID', async () => {
+  const initial = await fixture();
+  const at = new Date(Date.parse(initial.updatedAt) + 2).toISOString();
+  const auditId = `creation-identity-${++sequence}`;
+  const valid = structuredClone(initial);
+  valid.revision++;
+  valid.updatedAt = at;
+  valid.jobs.push({
+    id: `${auditId}-job`,
+    stage: 1,
+    status: 'queued',
+    reason: '',
+    createdAt: at,
+  });
+  valid.audit.push({
+    id: auditId,
+    at,
+    actor: '가상 대표',
+    action: 'queue_report1',
+    detail: '1차 분석보고서 생성 요청',
+  });
+  const mismatched = structuredClone(valid);
+  mismatched.jobs.at(-1)!.id = `substituted-creation-${++sequence}-job`;
+  await assert.rejects(
+    commitFlow(initial, mismatched),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        mismatched.revision,
+        JSON.stringify(mismatched),
+        mismatched.updatedAt,
+        initial.caseId,
+        initial.revision,
+      )
+      .run(),
+    /job creation audit identity is invalid/,
+  );
+  assert.deepEqual(await readFlow(initial.caseId), initial);
   await commitFlow(initial, valid);
   assert.deepEqual(await readFlow(valid.caseId), valid);
 });
@@ -1109,7 +1182,8 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
   const timestamp = (offset: number) =>
     new Date(Date.parse(initial.updatedAt) + offset).toISOString();
   const queued = structuredClone(initial);
-  const jobId = `lifecycle-job-${++sequence}`;
+  const creationAuditId = `lifecycle-job-creation-${++sequence}`;
+  const jobId = `${creationAuditId}-job`;
   queued.revision++;
   queued.updatedAt = timestamp(1);
   queued.jobs.push({
@@ -1120,7 +1194,7 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
     createdAt: queued.updatedAt,
   });
   queued.audit.push({
-    id: `lifecycle-job-creation-${++sequence}`,
+    id: creationAuditId,
     at: queued.updatedAt,
     actor: '가상 대표',
     action: 'queue_report1',
