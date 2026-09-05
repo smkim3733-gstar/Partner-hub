@@ -11,7 +11,7 @@ import {
   MAX_AI_SOURCE_FILES,
   MAX_AI_SOURCE_MEGABYTES,
 } from './intake-source-policy';
-import { flowTextLength } from './consulting-flow-shape';
+import { flowTextLength, isWellFormedFlowText } from './consulting-flow-shape';
 import {
   reportPreflightCheckDefinitions,
   reportPreflightNotices,
@@ -26,6 +26,7 @@ export async function inspectFirstReport(
   const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
   const sourceTextChars = flowTextLength(flow.ai.sourceText.trim());
   const composition =
+    isWellFormedFlowText(flow.ai.sourceText) &&
     (sourceTextChars >= 20 || files.length > 0) &&
     files.length <= MAX_AI_SOURCE_FILES &&
     totalBytes <= MAX_AI_SOURCE_BYTES;

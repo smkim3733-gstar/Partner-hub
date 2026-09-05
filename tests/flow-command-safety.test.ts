@@ -1037,6 +1037,34 @@ void test('FLOW detail and dashboard share SQLite Unicode code-point limits', as
   );
 });
 
+void test('FLOW detail and dashboard reject unpaired UTF-16 surrogates', async () => {
+  const corruptions: Array<(payload: Record<string, unknown>) => void> = [
+    (payload) => {
+      const audit = payload.audit as Array<Record<string, unknown>>;
+      audit[0].detail = `손상 문자열\ud800`;
+    },
+    (payload) => {
+      payload[`unknown\udc00`] = '손상 확장 키';
+    },
+  ];
+  for (const corrupt of corruptions) {
+    await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+    const flow = await fixture();
+    await replaceStoredFlow(flow.caseId, (payload) => {
+      corrupt(payload);
+      return payload;
+    });
+    await assert.rejects(
+      readFlow(flow.caseId),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    await assert.rejects(
+      stateWithConsultingFlows(await readPortalState()),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+  }
+});
+
 void test('FLOW dashboard rejects malformed or oversized fields removed by SQLite projection', async () => {
   const corruptions: Array<{
     label: string;

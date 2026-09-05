@@ -28,7 +28,11 @@ import {
   readFlow,
 } from '@/lib/consulting-flow-store';
 import { readAnthropicMessageResponse } from '@/lib/anthropic-message-response';
-import { FLOW_TEXT_LIMITS, flowTextLength } from '@/lib/consulting-flow-shape';
+import {
+  FLOW_TEXT_LIMITS,
+  flowTextLength,
+  isWellFormedFlowText,
+} from '@/lib/consulting-flow-shape';
 
 type TextBlock = { type: 'text'; text: string };
 type BinaryBlock = {
@@ -128,6 +132,7 @@ export async function buildAnalysisSourceBlocks(
         );
       }
       if (
+        !isWellFormedFlowText(value) ||
         flowTextLength(value.trim()) < 20 ||
         flowTextLength(value) > FLOW_TEXT_LIMITS.aiSourceText ||
         invalidTextCharacters(value) ||
@@ -209,6 +214,7 @@ async function generate(
   const body = result.text;
   if (
     result.stopReason !== 'end_turn' ||
+    !isWellFormedFlowText(body) ||
     flowTextLength(body) < 200 ||
     flowTextLength(body) > FLOW_TEXT_LIMITS.reportBody ||
     !body.includes('[분석 끝]')

@@ -77,9 +77,16 @@ const invalidJsonTimestampSql = (alias: string, field: string) =>
   invalidSqlTimestamp(jsonExtractSql(alias, field));
 const invalidOptionalJsonTimestampSql = (alias: string, field: string) =>
   `(json_type(${alias}.value, '$.${field}') IS NOT NULL AND ${invalidJsonTimestampSql(alias, field)})`;
+// JSON1 exposes an unpaired UTF-16 surrogate as its invalid UTF-8 byte form ED A0..BF 80..BF.
+const malformedUnicodeSql = (expression: string) =>
+  `hex(${expression}) GLOB '*ED[AB][0-9A-F][89AB][0-9A-F]*'`;
 // Keep this separate from the large projection predicate so both stay below D1's depth ceiling.
 const hiddenFlowSemanticViolationSql = `SELECT 1 AS invalid FROM consulting_flows
   WHERE CASE WHEN json_valid(payload) THEN
+    (instr(lower(payload), '\\ud') > 0 AND
+      EXISTS (SELECT 1 FROM json_tree(payload) node WHERE
+        (node.type = 'text' AND ${malformedUnicodeSql('node.value')}) OR
+        (typeof(node.key) = 'text' AND ${malformedUnicodeSql('node.key')}))) OR
     EXISTS (SELECT 1 FROM json_each(payload, '$.reports') r WHERE
       ${blankJsonTextSql('r', 'title')} OR
       ${invalidJsonTimestampSql('r', 'createdAt')} OR

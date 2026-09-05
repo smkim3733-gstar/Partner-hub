@@ -11,6 +11,7 @@ import {
   FLOW_COLLECTION_LIMITS,
   FLOW_TEXT_LIMITS,
   flowTextLength,
+  isWellFormedFlowText,
 } from './consulting-flow-shape';
 
 const resultCapacityError = () =>
@@ -73,7 +74,8 @@ export function finishFlowJob(
   if (
     current &&
     typeof outcome.error === 'string' &&
-    flowTextLength(outcome.error) > FLOW_TEXT_LIMITS.jobReason
+    (!isWellFormedFlowText(outcome.error) ||
+      flowTextLength(outcome.error) > FLOW_TEXT_LIMITS.jobReason)
   )
     throw new FlowError('생성 실패 안내가 저장 한도를 초과했습니다.', 413);
   if (current && !outcome.error) {
@@ -84,7 +86,8 @@ export function finishFlowJob(
       throw resultCapacityError();
     if (
       outcome.body &&
-      flowTextLength(outcome.body) > FLOW_TEXT_LIMITS.reportBody
+      (!isWellFormedFlowText(outcome.body) ||
+        flowTextLength(outcome.body) > FLOW_TEXT_LIMITS.reportBody)
     )
       throw new FlowError('생성 보고서가 저장 한도를 초과했습니다.', 413);
   }

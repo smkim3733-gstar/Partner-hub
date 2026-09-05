@@ -8,6 +8,7 @@ import {
   FLOW_COLLECTION_LIMITS,
   FLOW_TEXT_LIMITS,
   flowTextLength,
+  isWellFormedFlowText,
 } from './consulting-flow-shape';
 
 /** Pure, server-enforced consulting workflow. No browser state is authoritative. */
@@ -399,7 +400,9 @@ function txt(c: FlowCommand, key: string, max = 1000, required = true) {
   );
   const value = typeof raw === 'string' ? raw.trim() : '';
   demand(
-    flowTextLength(value) <= max && (!required || value.length > 0),
+    isWellFormedFlowText(value) &&
+      flowTextLength(value) <= max &&
+      (!required || value.length > 0),
     `${key} 내용을 확인해 주세요.`,
   );
   return value;
@@ -1025,6 +1028,7 @@ export function applyFlowCommand(
           command.solutions.every(
             (x) =>
               typeof x === 'string' &&
+              isWellFormedFlowText(x) &&
               x.trim().length > 0 &&
               flowTextLength(x) <= 80,
           ),

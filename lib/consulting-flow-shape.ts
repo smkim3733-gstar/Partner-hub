@@ -60,12 +60,49 @@ const asRecord = (value: unknown): JsonRecord | null =>
 const text = (value: unknown): value is string => typeof value === 'string';
 /** Matches SQLite length(TEXT): Unicode code points, not UTF-16 code units. */
 export const flowTextLength = (value: string) => Array.from(value).length;
+export function isWellFormedFlowText(value: string) {
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index);
+    if (unit >= 0xd800 && unit <= 0xdbff) {
+      const next = value.charCodeAt(index + 1);
+      if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
+      index++;
+    } else if (unit >= 0xdc00 && unit <= 0xdfff) return false;
+  }
+  return true;
+}
+function hasWellFormedJsonText(value: unknown) {
+  const pending = [value];
+  const seen = new WeakSet<object>();
+  while (pending.length) {
+    const current = pending.pop();
+    if (typeof current === 'string') {
+      if (!isWellFormedFlowText(current)) return false;
+      continue;
+    }
+    if (current === null || typeof current !== 'object' || seen.has(current))
+      continue;
+    seen.add(current);
+    if (Array.isArray(current)) {
+      for (const entry of current) pending.push(entry);
+    } else
+      for (const [key, entry] of Object.entries(current)) {
+        if (!isWellFormedFlowText(key)) return false;
+        pending.push(entry);
+      }
+  }
+  return true;
+}
 const named = (value: unknown): value is string =>
   text(value) && value.trim().length > 0;
 const boundedText = (value: unknown, maximum: number): value is string =>
-  text(value) && flowTextLength(value) <= maximum;
+  text(value) &&
+  isWellFormedFlowText(value) &&
+  flowTextLength(value) <= maximum;
 const boundedName = (value: unknown, maximum: number): value is string =>
-  named(value) && flowTextLength(value) <= maximum;
+  named(value) &&
+  isWellFormedFlowText(value) &&
+  flowTextLength(value) <= maximum;
 const timestamp = (value: unknown): value is string =>
   boundedName(value, FLOW_FIELD_LIMITS.timestamp) &&
   Number.isFinite(Date.parse(value));
@@ -523,7 +560,7 @@ function hasStateIntegrity(flow: JsonRecord, mode: ShapeMode) {
 
 function hasBaseStructure(value: unknown, mode: ShapeMode) {
   const flow = asRecord(value);
-  if (!flow) return false;
+  if (!flow || !hasWellFormedJsonText(flow)) return false;
   const projected = mode === 'projected';
   const stored = mode === 'stored';
   const requiredStrings = ['caseId', 'partnerId'];

@@ -2179,6 +2179,31 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  const malformedUnicodeHiddenAudit = JSON.parse(intactFlowPayload);
+  malformedUnicodeHiddenAudit.audit[0].detail = `손상 문자열\ud800`;
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(malformedUnicodeHiddenAudit), 'runtime-own')
+    .run();
+  await expect(
+    await call('/flow/runtime-own', undefined, ownerHeaders),
+    503,
+    'FLOW detail rejects an unpaired UTF-16 surrogate',
+  );
+  const malformedUnicodeDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects an unpaired UTF-16 surrogate before projection',
+  );
+  assertPrivateAuthResponse(malformedUnicodeDashboard);
+  assert.match((await malformedUnicodeDashboard.json()).error, /무결성/);
+  checks.push(
+    'FLOW detail and D1 dashboard reject malformed Unicode consistently',
+  );
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   const oversizedHiddenAudit = JSON.parse(intactFlowPayload);
   oversizedHiddenAudit.audit[0].detail = '가'.repeat(2001);
   await db

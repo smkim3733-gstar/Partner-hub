@@ -35,6 +35,7 @@ import {
   FLOW_COLLECTION_LIMITS,
   FLOW_TEXT_LIMITS,
   flowTextLength,
+  isWellFormedFlowText,
 } from '../lib/consulting-flow-shape';
 
 function test(name: string, fn: () => void | Promise<void>) {
@@ -688,9 +689,19 @@ test('AI result capacity and report size are rejected before an invalid state is
       }),
     (error) => error instanceof FlowError && error.status === 413,
   );
+  for (const outcome of [
+    { body: `${body}\ud800` },
+    { error: `가상 공급자 오류\udc00` },
+  ])
+    assert.throws(
+      () => finishFlowJob(claimed, job.id, now, now, outcome),
+      (error) => error instanceof FlowError && error.status === 413,
+    );
 });
 test('FLOW text limits count Unicode code points like SQLite', () => {
   assert.equal(flowTextLength('가😀'), 2);
+  assert.equal(isWellFormedFlowText('가😀'), true);
+  assert.equal(isWellFormedFlowText('\ud800'), false);
   const acceptedBody = '😀'.repeat(FLOW_TEXT_LIMITS.reportBody);
   const accepted = apply(start(), {
     type: 'save_report',
@@ -704,6 +715,15 @@ test('FLOW text limits count Unicode code points like SQLite', () => {
         type: 'save_report',
         stage: 1,
         body: `${acceptedBody}😀`,
+      }),
+    FlowError,
+  );
+  assert.throws(
+    () =>
+      apply(start(), {
+        type: 'save_report',
+        stage: 1,
+        body: `${body}\ud800`,
       }),
     FlowError,
   );
