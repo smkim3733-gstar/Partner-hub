@@ -16,11 +16,13 @@ import {
   consultingFlowsCommandInsertEffectTriggerSql,
   consultingFlowsCommandInsertSemanticsTriggerSql,
   consultingFlowsCommandInsertReceiptIdentityTriggerSql,
+  consultingFlowsCommandInsertScopeTriggerSql,
   consultingFlowsCommandInsertMemberActorTriggerSql,
   consultingFlowsCommandInsertAdminActorTriggerSql,
   consultingFlowsCommandInsertAdminDisplayTriggerSql,
   consultingFlowsCommandReceiptOriginTriggerSql,
   consultingFlowsCommandEffectTriggerSql,
+  consultingFlowsCommandScopeTriggerSql,
   consultingFlowsCommandSemanticsTriggerSql,
   consultingFlowsFailureEvidenceTriggerSql,
   consultingFlowsFailureHistoryTriggerSql,
@@ -49,6 +51,7 @@ import {
   consultingFlowsTransitionTriggerSql,
   consultingFlowsTableSql,
   FLOW_COMMAND_EFFECT_PATHS,
+  FLOW_COMMAND_STATE_SCOPE_PATHS,
   portalStateId,
 } from '@/db/schema';
 import {
@@ -144,6 +147,8 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandSemanticsTriggerSql),
         db.prepare(consultingFlowsCommandInsertEffectTriggerSql),
         db.prepare(consultingFlowsCommandEffectTriggerSql),
+        db.prepare(consultingFlowsCommandInsertScopeTriggerSql),
+        db.prepare(consultingFlowsCommandScopeTriggerSql),
         db.prepare(consultingFlowsCommandInsertReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsNewCommandReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsCommandInsertMemberActorTriggerSql),
@@ -1065,6 +1070,43 @@ function assertFlowCommitTransition(
         );
       })
     )
+      throw storedFlowIntegrityError();
+  }
+  if (newCommandIds.length > 0) {
+    const allowedPaths = new Set(
+      newCommandIds.flatMap((commandId) => {
+        const action = afterReceipts[commandId]?.action;
+        return (
+          FLOW_COMMAND_STATE_SCOPE_PATHS[
+            action as keyof typeof FLOW_COMMAND_STATE_SCOPE_PATHS
+          ] ?? []
+        );
+      }),
+    );
+    const withoutCommandChanges = (flow: ConsultingFlow) => {
+      const value = structuredClone(flow) as unknown as Record<string, unknown>;
+      for (const path of [
+        '$.revision',
+        '$.updatedAt',
+        '$.audit',
+        '$.commandIds',
+        '$.commandReceipts',
+        ...allowedPaths,
+      ]) {
+        const keys = path.slice(2).split('.');
+        let parent: Record<string, unknown> | undefined = value;
+        for (const key of keys.slice(0, -1)) {
+          const child: unknown = parent?.[key];
+          parent =
+            child && typeof child === 'object' && !Array.isArray(child)
+              ? (child as Record<string, unknown>)
+              : undefined;
+        }
+        if (parent) delete parent[keys.at(-1)!];
+      }
+      return value;
+    };
+    if (!sameValue(withoutCommandChanges(before), withoutCommandChanges(after)))
       throw storedFlowIntegrityError();
   }
   const previousJobIds = new Set(before.jobs.map((job) => job.id));

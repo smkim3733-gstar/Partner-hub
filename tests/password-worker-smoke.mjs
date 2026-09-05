@@ -299,6 +299,12 @@ const flowCommandEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowCommandScopeTriggerSql = migrationStatements(
+  await readFile(
+    path.join(project, 'drizzle', '0059_consulting_flow_command_scope.sql'),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -323,6 +329,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_new_command_admin_actor_guard',
   'consulting_flows_new_command_admin_display_guard',
   'consulting_flows_command_effect_guard',
+  'consulting_flows_command_scope_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -350,6 +357,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowAdminCommandActorTriggerSql[1],
       flowAdminCommandDisplayTriggerSql[1],
       flowCommandEffectTriggerSql[1],
+      flowCommandScopeTriggerSql[1],
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3618,6 +3626,9 @@ try {
         db.prepare(
           'DROP TRIGGER IF EXISTS consulting_flows_command_insert_semantics_guard',
         ),
+        db.prepare(
+          'DROP TRIGGER IF EXISTS consulting_flows_command_insert_scope_guard',
+        ),
       ]);
       try {
         return await insertEvidenceFlow();
@@ -3625,6 +3636,7 @@ try {
         await db.batch([
           db.prepare(flowNewCommandEvidenceTriggerSql[0]),
           db.prepare(flowCommandSemanticsTriggerSql[0]),
+          db.prepare(flowCommandScopeTriggerSql[0]),
         ]);
       }
     })(),
@@ -3642,6 +3654,9 @@ try {
     db.prepare(
       'DROP TRIGGER IF EXISTS consulting_flows_command_insert_semantics_guard',
     ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_command_insert_scope_guard',
+    ),
   ]);
   try {
     await insertEvidenceFlow();
@@ -3652,6 +3667,7 @@ try {
       db.prepare(flowAiJobCreationOriginTriggerSql[0]),
       db.prepare(flowNewCommandEvidenceTriggerSql[0]),
       db.prepare(flowCommandSemanticsTriggerSql[0]),
+      db.prepare(flowCommandScopeTriggerSql[0]),
     ]);
   }
   const backfilledReceiptOriginFlow = structuredClone(legacyReceiptOriginFlow);
@@ -3926,6 +3942,29 @@ try {
           fingerprint: '6'.repeat(64),
           actor: '김성민 대표',
           action: 'start_aftercare',
+        };
+      },
+    },
+    {
+      name: 'FLOW native D1 restricts each command to its declared state scope',
+      pattern: /command scope is invalid/,
+      apply(flow) {
+        flow.ai.approvedAt = flow.updatedAt;
+        flow.partnerName = '위조 담당자';
+        const commandId = 'native-command-outside-declared-scope';
+        flow.commandIds.push(commandId);
+        flow.audit.push({
+          id: commandId,
+          at: flow.updatedAt,
+          actor: '김성민 대표',
+          action: 'set_ai_policy',
+          detail: '가상 명령 상태 범위 결속 검사',
+        });
+        flow.commandReceipts[commandId] = {
+          actorKey: 'admin:primary',
+          fingerprint: '7'.repeat(64),
+          actor: '김성민 대표',
+          action: 'set_ai_policy',
         };
       },
     },

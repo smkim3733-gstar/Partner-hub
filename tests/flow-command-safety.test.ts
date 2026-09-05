@@ -43,6 +43,7 @@ import { flowFileStorageKey } from '../lib/consulting-flow-file-policy';
 import {
   consultingFlowFileMetadataBackfillSql,
   consultingFlowFileOwnersBackfillSql,
+  consultingFlowsCommandInsertScopeTriggerSql,
 } from '../db/schema';
 import { deleteFlowFileLedgerFixture } from './flow-file-ledger-fixture';
 import {
@@ -91,44 +92,72 @@ function addSyntheticCommandReceipt(flow: ConsultingFlow, commandId: string) {
   };
 }
 
-void test('FLOW stops a queued model request when the caller is suspended during source preparation', async () => {
-  const flow = await fixture();
-  const next = structuredClone(flow),
-    source = 'SYNTHETIC INTERNAL SOURCE FOR LOCAL REGRESSION ONLY';
-  next.revision++;
-  next.updatedAt = new Date().toISOString();
-  next.ai.enabled = true;
-  next.files.push({
-    id: 'source',
-    purpose: 'source',
-    name: 'source.txt',
-    contentType: 'text/plain',
-    size: source.length,
-    key: flowFileStorageKey('source'),
-    createdAt: next.updatedAt,
-  });
-  next.jobs.push({
-    id: 'synthetic-job',
-    stage: 1,
-    status: 'queued',
-    reason: '',
-    createdAt: next.updatedAt,
-  });
-  next.audit.push({
-    id: 'synthetic',
-    at: next.updatedAt,
-    actor: '가상 대표',
-    action: 'queue_report1',
-    detail: '1차 분석보고서 생성 요청',
-  });
-  next.commandIds.push('synthetic');
-  addSyntheticCommandReceipt(next, 'synthetic');
+async function queuedReportFixture(withSourceFile: boolean) {
+  const source = 'SYNTHETIC INTERNAL SOURCE FOR LOCAL REGRESSION ONLY';
+  let flow = await fixture();
+  const sourceAt = new Date(Date.parse(flow.updatedAt) + 1).toISOString();
+  const sourceCommandId = `queued-source-${++sequence}`;
+  const sourceFile = withSourceFile
+    ? {
+        id: `queued-source-file-${++sequence}`,
+        purpose: 'source' as const,
+        name: 'source.txt',
+        contentType: 'text/plain',
+        size: source.length,
+        key: flowFileStorageKey(`queued-source-file-${sequence}`),
+        createdAt: sourceAt,
+      }
+    : undefined;
+  const sourced = applyFlowCommand(
+    flow,
+    { type: 'save_source', sourceText: source, privacyMasked: true },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    { commandId: sourceCommandId, now: sourceAt, upload: sourceFile },
+  );
+  addSyntheticCommandReceipt(sourced, sourceCommandId);
   await commitFlow(
     flow,
-    next,
+    sourced,
     undefined,
-    await storeFlowFileBinding(next.files[0], source),
+    sourceFile ? await storeFlowFileBinding(sourceFile, source) : undefined,
   );
+  flow = sourced;
+  const policyCommandId = `queued-policy-${++sequence}`;
+  const policy = applyFlowCommand(
+    flow,
+    {
+      type: 'set_ai_policy',
+      enabled: true,
+      thirdPartyConsent: true,
+      privacyMasked: true,
+      costConsent: true,
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId: policyCommandId,
+      now: new Date(Date.parse(flow.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(policy, policyCommandId);
+  await commitFlow(flow, policy);
+  flow = policy;
+  const queueCommandId = `queued-report-${++sequence}`;
+  const queued = applyFlowCommand(
+    flow,
+    { type: 'queue_report1' },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId: queueCommandId,
+      now: new Date(Date.parse(flow.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(queued, queueCommandId);
+  await commitFlow(flow, queued);
+  return queued;
+}
+
+void test('FLOW stops a queued model request when the caller is suspended during source preparation', async () => {
+  const queued = await queuedReportFixture(true);
   const bucket = flowBucket(),
     get = bucket.get.bind(bucket),
     runtime = env as unknown as Record<string, unknown>;
@@ -158,13 +187,13 @@ void test('FLOW stops a queued model request when the caller is suspended during
   };
   try {
     await run(
-      request(flow.caseId, {}, 0, undefined, partner.email),
-      context(flow.caseId),
+      request(queued.caseId, {}, 0, undefined, partner.email),
+      context(queued.caseId),
     );
     assert.equal(calls, 0);
-    const stored = (await readFlow(flow.caseId))!;
-    assert.equal(stored.reports.length, flow.reports.length);
-    assert.notEqual(stored.jobs[0].status, 'complete');
+    const stored = (await readFlow(queued.caseId))!;
+    assert.equal(stored.reports.length, queued.reports.length);
+    assert.notEqual(stored.jobs.at(-1)?.status, 'complete');
   } finally {
     bucket.get = get;
     globalThis.fetch = fetch;
@@ -174,33 +203,7 @@ void test('FLOW stops a queued model request when the caller is suspended during
 });
 
 void test('FLOW rejects a decorated oversized AI result without leaving the job processing', async () => {
-  const flow = await fixture();
-  const queued = structuredClone(flow);
-  queued.revision++;
-  queued.updatedAt = new Date().toISOString();
-  queued.ai = {
-    enabled: true,
-    sourceText: 'SYNTHETIC INTERNAL SOURCE FOR LOCAL REGRESSION ONLY',
-    approvedAt: queued.updatedAt,
-    approvedBy: adminEmail,
-  };
-  queued.jobs.push({
-    id: 'oversized-ai-result-job',
-    stage: 1,
-    status: 'queued',
-    reason: '',
-    createdAt: queued.updatedAt,
-  });
-  queued.audit.push({
-    id: 'oversized-ai-result',
-    at: queued.updatedAt,
-    actor: '가상 대표',
-    action: 'queue_report1',
-    detail: '1차 분석보고서 생성 요청',
-  });
-  queued.commandIds.push('oversized-ai-result');
-  addSyntheticCommandReceipt(queued, 'oversized-ai-result');
-  await commitFlow(flow, queued);
+  const queued = await queuedReportFixture(false);
 
   const runtime = env as unknown as Record<string, unknown>;
   const previousKey = runtime.ANTHROPIC_API_KEY;
@@ -229,14 +232,14 @@ void test('FLOW rejects a decorated oversized AI result without leaving the job 
   };
   try {
     const response = await run(
-      request(flow.caseId, {}, 0, undefined, adminEmail),
-      context(flow.caseId),
+      request(queued.caseId, {}, 0, undefined, adminEmail),
+      context(queued.caseId),
     );
     assert.equal(response.status, 200, await response.clone().text());
     assert.equal(calls, 1);
-    const stored = (await readFlow(flow.caseId))!;
+    const stored = (await readFlow(queued.caseId))!;
     assert.equal(stored.jobs.at(-1)?.status, 'failed');
-    assert.equal(stored.reports.length, flow.reports.length);
+    assert.equal(stored.reports.length, queued.reports.length);
   } finally {
     globalThis.fetch = previousFetch;
     if (previousKey === undefined) delete runtime.ANTHROPIC_API_KEY;
@@ -996,23 +999,32 @@ void test('FLOW native D1 rejects terminal AI evidence on the first root insert'
     detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
   });
   const db = await flowDatabase();
-  await assert.rejects(
-    db
-      .prepare(
-        `INSERT INTO consulting_flows
+  await db
+    .prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_command_insert_scope_guard',
+    )
+    .run();
+  try {
+    await assert.rejects(
+      db
+        .prepare(
+          `INSERT INTO consulting_flows
           (case_id, partner_id, revision, payload, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5)`,
-      )
-      .bind(
-        inserted.caseId,
-        inserted.partnerId,
-        inserted.revision,
-        JSON.stringify(inserted),
-        inserted.updatedAt,
-      )
-      .run(),
-    /initial job(?: origin)? is invalid/,
-  );
+          VALUES (?1, ?2, ?3, ?4, ?5)`,
+        )
+        .bind(
+          inserted.caseId,
+          inserted.partnerId,
+          inserted.revision,
+          JSON.stringify(inserted),
+          inserted.updatedAt,
+        )
+        .run(),
+      /initial job(?: origin)? is invalid/,
+    );
+  } finally {
+    await db.prepare(consultingFlowsCommandInsertScopeTriggerSql).run();
+  }
   assert.equal(await readFlow(initial.caseId), null);
   const queuedInitial = newConsultingFlow(
     `flow-native-insert-queued-${++sequence}`,
@@ -1473,7 +1485,7 @@ void test('FLOW command receipt semantics match and preserve their audit', async
           initial.revision,
         )
         .run(),
-      /(?:new admin command display is|command (?:semantics are|effect is)) invalid/,
+      /(?:new admin command display is|command (?:semantics are|effect is|scope is)) invalid/,
     );
     assert.deepEqual(await readFlow(initial.caseId), initial);
   }
@@ -1557,7 +1569,7 @@ void test('FLOW command actions require their declared business-state effect', a
           initial.revision,
         )
         .run(),
-      /command effect is invalid/,
+      /command (?:effect|scope) is invalid/,
     );
     assert.deepEqual(await readFlow(initial.caseId), initial);
   }
@@ -1600,7 +1612,92 @@ void test('FLOW initial command actions require their declared business-state ef
         forged.updatedAt,
       )
       .run(),
-    /initial command effect is invalid/,
+    /initial command (?:effect|scope) is invalid/,
+  );
+  assert.equal(await readFlow(initial.caseId), null);
+});
+
+void test('FLOW commands cannot change state outside their declared scope', async () => {
+  const initial = await fixture();
+  const commandId = `command-scope-${++sequence}`;
+  const forged = applyFlowCommand(
+    initial,
+    { type: 'set_ai_policy', enabled: false },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId,
+      now: new Date(Date.parse(initial.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(forged, commandId);
+  forged.partnerName = '위조 담당자';
+  await assert.rejects(
+    commitFlow(initial, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+        initial.caseId,
+        initial.revision,
+      )
+      .run(),
+    /command scope is invalid/,
+  );
+  assert.deepEqual(await readFlow(initial.caseId), initial);
+});
+
+void test('FLOW initial commands cannot preload state outside their declared scope', async () => {
+  const initial = newConsultingFlow(
+    `initial-command-scope-${++sequence}`,
+    '가상기업',
+    partner.id,
+    partner.name,
+  );
+  const commandId = `initial-command-scope-${++sequence}`;
+  const forged = applyFlowCommand(
+    initial,
+    { type: 'save_report', stage: 1, body },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    { commandId, now: new Date().toISOString() },
+  );
+  addSyntheticCommandReceipt(forged, commandId);
+  forged.aftercare = {
+    at: forged.updatedAt,
+    summary: '가상 범위 밖 상태',
+    nextDate: forged.updatedAt.slice(0, 10),
+    owner: '가상 담당자',
+  };
+  await assert.rejects(
+    commitFlow(initial, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        forged.caseId,
+        forged.partnerId,
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+      )
+      .run(),
+    /initial command scope is invalid/,
   );
   assert.equal(await readFlow(initial.caseId), null);
 });

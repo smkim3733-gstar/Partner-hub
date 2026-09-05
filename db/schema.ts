@@ -1099,6 +1099,170 @@ BEGIN
 END
 `;
 
+export const FLOW_COMMAND_STATE_SCOPE_PATHS = {
+  import_intake_source: ['$.files'],
+  save_source: ['$.ai.sourceText', '$.files'],
+  exclude_source: ['$.files'],
+  set_ai_policy: [
+    '$.ai.enabled',
+    '$.ai.approvedAt',
+    '$.ai.approvedBy',
+    '$.jobs',
+  ],
+  queue_report1: ['$.jobs'],
+  save_report: ['$.reports', '$.files', '$.analysis'],
+  confirm_analysis: ['$.analysis'],
+  book_meeting: ['$.meetings'],
+  complete_meeting: ['$.meetings'],
+  cancel_meeting: ['$.meetings'],
+  save_recording: ['$.recordings', '$.jobs', '$.files'],
+  save_transcript: ['$.recordings', '$.jobs', '$.files'],
+  retry_job: ['$.jobs'],
+  confirm_solutions: ['$.decision'],
+  request_document: ['$.requests'],
+  mark_request_sent: ['$.requests'],
+  receive_document: ['$.requests', '$.files'],
+  review_document: ['$.requests'],
+  record_contract: ['$.contract', '$.meetings', '$.files'],
+  confirm_payment: ['$.payments', '$.executionStartedAt'],
+  start_aftercare: ['$.aftercare'],
+} as const;
+
+const consultingFlowInitialStateBaselines: Record<
+  string,
+  string | number | null
+> = {
+  '$.reports': '[]',
+  '$.files': '[]',
+  '$.analysis': '{"reportId":""}',
+  '$.meetings': '[]',
+  '$.recordings': '[]',
+  '$.requests': '[]',
+  '$.decision': null,
+  '$.contract': null,
+  '$.payments': '[]',
+  '$.executionStartedAt': null,
+  '$.aftercare': null,
+  '$.ai.enabled': 0,
+  '$.ai.approvedAt': null,
+  '$.ai.approvedBy': null,
+  '$.ai.sourceText': '',
+  '$.jobs': '[]',
+};
+
+const consultingFlowInitialStateChangedSql = (
+  path: string,
+  baseline: string | number | null,
+) => {
+  if (baseline === null) return `json_type(NEW.payload, '${path}') IS NOT NULL`;
+  const value =
+    typeof baseline === 'number'
+      ? String(baseline)
+      : `'${baseline.replaceAll("'", "''")}'`;
+  return `COALESCE(json_extract(NEW.payload, '${path}'), char(0)) IS NOT ${value}`;
+};
+
+const consultingFlowCommandScopeValuesSql = Object.entries(
+  FLOW_COMMAND_STATE_SCOPE_PATHS,
+)
+  .flatMap(([action, paths]) => paths.map((path) => `('${action}', '${path}')`))
+  .join(',\n      ');
+
+const consultingFlowCommandInsertChangedSql = Object.entries(
+  consultingFlowInitialStateBaselines,
+)
+  .map(
+    ([path, baseline]) =>
+      `CASE WHEN ${consultingFlowInitialStateChangedSql(path, baseline)} THEN '${path}' END`,
+  )
+  .join(',\n        ');
+
+const consultingFlowCommandChangedSql = [
+  '$.company',
+  '$.partnerName',
+  ...Object.keys(consultingFlowInitialStateBaselines),
+]
+  .map(
+    (path) =>
+      `CASE WHEN json_extract(NEW.payload, '${path}') IS NOT json_extract(OLD.payload, '${path}') THEN '${path}' END`,
+  )
+  .join(',\n          ');
+
+export const consultingFlowsCommandInsertScopeTriggerSql = `
+CREATE TRIGGER IF NOT EXISTS consulting_flows_command_insert_scope_guard
+BEFORE INSERT ON consulting_flows
+WHEN COALESCE(json_array_length(NEW.payload, '$.commandIds'), 0) > 0
+  AND NOT EXISTS (
+    SELECT 1 FROM json_each(NEW.payload, '$.commandIds') AS command
+    LEFT JOIN json_each(NEW.payload, '$.commandReceipts') AS receipt
+      ON receipt.key IS command.value
+    WHERE receipt.key IS NULL
+  )
+  AND EXISTS (
+    WITH new_actions(action) AS (
+      SELECT json_extract(receipt.value, '$.action')
+      FROM json_each(NEW.payload, '$.commandIds') AS command
+      JOIN json_each(NEW.payload, '$.commandReceipts') AS receipt
+        ON receipt.key IS command.value
+    ), allowed(action, path) AS (
+      VALUES ${consultingFlowCommandScopeValuesSql}
+    ), changed(path) AS (
+      SELECT value FROM json_each(json_array(
+        ${consultingFlowCommandInsertChangedSql}
+      )) WHERE value IS NOT NULL
+    )
+    SELECT 1 FROM changed
+    WHERE NOT EXISTS (
+      SELECT 1 FROM new_actions
+      JOIN allowed ON allowed.action IS new_actions.action
+      WHERE allowed.path IS changed.path
+    )
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'consulting flow initial command scope is invalid');
+END
+`;
+
+export const consultingFlowsCommandScopeTriggerSql = `
+CREATE TRIGGER IF NOT EXISTS consulting_flows_command_scope_guard
+BEFORE UPDATE ON consulting_flows
+WHEN COALESCE(json_array_length(NEW.payload, '$.commandIds'), 0) >
+    COALESCE(json_array_length(OLD.payload, '$.commandIds'), 0)
+  AND NOT EXISTS (
+    SELECT 1 FROM json_each(NEW.payload, '$.commandIds') AS command
+    LEFT JOIN json_each(NEW.payload, '$.commandReceipts') AS receipt
+      ON receipt.key IS command.value
+    WHERE command.key >= json_array_length(OLD.payload, '$.commandIds')
+      AND receipt.key IS NULL
+  )
+  AND (
+    EXISTS (
+      WITH new_actions(action) AS (
+        SELECT json_extract(receipt.value, '$.action')
+        FROM json_each(NEW.payload, '$.commandIds') AS command
+        JOIN json_each(NEW.payload, '$.commandReceipts') AS receipt
+          ON receipt.key IS command.value
+        WHERE command.key >= json_array_length(OLD.payload, '$.commandIds')
+      ), allowed(action, path) AS (
+        VALUES ${consultingFlowCommandScopeValuesSql}
+      ), changed(path) AS (
+        SELECT value FROM json_each(json_array(
+          ${consultingFlowCommandChangedSql}
+        )) WHERE value IS NOT NULL
+      )
+      SELECT 1 FROM changed
+      WHERE NOT EXISTS (
+        SELECT 1 FROM new_actions
+        JOIN allowed ON allowed.action IS new_actions.action
+        WHERE allowed.path IS changed.path
+      )
+    )
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'consulting flow command scope is invalid');
+END
+`;
+
 const consultingFlowCommandReceiptIdentityViolationSql = (receipt: string) => `
   COALESCE(json_type(${receipt}.value, '$.fingerprint'), '') <> 'text'
   OR length(json_extract(${receipt}.value, '$.fingerprint')) <> 64
