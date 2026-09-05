@@ -14,6 +14,7 @@ import {
   readFileInventoryPageResponse,
   readFileInventoryPresenceResponse,
 } from '../lib/file-inventory-response';
+import { mutateCompanyFileObjectFixture } from './company-file-object-fixture';
 
 const owner = 'seedy@sites.test';
 const member = {
@@ -189,17 +190,17 @@ void test('actual document and intake references distinguish linked files from s
   await file('deletion-incomplete', 'deleted');
   await file('deleted-reference', 'deleted', false);
   await file('deleted-complete', 'deleted', false);
-  await companyFileDatabase()
-    .prepare(`UPDATE company_file_objects
-      SET storage_key = 'company-source/another-file' WHERE id = ?1`)
-    .bind('storage-key-mismatch')
-    .run();
-  await companyFileDatabase()
-    .prepare(
-      "UPDATE company_file_objects SET title = '다른 정상 제목' WHERE id = ?1",
-    )
-    .bind('metadata-title-mismatch')
-    .run();
+  await mutateCompanyFileObjectFixture(
+    companyFileDatabase(),
+    `UPDATE company_file_objects
+      SET storage_key = 'company-source/another-file' WHERE id = ?1`,
+    ['storage-key-mismatch'],
+  );
+  await mutateCompanyFileObjectFixture(
+    companyFileDatabase(),
+    "UPDATE company_file_objects SET title = '다른 정상 제목' WHERE id = ?1",
+    ['metadata-title-mismatch'],
+  );
   await (
     await flowDatabase()
   )
@@ -375,11 +376,12 @@ void test('presence uses metadata-only R2 head; size and object-integrity mismat
 void test('presence rejects a cross-file storage key before probing R2', async () => {
   await seed();
   await file('presence-key-mismatch', 'ready');
-  await companyFileDatabase()
-    .prepare(`UPDATE company_file_objects
-      SET storage_key = 'company-source/foreign-private-object' WHERE id = ?1`)
-    .bind('presence-key-mismatch')
-    .run();
+  await mutateCompanyFileObjectFixture(
+    companyFileDatabase(),
+    `UPDATE company_file_objects
+      SET storage_key = 'company-source/foreign-private-object' WHERE id = ?1`,
+    ['presence-key-mismatch'],
+  );
   const bucket = companyFileBucket();
   const originalHead = bucket.head.bind(bucket);
   let headCalls = 0;
@@ -402,12 +404,11 @@ void test('presence rejects a cross-file storage key before probing R2', async (
 void test('presence rejects company metadata drift before probing R2', async () => {
   await seed();
   await file('presence-metadata-mismatch', 'ready');
-  await companyFileDatabase()
-    .prepare(
-      "UPDATE company_file_objects SET title = '다른 정상 제목' WHERE id = ?1",
-    )
-    .bind('presence-metadata-mismatch')
-    .run();
+  await mutateCompanyFileObjectFixture(
+    companyFileDatabase(),
+    "UPDATE company_file_objects SET title = '다른 정상 제목' WHERE id = ?1",
+    ['presence-metadata-mismatch'],
+  );
   const bucket = companyFileBucket();
   const originalHead = bucket.head.bind(bucket);
   let headCalls = 0;

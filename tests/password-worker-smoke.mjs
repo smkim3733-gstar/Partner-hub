@@ -161,6 +161,8 @@ function migrationStatements(source) {
 }
 const uploadRequestNoDeleteTriggerSql =
   "CREATE TRIGGER IF NOT EXISTS company_file_upload_requests_no_delete BEFORE DELETE ON company_file_upload_requests BEGIN SELECT RAISE(ABORT, 'company file upload request is durable'); END";
+const companyFileObjectsNoUpdateTriggerSql =
+  "CREATE TRIGGER IF NOT EXISTS company_file_objects_no_update BEFORE UPDATE ON company_file_objects BEGIN SELECT RAISE(ABORT, 'company file object is immutable'); END";
 async function withoutUploadRequestDeleteGuard(db, action) {
   await db
     .prepare('DROP TRIGGER IF EXISTS company_file_upload_requests_no_delete')
@@ -169,6 +171,19 @@ async function withoutUploadRequestDeleteGuard(db, action) {
     return await action();
   } finally {
     await db.prepare(uploadRequestNoDeleteTriggerSql).run();
+  }
+}
+async function mutateCompanyFileObjectFixture(db, sql, values) {
+  await db
+    .prepare('DROP TRIGGER IF EXISTS company_file_objects_no_update')
+    .run();
+  try {
+    return await db
+      .prepare(sql)
+      .bind(...values)
+      .run();
+  } finally {
+    await db.prepare(companyFileObjectsNoUpdateTriggerSql).run();
   }
 }
 try {
@@ -1274,6 +1289,15 @@ try {
   await assert.rejects(
     db
       .prepare(
+        "UPDATE company_file_objects SET title = '직접 변경' WHERE id = ?1",
+      )
+      .bind(normalizedFile.id)
+      .run(),
+    /company file object is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
         "UPDATE company_file_metadata SET title = '직접 변경' WHERE file_id = ?1",
       )
       .bind(normalizedFile.id)
@@ -1396,6 +1420,7 @@ try {
   checks.push(
     'new company uploads bind registry MIME, native R2 ETag, storage key and immutable metadata in D1',
   );
+  checks.push('company file parent facts reject direct rewrite in native D1');
   checks.push(
     'company metadata ledger rejects direct rewrite and removal in native D1',
   );
@@ -1430,10 +1455,11 @@ try {
   await bucket.put(deletionGuardForeignKey, 'SYNTHETIC_DELETE_KEY_GUARD', {
     httpMetadata: { contentType: 'text/plain' },
   });
-  await db
-    .prepare('UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1')
-    .bind(deletionGuardFile.id, deletionGuardForeignKey)
-    .run();
+  await mutateCompanyFileObjectFixture(
+    db,
+    'UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1',
+    [deletionGuardFile.id, deletionGuardForeignKey],
+  );
   const guardedDelete = await expect(
     await call(
       `/files/${deletionGuardFile.id}`,
@@ -1451,10 +1477,11 @@ try {
   checks.push(
     'company deletion rejects a cross-file key before preserving both R2 objects',
   );
-  await db
-    .prepare('UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1')
-    .bind(deletionGuardFile.id, deletionGuardOriginalKey)
-    .run();
+  await mutateCompanyFileObjectFixture(
+    db,
+    'UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1',
+    [deletionGuardFile.id, deletionGuardOriginalKey],
+  );
   await expect(
     await call(
       `/files/${deletionGuardFile.id}`,
@@ -1484,12 +1511,11 @@ try {
     ).json()
   ).file;
   const metadataGuardKey = `company-source/${metadataGuardFile.id}`;
-  await db
-    .prepare(
-      "UPDATE company_file_objects SET title = '다른 정상 제목' WHERE id = ?1",
-    )
-    .bind(metadataGuardFile.id)
-    .run();
+  await mutateCompanyFileObjectFixture(
+    db,
+    "UPDATE company_file_objects SET title = '다른 정상 제목' WHERE id = ?1",
+    [metadataGuardFile.id],
+  );
   const metadataGuardDownload = await expect(
     await call(`/files/${metadataGuardFile.id}`, undefined, { cookie }),
     503,
@@ -1522,11 +1548,12 @@ try {
   checks.push(
     'company metadata drift blocks download and deletion, preserves R2, and appears inconsistent',
   );
-  await db
-    .prepare(`UPDATE company_file_objects SET title = (
-      SELECT title FROM company_file_metadata WHERE file_id = ?1) WHERE id = ?1`)
-    .bind(metadataGuardFile.id)
-    .run();
+  await mutateCompanyFileObjectFixture(
+    db,
+    `UPDATE company_file_objects SET title = (
+      SELECT title FROM company_file_metadata WHERE file_id = ?1) WHERE id = ?1`,
+    [metadataGuardFile.id],
+  );
   await expect(
     await call(
       `/files/${metadataGuardFile.id}`,
@@ -1820,17 +1847,18 @@ try {
   checks.push(
     'inventory classifies a missing company object-integrity ledger before R2 access',
   );
-  await db.batch([
-    db
-      .prepare(`INSERT INTO company_file_object_integrity
-        (file_id, validation_mode, r2_etag, r2_content_type)
-        VALUES (?1, 'metadata', NULL, 'text/plain')`)
-      .bind(inventoryIntegrityId),
-    db
-      .prepare(`UPDATE company_file_objects
-        SET storage_key = 'company-source/foreign-private-object' WHERE id = ?1`)
-      .bind(inventoryIntegrityId),
-  ]);
+  await db
+    .prepare(`INSERT INTO company_file_object_integrity
+      (file_id, validation_mode, r2_etag, r2_content_type)
+      VALUES (?1, 'metadata', NULL, 'text/plain')`)
+    .bind(inventoryIntegrityId)
+    .run();
+  await mutateCompanyFileObjectFixture(
+    db,
+    `UPDATE company_file_objects
+      SET storage_key = 'company-source/foreign-private-object' WHERE id = ?1`,
+    [inventoryIntegrityId],
+  );
   const mismatchedKeyInventory = await (
     await call('/inventory?status=inconsistent', undefined, ownerHeaders)
   ).json();

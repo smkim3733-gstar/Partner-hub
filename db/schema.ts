@@ -105,6 +105,9 @@ CREATE TABLE IF NOT EXISTS company_file_objects (
 )
 `;
 
+export const companyFileObjectsNoUpdateTriggerSql =
+  "CREATE TRIGGER IF NOT EXISTS company_file_objects_no_update BEFORE UPDATE ON company_file_objects BEGIN SELECT RAISE(ABORT, 'company file object is immutable'); END";
+
 export const companyFileObjectsOwnerIndexSql = `
 CREATE INDEX IF NOT EXISTS company_file_objects_owner_idx
 ON company_file_objects (assigned_trainee, created_at)

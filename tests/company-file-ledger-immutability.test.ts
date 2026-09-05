@@ -44,3 +44,16 @@ void test('application code cannot remove durable company-file upload receipts',
 
   assert.deepEqual(violations, [], 'upload tombstones must remain durable');
 });
+
+void test('application code cannot rewrite the immutable company-file parent row', () => {
+  const root = process.cwd();
+  const forbidden = /\bUPDATE\s+company_file_objects\b/i;
+  const violations = [
+    ...sourceFiles(join(root, 'app')),
+    ...sourceFiles(join(root, 'lib')),
+  ]
+    .filter((file) => forbidden.test(readFileSync(file, 'utf8')))
+    .map((file) => relative(root, file));
+
+  assert.deepEqual(violations, [], 'company-file facts must be inserted once');
+});

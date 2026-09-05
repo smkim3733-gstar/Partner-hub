@@ -20,6 +20,7 @@ import { portalStateId } from '../db/schema';
 import { portalRevision } from '../lib/portal-revision';
 import { FileRecoverySubmission } from '../lib/file-recovery-submission';
 import { PortalSaveQueue } from '../lib/portal-save-queue';
+import { mutateCompanyFileObjectFixture } from './company-file-object-fixture';
 
 const email = 'seedy@sites.test';
 const member = {
@@ -611,12 +612,11 @@ void test('stale state, wrong target case and changed file metadata are rejected
   assert.equal((await recover(request(value), context)).status, 409);
   assert.deepEqual(await state(), changed);
   value = await body();
-  await companyFileDatabase()
-    .prepare(
-      "UPDATE company_file_objects SET title = '변경된 제목' WHERE id = ?1",
-    )
-    .bind(id)
-    .run();
+  await mutateCompanyFileObjectFixture(
+    companyFileDatabase(),
+    "UPDATE company_file_objects SET title = '변경된 제목' WHERE id = ?1",
+    [id],
+  );
   const metadataDrift = await recover(request(value), context);
   assert.equal(metadataDrift.status, 503);
   assert.match(

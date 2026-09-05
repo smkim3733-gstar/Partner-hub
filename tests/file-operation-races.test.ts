@@ -9,6 +9,7 @@ import {
   ensureCompanyFileTables,
   findCompanyFile,
 } from '../lib/company-files';
+import { mutateCompanyFileObjectFixture } from './company-file-object-fixture';
 
 const member = {
   id: 'race-partner',
@@ -157,10 +158,11 @@ void test('deletion rejects a cross-file R2 key before deleting that object', as
   await bucket.put(foreignKey, 'SYNTHETIC_RACE_ORIGINAL', {
     httpMetadata: { contentType: 'text/plain' },
   });
-  await db
-    .prepare('UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1')
-    .bind(id, foreignKey)
-    .run();
+  await mutateCompanyFileObjectFixture(
+    db,
+    'UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1',
+    [id, foreignKey],
+  );
   let deleteCalls = 0;
   bucket.delete = async (...args: Parameters<R2Bucket['delete']>) => {
     deleteCalls++;
@@ -203,11 +205,11 @@ void test('a storage-key change before the durable deletion decision preserves b
           return async () => {
             if (once) {
               once = false;
-              await prepare(
+              await mutateCompanyFileObjectFixture(
+                db,
                 'UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1',
-              )
-                .bind(id, foreignKey)
-                .run();
+                [id, foreignKey],
+              );
             }
             return target.run();
           };
@@ -248,10 +250,11 @@ void test('a storage-key change after R2 deletion preserves the conflicting D1 f
   });
   bucket.delete = async (...args: Parameters<R2Bucket['delete']>) => {
     await del(...args);
-    await db
-      .prepare('UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1')
-      .bind(id, foreignKey)
-      .run();
+    await mutateCompanyFileObjectFixture(
+      db,
+      'UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1',
+      [id, foreignKey],
+    );
   };
   try {
     assert.equal((await remove(request('DELETE'), context(id))).status, 409);
@@ -295,10 +298,11 @@ void test('a storage-key change after R2 deletion preserves the conflicting D1 f
       .first(),
   );
 
-  await db
-    .prepare('UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1')
-    .bind(id, originalKey)
-    .run();
+  await mutateCompanyFileObjectFixture(
+    db,
+    'UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1',
+    [id, originalKey],
+  );
   await bucket.put(originalKey, 'SYNTHETIC_RACE_ORIGINAL', {
     httpMetadata: { contentType: 'text/plain' },
   });
@@ -719,18 +723,38 @@ void test('account and case ownership ledgers reject direct mutation but permit 
   assert.equal(await bucket.get(`company-source/${id}`), null);
 });
 
+void test('company-file parent facts reject direct mutation but permit verified deletion', async () => {
+  await seed();
+  const id = await create(),
+    db = companyFileDatabase(),
+    bucket = companyFileBucket();
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE company_file_objects SET title = 'direct-rewrite' WHERE id = ?1",
+      )
+      .bind(id)
+      .run(),
+    /company file object is immutable/,
+  );
+  assert.ok(await findCompanyFile(id));
+  assert.ok(await bucket.get(`company-source/${id}`));
+  assert.equal((await remove(request('DELETE'), context(id))).status, 204);
+  assert.equal(await findCompanyFile(id), null);
+  assert.equal(await bucket.get(`company-source/${id}`), null);
+});
+
 void test('download rejects valid-looking company metadata drift before R2 access', async () => {
   await seed();
   const id = await create(),
     db = companyFileDatabase(),
     bucket = companyFileBucket(),
     get = bucket.get.bind(bucket);
-  await db
-    .prepare(
-      "UPDATE company_file_objects SET original_name = 'other.txt' WHERE id = ?1",
-    )
-    .bind(id)
-    .run();
+  await mutateCompanyFileObjectFixture(
+    db,
+    "UPDATE company_file_objects SET original_name = 'other.txt' WHERE id = ?1",
+    [id],
+  );
   let getCalls = 0;
   bucket.get = async (...args: Parameters<R2Bucket['get']>) => {
     getCalls++;
@@ -756,12 +780,11 @@ void test('deletion rejects valid-looking company metadata drift before R2 acces
     db = companyFileDatabase(),
     bucket = companyFileBucket(),
     del = bucket.delete.bind(bucket);
-  await db
-    .prepare(
-      "UPDATE company_file_objects SET title = '다른 정상 제목' WHERE id = ?1",
-    )
-    .bind(id)
-    .run();
+  await mutateCompanyFileObjectFixture(
+    db,
+    "UPDATE company_file_objects SET title = '다른 정상 제목' WHERE id = ?1",
+    [id],
+  );
   let deleteCalls = 0;
   bucket.delete = async (...args: Parameters<R2Bucket['delete']>) => {
     deleteCalls++;
@@ -789,12 +812,11 @@ void test('metadata drift after R2 deletion preserves every D1 deletion ledger',
     del = bucket.delete.bind(bucket);
   bucket.delete = async (...args: Parameters<R2Bucket['delete']>) => {
     await del(...args);
-    await db
-      .prepare(
-        "UPDATE company_file_objects SET title = '경합 변경 제목' WHERE id = ?1",
-      )
-      .bind(id)
-      .run();
+    await mutateCompanyFileObjectFixture(
+      db,
+      "UPDATE company_file_objects SET title = '경합 변경 제목' WHERE id = ?1",
+      [id],
+    );
   };
   try {
     const response = await remove(request('DELETE'), context(id));
@@ -837,11 +859,12 @@ void test('metadata drift after R2 deletion preserves every D1 deletion ledger',
     'deleted',
   );
 
-  await db
-    .prepare(`UPDATE company_file_objects SET title = (
-      SELECT title FROM company_file_metadata WHERE file_id = ?1) WHERE id = ?1`)
-    .bind(id)
-    .run();
+  await mutateCompanyFileObjectFixture(
+    db,
+    `UPDATE company_file_objects SET title = (
+      SELECT title FROM company_file_metadata WHERE file_id = ?1) WHERE id = ?1`,
+    [id],
+  );
   await bucket.put(`company-source/${id}`, 'SYNTHETIC_RACE_ORIGINAL', {
     httpMetadata: { contentType: 'text/plain' },
   });
@@ -890,11 +913,12 @@ void test('download rejects a cross-file R2 key before reading that object', asy
   await bucket.put(foreignKey, 'SYNTHETIC_RACE_ORIGINAL', {
     httpMetadata: { contentType: 'text/plain' },
   });
-  await db
-    .prepare(`UPDATE company_file_objects
-      SET storage_key = ?2 WHERE id = ?1`)
-    .bind(id, foreignKey)
-    .run();
+  await mutateCompanyFileObjectFixture(
+    db,
+    `UPDATE company_file_objects
+      SET storage_key = ?2 WHERE id = ?1`,
+    [id, foreignKey],
+  );
   const originalGet = bucket.get.bind(bucket);
   let getCalls = 0;
   bucket.get = async (...args: Parameters<R2Bucket['get']>) => {
@@ -938,12 +962,11 @@ void test('download rejects a D1 size change committed while R2 resolves', async
     get = bucket.get.bind(bucket);
   bucket.get = async (...args: Parameters<R2Bucket['get']>) => {
     const object = await get(...args);
-    await db
-      .prepare(
-        'UPDATE company_file_objects SET size_bytes = size_bytes + 1 WHERE id = ?1',
-      )
-      .bind(id)
-      .run();
+    await mutateCompanyFileObjectFixture(
+      db,
+      'UPDATE company_file_objects SET size_bytes = size_bytes + 1 WHERE id = ?1',
+      [id],
+    );
     return object;
   };
   try {

@@ -22,6 +22,7 @@ import {
   readIntakeSourceListResponse,
   readIntakeSourcePreviewResponse,
 } from '../lib/intake-source-response';
+import { mutateCompanyFileObjectFixture } from './company-file-object-fixture';
 
 const owner = 'seedy@sites.test';
 const partner = 'review-partner@example.invalid';
@@ -245,10 +246,11 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
     await companyFileBucket().put(corruptRow.storage_key, corruptBytes, {
       httpMetadata: { contentType: corruptRow.content_type },
     });
-    await companyFileDatabase()
-      .prepare('UPDATE company_file_objects SET size_bytes = ?1 WHERE id = ?2')
-      .bind(corruptBytes.byteLength, corrupt)
-      .run();
+    await mutateCompanyFileObjectFixture(
+      companyFileDatabase(),
+      'UPDATE company_file_objects SET size_bytes = ?1 WHERE id = ?2',
+      [corruptBytes.byteLength, corrupt],
+    );
     const badPdf = await add(
       new File(['%PDF-1.7\nVALID_AT_UPLOAD'], 'wrong.pdf'),
       '크레탑',
@@ -259,10 +261,11 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
     await companyFileBucket().put(badPdfRow.storage_key, badPdfBytes, {
       httpMetadata: { contentType: badPdfRow.content_type },
     });
-    await companyFileDatabase()
-      .prepare('UPDATE company_file_objects SET size_bytes = ?1 WHERE id = ?2')
-      .bind(badPdfBytes.byteLength, badPdf)
-      .run();
+    await mutateCompanyFileObjectFixture(
+      companyFileDatabase(),
+      'UPDATE company_file_objects SET size_bytes = ?1 WHERE id = ?2',
+      [badPdfBytes.byteLength, badPdf],
+    );
     const oversized = await add(
       new File(
         [

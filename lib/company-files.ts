@@ -14,6 +14,7 @@ import {
   companyFileObjectIntegrityNoUpdateTriggerSql,
   companyFileObjectIntegrityTableSql,
   companyFileObjectsCompanyIndexSql,
+  companyFileObjectsNoUpdateTriggerSql,
   companyFileObjectsOwnerIndexSql,
   companyFileObjectsTableSql,
   companyFileStorageKeysTableSql,
@@ -109,6 +110,7 @@ export function companyFileBucket() {
 export async function ensureCompanyFileTables(db: D1Database) {
   await db.batch([
     db.prepare(companyFileObjectsTableSql),
+    db.prepare(companyFileObjectsNoUpdateTriggerSql),
     db.prepare(companyFileObjectsOwnerIndexSql),
     db.prepare(companyFileObjectsCompanyIndexSql),
     db.prepare(companyFileObjectIntegrityTableSql),
