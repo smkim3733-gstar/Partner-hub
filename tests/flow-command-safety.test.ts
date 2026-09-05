@@ -1765,6 +1765,29 @@ void test('FLOW detail and dashboard reject undefined root and hidden nested pro
       const audit = payload.audit as Array<Record<string, unknown>>;
       audit[0].futurePrivateValue = '숨김 감사 값';
     },
+    (payload) => {
+      const reports = payload.reports as Array<Record<string, unknown>>;
+      (payload.jobs as Array<Record<string, unknown>>).push({
+        id: 'hidden-evidence-job',
+        stage: 1,
+        status: 'complete',
+        reason: '',
+        createdAt: payload.updatedAt,
+        startedAt: payload.updatedAt,
+        completedAt: payload.updatedAt,
+        reportId: reports[0].id,
+        evidence: {
+          instructionVersion: 'synthetic-flow-instruction-v1',
+          requestedModel: 'claude-requested-test-model',
+          providerRequestId: 'req_synthetic_flow',
+          providerModel: 'claude-resolved-test-model',
+          providerMessageId: 'msg_synthetic_flow',
+          inputTokens: 10,
+          outputTokens: 20,
+          futurePrivateValue: '숨김 공급자 값',
+        },
+      });
+    },
   ];
   for (const corrupt of corruptions) {
     await deleteConsultingFlowFixture(await flowDatabase());

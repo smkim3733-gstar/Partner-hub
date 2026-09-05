@@ -82,6 +82,15 @@ export type FlowRequest = {
   reviewedAt?: string;
   verifiedAt?: string;
 };
+export type FlowAiEvidence = {
+  instructionVersion: string;
+  requestedModel: string;
+  providerRequestId: string;
+  providerModel: string;
+  providerMessageId: string;
+  inputTokens: number;
+  outputTokens: number;
+};
 export type FlowJob = {
   id: string;
   stage: 1 | 4;
@@ -93,6 +102,7 @@ export type FlowJob = {
   startedAt?: string;
   completedAt?: string;
   reportId?: string;
+  evidence?: FlowAiEvidence;
 };
 export type ConsultingFlow = {
   schemaVersion: 1;

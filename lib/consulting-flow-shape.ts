@@ -8,6 +8,11 @@ import {
   storedFlowFileFormat,
   storedFlowFileMaxBytes,
 } from './consulting-flow-upload-policy';
+import {
+  AI_DIAGNOSIS_RUN_FIELD_LIMITS,
+  AI_PROVIDER_MESSAGE_ID_LIMIT,
+  AI_PROVIDER_REQUEST_ID_LIMIT,
+} from './storage-limits';
 
 type JsonRecord = Record<string, unknown>;
 type ShapeMode = 'public' | 'stored' | 'projected';
@@ -60,6 +65,13 @@ export const FLOW_FIELD_LIMITS = {
   aftercareOwner: 100,
   receiptActorKey: 500,
   receiptFingerprint: 200,
+} as const;
+
+export const FLOW_AI_EVIDENCE_LIMITS = {
+  instructionVersion: AI_DIAGNOSIS_RUN_FIELD_LIMITS.instructionVersion,
+  model: AI_DIAGNOSIS_RUN_FIELD_LIMITS.model,
+  providerRequestId: AI_PROVIDER_REQUEST_ID_LIMIT,
+  providerMessageId: AI_PROVIDER_MESSAGE_ID_LIMIT,
 } as const;
 
 export const FLOW_OBJECT_KEYS = {
@@ -217,6 +229,16 @@ export const FLOW_OBJECT_KEYS = {
     'startedAt',
     'completedAt',
     'reportId',
+    'evidence',
+  ],
+  jobEvidence: [
+    'instructionVersion',
+    'requestedModel',
+    'providerRequestId',
+    'providerModel',
+    'providerMessageId',
+    'inputTokens',
+    'outputTokens',
   ],
   audit: ['id', 'at', 'actor', 'action', 'detail'],
   receipt: ['actorKey', 'fingerprint'],
@@ -272,6 +294,8 @@ const boundedName = (value: unknown, maximum: number): value is string =>
   named(value) &&
   isWellFormedFlowText(value) &&
   flowTextLength(value) <= maximum;
+const boundedExactName = (value: unknown, maximum: number): value is string =>
+  boundedName(value, maximum) && value === value.trim();
 const timestamp = (value: unknown): value is string =>
   boundedName(value, FLOW_FIELD_LIMITS.timestamp) &&
   Number.isFinite(Date.parse(value));
@@ -484,6 +508,30 @@ function validPayment(item: JsonRecord) {
   );
 }
 
+export function hasFlowAiEvidenceStructure(value: unknown) {
+  const evidence = asRecord(value);
+  return Boolean(
+    evidence &&
+    hasOnlyKeys(evidence, FLOW_OBJECT_KEYS.jobEvidence) &&
+    boundedExactName(
+      evidence.instructionVersion,
+      FLOW_AI_EVIDENCE_LIMITS.instructionVersion,
+    ) &&
+    boundedExactName(evidence.requestedModel, FLOW_AI_EVIDENCE_LIMITS.model) &&
+    boundedExactName(
+      evidence.providerRequestId,
+      FLOW_AI_EVIDENCE_LIMITS.providerRequestId,
+    ) &&
+    boundedExactName(evidence.providerModel, FLOW_AI_EVIDENCE_LIMITS.model) &&
+    boundedExactName(
+      evidence.providerMessageId,
+      FLOW_AI_EVIDENCE_LIMITS.providerMessageId,
+    ) &&
+    safeInteger(evidence.inputTokens, 1) &&
+    safeInteger(evidence.outputTokens, 1),
+  );
+}
+
 function validJob(item: JsonRecord) {
   if (
     !hasOnlyKeys(item, FLOW_OBJECT_KEYS.job) ||
@@ -507,6 +555,12 @@ function validJob(item: JsonRecord) {
   const startedAt = reference(item.startedAt);
   const completedAt = reference(item.completedAt);
   const reportId = reference(item.reportId);
+  const evidence = item.evidence;
+  if (
+    (evidence !== undefined && !hasFlowAiEvidenceStructure(evidence)) ||
+    (evidence !== undefined && item.status !== 'complete')
+  )
+    return false;
   const statusEvidence =
     item.status === 'queued'
       ? !startedAt && !completedAt && !reportId

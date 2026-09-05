@@ -51,6 +51,7 @@ import { MAX_AI_SOURCE_BYTES } from '@/lib/intake-source-policy';
 import { MAX_TRANSCRIPT_FILE_BYTES } from '@/lib/transcript-policy';
 import { uploadFileFormat } from '@/lib/upload-file-formats';
 import {
+  FLOW_AI_EVIDENCE_LIMITS,
   FLOW_COLLECTION_LIMITS,
   FLOW_FIELD_LIMITS,
   FLOW_OBJECT_KEYS,
@@ -255,6 +256,38 @@ const hiddenFlowSemanticViolationSql = `SELECT 1 AS invalid FROM consulting_flow
     EXISTS (SELECT 1 FROM json_each(payload, '$.commandReceipts') receipt WHERE
       ${blankSqlText('receipt.key')} OR ${blankJsonTextSql('receipt', 'actorKey')} OR
       ${blankJsonTextSql('receipt', 'fingerprint')})
+  ELSE 0 END LIMIT 1`;
+// Evidence checks stay isolated so the broad dashboard projection remains below D1's expression-depth limit.
+const flowAiEvidenceViolationSql = `SELECT 1 AS invalid FROM consulting_flows
+  WHERE CASE WHEN json_valid(payload) AND json_type(payload, '$.jobs') = 'array' THEN
+    EXISTS (SELECT 1 FROM json_each(payload, '$.jobs') j WHERE
+      (json_type(j.value, '$.evidence') IS NOT NULL AND
+        (json_type(j.value, '$.evidence') <> 'object' OR
+          ${unexpectedJsonKeysSql(
+            "json_extract(j.value, '$.evidence')",
+            FLOW_OBJECT_KEYS.jobEvidence,
+          )} OR
+          COALESCE(json_type(j.value, '$.evidence.instructionVersion'), '') <> 'text' OR
+          length(json_extract(j.value, '$.evidence.instructionVersion')) NOT BETWEEN 1 AND ${FLOW_AI_EVIDENCE_LIMITS.instructionVersion} OR
+          json_extract(j.value, '$.evidence.instructionVersion') <> trim(json_extract(j.value, '$.evidence.instructionVersion')) OR
+          COALESCE(json_type(j.value, '$.evidence.requestedModel'), '') <> 'text' OR
+          length(json_extract(j.value, '$.evidence.requestedModel')) NOT BETWEEN 1 AND ${FLOW_AI_EVIDENCE_LIMITS.model} OR
+          json_extract(j.value, '$.evidence.requestedModel') <> trim(json_extract(j.value, '$.evidence.requestedModel')) OR
+          COALESCE(json_type(j.value, '$.evidence.providerRequestId'), '') <> 'text' OR
+          length(json_extract(j.value, '$.evidence.providerRequestId')) NOT BETWEEN 1 AND ${FLOW_AI_EVIDENCE_LIMITS.providerRequestId} OR
+          json_extract(j.value, '$.evidence.providerRequestId') <> trim(json_extract(j.value, '$.evidence.providerRequestId')) OR
+          COALESCE(json_type(j.value, '$.evidence.providerModel'), '') <> 'text' OR
+          length(json_extract(j.value, '$.evidence.providerModel')) NOT BETWEEN 1 AND ${FLOW_AI_EVIDENCE_LIMITS.model} OR
+          json_extract(j.value, '$.evidence.providerModel') <> trim(json_extract(j.value, '$.evidence.providerModel')) OR
+          COALESCE(json_type(j.value, '$.evidence.providerMessageId'), '') <> 'text' OR
+          length(json_extract(j.value, '$.evidence.providerMessageId')) NOT BETWEEN 1 AND ${FLOW_AI_EVIDENCE_LIMITS.providerMessageId} OR
+          json_extract(j.value, '$.evidence.providerMessageId') <> trim(json_extract(j.value, '$.evidence.providerMessageId')) OR
+          COALESCE(json_type(j.value, '$.evidence.inputTokens'), '') <> 'integer' OR
+          json_extract(j.value, '$.evidence.inputTokens') NOT BETWEEN 1 AND 9007199254740991 OR
+          COALESCE(json_type(j.value, '$.evidence.outputTokens'), '') <> 'integer' OR
+          json_extract(j.value, '$.evidence.outputTokens') NOT BETWEEN 1 AND 9007199254740991)) OR
+      (json_extract(j.value, '$.status') <> 'complete' AND
+        json_type(j.value, '$.evidence') IS NOT NULL))
   ELSE 0 END LIMIT 1`;
 const flowFileOwnershipViolationSql = (
   caseIdOnly: boolean,
@@ -535,6 +568,7 @@ export async function stateWithConsultingFlows(raw: unknown) {
   const database = await flowDatabase();
   const batch = await database.batch([
     database.prepare(hiddenFlowSemanticViolationSql),
+    database.prepare(flowAiEvidenceViolationSql),
     database.prepare(flowFileOwnershipViolationSql(false)),
     database.prepare(`SELECT case_id,
       (SELECT json_group_array(json_extract(f.value, '$.name'))
@@ -711,11 +745,13 @@ export async function stateWithConsultingFlows(raw: unknown) {
         ) ELSE NULL END ELSE NULL END AS payload FROM consulting_flows`),
   ]);
   const semanticViolations = batch[0] as D1Result<{ invalid: number }>;
-  const ownershipViolations = batch[1] as D1Result<{ invalid: number }>;
-  const fileNameRows = batch[2] as D1Result<StoredFlowFileNamesRow>;
-  const rows = batch[3] as D1Result<StoredFlowRow>;
+  const evidenceViolations = batch[1] as D1Result<{ invalid: number }>;
+  const ownershipViolations = batch[2] as D1Result<{ invalid: number }>;
+  const fileNameRows = batch[3] as D1Result<StoredFlowFileNamesRow>;
+  const rows = batch[4] as D1Result<StoredFlowRow>;
   if (
     semanticViolations.results.length > 0 ||
+    evidenceViolations.results.length > 0 ||
     ownershipViolations.results.length > 0
   )
     throw storedFlowIntegrityError();

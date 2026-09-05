@@ -495,6 +495,15 @@ void nodeTest(
       ).flow;
       assert.equal(flow.reports.length, 2);
       assert.equal(flow.reports.at(-1)?.origin, 'ai');
+      assert.deepEqual(flow.jobs.at(-1)?.evidence, {
+        instructionVersion: 'v2.5-partner-workflow-2026-08-30',
+        requestedModel: 'claude-opus-5',
+        providerRequestId: 'req_consulting_flow',
+        providerModel: 'claude-synthetic-response-model',
+        providerMessageId: 'msg_consulting_flow',
+        inputTokens: 10,
+        outputTokens: 20,
+      });
       assert.equal(flow.analysis.adminAt, undefined);
       const newReportId = flow.reports.at(-1)!.id;
       flow = (
@@ -597,6 +606,15 @@ void nodeTest(
         result.recordings.at(-1)?.id,
       );
       assert.equal(result.jobs.at(-1)?.status, 'complete');
+      assert.deepEqual(result.jobs.at(-1)?.evidence, {
+        instructionVersion: 'v2.5-partner-workflow-2026-08-30',
+        requestedModel: 'claude-opus-5',
+        providerRequestId: 'req_consulting_flow',
+        providerModel: 'claude-synthetic-response-model',
+        providerMessageId: 'msg_consulting_flow',
+        inputTokens: 10,
+        outputTokens: 20,
+      });
       assert.equal(calls, 2);
     } finally {
       globalThis.fetch = originalFetch;

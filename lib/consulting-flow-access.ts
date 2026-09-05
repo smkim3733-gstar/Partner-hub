@@ -108,7 +108,10 @@ export function publicFlow(flow: ConsultingFlow): ConsultingFlow {
       ? selectKeys(flow.aftercare, FLOW_OBJECT_KEYS.aftercare)
       : undefined,
     ai: selectKeys(flow.ai, FLOW_OBJECT_KEYS.ai),
-    jobs: flow.jobs.map((job) => selectKeys(job, FLOW_OBJECT_KEYS.job)),
+    jobs: flow.jobs.map((job) => ({
+      ...selectKeys(job, FLOW_OBJECT_KEYS.job),
+      evidence: job.evidence ? { ...job.evidence } : undefined,
+    })),
     audit: flow.audit.map((entry) => selectKeys(entry, FLOW_OBJECT_KEYS.audit)),
     commandIds: [],
     commandReceipts: undefined,

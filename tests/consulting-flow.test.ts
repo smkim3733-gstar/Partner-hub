@@ -15,6 +15,7 @@ import {
   phaseOf,
   signingPreparationDone,
   type ConsultingFlow,
+  type FlowAiEvidence,
   type FlowActor,
   type FlowCommand,
   type FlowFile,
@@ -36,6 +37,7 @@ import {
   FLOW_COLLECTION_LIMITS,
   FLOW_TEXT_LIMITS,
   flowTextLength,
+  hasFlowAiEvidenceStructure,
   isWellFormedFlowText,
 } from '../lib/consulting-flow-shape';
 
@@ -54,6 +56,15 @@ const body =
   '확인된 기업 자료에 기초한 내부 검토용 보고서입니다. 제출되지 않은 수치와 사실은 확인 필요로 표시하고 대표가 추가 상담에서 검토합니다. '.repeat(
     4,
   );
+const aiEvidence: FlowAiEvidence = {
+  instructionVersion: 'synthetic-flow-instruction-v1',
+  requestedModel: 'claude-requested-test-model',
+  providerRequestId: 'req_synthetic_flow',
+  providerModel: 'claude-resolved-test-model',
+  providerMessageId: 'msg_synthetic_flow',
+  inputTokens: 10,
+  outputTokens: 20,
+};
 test('consequential yes-no workflow choices preserve an unselected state', () => {
   assert.equal(explicitFlowBooleanChoice('yes'), true);
   assert.equal(explicitFlowBooleanChoice('no'), false);
@@ -647,10 +658,29 @@ test('AI disabled by default; policy requires privacy, external processing and c
   assert.equal(s.jobs[0].status, 'queued');
   const claimed = claimFlowJob(s, s.jobs[0].id, now);
   assert.throws(() => claimFlowJob(claimed, s.jobs[0].id, now), FlowError);
-  const done = finishFlowJob(claimed, s.jobs[0].id, now, now, { body });
+  assert.throws(
+    () => finishFlowJob(claimed, s.jobs[0].id, now, now, { body }),
+    /추적 증거/,
+  );
+  const done = finishFlowJob(claimed, s.jobs[0].id, now, now, {
+    body,
+    evidence: aiEvidence,
+  });
   assert.equal(done.jobs[0].status, 'complete');
+  assert.deepEqual(done.jobs[0].evidence, aiEvidence);
   assert.equal(done.reports.length, 1);
   assert.equal(phaseOf(done), '공동분석');
+});
+test('FLOW AI evidence accepts only complete exact bounded provider records', () => {
+  assert.equal(hasFlowAiEvidenceStructure(aiEvidence), true);
+  for (const evidence of [
+    { ...aiEvidence, futureField: 'blocked' },
+    { ...aiEvidence, providerRequestId: ' req_padded' },
+    { ...aiEvidence, providerMessageId: '' },
+    { ...aiEvidence, inputTokens: 0 },
+    { ...aiEvidence, outputTokens: Number.MAX_SAFE_INTEGER + 1 },
+  ])
+    assert.equal(hasFlowAiEvidenceStructure(evidence), false);
 });
 test('AI result capacity and report size are rejected before an invalid state is returned', () => {
   let flow = apply(start(), {

@@ -7,6 +7,7 @@ import {
   hasSensitiveIdentifier,
   latestReport,
   type ConsultingFlow,
+  type FlowAiEvidence,
   type FlowFile,
   type FlowJob,
 } from '@/lib/consulting-flow';
@@ -31,6 +32,7 @@ import {
 } from '@/lib/consulting-flow-store';
 import { readAnthropicMessageResponse } from '@/lib/anthropic-message-response';
 import {
+  FLOW_AI_EVIDENCE_LIMITS,
   FLOW_TEXT_LIMITS,
   flowTextLength,
   isWellFormedFlowText,
@@ -187,6 +189,12 @@ async function generate(
     throw new FlowError(
       'Claude API 키가 연결되지 않았습니다. 수동 보고서 등록은 이용할 수 있습니다.',
     );
+  const requestedModel = runtime.ANTHROPIC_MODEL?.trim() || 'claude-opus-5';
+  if (
+    !isWellFormedFlowText(requestedModel) ||
+    flowTextLength(requestedModel) > FLOW_AI_EVIDENCE_LIMITS.model
+  )
+    throw new FlowError('Claude 모델 설정을 확인해 주세요.');
   const content = await buildAnalysisSourceBlocks(flow, job);
   content.push({
     type: 'text',
@@ -201,7 +209,7 @@ async function generate(
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      model: runtime.ANTHROPIC_MODEL || 'claude-opus-5',
+      model: requestedModel,
       max_tokens: 8000,
       system: CLAUDE_FLOW_PROJECT_INSTRUCTION,
       messages: [{ role: 'user', content }],
@@ -239,12 +247,27 @@ async function generate(
     throw new FlowError(
       '출력에서 개인정보 형식이 감지되어 공유를 중지했습니다. 원문 마스킹 상태를 확인해 주세요.',
     );
+  if (!result.requestId || !result.model || !result.messageId)
+    throw new FlowError(
+      'Claude 응답 추적 증거를 확인하지 못해 정식 보고서로 저장하지 않았습니다.',
+    );
   const storedBody = `AI 생성 내부 초안 · 김성민 대표 검토 전\n지침: ${CLAUDE_FLOW_INSTRUCTION_VERSION}\n기준: 제출된 자료 / 최신 외부 법령·정책 미조회\n\n${body}`;
   if (flowTextLength(storedBody) > FLOW_TEXT_LIMITS.reportBody)
     throw new FlowError(
       '보고서가 저장 한도를 초과해 정식 보고서로 저장하지 않았습니다. 비용 확인 후 재시도하거나 수동 등록해 주세요.',
     );
-  return storedBody;
+  return {
+    body: storedBody,
+    evidence: {
+      instructionVersion: CLAUDE_FLOW_INSTRUCTION_VERSION,
+      requestedModel,
+      providerRequestId: result.requestId,
+      providerModel: result.model,
+      providerMessageId: result.messageId,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+    } satisfies FlowAiEvidence,
+  };
 }
 
 /** Exactly one claimed request; failures are persisted and never automatically retried. */
@@ -260,9 +283,10 @@ export async function runNextFlowJob(
   if (claimed.jobs.find((j) => j.id === job.id)?.status !== 'processing')
     return claimed;
   let body: string | undefined;
+  let evidence: FlowAiEvidence | undefined;
   let error: string | undefined;
   try {
-    body = await generate(claimed, job, async () => {
+    const generated = await generate(claimed, job, async () => {
       await authorize();
       const current = await readFlow(flow.caseId);
       const currentJob = current?.jobs.find((item) => item.id === job.id);
@@ -278,6 +302,8 @@ export async function runNextFlowJob(
           409,
         );
     });
+    body = generated.body;
+    evidence = generated.evidence;
   } catch (e) {
     error =
       e instanceof FlowError || e instanceof PortalAccessError
@@ -295,7 +321,7 @@ export async function runNextFlowJob(
       job.id,
       lease,
       new Date().toISOString(),
-      { body, error },
+      { body, error, evidence },
     );
     try {
       await commitFlow(current, next);
