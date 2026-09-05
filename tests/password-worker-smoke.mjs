@@ -478,7 +478,7 @@ try {
       )
       .bind(diagnosisRunId)
       .run(),
-    /transition is invalid/,
+    /result envelope is invalid/,
   );
   const completedDiagnosisResult = JSON.stringify({
     _requestFingerprint: diagnosisFingerprint,
@@ -491,6 +491,31 @@ try {
     complianceNotes: [],
     nextAction: '대표 검토',
   });
+  for (const malformedDiagnosisResult of [
+    JSON.stringify({
+      ...JSON.parse(completedDiagnosisResult),
+      mainRisks: [3],
+    }),
+    JSON.stringify({
+      ...JSON.parse(completedDiagnosisResult),
+      unexpected: true,
+    }),
+  ])
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE ai_diagnosis_runs SET status = '대표 검토 대기',
+            result_json = ?1, input_tokens = 10, output_tokens = 20,
+            created_at = ?2 WHERE id = ?3`,
+        )
+        .bind(
+          malformedDiagnosisResult,
+          '2026-09-05T00:01:00.000Z',
+          diagnosisRunId,
+        )
+        .run(),
+      /result envelope is invalid/,
+    );
   await db
     .prepare(
       `UPDATE ai_diagnosis_runs SET status = '대표 검토 대기',
@@ -514,6 +539,7 @@ try {
     /run is durable/,
   );
   checks.push('AI diagnosis runs keep one durable forward lifecycle');
+  checks.push('AI diagnosis completed results keep one exact bounded envelope');
   assert.deepEqual(
     await db
       .prepare(

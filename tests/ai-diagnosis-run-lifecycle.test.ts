@@ -108,8 +108,35 @@ void test('AI diagnosis runs preserve one durable forward lifecycle', async () =
       )
       .bind(runId)
       .run(),
-    /transition is invalid/,
+    /result envelope is invalid/,
   );
+  assert.deepEqual(
+    await db
+      .prepare('SELECT * FROM ai_diagnosis_runs WHERE id = ?1')
+      .bind(runId)
+      .first(),
+    pending,
+  );
+
+  const validEnvelope = {
+    ...completedRun(runId, caseId).result,
+    _requestFingerprint: fingerprint,
+  };
+  for (const invalidEnvelope of [
+    { ...validEnvelope, mainRisks: [3] },
+    { ...validEnvelope, unexpected: true },
+  ])
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE ai_diagnosis_runs SET status = '대표 검토 대기',
+            result_json = ?1, input_tokens = 10, output_tokens = 20,
+            created_at = '2026-09-05T00:01:00.000Z' WHERE id = ?2`,
+        )
+        .bind(JSON.stringify(invalidEnvelope), runId)
+        .run(),
+      /result envelope is invalid/,
+    );
   assert.deepEqual(
     await db
       .prepare('SELECT * FROM ai_diagnosis_runs WHERE id = ?1')

@@ -6,6 +6,7 @@ import {
   aiDiagnosisRunsInsertEnvelopeTriggerSql,
   aiDiagnosisRunsNoDeleteTriggerSql,
   aiDiagnosisRunsPendingCaseIndexSql,
+  aiDiagnosisRunsResultEnvelopeTriggerSql,
   aiDiagnosisRunsTableSql,
   aiDiagnosisRunsTransitionTriggerSql,
   companyFileObjectsCompanyIndexSql,
@@ -78,6 +79,7 @@ async function ensurePortalTables(db: D1Database) {
     db.prepare(aiDiagnosisRunsInsertEnvelopeTriggerSql),
     db.prepare(aiDiagnosisRunsIdentityTriggerSql),
     db.prepare(aiDiagnosisRunsTransitionTriggerSql),
+    db.prepare(aiDiagnosisRunsResultEnvelopeTriggerSql),
     db.prepare(aiDiagnosisRunsNoDeleteTriggerSql),
   ]);
 }

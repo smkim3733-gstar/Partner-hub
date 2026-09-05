@@ -4,10 +4,12 @@ import {
   aiDiagnosisRunsInsertEnvelopeTriggerSql,
   aiDiagnosisRunsNoDeleteTriggerSql,
   aiDiagnosisRunsPendingCaseIndexSql,
+  aiDiagnosisRunsResultEnvelopeTriggerSql,
   aiDiagnosisRunsTableSql,
   aiDiagnosisRunsTransitionTriggerSql,
 } from '@/db/schema';
 import { companyFileDatabase } from '@/lib/company-files';
+import { STEP_ZERO_RESULT_LIMIT_BYTES } from '@/lib/storage-limits';
 
 export type StepZeroResult = {
   companyOverview: string;
@@ -60,18 +62,25 @@ export async function ensureAiDiagnosisTables(db: D1Database) {
     db.prepare(aiDiagnosisRunsInsertEnvelopeTriggerSql),
     db.prepare(aiDiagnosisRunsIdentityTriggerSql),
     db.prepare(aiDiagnosisRunsTransitionTriggerSql),
+    db.prepare(aiDiagnosisRunsResultEnvelopeTriggerSql),
     db.prepare(aiDiagnosisRunsNoDeleteTriggerSql),
   ]);
 }
 
+function boundedText(value: unknown, maxLength: number, allowEmpty = false) {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if ((!normalized && !allowEmpty) || Array.from(normalized).length > maxLength)
+    return null;
+  return normalized;
+}
+
 function stringArray(value: unknown) {
-  return Array.isArray(value)
-    ? value
-        .filter((item): item is string => typeof item === 'string')
-        .map((item) => item.trim())
-        .filter(Boolean)
-        .slice(0, 20)
-    : [];
+  if (!Array.isArray(value) || value.length > 20) return null;
+  const normalized = value.map((item) => boundedText(item, 4_000));
+  return normalized.some((item) => item === null)
+    ? null
+    : (normalized as string[]);
 }
 
 export function parseStepZeroResult(rawText: string): StepZeroResult {
@@ -79,42 +88,73 @@ export function parseStepZeroResult(rawText: string): StepZeroResult {
     .trim()
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/, '');
-  const value = JSON.parse(normalized) as Record<string, unknown>;
-  const companyOverview =
-    typeof value.companyOverview === 'string'
-      ? value.companyOverview.trim()
-      : '';
-  const nextAction =
-    typeof value.nextAction === 'string' ? value.nextAction.trim() : '';
-  const rawCandidates = Array.isArray(value.solutionCandidates)
-    ? value.solutionCandidates
-    : [];
-  const solutionCandidates = rawCandidates
-    .filter(
-      (item): item is Record<string, unknown> =>
-        Boolean(item) && typeof item === 'object' && !Array.isArray(item),
-    )
-    .map((item) => ({
-      solution: typeof item.solution === 'string' ? item.solution.trim() : '',
-      basis: typeof item.basis === 'string' ? item.basis.trim() : '',
-      condition:
-        typeof item.condition === 'string' ? item.condition.trim() : '',
-    }))
-    .filter((item) => item.solution && item.basis)
-    .slice(0, 10);
-
-  if (!companyOverview || !nextAction)
+  const parsed = JSON.parse(normalized) as unknown;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
     throw new Error('Step 0 응답 형식이 올바르지 않습니다.');
-  return {
+  const value = parsed as Record<string, unknown>;
+  const companyOverview = boundedText(value.companyOverview, 12_000);
+  const nextAction = boundedText(value.nextAction, 12_000);
+  const confirmedStrengths = stringArray(value.confirmedStrengths);
+  const mainRisks = stringArray(value.mainRisks);
+  const verificationQuestions = stringArray(value.verificationQuestions);
+  const missingDocuments = stringArray(value.missingDocuments);
+  const complianceNotes = stringArray(value.complianceNotes);
+  const rawCandidates = value.solutionCandidates;
+  const solutionCandidates =
+    Array.isArray(rawCandidates) && rawCandidates.length <= 10
+      ? rawCandidates.map((item) => {
+          if (
+            !item ||
+            typeof item !== 'object' ||
+            Array.isArray(item) ||
+            Object.keys(item).length !== 3 ||
+            !['solution', 'basis', 'condition'].every((key) => key in item)
+          )
+            return null;
+          const candidate = item as Record<string, unknown>;
+          const solution = boundedText(candidate.solution, 4_000);
+          const basis = boundedText(candidate.basis, 4_000);
+          const condition = boundedText(candidate.condition, 4_000, true);
+          return solution && basis && condition !== null
+            ? { solution, basis, condition }
+            : null;
+        })
+      : null;
+
+  if (
+    !companyOverview ||
+    !nextAction ||
+    !confirmedStrengths ||
+    !mainRisks ||
+    !solutionCandidates ||
+    solutionCandidates.some((item) => item === null) ||
+    !verificationQuestions ||
+    !missingDocuments ||
+    !complianceNotes
+  )
+    throw new Error('Step 0 응답 형식이 올바르지 않습니다.');
+
+  const result: StepZeroResult = {
     companyOverview,
-    confirmedStrengths: stringArray(value.confirmedStrengths),
-    mainRisks: stringArray(value.mainRisks),
-    solutionCandidates,
-    verificationQuestions: stringArray(value.verificationQuestions),
-    missingDocuments: stringArray(value.missingDocuments),
-    complianceNotes: stringArray(value.complianceNotes),
+    confirmedStrengths,
+    mainRisks,
+    solutionCandidates:
+      solutionCandidates as StepZeroResult['solutionCandidates'],
+    verificationQuestions,
+    missingDocuments,
+    complianceNotes,
     nextAction,
   };
+  const storedEnvelope = JSON.stringify({
+    ...result,
+    _requestFingerprint: '0'.repeat(64),
+  });
+  if (
+    new TextEncoder().encode(storedEnvelope).length >
+    STEP_ZERO_RESULT_LIMIT_BYTES
+  )
+    throw new Error('Step 0 응답 허용 용량을 초과했습니다.');
+  return result;
 }
 
 type StepZeroClaimInput = {
