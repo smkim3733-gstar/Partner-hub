@@ -901,31 +901,37 @@ void test('FLOW rejects excessive collections and oversized fields before detail
 
 void test('FLOW detail and dashboard reject empty, oversized and unknown-purpose file metadata', async () => {
   const corruptions: Array<{
+    contentType: string;
     name: string;
     purpose: StoredFlowFilePurpose | 'unknown';
     size: number;
   }> = [
     {
+      contentType: 'application/pdf',
       name: 'empty.pdf',
       purpose: 'report',
       size: 0,
     },
     {
+      contentType: 'application/pdf',
       name: 'oversized-report.pdf',
       purpose: 'report',
       size: MAX_FLOW_UPLOAD_BYTES + 1,
     },
     {
+      contentType: 'application/pdf',
       name: 'oversized-source.pdf',
       purpose: 'source_archived',
       size: MAX_AI_SOURCE_BYTES + 1,
     },
     {
+      contentType: 'text/plain',
       name: 'oversized-transcript.txt',
       purpose: 'transcript',
       size: MAX_TRANSCRIPT_FILE_BYTES + 1,
     },
     {
+      contentType: 'application/pdf',
       name: 'unknown.pdf',
       purpose: 'unknown',
       size: 1,
@@ -938,9 +944,59 @@ void test('FLOW detail and dashboard reject empty, oversized and unknown-purpose
       (payload.files as Array<Record<string, unknown>>).push({
         id: `invalid-file-${index}`,
         name: corruption.name,
-        contentType: 'application/octet-stream',
+        contentType: corruption.contentType,
         size: corruption.size,
         key: `synthetic/invalid-file-${index}`,
+        createdAt: payload.updatedAt,
+        purpose: corruption.purpose,
+      });
+      return payload;
+    });
+    await assert.rejects(
+      readFlow(flow.caseId),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    await assert.rejects(
+      stateWithConsultingFlows(await readPortalState()),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+  }
+});
+
+void test('FLOW detail and dashboard reject file extensions and MIME outside their stored purpose', async () => {
+  const corruptions = [
+    {
+      name: 'signed-contract.txt',
+      contentType: 'text/plain',
+      purpose: 'signed_contract',
+    },
+    {
+      name: 'report.pdf',
+      contentType: 'text/plain',
+      purpose: 'report',
+    },
+    {
+      name: 'report.exe',
+      contentType: 'application/pdf',
+      purpose: 'report',
+    },
+    {
+      name: 'archived-source.docx',
+      contentType:
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      purpose: 'source_archived',
+    },
+  ] as const;
+  for (const [index, corruption] of corruptions.entries()) {
+    await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+    const flow = await fixture();
+    await replaceStoredFlow(flow.caseId, (payload) => {
+      (payload.files as Array<Record<string, unknown>>).push({
+        id: `invalid-file-format-${index}`,
+        name: corruption.name,
+        contentType: corruption.contentType,
+        size: 1,
+        key: `synthetic/invalid-file-format-${index}`,
         createdAt: payload.updatedAt,
         purpose: corruption.purpose,
       });

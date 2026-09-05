@@ -1,6 +1,7 @@
 import type { ConsultingFlow } from './consulting-flow';
 import {
   isStoredFlowFilePurpose,
+  storedFlowFileFormat,
   storedFlowFileMaxBytes,
 } from './consulting-flow-upload-policy';
 
@@ -362,11 +363,14 @@ function validReport(item: JsonRecord, projected: boolean) {
 }
 
 function validFile(item: JsonRecord, stored: boolean) {
+  const format = storedFlowFileFormat(item.purpose, item.name);
   const maximumSize = storedFlowFileMaxBytes(item.purpose, item.name);
   return (
     hasOnlyKeys(item, FLOW_OBJECT_KEYS.file) &&
     boundedName(item.name, FLOW_FIELD_LIMITS.fileName) &&
     boundedName(item.contentType, FLOW_FIELD_LIMITS.fileContentType) &&
+    format !== undefined &&
+    item.contentType === format.contentType &&
     isStoredFlowFilePurpose(item.purpose) &&
     safeInteger(item.size, 1) &&
     maximumSize !== undefined &&

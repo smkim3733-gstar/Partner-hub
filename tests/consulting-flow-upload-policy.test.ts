@@ -11,6 +11,9 @@ import {
   flowUploadPurpose,
   isStoredFlowFilePurpose,
   MAX_FLOW_UPLOAD_BYTES,
+  storedFlowFileExtensionRules,
+  storedFlowFileExtensions,
+  storedFlowFileFormat,
   storedFlowFileMaxBytes,
 } from '../lib/consulting-flow-upload-policy';
 import { MAX_AI_SOURCE_BYTES } from '../lib/intake-source-policy';
@@ -65,6 +68,35 @@ void test('consulting flow upload policy owns purpose and command-specific forma
   assert.equal(storedFlowFileMaxBytes('unknown', 'file.pdf'), undefined);
   assert.equal(isStoredFlowFilePurpose('signed_contract'), true);
   assert.equal(isStoredFlowFilePurpose('unknown'), false);
+  assert.deepEqual(storedFlowFileExtensions('source_archived'), [
+    'pdf',
+    'jpg',
+    'jpeg',
+    'png',
+    'txt',
+  ]);
+  assert.deepEqual(storedFlowFileExtensions('report'), [
+    'pdf',
+    'docx',
+    'txt',
+    'md',
+    'pptx',
+  ]);
+  assert.equal(
+    storedFlowFileFormat('report', 'presentation.PPTX')?.contentType,
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  );
+  assert.equal(
+    storedFlowFileFormat('signed_contract', 'contract.txt'),
+    undefined,
+  );
+  assert.equal(storedFlowFileFormat('report', 'report.exe'), undefined);
+  assert.ok(
+    storedFlowFileExtensionRules.some(
+      (rule) =>
+        rule.purpose === 'requested_document' && rule.extension === 'xlsx',
+    ),
+  );
 });
 
 void test('server rejects files hidden by stage and AI-source controls', () => {

@@ -2134,6 +2134,56 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  const invalidFlowFileFormat = JSON.parse(intactFlowPayload);
+  invalidFlowFileFormat.files.at(-1).name = 'report.exe';
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(invalidFlowFileFormat), 'runtime-own')
+    .run();
+  await expect(
+    await call('/flow/runtime-own', undefined, ownerHeaders),
+    503,
+    'FLOW detail rejects a stored file extension outside its purpose',
+  );
+  const invalidFlowFileFormatDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects an invalid stored file extension before native SQLite projection',
+  );
+  assertPrivateAuthResponse(invalidFlowFileFormatDashboard);
+  assert.match((await invalidFlowFileFormatDashboard.json()).error, /무결성/);
+  checks.push(
+    'FLOW stored extension, MIME and purpose stay consistent in detail and dashboard reads',
+  );
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
+  const invalidFlowFileMime = JSON.parse(intactFlowPayload);
+  invalidFlowFileMime.files.at(-1).contentType = 'application/pdf';
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(invalidFlowFileMime), 'runtime-own')
+    .run();
+  await expect(
+    await call('/flow/runtime-own', undefined, ownerHeaders),
+    503,
+    'FLOW detail rejects stored MIME that disagrees with the filename',
+  );
+  const invalidFlowFileMimeDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects mismatched stored MIME before native SQLite projection',
+  );
+  assertPrivateAuthResponse(invalidFlowFileMimeDashboard);
+  assert.match((await invalidFlowFileMimeDashboard.json()).error, /무결성/);
+  checks.push(
+    'FLOW fixed MIME registry is enforced in native detail and dashboard reads',
+  );
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   const flowAtAiResultCapacity = JSON.parse(intactFlowPayload);
   flowAtAiResultCapacity.ai = {
     enabled: true,

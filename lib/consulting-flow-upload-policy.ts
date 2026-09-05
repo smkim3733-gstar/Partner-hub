@@ -1,6 +1,7 @@
 import {
   uploadFileAccept,
   uploadFileExtension,
+  uploadFileFormat,
   type UploadFileExtension,
 } from './upload-file-formats';
 import { MAX_AI_SOURCE_BYTES } from './intake-source-policy';
@@ -70,6 +71,45 @@ const requestedDocumentExtensions = [
   'txt',
 ] as const;
 const signedContractExtensions = ['pdf', 'jpg', 'jpeg', 'png'] as const;
+const storedReportExtensions = [...reportExtensions, 'pptx'] as const;
+const storedFlowFileExtensionsByPurpose = {
+  source: sourceExtensions,
+  source_archived: sourceExtensions,
+  report: storedReportExtensions,
+  recording: recordingExtensions,
+  transcript: transcriptExtensions,
+  requested_document: requestedDocumentExtensions,
+  signed_contract: signedContractExtensions,
+} as const satisfies Record<
+  StoredFlowFilePurpose,
+  readonly UploadFileExtension[]
+>;
+
+export const storedFlowFileExtensionRules = storedFlowFilePurposes.flatMap(
+  (purpose) =>
+    storedFlowFileExtensionsByPurpose[purpose].map((extension) => ({
+      purpose,
+      extension,
+    })),
+);
+
+export function storedFlowFileExtensions(
+  purpose: unknown,
+): readonly UploadFileExtension[] | undefined {
+  return isStoredFlowFilePurpose(purpose)
+    ? storedFlowFileExtensionsByPurpose[purpose]
+    : undefined;
+}
+
+export function storedFlowFileFormat(purpose: unknown, name: unknown) {
+  if (typeof name !== 'string') return undefined;
+  const extension = uploadFileExtension(name);
+  if (
+    !storedFlowFileExtensions(purpose)?.some((allowed) => allowed === extension)
+  )
+    return undefined;
+  return uploadFileFormat(extension);
+}
 
 const purposeByCommand = {
   save_source: 'source',
