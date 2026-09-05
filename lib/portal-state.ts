@@ -2,7 +2,12 @@ import { env } from 'cloudflare:workers';
 
 import {
   aiDiagnosisRunsCaseIndexSql,
+  aiDiagnosisRunsIdentityTriggerSql,
+  aiDiagnosisRunsInsertEnvelopeTriggerSql,
+  aiDiagnosisRunsNoDeleteTriggerSql,
+  aiDiagnosisRunsPendingCaseIndexSql,
   aiDiagnosisRunsTableSql,
+  aiDiagnosisRunsTransitionTriggerSql,
   companyFileObjectsCompanyIndexSql,
   companyFileObjectsOwnerIndexSql,
   companyFileObjectsTableSql,
@@ -69,6 +74,11 @@ async function ensurePortalTables(db: D1Database) {
     db.prepare(companyFileObjectsCompanyIndexSql),
     db.prepare(aiDiagnosisRunsTableSql),
     db.prepare(aiDiagnosisRunsCaseIndexSql),
+    db.prepare(aiDiagnosisRunsPendingCaseIndexSql),
+    db.prepare(aiDiagnosisRunsInsertEnvelopeTriggerSql),
+    db.prepare(aiDiagnosisRunsIdentityTriggerSql),
+    db.prepare(aiDiagnosisRunsTransitionTriggerSql),
+    db.prepare(aiDiagnosisRunsNoDeleteTriggerSql),
   ]);
 }
 

@@ -444,6 +444,76 @@ try {
   checks.push('portal state keeps one fixed durable native D1 root');
   checks.push('portal state D1 writes require a JSON object and UTC timestamp');
   checks.push('portal state D1 writes enforce the UTF-8 payload capacity');
+  const diagnosisFingerprint = 'a'.repeat(64);
+  const diagnosisRunId = 'migration-diagnosis-lifecycle';
+  await db
+    .prepare(
+      `INSERT INTO ai_diagnosis_runs
+        (id, case_id, company, stage, status, instruction_version, model,
+         result_json, input_tokens, output_tokens, created_by_user_id, created_at)
+       VALUES (?1, ?2, ?3, 'Step 0', '생성중', ?4, ?5, ?6, 0, 0, ?7, ?8)`,
+    )
+    .bind(
+      diagnosisRunId,
+      'migration-diagnosis-case',
+      '가상 진단기업',
+      'test-v1',
+      'synthetic-model',
+      JSON.stringify({ _requestFingerprint: diagnosisFingerprint }),
+      'synthetic-admin',
+      '2026-09-05T00:00:00.000Z',
+    )
+    .run();
+  await assert.rejects(
+    db
+      .prepare('UPDATE ai_diagnosis_runs SET case_id = ?1 WHERE id = ?2')
+      .bind('another-diagnosis-case', diagnosisRunId)
+      .run(),
+    /identity is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE ai_diagnosis_runs SET status = '대표 검토 대기' WHERE id = ?1",
+      )
+      .bind(diagnosisRunId)
+      .run(),
+    /transition is invalid/,
+  );
+  const completedDiagnosisResult = JSON.stringify({
+    _requestFingerprint: diagnosisFingerprint,
+    companyOverview: '가상 기업 현황',
+    confirmedStrengths: [],
+    mainRisks: [],
+    solutionCandidates: [],
+    verificationQuestions: [],
+    missingDocuments: [],
+    complianceNotes: [],
+    nextAction: '대표 검토',
+  });
+  await db
+    .prepare(
+      `UPDATE ai_diagnosis_runs SET status = '대표 검토 대기',
+        result_json = ?1, input_tokens = 10, output_tokens = 20, created_at = ?2
+       WHERE id = ?3`,
+    )
+    .bind(completedDiagnosisResult, '2026-09-05T00:01:00.000Z', diagnosisRunId)
+    .run();
+  await assert.rejects(
+    db
+      .prepare("UPDATE ai_diagnosis_runs SET status = '생성실패' WHERE id = ?1")
+      .bind(diagnosisRunId)
+      .run(),
+    /transition is invalid/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM ai_diagnosis_runs WHERE id = ?1')
+      .bind(diagnosisRunId)
+      .run(),
+    /run is durable/,
+  );
+  checks.push('AI diagnosis runs keep one durable forward lifecycle');
   assert.deepEqual(
     await db
       .prepare(

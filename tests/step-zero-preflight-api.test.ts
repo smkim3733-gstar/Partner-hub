@@ -9,6 +9,7 @@ import {
   ensureCompanyFileTables,
 } from '../lib/company-files';
 import { writePortalState } from '../lib/portal-state';
+import { ensureAiDiagnosisTables } from '../lib/ai-diagnosis';
 
 const caseId = 'step-zero-case';
 const otherCaseId = 'step-zero-other-case';
@@ -177,6 +178,7 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
   await db
     .prepare('DROP TRIGGER IF EXISTS company_file_upload_requests_no_delete')
     .run();
+  await db.prepare('DROP TRIGGER IF EXISTS ai_diagnosis_runs_no_delete').run();
   try {
     await db.batch([
       db.prepare('DELETE FROM ai_diagnosis_runs'),
@@ -185,6 +187,7 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
     ]);
   } finally {
     await ensureCompanyFileTables(db);
+    await ensureAiDiagnosisTables(db);
   }
 
   const runtime = env as unknown as {
