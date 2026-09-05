@@ -372,7 +372,7 @@ void nodeTest(
     );
     a.commandReceipts = {
       'cas-insert-01': {
-        actorKey: 'admin:seedy@sites.test',
+        actorKey: 'admin:primary',
         fingerprint: 'c'.repeat(64),
         actor: '대표',
         action: 'save_report',

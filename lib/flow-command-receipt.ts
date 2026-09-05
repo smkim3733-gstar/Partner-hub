@@ -73,6 +73,8 @@ export type ComputedFlowCommandReceipt = {
   legacyFingerprints?: readonly string[];
 };
 
+export const FLOW_ADMIN_COMMAND_ACTOR_KEY = 'admin:primary';
+
 async function commandFingerprints(
   input: {
     command: FlowCommand;
@@ -137,7 +139,9 @@ export async function flowCommandReceipt(
 ): Promise<ComputedFlowCommandReceipt> {
   return {
     actorKey:
-      user.role === 'admin' ? `admin:${user.email}` : `member:${user.memberId}`,
+      user.role === 'admin'
+        ? FLOW_ADMIN_COMMAND_ACTOR_KEY
+        : `member:${user.memberId}`,
     ...(await commandFingerprints(input)),
   };
 }

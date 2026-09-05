@@ -1071,6 +1071,39 @@ BEGIN
 END
 `;
 
+const consultingFlowAdminCommandActorViolationSql = (receipt: string) => `
+  substr(json_extract(${receipt}.value, '$.actorKey'), 1, 6) = 'admin:'
+  AND json_extract(${receipt}.value, '$.actorKey') IS NOT 'admin:primary'`;
+
+export const consultingFlowsCommandInsertAdminActorTriggerSql = `
+CREATE TRIGGER IF NOT EXISTS consulting_flows_command_insert_admin_actor_guard
+BEFORE INSERT ON consulting_flows
+WHEN EXISTS (
+  SELECT 1 FROM json_each(NEW.payload, '$.commandIds') AS command
+  JOIN json_each(NEW.payload, '$.commandReceipts') AS receipt
+    ON receipt.key IS command.value
+  WHERE ${consultingFlowAdminCommandActorViolationSql('receipt')}
+)
+BEGIN
+  SELECT RAISE(ABORT, 'consulting flow initial admin command actor is invalid');
+END
+`;
+
+export const consultingFlowsNewCommandAdminActorTriggerSql = `
+CREATE TRIGGER IF NOT EXISTS consulting_flows_new_command_admin_actor_guard
+BEFORE UPDATE ON consulting_flows
+WHEN EXISTS (
+  SELECT 1 FROM json_each(NEW.payload, '$.commandIds') AS command
+  JOIN json_each(NEW.payload, '$.commandReceipts') AS receipt
+    ON receipt.key IS command.value
+  WHERE command.key >= json_array_length(OLD.payload, '$.commandIds')
+    AND (${consultingFlowAdminCommandActorViolationSql('receipt')})
+)
+BEGIN
+  SELECT RAISE(ABORT, 'consulting flow new admin command actor is invalid');
+END
+`;
+
 export const consultingFlowsNoDeleteTriggerSql =
   "CREATE TRIGGER IF NOT EXISTS consulting_flows_no_delete BEFORE DELETE ON consulting_flows BEGIN SELECT RAISE(ABORT, 'consulting flow root is durable'); END";
 

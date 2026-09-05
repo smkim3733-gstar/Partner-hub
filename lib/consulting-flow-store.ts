@@ -16,6 +16,7 @@ import {
   consultingFlowsCommandInsertSemanticsTriggerSql,
   consultingFlowsCommandInsertReceiptIdentityTriggerSql,
   consultingFlowsCommandInsertMemberActorTriggerSql,
+  consultingFlowsCommandInsertAdminActorTriggerSql,
   consultingFlowsCommandReceiptOriginTriggerSql,
   consultingFlowsCommandSemanticsTriggerSql,
   consultingFlowsFailureEvidenceTriggerSql,
@@ -39,6 +40,7 @@ import {
   consultingFlowsNewCommandEvidenceTriggerSql,
   consultingFlowsNewCommandReceiptIdentityTriggerSql,
   consultingFlowsNewCommandMemberActorTriggerSql,
+  consultingFlowsNewCommandAdminActorTriggerSql,
   consultingFlowsSuccessEvidenceTriggerSql,
   consultingFlowsTransitionTriggerSql,
   consultingFlowsTableSql,
@@ -79,6 +81,7 @@ import {
 import { MAX_AI_SOURCE_BYTES } from '@/lib/intake-source-policy';
 import { MAX_TRANSCRIPT_FILE_BYTES } from '@/lib/transcript-policy';
 import { uploadFileFormat } from '@/lib/upload-file-formats';
+import { FLOW_ADMIN_COMMAND_ACTOR_KEY } from '@/lib/flow-command-receipt';
 import {
   FLOW_AI_EVIDENCE_LIMITS,
   FLOW_COLLECTION_LIMITS,
@@ -135,6 +138,8 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsNewCommandReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsCommandInsertMemberActorTriggerSql),
         db.prepare(consultingFlowsNewCommandMemberActorTriggerSql),
+        db.prepare(consultingFlowsCommandInsertAdminActorTriggerSql),
+        db.prepare(consultingFlowsNewCommandAdminActorTriggerSql),
         db.prepare(consultingFlowsNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),
@@ -1018,6 +1023,8 @@ function assertFlowCommitTransition(
         (receipt.actorKey.startsWith('member:') &&
           (receipt.actorKey !== `member:${after.partnerId}` ||
             receipt.actor !== after.partnerName)) ||
+        (receipt.actorKey.startsWith('admin:') &&
+          receipt.actorKey !== FLOW_ADMIN_COMMAND_ACTOR_KEY) ||
         matchingAudit.length !== 1 ||
         receipt.actor !== matchingAudit[0].actor ||
         receipt.action !== matchingAudit[0].action
