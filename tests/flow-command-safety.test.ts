@@ -603,6 +603,132 @@ void test('FLOW commit requires exactly one revision and a valid stored timestam
   assert.equal(await readFlow(initial.caseId), null);
 });
 
+void test('FLOW commit preserves existing AI evidence, failure history, jobs and audit records', async () => {
+  const initial = await fixture();
+  const seeded = structuredClone(initial);
+  const timestamp = (offset: number) =>
+    new Date(Date.parse(initial.updatedAt) + offset).toISOString();
+  const historyAt = timestamp(1);
+  const failureAt = timestamp(2);
+  const successAt = timestamp(3);
+  const successJobId = `immutable-success-${++sequence}`;
+  const failureJobId = `immutable-failure-${++sequence}`;
+  const successAuditId = `${successJobId}-${successAt}`;
+  const failureAuditId = `${failureJobId}-${failureAt}`;
+  const historyAuditId = `${failureJobId}-${historyAt}`;
+  seeded.revision++;
+  seeded.updatedAt = successAt;
+  seeded.jobs.push(
+    {
+      id: successJobId,
+      stage: 1,
+      status: 'complete',
+      reason: '',
+      createdAt: successAt,
+      startedAt: successAt,
+      completedAt: successAt,
+      reportId: seeded.reports[0].id,
+      evidence: {
+        auditId: successAuditId,
+        instructionVersion: 'synthetic-flow-instruction-v1',
+        requestedModel: 'claude-requested-test-model',
+        providerRequestId: 'req_immutable_success',
+        providerModel: 'claude-resolved-test-model',
+        providerMessageId: 'msg_immutable_success',
+        inputTokens: 10,
+        outputTokens: 20,
+        observedAt: successAt,
+      },
+    },
+    {
+      id: failureJobId,
+      stage: 1,
+      status: 'failed',
+      reason: '가상 공급자 오류',
+      createdAt: historyAt,
+      startedAt: failureAt,
+      failureEvidence: {
+        auditId: failureAuditId,
+        instructionVersion: 'synthetic-flow-instruction-v1',
+        requestedModel: 'claude-requested-test-model',
+        httpStatus: 429,
+        observedAt: failureAt,
+        providerRequestId: 'req_immutable_failure',
+      },
+      failureEvidenceHistory: [
+        {
+          auditId: historyAuditId,
+          instructionVersion: 'synthetic-flow-instruction-v1',
+          requestedModel: 'claude-requested-test-model',
+          httpStatus: 503,
+          observedAt: historyAt,
+          providerRequestId: 'req_immutable_history',
+        },
+      ],
+    },
+  );
+  seeded.audit.push(
+    {
+      id: historyAuditId,
+      at: historyAt,
+      actor: '보고서 자동생성',
+      action: 'ai_result',
+      detail: '1차 분석보고서 실패 · 과거 가상 공급자 오류',
+    },
+    {
+      id: failureAuditId,
+      at: failureAt,
+      actor: '보고서 자동생성',
+      action: 'ai_result',
+      detail: '1차 분석보고서 실패 · 가상 공급자 오류',
+    },
+    {
+      id: successAuditId,
+      at: successAt,
+      actor: '보고서 자동생성',
+      action: 'ai_result',
+      detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
+    },
+  );
+  await commitFlow(initial, seeded);
+  const stored = (await readFlow(initial.caseId))!;
+  const mutations: Array<(flow: ConsultingFlow) => void> = [
+    (flow) => {
+      flow.jobs.find(
+        (job) => job.id === successJobId,
+      )!.evidence!.providerModel = 'claude-mutated-test-model';
+    },
+    (flow) => {
+      flow.jobs.find(
+        (job) => job.id === failureJobId,
+      )!.failureEvidence!.httpStatus = 500;
+    },
+    (flow) => {
+      flow.jobs.find(
+        (job) => job.id === failureJobId,
+      )!.failureEvidenceHistory![0].providerRequestId = 'req_mutated_history';
+    },
+    (flow) => {
+      flow.audit.find((entry) => entry.id === successAuditId)!.detail =
+        '변조된 완료 감사기록';
+    },
+    (flow) => {
+      flow.jobs = flow.jobs.filter((job) => job.id !== successJobId);
+    },
+  ];
+  for (const mutate of mutations) {
+    const changed = structuredClone(stored);
+    changed.revision++;
+    changed.updatedAt = timestamp(4);
+    mutate(changed);
+    await assert.rejects(
+      commitFlow(stored, changed),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    assert.deepEqual(await readFlow(stored.caseId), stored);
+  }
+});
+
 void test('FLOW rejects a D1 updated timestamp that differs from its payload', async () => {
   const flow = await fixture();
   const db = await flowDatabase();

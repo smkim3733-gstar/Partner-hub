@@ -925,6 +925,47 @@ function assertFlowCommitTransition(
     !validFlowTimestamp(after.updatedAt)
   )
     throw storedFlowIntegrityError();
+  const sameValue = (left: unknown, right: unknown) =>
+    JSON.stringify(left) === JSON.stringify(right);
+  if (
+    before.audit.length > after.audit.length ||
+    before.audit.some((entry, index) => !sameValue(entry, after.audit[index]))
+  )
+    throw storedFlowIntegrityError();
+  const nextJobs = new Map(after.jobs.map((job) => [job.id, job]));
+  for (const job of before.jobs) {
+    const next = nextJobs.get(job.id);
+    if (!next) throw storedFlowIntegrityError();
+    const previousHistory = job.failureEvidenceHistory ?? [];
+    const nextHistory = next.failureEvidenceHistory ?? [];
+    if (
+      nextHistory.length < previousHistory.length ||
+      previousHistory.some(
+        (entry, index) => !sameValue(entry, nextHistory[index]),
+      ) ||
+      (job.evidence && !sameValue(job.evidence, next.evidence)) ||
+      (!job.evidence &&
+        next.evidence &&
+        !(job.status === 'processing' && next.status === 'complete')) ||
+      (!job.failureEvidence &&
+        next.failureEvidence &&
+        !(job.status === 'processing' && next.status === 'failed'))
+    )
+      throw storedFlowIntegrityError();
+    if (job.failureEvidence) {
+      const preserved = sameValue(job.failureEvidence, next.failureEvidence);
+      const movedToHistory =
+        next.failureEvidence === undefined &&
+        nextHistory.length === previousHistory.length + 1 &&
+        sameValue(job.failureEvidence, nextHistory.at(-1));
+      if (
+        (!preserved && !movedToHistory) ||
+        (preserved && nextHistory.length !== previousHistory.length)
+      )
+        throw storedFlowIntegrityError();
+    } else if (nextHistory.length !== previousHistory.length)
+      throw storedFlowIntegrityError();
+  }
   const nextFiles = new Map(after.files.map((file) => [file.id, file]));
   for (const file of before.files) {
     const next = nextFiles.get(file.id);
