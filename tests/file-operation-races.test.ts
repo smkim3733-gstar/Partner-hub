@@ -234,6 +234,71 @@ void test('a storage-key change before the durable deletion decision preserves b
   assert.ok(await bucket.get(foreignKey));
 });
 
+void test('a storage-key change after R2 deletion preserves the conflicting D1 facts', async () => {
+  await seed();
+  const id = await create(),
+    originalKey = `company-source/${id}`,
+    foreignKey = `company-source/foreign-cleanup-race-${id}`,
+    db = companyFileDatabase(),
+    bucket = companyFileBucket(),
+    del = bucket.delete.bind(bucket);
+  await bucket.put(foreignKey, 'SYNTHETIC_RACE_ORIGINAL', {
+    httpMetadata: { contentType: 'text/plain' },
+  });
+  bucket.delete = async (...args: Parameters<R2Bucket['delete']>) => {
+    await del(...args);
+    await db
+      .prepare('UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1')
+      .bind(id, foreignKey)
+      .run();
+  };
+  try {
+    assert.equal((await remove(request('DELETE'), context(id))).status, 409);
+  } finally {
+    bucket.delete = del;
+  }
+  assert.equal((await findCompanyFile(id))?.storage_key, foreignKey);
+  assert.equal(await bucket.get(originalKey), null);
+  assert.ok(await bucket.get(foreignKey));
+  assert.deepEqual(
+    {
+      ...(await db
+        .prepare(
+          'SELECT storage_key FROM company_file_storage_keys WHERE file_id = ?1',
+        )
+        .bind(id)
+        .first()),
+    },
+    { storage_key: originalKey },
+  );
+  assert.ok(
+    await db
+      .prepare(
+        'SELECT file_id FROM company_file_object_integrity WHERE file_id = ?1',
+      )
+      .bind(id)
+      .first(),
+  );
+  assert.ok(
+    await db
+      .prepare(
+        'SELECT file_id FROM company_file_assignments WHERE file_id = ?1',
+      )
+      .bind(id)
+      .first(),
+  );
+
+  await db
+    .prepare('UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1')
+    .bind(id, originalKey)
+    .run();
+  await bucket.put(originalKey, 'SYNTHETIC_RACE_ORIGINAL', {
+    httpMetadata: { contentType: 'text/plain' },
+  });
+  assert.equal((await remove(request('DELETE'), context(id))).status, 204);
+  await bucket.delete(foreignKey);
+});
+
 void test(
   'upload finishing between the delete lookup and ledger check cannot yield false deletion success',
   { timeout: 10_000 },

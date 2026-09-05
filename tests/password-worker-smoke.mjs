@@ -1683,7 +1683,28 @@ try {
       .first(),
     null,
   );
+  assert.equal(
+    await db
+      .prepare(
+        'SELECT file_id FROM company_file_storage_keys WHERE file_id = ?1',
+      )
+      .bind(linkedFile.id)
+      .first(),
+    null,
+  );
+  assert.equal(
+    await db
+      .prepare(
+        'SELECT file_id FROM company_file_object_integrity WHERE file_id = ?1',
+      )
+      .bind(linkedFile.id)
+      .first(),
+    null,
+  );
   assert.equal(await bucket.get(`company-source/${linkedFile.id}`), null);
+  checks.push(
+    'authorized deletion conditionally cleans matching D1 file ledgers',
+  );
   const repeatA = await expect(
     await uploadSource({ cookie }, memberId, 'runtime-repeat-a'),
     201,

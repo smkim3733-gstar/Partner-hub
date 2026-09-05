@@ -257,21 +257,42 @@ export async function DELETE(
       });
     }
     await companyFileBucket().delete(row.storage_key);
-    await db.batch([
+    const cleanupGuard = `EXISTS (SELECT 1 FROM company_file_objects f
+      JOIN company_file_storage_keys object_key ON object_key.file_id = f.id
+      WHERE f.id = ?1 AND f.storage_key = ?2
+        AND object_key.storage_key = f.storage_key)`;
+    const cleanup = await db.batch([
       db
-        .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
-        .bind(id),
+        .prepare(`DELETE FROM company_file_object_integrity
+          WHERE file_id = ?1 AND ${cleanupGuard}`)
+        .bind(id, row.storage_key),
       db
-        .prepare('DELETE FROM company_file_storage_keys WHERE file_id = ?1')
-        .bind(id),
+        .prepare(`DELETE FROM company_file_case_links
+          WHERE file_id = ?1 AND ${cleanupGuard}`)
+        .bind(id, row.storage_key),
       db
-        .prepare('DELETE FROM company_file_case_links WHERE file_id = ?1')
-        .bind(id),
+        .prepare(`DELETE FROM company_file_assignments
+          WHERE file_id = ?1 AND ${cleanupGuard}`)
+        .bind(id, row.storage_key),
       db
-        .prepare('DELETE FROM company_file_assignments WHERE file_id = ?1')
-        .bind(id),
-      db.prepare('DELETE FROM company_file_objects WHERE id = ?1').bind(id),
+        .prepare(`DELETE FROM company_file_storage_keys
+          WHERE file_id = ?1 AND storage_key = ?2
+          AND EXISTS (SELECT 1 FROM company_file_objects f
+            WHERE f.id = ?1 AND f.storage_key = ?2)`)
+        .bind(id, row.storage_key),
+      db
+        .prepare(
+          'DELETE FROM company_file_objects WHERE id = ?1 AND storage_key = ?2',
+        )
+        .bind(id, row.storage_key),
     ]);
+    if (cleanup.at(-1)?.meta.changes !== 1) {
+      if (await findCompanyFile(id)) throw originalStorageConflict();
+      return new Response(null, {
+        status: 204,
+        headers: privateResponseHeaders(),
+      });
+    }
     return new Response(null, {
       status: 204,
       headers: privateResponseHeaders(),
