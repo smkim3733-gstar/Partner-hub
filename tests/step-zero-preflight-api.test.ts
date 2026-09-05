@@ -201,6 +201,9 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
   const modelResponse = () =>
     Response.json(
       {
+        id: 'msg_step_zero',
+        type: 'message',
+        role: 'assistant',
         model: 'synthetic-step-zero-provider-model',
         stop_reason: 'end_turn',
         content: [

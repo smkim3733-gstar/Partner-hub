@@ -1,5 +1,6 @@
 import type { SavedStepZeroRun, StepZeroResult } from './ai-diagnosis';
 import {
+  AI_PROVIDER_MESSAGE_ID_LIMIT,
   AI_PROVIDER_REQUEST_ID_LIMIT,
   STEP_ZERO_MAX_OUTPUT_TOKENS,
 } from './storage-limits';
@@ -195,6 +196,8 @@ function parseRun(
     (run.providerRequestId !== null &&
       !text(run.providerRequestId, AI_PROVIDER_REQUEST_ID_LIMIT)) ||
     (run.providerModel !== null && !text(run.providerModel, 200)) ||
+    (run.providerMessageId !== null &&
+      !text(run.providerMessageId, AI_PROVIDER_MESSAGE_ID_LIMIT)) ||
     !result ||
     !usage ||
     !safeInteger(usage.inputTokens) ||
@@ -212,6 +215,7 @@ function parseRun(
     model: run.model as string,
     providerRequestId: run.providerRequestId as string | null,
     providerModel: run.providerModel as string | null,
+    providerMessageId: run.providerMessageId as string | null,
     result,
     usage: {
       inputTokens: usage.inputTokens as number,

@@ -17,8 +17,9 @@ import {
 } from '@/db/schema';
 import { companyFileDatabase } from '@/lib/company-files';
 import {
-  AI_PROVIDER_REQUEST_ID_LIMIT,
   AI_DIAGNOSIS_RUN_FIELD_LIMITS,
+  AI_PROVIDER_MESSAGE_ID_LIMIT,
+  AI_PROVIDER_REQUEST_ID_LIMIT,
   STEP_ZERO_PENDING_LIMIT_BYTES,
   STEP_ZERO_MAX_OUTPUT_TOKENS,
   STEP_ZERO_PENDING_STALE_MS,
@@ -52,6 +53,7 @@ export type SavedStepZeroRun = {
   model: string;
   providerRequestId: string | null;
   providerModel: string | null;
+  providerMessageId: string | null;
   result: StepZeroResult;
   usage: { inputTokens: number; outputTokens: number };
   createdAt: string;
@@ -252,6 +254,7 @@ function runFromRow(row: AiDiagnosisRunRow): SavedStepZeroRun | null {
   try {
     const providerRequestId = storedProviderRequestId(row);
     const providerModel = storedProviderModel(row);
+    const providerMessageId = storedProviderMessageId(row);
     assertValidStepZeroClaimInput({
       requestId: row.id,
       requestFingerprint: storedFingerprint(row),
@@ -269,6 +272,8 @@ function runFromRow(row: AiDiagnosisRunRow): SavedStepZeroRun | null {
         !boundedIdentity(providerRequestId, AI_PROVIDER_REQUEST_ID_LIMIT)) ||
       (providerModel !== null &&
         !boundedIdentity(providerModel, AI_DIAGNOSIS_RUN_FIELD_LIMITS.model)) ||
+      (providerMessageId !== null &&
+        !boundedIdentity(providerMessageId, AI_PROVIDER_MESSAGE_ID_LIMIT)) ||
       !safeTokenCount(row.input_tokens) ||
       !safeTokenCount(row.output_tokens, STEP_ZERO_MAX_OUTPUT_TOKENS)
     )
@@ -283,6 +288,7 @@ function runFromRow(row: AiDiagnosisRunRow): SavedStepZeroRun | null {
       model: row.model,
       providerRequestId,
       providerModel,
+      providerMessageId,
       result: parseStepZeroResult(row.result_json),
       usage: { inputTokens: row.input_tokens, outputTokens: row.output_tokens },
       createdAt: row.created_at,
@@ -333,6 +339,18 @@ function storedProviderModel(row: AiDiagnosisRunRow) {
     const value = JSON.parse(row.result_json) as Record<string, unknown>;
     if (value._providerModel === undefined) return null;
     return typeof value._providerModel === 'string' ? value._providerModel : '';
+  } catch {
+    return '';
+  }
+}
+
+function storedProviderMessageId(row: AiDiagnosisRunRow) {
+  try {
+    const value = JSON.parse(row.result_json) as Record<string, unknown>;
+    if (value._providerMessageId === undefined) return null;
+    return typeof value._providerMessageId === 'string'
+      ? value._providerMessageId
+      : '';
   } catch {
     return '';
   }
@@ -428,6 +446,8 @@ export async function completeStepZeroRequest(
         run.providerModel,
         AI_DIAGNOSIS_RUN_FIELD_LIMITS.model,
       ) ||
+      typeof run.providerMessageId !== 'string' ||
+      !boundedIdentity(run.providerMessageId, AI_PROVIDER_MESSAGE_ID_LIMIT) ||
       !safeTokenCount(run.usage.inputTokens) ||
       !safeTokenCount(run.usage.outputTokens, STEP_ZERO_MAX_OUTPUT_TOKENS)
     )
@@ -440,6 +460,7 @@ export async function completeStepZeroRequest(
     _requestFingerprint: requestFingerprint,
     _providerRequestId: run.providerRequestId,
     _providerModel: run.providerModel,
+    _providerMessageId: run.providerMessageId,
   });
   if (
     new TextEncoder().encode(resultEnvelope).length >

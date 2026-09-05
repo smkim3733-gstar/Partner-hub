@@ -42,6 +42,7 @@ function completedRun(id: string, caseId: string): SavedStepZeroRun {
     model: 'synthetic-model',
     providerRequestId: 'req_synthetic_lifecycle',
     providerModel: 'claude-synthetic-provider-model',
+    providerMessageId: 'msg_synthetic_lifecycle',
     result: {
       companyOverview: '가상 기업 현황',
       confirmedStrengths: [],
@@ -167,6 +168,7 @@ void test('AI diagnosis runs preserve one durable forward lifecycle', async () =
     _requestFingerprint: fingerprint,
     _providerRequestId: 'req_synthetic_lifecycle',
     _providerModel: 'claude-synthetic-provider-model',
+    _providerMessageId: 'msg_synthetic_lifecycle',
   };
   for (const invalidEnvelope of [
     { ...validEnvelope, mainRisks: [3] },
@@ -175,6 +177,8 @@ void test('AI diagnosis runs preserve one durable forward lifecycle', async () =
     { ...validEnvelope, _providerRequestId: 'r'.repeat(201) },
     { ...validEnvelope, _providerModel: '' },
     { ...validEnvelope, _providerModel: 'm'.repeat(201) },
+    { ...validEnvelope, _providerMessageId: '' },
+    { ...validEnvelope, _providerMessageId: 'm'.repeat(513) },
   ])
     await assert.rejects(
       db
@@ -234,6 +238,8 @@ void test('AI diagnosis runs preserve one durable forward lifecycle', async () =
     { ...completed, usage: { inputTokens: 10, outputTokens: 4_001 } },
     { ...completed, providerModel: '' },
     { ...completed, providerModel: 'm'.repeat(201) },
+    { ...completed, providerMessageId: '' },
+    { ...completed, providerMessageId: 'm'.repeat(513) },
   ])
     await assert.rejects(
       completeStepZeroRequest(invalid, 'synthetic-admin', fingerprint),

@@ -452,6 +452,9 @@ void nodeTest(
       calls++;
       return Response.json(
         {
+          id: 'msg_consulting_flow',
+          type: 'message',
+          role: 'assistant',
           model: 'claude-synthetic-response-model',
           stop_reason: 'end_turn',
           content: [{ type: 'text', text: reportBody + '\n[분석 끝]' }],

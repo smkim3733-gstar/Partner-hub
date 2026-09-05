@@ -11,6 +11,8 @@ void test('Anthropic response parser returns only validated text, completion, us
     parseAnthropicMessageResponse(
       {
         id: 'msg_synthetic_body_id',
+        type: 'message',
+        role: 'assistant',
         model: 'claude-synthetic-response-model',
         stop_reason: 'end_turn',
         content: [
@@ -29,6 +31,7 @@ void test('Anthropic response parser returns only validated text, completion, us
       usage: { inputTokens: 10, outputTokens: 20 },
       requestId: 'req_synthetic_header_id',
       model: 'claude-synthetic-response-model',
+      messageId: 'msg_synthetic_body_id',
     },
   );
 });
@@ -87,6 +90,26 @@ void test('Anthropic response parser rejects malformed blocks, token counts and 
         ),
       /응답 모델|요청 식별값 형식이 올바르지 않습니다/,
     );
+  for (const identity of [
+    { id: undefined, type: 'message', role: 'assistant' },
+    { id: '', type: 'message', role: 'assistant' },
+    { id: 'm'.repeat(513), type: 'message', role: 'assistant' },
+    { id: 'msg_synthetic', type: 'error', role: 'assistant' },
+    { id: 'msg_synthetic', type: 'message', role: 'user' },
+  ])
+    assert.throws(
+      () =>
+        parseAnthropicMessageResponse(
+          {
+            ...identity,
+            model: 'claude-synthetic-response-model',
+            content: [{ type: 'text', text: 'ok' }],
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+          { responseRequestId: 'req_synthetic_invalid_identity' },
+        ),
+      /메시지 식별값|요청 식별값 형식이 올바르지 않습니다/,
+    );
 });
 
 void test('unreadable Anthropic response hides provider payload details', async () => {
@@ -112,6 +135,7 @@ void test('unreadable Anthropic response hides provider payload details', async 
       usage: { inputTokens: 0, outputTokens: 0 },
       requestId: 'req_failed_request',
       model: null,
+      messageId: null,
     },
   );
 });

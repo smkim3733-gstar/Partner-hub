@@ -111,6 +111,9 @@ void test('FLOW stops a queued model request when the caller is suspended during
     calls++;
     return Response.json(
       {
+        id: 'msg_suspended_flow',
+        type: 'message',
+        role: 'assistant',
         model: 'claude-synthetic-response-model',
         stop_reason: 'end_turn',
         content: [{ type: 'text', text: body + '[분석 끝]' }],
@@ -170,6 +173,9 @@ void test('FLOW rejects a decorated oversized AI result without leaving the job 
     calls++;
     return Response.json(
       {
+        id: 'msg_flow_report_limit',
+        type: 'message',
+        role: 'assistant',
         model: 'claude-synthetic-response-model',
         stop_reason: 'end_turn',
         content: [

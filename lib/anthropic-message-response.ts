@@ -1,5 +1,6 @@
 import {
   AI_DIAGNOSIS_RUN_FIELD_LIMITS,
+  AI_PROVIDER_MESSAGE_ID_LIMIT,
   AI_PROVIDER_REQUEST_ID_LIMIT,
 } from './storage-limits';
 import { isSafeStoredText } from './unicode-text';
@@ -12,6 +13,7 @@ type ParsedAnthropicMessage = {
   usage: { inputTokens: number; outputTokens: number };
   requestId: string | null;
   model: string | null;
+  messageId: string | null;
 };
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -71,6 +73,11 @@ export function parseAnthropicMessageResponse(
     'Claude 응답 모델',
     AI_DIAGNOSIS_RUN_FIELD_LIMITS.model,
   );
+  const messageId = optionalText(
+    value.id,
+    'Claude 메시지 식별값',
+    AI_PROVIDER_MESSAGE_ID_LIMIT,
+  );
   const content = value.content;
   const textBlocks: string[] = [];
   if (content !== undefined) {
@@ -108,7 +115,12 @@ export function parseAnthropicMessageResponse(
     (responseRequestId &&
       bodyRequestId &&
       responseRequestId !== bodyRequestId) ||
-    (requireUsage && (!responseRequestId || !model))
+    (requireUsage &&
+      (!responseRequestId ||
+        !model ||
+        !messageId ||
+        value.type !== 'message' ||
+        value.role !== 'assistant'))
   )
     throw new AnthropicMessageResponseError(
       'Claude 요청 식별값 형식이 올바르지 않습니다.',
@@ -135,6 +147,7 @@ export function parseAnthropicMessageResponse(
     },
     requestId: responseRequestId ?? bodyRequestId,
     model,
+    messageId,
   };
 }
 
