@@ -62,7 +62,88 @@ async function create() {
   assert.equal(response.status, 201, await response.clone().text());
   return ((await response.json()) as { file: { id: string } }).file.id;
 }
+async function linkToPortalDocument(id: string) {
+  const row = await findCompanyFile(id);
+  assert.ok(row);
+  const state = (await readPortalState()) as {
+    companyDocuments: Array<Record<string, unknown>>;
+  };
+  state.companyDocuments = [
+    {
+      id: `linked-${id}`,
+      company: row.company,
+      title: row.title,
+      category: row.category,
+      status: '제출완료',
+      assignedTrainee: row.assigned_trainee,
+      partnerMemberId: row.partner_member_id,
+      submittedBy: row.assigned_trainee,
+      updatedAt: '방금 전',
+      version: 'V1',
+      sensitive: true,
+      storageFileId: row.id,
+      fileName: row.original_name,
+      fileSize: row.size_bytes,
+    },
+  ];
+  await writePortalState(state);
+}
 const context = (id: string) => ({ params: Promise.resolve({ id }) });
+
+void test('an original linked to a portal document cannot be deleted behind the card', async () => {
+  await seed();
+  const id = await create();
+  await linkToPortalDocument(id);
+  const response = await remove(request('DELETE'), context(id));
+  assert.equal(response.status, 409, await response.clone().text());
+  assert.match(
+    ((await response.json()) as { error: string }).error,
+    /연결된 원본/,
+  );
+  assert.ok(await findCompanyFile(id));
+  assert.ok(await companyFileBucket().get(`company-source/${id}`));
+});
+
+void test('a portal link committed immediately before deletion keeps the original', async () => {
+  await seed();
+  const id = await create(),
+    db = companyFileDatabase(),
+    prepare = db.prepare.bind(db);
+  let once = true;
+  const wrap = (statement: D1PreparedStatement): D1PreparedStatement =>
+    new Proxy(statement, {
+      get(target, property) {
+        if (property === 'bind')
+          return (...values: unknown[]) => wrap(target.bind(...values));
+        if (property === 'run')
+          return async () => {
+            if (once) {
+              once = false;
+              await linkToPortalDocument(id);
+            }
+            return target.run();
+          };
+        const value = Reflect.get(target, property);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  db.prepare = (sql: string) =>
+    sql.includes("'legacy-explicit-delete'")
+      ? wrap(prepare(sql))
+      : prepare(sql);
+  try {
+    assert.equal((await remove(request('DELETE'), context(id))).status, 409);
+  } finally {
+    db.prepare = prepare;
+  }
+  assert.ok(await findCompanyFile(id));
+  assert.ok(await companyFileBucket().get(`company-source/${id}`));
+  assert.equal(
+    ((await readPortalState()) as { companyDocuments: unknown[] })
+      .companyDocuments.length,
+    1,
+  );
+});
 
 void test(
   'upload finishing between the delete lookup and ledger check cannot yield false deletion success',

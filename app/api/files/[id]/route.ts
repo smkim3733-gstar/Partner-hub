@@ -38,6 +38,21 @@ function errorResponse(error: unknown) {
   return null;
 }
 
+function isLinkedPortalOriginal(state: unknown, fileId: string) {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return false;
+  const documents = (state as Record<string, unknown>).companyDocuments;
+  return (
+    Array.isArray(documents) &&
+    documents.some(
+      (document) =>
+        document !== null &&
+        typeof document === 'object' &&
+        !Array.isArray(document) &&
+        (document as Record<string, unknown>).storageFileId === fileId,
+    )
+  );
+}
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> },
@@ -165,16 +180,25 @@ export async function DELETE(
       mayReadCompanyFile(access.user, row, access.state);
     if (!canDelete)
       throw new CompanyFileError('담당기업 자료만 삭제할 수 있습니다.', 403);
+    if (isLinkedPortalOriginal(access.state, id))
+      throw new CompanyFileError(
+        '기업자료 카드에 연결된 원본은 삭제할 수 없습니다.',
+        409,
+      );
 
     // Authorize the durable deletion decision against the same state, including
-    // legacy files without an upload ledger. R2 failure leaves the tombstone.
+    // legacy files without an upload ledger. A linked portal card also blocks
+    // deletion inside this D1 decision. R2 failure leaves the tombstone.
     const decision = await db
       .prepare(`INSERT INTO company_file_upload_requests
         (owner_key, request_key, fingerprint, file_id, created_at, status)
         SELECT ?1, 'delete', 'legacy-explicit-delete', f.id, f.created_at, 'deleted'
         FROM company_file_objects f LEFT JOIN company_file_assignments a ON a.file_id = f.id
         WHERE f.id = ?2 AND f.storage_key = ?3 AND a.partner_member_id IS ?4
-        AND f.assigned_trainee = ?5 AND f.uploaded_by_user_id = ?6 AND ${fileStateGuard('?7')}
+        AND f.assigned_trainee = ?5 AND f.uploaded_by_user_id = ?6
+        AND NOT EXISTS (SELECT 1 FROM json_each(?7, '$.companyDocuments') document
+          WHERE json_extract(document.value, '$.storageFileId') = f.id)
+        AND ${fileStateGuard('?7')}
         ON CONFLICT(file_id) DO UPDATE SET status = 'deleted'`)
       .bind(
         `legacy-delete:${id}`,

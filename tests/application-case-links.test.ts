@@ -225,15 +225,20 @@ void test('two same-company applications retain both timelines and each private 
         params: Promise.resolve({ id: fileA.id }),
       })
     ).status,
-    204,
+    409,
   );
   assert.equal(
-    await companyFileDatabase()
-      .prepare('SELECT file_id FROM company_file_case_links WHERE file_id = ?1')
-      .bind(fileA.id)
-      .first(),
-    null,
+    (
+      await companyFileDatabase()
+        .prepare(
+          'SELECT file_id FROM company_file_case_links WHERE file_id = ?1',
+        )
+        .bind(fileA.id)
+        .first<{ file_id: string }>()
+    )?.file_id,
+    fileA.id,
   );
+  assert.ok(await findCompanyFile(fileA.id));
   assert.ok(await findCompanyFile(fileB.id));
 });
 

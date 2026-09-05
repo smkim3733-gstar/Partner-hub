@@ -2960,6 +2960,22 @@ try {
       200,
       `generic state save links ${label}`,
     );
+    if (includeUploadRequest) {
+      await expect(
+        await call(`/files/${fileId}`, undefined, ownerHeaders, 'DELETE'),
+        409,
+        'linked portal document original cannot be deleted',
+      );
+      assert.ok(
+        await db
+          .prepare('SELECT id FROM company_file_objects WHERE id = ?1')
+          .bind(fileId)
+          .first(),
+      );
+      checks.push('linked deletion denial preserves native D1 metadata');
+      assert.ok(await bucket.get(`company-source/${fileId}`));
+      checks.push('linked deletion denial preserves native R2 bytes');
+    }
     await db
       .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
       .bind(JSON.stringify(cleanMemberIdState), new Date().toISOString())
