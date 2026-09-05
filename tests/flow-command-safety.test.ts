@@ -1571,6 +1571,69 @@ void test('FLOW new command receipts require canonical identity fields', async (
   );
 });
 
+void test('FLOW member command actors bind to the assigned partner', async () => {
+  const initial = await fixture();
+  const commandId = `member-command-actor-${++sequence}`;
+  const valid = applyFlowCommand(
+    initial,
+    { type: 'confirm_analysis', reportId: initial.analysis.reportId },
+    { id: partner.id, role: 'partner', name: partner.name },
+    {
+      commandId,
+      now: new Date(Date.parse(initial.updatedAt) + 1).toISOString(),
+    },
+  );
+  valid.commandReceipts = {
+    ...valid.commandReceipts,
+    [commandId]: {
+      actorKey: `member:${partner.id}`,
+      fingerprint: '1'.repeat(64),
+      actor: partner.name,
+      action: 'confirm_analysis',
+    },
+  };
+  const db = await flowDatabase();
+  for (const mutate of [
+    (flow: ConsultingFlow) => {
+      flow.commandReceipts![commandId].actorKey = 'member:another-partner';
+    },
+    (flow: ConsultingFlow) => {
+      flow.commandReceipts![commandId].actor = '다른 담당자';
+      flow.audit.at(-1)!.actor = '다른 담당자';
+    },
+  ]) {
+    const changed = structuredClone(valid);
+    mutate(changed);
+    await assert.rejects(
+      commitFlow(initial, changed),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          changed.revision,
+          JSON.stringify(changed),
+          changed.updatedAt,
+          initial.caseId,
+          initial.revision,
+        )
+        .run(),
+      /new member command actor is invalid/,
+    );
+    assert.deepEqual(await readFlow(initial.caseId), initial);
+  }
+  await commitFlow(initial, valid);
+  assert.deepEqual(
+    await readFlow(valid.caseId),
+    JSON.parse(JSON.stringify(valid)),
+  );
+});
+
 void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => {
   const initial = await fixture();
   const timestamp = (offset: number) =>

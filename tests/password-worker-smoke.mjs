@@ -263,6 +263,16 @@ const flowCommandReceiptIdentityTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowMemberCommandActorTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0055_consulting_flow_member_command_actor.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -283,6 +293,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_command_receipt_origin_guard',
   'consulting_flows_command_semantics_guard',
   'consulting_flows_new_command_receipt_identity_guard',
+  'consulting_flows_new_command_member_actor_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -306,6 +317,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowCommandReceiptOriginTriggerSql,
       flowCommandSemanticsTriggerSql[1],
       flowCommandReceiptIdentityTriggerSql[1],
+      flowMemberCommandActorTriggerSql[1],
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3900,6 +3912,48 @@ try {
           fingerprint: 'f'.repeat(64),
           actor: '가상 대표',
           action: 'set_ai_policy',
+        };
+      },
+    },
+    {
+      name: 'FLOW native D1 binds member commands to the assigned partner ID',
+      pattern: /new member command actor is invalid/,
+      apply(flow) {
+        const commandId = 'native-member-command-wrong-account';
+        flow.commandIds.push(commandId);
+        flow.audit.push({
+          id: commandId,
+          at: flow.updatedAt,
+          actor: flow.partnerName,
+          action: 'confirm_analysis',
+          detail: '가상 담당 계정 결속 검사',
+        });
+        flow.commandReceipts[commandId] = {
+          actorKey: 'member:another-partner',
+          fingerprint: '2'.repeat(64),
+          actor: flow.partnerName,
+          action: 'confirm_analysis',
+        };
+      },
+    },
+    {
+      name: 'FLOW native D1 binds member command display to the assigned partner',
+      pattern: /new member command actor is invalid/,
+      apply(flow) {
+        const commandId = 'native-member-command-wrong-display';
+        flow.commandIds.push(commandId);
+        flow.audit.push({
+          id: commandId,
+          at: flow.updatedAt,
+          actor: '다른 담당자',
+          action: 'confirm_analysis',
+          detail: '가상 담당 표시 결속 검사',
+        });
+        flow.commandReceipts[commandId] = {
+          actorKey: `member:${flow.partnerId}`,
+          fingerprint: '3'.repeat(64),
+          actor: '다른 담당자',
+          action: 'confirm_analysis',
         };
       },
     },

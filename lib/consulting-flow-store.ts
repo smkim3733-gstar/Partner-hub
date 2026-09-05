@@ -15,6 +15,7 @@ import {
   consultingFlowsCommandInsertEvidenceTriggerSql,
   consultingFlowsCommandInsertSemanticsTriggerSql,
   consultingFlowsCommandInsertReceiptIdentityTriggerSql,
+  consultingFlowsCommandInsertMemberActorTriggerSql,
   consultingFlowsCommandReceiptOriginTriggerSql,
   consultingFlowsCommandSemanticsTriggerSql,
   consultingFlowsFailureEvidenceTriggerSql,
@@ -37,6 +38,7 @@ import {
   consultingFlowsNoDeleteTriggerSql,
   consultingFlowsNewCommandEvidenceTriggerSql,
   consultingFlowsNewCommandReceiptIdentityTriggerSql,
+  consultingFlowsNewCommandMemberActorTriggerSql,
   consultingFlowsSuccessEvidenceTriggerSql,
   consultingFlowsTransitionTriggerSql,
   consultingFlowsTableSql,
@@ -131,6 +133,8 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandSemanticsTriggerSql),
         db.prepare(consultingFlowsCommandInsertReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsNewCommandReceiptIdentityTriggerSql),
+        db.prepare(consultingFlowsCommandInsertMemberActorTriggerSql),
+        db.prepare(consultingFlowsNewCommandMemberActorTriggerSql),
         db.prepare(consultingFlowsNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),
@@ -1011,6 +1015,9 @@ function assertFlowCommitTransition(
         !receipt ||
         !/^[0-9a-f]{64}$/.test(receipt.fingerprint) ||
         !/^(?:admin|member):[^ \t\r\n]+$/.test(receipt.actorKey) ||
+        (receipt.actorKey.startsWith('member:') &&
+          (receipt.actorKey !== `member:${after.partnerId}` ||
+            receipt.actor !== after.partnerName)) ||
         matchingAudit.length !== 1 ||
         receipt.actor !== matchingAudit[0].actor ||
         receipt.action !== matchingAudit[0].action
