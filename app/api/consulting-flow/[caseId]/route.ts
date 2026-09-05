@@ -4,6 +4,7 @@ import { describeUpload, parseFlowRequest } from '@/lib/consulting-flow-http';
 import { prepareIntakeImport } from '@/lib/consulting-intake-sources';
 import { buildAnalysisSourceBlocks } from '@/lib/consulting-flow-ai';
 import {
+  FLOW_ADMIN_COMMAND_ACTOR_NAME,
   FlowCommandReceiptError,
   flowCommandReceipt,
   isFlowCommandRetry,
@@ -143,7 +144,10 @@ export async function POST(request: Request, context: Context) {
       {
         id: user.memberId || user.id,
         role: user.role === 'admin' ? 'admin' : 'partner',
-        name: user.role === 'admin' ? '김성민 대표' : flow.partnerName,
+        name:
+          user.role === 'admin'
+            ? FLOW_ADMIN_COMMAND_ACTOR_NAME
+            : flow.partnerName,
       },
       {
         commandId: input.commandId,

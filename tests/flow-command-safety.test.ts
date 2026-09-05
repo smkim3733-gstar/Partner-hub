@@ -23,6 +23,7 @@ import { readDuplicateRequestSummary } from '../lib/duplicate-request-metrics';
 import { flushWaitUntil } from './runtime-mock.mjs';
 import {
   FLOW_ADMIN_COMMAND_ACTOR_KEY,
+  FLOW_ADMIN_COMMAND_ACTOR_NAME,
   flowCommandReceipt,
   flowCommandRetryKey,
   isFlowCommandRetry,
@@ -78,6 +79,7 @@ function addSyntheticCommandReceipt(flow: ConsultingFlow, commandId: string) {
     (entry) => entry.id === commandId && entry.action !== 'ai_result',
   );
   assert.ok(audit);
+  audit.actor = FLOW_ADMIN_COMMAND_ACTOR_NAME;
   flow.commandReceipts = {
     ...flow.commandReceipts,
     [commandId]: {
@@ -398,7 +400,7 @@ async function fixture() {
   const flow = applyFlowCommand(
     initial,
     { type: 'save_report', stage: 1, body },
-    { id: adminEmail, role: 'admin', name: '가상 대표' },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
     { commandId, now: new Date().toISOString() },
   );
   addSyntheticCommandReceipt(flow, commandId);
@@ -682,7 +684,7 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
     {
       id: successCreationAuditId,
       at: queuedAt,
-      actor: '가상 대표',
+      actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
       action: 'queue_report1',
       detail: '1차 분석보고서 생성 요청',
     },
@@ -959,7 +961,7 @@ void test('FLOW native D1 rejects terminal AI evidence on the first root insert'
   const inserted = applyFlowCommand(
     initial,
     { type: 'save_report', stage: 1, body },
-    { id: adminEmail, role: 'admin', name: '가상 대표' },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
     { commandId: insertedCommandId, now: at },
   );
   addSyntheticCommandReceipt(inserted, insertedCommandId);
@@ -1253,14 +1255,14 @@ void test('FLOW command IDs and receipts remain append-only', async () => {
   const saved = applyFlowCommand(
     initial,
     { type: 'save_report', stage: 1, body },
-    { id: adminEmail, role: 'admin', name: '가상 대표' },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
     { commandId, now: new Date().toISOString() },
   );
   saved.commandReceipts = {
     [commandId]: {
       actorKey: FLOW_ADMIN_COMMAND_ACTOR_KEY,
       fingerprint: 'b'.repeat(64),
-      actor: '가상 대표',
+      actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
       action: 'save_report',
     },
   };
@@ -1471,7 +1473,7 @@ void test('FLOW command receipt semantics match and preserve their audit', async
           initial.revision,
         )
         .run(),
-      /command semantics are invalid/,
+      /(?:new admin command display is|command semantics are) invalid/,
     );
     assert.deepEqual(await readFlow(initial.caseId), initial);
   }
@@ -1642,7 +1644,7 @@ void test('FLOW admin command actors use one stable primary identity', async () 
   const user: PortalUser = {
     id: 'stable-owner-subject',
     email: adminEmail,
-    displayName: '가상 대표',
+    displayName: FLOW_ADMIN_COMMAND_ACTOR_NAME,
     role: 'admin',
     memberId: null,
     memberName: null,
@@ -1693,6 +1695,64 @@ void test('FLOW admin command actors use one stable primary identity', async () 
       )
       .run(),
     /new admin command actor is invalid/,
+  );
+  assert.deepEqual(await readFlow(initial.caseId), initial);
+  await commitFlow(initial, valid);
+  assert.deepEqual(
+    await readFlow(valid.caseId),
+    JSON.parse(JSON.stringify(valid)),
+  );
+});
+
+void test('FLOW admin command display binds to the representative role', async () => {
+  const initial = await fixture();
+  const commandId = `admin-command-display-${++sequence}`;
+  const valid = applyFlowCommand(
+    initial,
+    { type: 'set_ai_policy', enabled: false },
+    {
+      id: 'stable-owner-subject',
+      role: 'admin',
+      name: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    },
+    {
+      commandId,
+      now: new Date(Date.parse(initial.updatedAt) + 1).toISOString(),
+    },
+  );
+  valid.commandReceipts = {
+    ...valid.commandReceipts,
+    [commandId]: {
+      actorKey: FLOW_ADMIN_COMMAND_ACTOR_KEY,
+      fingerprint: '3'.repeat(64),
+      actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+      action: 'set_ai_policy',
+    },
+  };
+  const changed = structuredClone(valid);
+  changed.commandReceipts![commandId].actor = '위조 관리자';
+  changed.audit.at(-1)!.actor = '위조 관리자';
+  await assert.rejects(
+    commitFlow(initial, changed),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        changed.revision,
+        JSON.stringify(changed),
+        changed.updatedAt,
+        initial.caseId,
+        initial.revision,
+      )
+      .run(),
+    /new admin command display is invalid/,
   );
   assert.deepEqual(await readFlow(initial.caseId), initial);
   await commitFlow(initial, valid);

@@ -367,14 +367,14 @@ void nodeTest(
     const a = applyFlowCommand(
       old,
       { type: 'save_report', stage: 1, body: reportBody },
-      { id: 'admin', role: 'admin', name: '대표' },
+      { id: 'admin', role: 'admin', name: '김성민 대표' },
       { commandId: 'cas-insert-01', now: new Date().toISOString() },
     );
     a.commandReceipts = {
       'cas-insert-01': {
         actorKey: 'admin:primary',
         fingerprint: 'c'.repeat(64),
-        actor: '대표',
+        actor: '김성민 대표',
         action: 'save_report',
       },
     };

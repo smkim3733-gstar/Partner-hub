@@ -17,6 +17,7 @@ import {
   consultingFlowsCommandInsertReceiptIdentityTriggerSql,
   consultingFlowsCommandInsertMemberActorTriggerSql,
   consultingFlowsCommandInsertAdminActorTriggerSql,
+  consultingFlowsCommandInsertAdminDisplayTriggerSql,
   consultingFlowsCommandReceiptOriginTriggerSql,
   consultingFlowsCommandSemanticsTriggerSql,
   consultingFlowsFailureEvidenceTriggerSql,
@@ -41,6 +42,7 @@ import {
   consultingFlowsNewCommandReceiptIdentityTriggerSql,
   consultingFlowsNewCommandMemberActorTriggerSql,
   consultingFlowsNewCommandAdminActorTriggerSql,
+  consultingFlowsNewCommandAdminDisplayTriggerSql,
   consultingFlowsSuccessEvidenceTriggerSql,
   consultingFlowsTransitionTriggerSql,
   consultingFlowsTableSql,
@@ -81,7 +83,10 @@ import {
 import { MAX_AI_SOURCE_BYTES } from '@/lib/intake-source-policy';
 import { MAX_TRANSCRIPT_FILE_BYTES } from '@/lib/transcript-policy';
 import { uploadFileFormat } from '@/lib/upload-file-formats';
-import { FLOW_ADMIN_COMMAND_ACTOR_KEY } from '@/lib/flow-command-receipt';
+import {
+  FLOW_ADMIN_COMMAND_ACTOR_KEY,
+  FLOW_ADMIN_COMMAND_ACTOR_NAME,
+} from '@/lib/flow-command-receipt';
 import {
   FLOW_AI_EVIDENCE_LIMITS,
   FLOW_COLLECTION_LIMITS,
@@ -140,6 +145,8 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsNewCommandMemberActorTriggerSql),
         db.prepare(consultingFlowsCommandInsertAdminActorTriggerSql),
         db.prepare(consultingFlowsNewCommandAdminActorTriggerSql),
+        db.prepare(consultingFlowsCommandInsertAdminDisplayTriggerSql),
+        db.prepare(consultingFlowsNewCommandAdminDisplayTriggerSql),
         db.prepare(consultingFlowsNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),
@@ -1024,7 +1031,8 @@ function assertFlowCommitTransition(
           (receipt.actorKey !== `member:${after.partnerId}` ||
             receipt.actor !== after.partnerName)) ||
         (receipt.actorKey.startsWith('admin:') &&
-          receipt.actorKey !== FLOW_ADMIN_COMMAND_ACTOR_KEY) ||
+          (receipt.actorKey !== FLOW_ADMIN_COMMAND_ACTOR_KEY ||
+            receipt.actor !== FLOW_ADMIN_COMMAND_ACTOR_NAME)) ||
         matchingAudit.length !== 1 ||
         receipt.actor !== matchingAudit[0].actor ||
         receipt.action !== matchingAudit[0].action

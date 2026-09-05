@@ -283,6 +283,16 @@ const flowAdminCommandActorTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowAdminCommandDisplayTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0057_consulting_flow_admin_command_display.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -305,6 +315,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_new_command_receipt_identity_guard',
   'consulting_flows_new_command_member_actor_guard',
   'consulting_flows_new_command_admin_actor_guard',
+  'consulting_flows_new_command_admin_display_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -330,6 +341,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowCommandReceiptIdentityTriggerSql[1],
       flowMemberCommandActorTriggerSql[1],
       flowAdminCommandActorTriggerSql[1],
+      flowAdminCommandDisplayTriggerSql[1],
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3844,7 +3856,7 @@ try {
         flow.audit.push({
           id: commandId,
           at: flow.updatedAt,
-          actor: '가상 대표',
+          actor: '김성민 대표',
           action: 'set_ai_policy',
           detail: '가상 명령 영수증 누락 검사',
         });
@@ -3859,7 +3871,7 @@ try {
         flow.commandReceipts[commandId] = {
           actorKey: 'admin:primary',
           fingerprint: 'd'.repeat(64),
-          actor: '가상 대표',
+          actor: '김성민 대표',
           action: 'set_ai_policy',
         };
       },
@@ -3873,14 +3885,14 @@ try {
         flow.audit.push({
           id: commandId,
           at: flow.updatedAt,
-          actor: '가상 대표',
+          actor: '김성민 대표',
           action: 'set_ai_policy',
           detail: '가상 명령 의미 결속 검사',
         });
         flow.commandReceipts[commandId] = {
           actorKey: 'admin:primary',
           fingerprint: 'e'.repeat(64),
-          actor: '가상 대표',
+          actor: '김성민 대표',
           action: 'save_report',
         };
       },
@@ -3894,14 +3906,14 @@ try {
         flow.audit.push({
           id: commandId,
           at: flow.updatedAt,
-          actor: '가상 대표',
+          actor: '김성민 대표',
           action: 'set_ai_policy',
           detail: '가상 명령 지문 정규형 검사',
         });
         flow.commandReceipts[commandId] = {
           actorKey: 'admin:primary',
           fingerprint: 'A'.repeat(64),
-          actor: '가상 대표',
+          actor: '김성민 대표',
           action: 'set_ai_policy',
         };
       },
@@ -3915,14 +3927,14 @@ try {
         flow.audit.push({
           id: commandId,
           at: flow.updatedAt,
-          actor: '가상 대표',
+          actor: '김성민 대표',
           action: 'set_ai_policy',
           detail: '가상 명령 행위자 키 검사',
         });
         flow.commandReceipts[commandId] = {
           actorKey: 'operator:synthetic-owner',
           fingerprint: 'f'.repeat(64),
-          actor: '가상 대표',
+          actor: '김성민 대표',
           action: 'set_ai_policy',
         };
       },
@@ -3978,14 +3990,35 @@ try {
         flow.audit.push({
           id: commandId,
           at: flow.updatedAt,
-          actor: '가상 대표',
+          actor: '김성민 대표',
           action: 'set_ai_policy',
           detail: '가상 관리자 안정 신원 결속 검사',
         });
         flow.commandReceipts[commandId] = {
           actorKey: 'admin:changed-owner@example.invalid',
           fingerprint: '4'.repeat(64),
-          actor: '가상 대표',
+          actor: '김성민 대표',
+          action: 'set_ai_policy',
+        };
+      },
+    },
+    {
+      name: 'FLOW native D1 binds admin command display to the representative role',
+      pattern: /new admin command display is invalid/,
+      apply(flow) {
+        const commandId = 'native-admin-command-wrong-display';
+        flow.commandIds.push(commandId);
+        flow.audit.push({
+          id: commandId,
+          at: flow.updatedAt,
+          actor: '위조 관리자',
+          action: 'set_ai_policy',
+          detail: '가상 관리자 표시 결속 검사',
+        });
+        flow.commandReceipts[commandId] = {
+          actorKey: 'admin:primary',
+          fingerprint: '5'.repeat(64),
+          actor: '위조 관리자',
           action: 'set_ai_policy',
         };
       },

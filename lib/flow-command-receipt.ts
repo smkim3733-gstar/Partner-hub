@@ -74,6 +74,7 @@ export type ComputedFlowCommandReceipt = {
 };
 
 export const FLOW_ADMIN_COMMAND_ACTOR_KEY = 'admin:primary';
+export const FLOW_ADMIN_COMMAND_ACTOR_NAME = '김성민 대표';
 
 async function commandFingerprints(
   input: {
