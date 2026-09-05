@@ -1378,6 +1378,8 @@ try {
       partnerMemberId: memberId,
       caseId: file.caseId,
       storageFileId: file.id,
+      fileName: file.fileName,
+      fileSize: file.sizeBytes,
     });
     repeatState.timeline.push({
       caseId: file.caseId,
@@ -2634,6 +2636,13 @@ try {
       shareMode: 'all_with_assignee',
     },
   };
+  const validStoredDocument = {
+    ...validOperationalRecords.companyDocuments,
+    status: '제출완료',
+    storageFileId: 'stored-file-runtime',
+    fileName: 'source.pdf',
+    fileSize: 1_024,
+  };
   for (const field of ['members', 'cases']) {
     const nonObjectIncomingState = structuredClone(cleanMemberIdState);
     nonObjectIncomingState[field] = [null];
@@ -2747,6 +2756,43 @@ try {
       `generic owner state save rejects ${label}`,
     );
   }
+  for (const { records, label } of [
+    {
+      records: [{ ...validStoredDocument, storageFileId: 'bad' }],
+      label: 'malformed document original ID',
+    },
+    {
+      records: [{ ...validStoredDocument, fileName: undefined }],
+      label: 'incomplete document original metadata',
+    },
+    {
+      records: [{ ...validOperationalRecords.companyDocuments, fileName: '../source.pdf' }],
+      label: 'unsafe legacy document filename',
+    },
+    {
+      records: [{ ...validOperationalRecords.companyDocuments, fileSize: 1_024 }],
+      label: 'document file size without an original ID',
+    },
+    {
+      records: [{ ...validStoredDocument, fileSize: 0 }],
+      label: 'invalid document original size',
+    },
+    {
+      records: [
+        validStoredDocument,
+        { ...validStoredDocument, id: 'duplicate-original-runtime' },
+      ],
+      label: 'duplicate document original link',
+    },
+  ]) {
+    const invalidFileMetadataState = structuredClone(cleanMemberIdState);
+    invalidFileMetadataState.companyDocuments = records;
+    await expect(
+      await call('/save', { state: invalidFileMetadataState }, ownerHeaders, 'PUT'),
+      403,
+      `generic owner state save rejects ${label}`,
+    );
+  }
   for (const [field, label] of [
     ['tasks', 'task'],
     ['companyDocuments', 'document'],
@@ -2851,6 +2897,41 @@ try {
       `generic owner state save rejects ${label}`,
     );
   }
+  const protectedFileMetadataState = structuredClone(cleanMemberIdState);
+  protectedFileMetadataState.companyDocuments = [validStoredDocument];
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(
+      JSON.stringify(protectedFileMetadataState),
+      new Date().toISOString(),
+    )
+    .run();
+  for (const { records, label } of [
+    {
+      records: [],
+      label: 'removing existing document original metadata',
+    },
+    {
+      records: [{ ...validStoredDocument, fileName: 'replacement.pdf' }],
+      label: 'changing an existing document original filename',
+    },
+    {
+      records: [{ ...validStoredDocument, storageFileId: 'stored-file-replacement' }],
+      label: 'replacing an existing document original ID',
+    },
+  ]) {
+    const changedFileMetadataState = structuredClone(protectedFileMetadataState);
+    changedFileMetadataState.companyDocuments = records;
+    await expect(
+      await call('/save', { state: changedFileMetadataState }, ownerHeaders, 'PUT'),
+      409,
+      `generic owner state save rejects ${label}`,
+    );
+  }
+  await db
+    .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+    .bind(JSON.stringify(cleanMemberIdState), new Date().toISOString())
+    .run();
   const structuralLogin = await expect(
     await call('/login', { email, password: `${password} new` }),
     200,
@@ -2859,6 +2940,48 @@ try {
   const structuralCookie = structuralLogin.headers
     .get('set-cookie')
     .split(';')[0];
+  for (const { records, label } of [
+    {
+      records: [{ ...validStoredDocument, storageFileId: 'bad' }],
+      label: 'malformed document original ID',
+    },
+    {
+      records: [{ ...validOperationalRecords.companyDocuments, fileSize: 1_024 }],
+      label: 'document file size without an original ID',
+    },
+    {
+      records: [
+        validStoredDocument,
+        { ...validStoredDocument, id: 'stored-duplicate-original-runtime' },
+      ],
+      label: 'duplicate document original link',
+    },
+  ]) {
+    const invalidStoredFileMetadataState = structuredClone(cleanMemberIdState);
+    invalidStoredFileMetadataState.companyDocuments = records;
+    await db
+      .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
+      .bind(
+        JSON.stringify(invalidStoredFileMetadataState),
+        new Date().toISOString(),
+      )
+      .run();
+    await expect(
+      await call('/state', undefined, { cookie: structuralCookie }),
+      403,
+      `stored ${label} blocks password partner access`,
+    );
+    await expect(
+      await call('/state', undefined, ownerHeaders),
+      503,
+      `stored ${label} blocks administrator reads`,
+    );
+    await expect(
+      await call('/save', { state: cleanMemberIdState }, ownerHeaders, 'PUT'),
+      503,
+      `stored ${label} blocks generic repair writes`,
+    );
+  }
   for (const { field, record, label } of [
     {
       field: 'tasks',

@@ -14,6 +14,7 @@ import {
 import { FlowError } from '@/lib/consulting-flow';
 import { portalRevision } from '@/lib/portal-revision';
 import { assertRecoveryProofUnchanged } from '@/lib/file-recovery-proof';
+import { companyDocumentFileMetadataMutationError } from '@/lib/company-document-file-metadata-integrity';
 import { assertNewDraftCases } from '@/lib/application-draft-store';
 import {
   ApplicationDetailsError,
@@ -355,6 +356,17 @@ export async function PUT(request: Request) {
           projectedMerged as Record<string, unknown>,
           currentUser.role === 'admin' ? 'admin' : 'partner',
         );
+        const documentFileMetadataError =
+          companyDocumentFileMetadataMutationError(
+            (currentState as Record<string, unknown> | null)
+              ?.companyDocuments,
+            next.companyDocuments,
+          );
+        if (documentFileMetadataError)
+          throw new PortalStateConflict(
+            documentFileMetadataError,
+            'document_file_metadata',
+          );
         await assertRecoveryProofUnchanged(currentState, next);
         if (expectedRevision !== revision) {
           // An uncertain response may be retried only when it makes no changes.

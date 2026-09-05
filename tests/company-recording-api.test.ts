@@ -246,6 +246,8 @@ void test('initial call files store privately beside business files without meet
       const { file } = (await response.json()) as {
         file: {
           id: string;
+          fileName: string;
+          sizeBytes: number;
           assignedTrainee: string;
           title: string;
           category: string;
@@ -259,6 +261,8 @@ void test('initial call files store privately beside business files without meet
         category,
         title: file.title,
         storageFileId: file.id,
+        fileName: file.fileName,
+        fileSize: file.sizeBytes,
         status: '제출완료',
         assignedTrainee: file.assignedTrainee,
         submittedBy: '가상 담당자',

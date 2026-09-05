@@ -106,6 +106,13 @@ function withOperationalRecords<T extends object>(base: T) {
 }
 function corruptedOperationalStates<T extends object>(base: T) {
   const valid = withOperationalRecords(base);
+  const storedDocument = {
+    ...valid.companyDocuments[0],
+    status: '제출완료',
+    storageFileId: 'stored-file-one',
+    fileName: 'source.pdf',
+    fileSize: 1_024,
+  };
   return [
     { ...valid, tasks: [{ ...valid.tasks[0], title: ' ' }] },
     { ...valid, tasks: [{ ...valid.tasks[0], status: '보류' }] },
@@ -114,6 +121,12 @@ function corruptedOperationalStates<T extends object>(base: T) {
     { ...valid, companyDocuments: [{ ...valid.companyDocuments[0], category: '임의자료' }] },
     { ...valid, companyDocuments: [{ ...valid.companyDocuments[0], status: '삭제됨' }] },
     { ...valid, companyDocuments: [{ ...valid.companyDocuments[0], sensitive: 'true' }] },
+    { ...valid, companyDocuments: [{ ...storedDocument, storageFileId: 'bad' }] },
+    { ...valid, companyDocuments: [{ ...storedDocument, fileName: undefined }] },
+    { ...valid, companyDocuments: [{ ...storedDocument, fileSize: 0 }] },
+    { ...valid, companyDocuments: [{ ...valid.companyDocuments[0], fileName: '../source.pdf' }] },
+    { ...valid, companyDocuments: [{ ...valid.companyDocuments[0], fileSize: 1_024 }] },
+    { ...valid, companyDocuments: [storedDocument, { ...storedDocument, id: 'duplicate-original' }] },
     { ...valid, schedule: [{ ...valid.schedule[0], service: '' }] },
     { ...valid, schedule: [{ ...valid.schedule[0], source: 'external' }] },
     { ...valid, schedule: [{ ...valid.schedule[0], status: '취소됨' }] },
@@ -148,6 +161,7 @@ async function state() {
     members: PartnerAccount[];
     membersRevision: number;
     cases: Record<string, unknown>[];
+    companyDocuments: Record<string, unknown>[];
     [key: string]: unknown;
   };
 }
@@ -645,6 +659,46 @@ void test('administrator state save rejects invalid operational display and enum
     );
     assert.equal(response.status, 403, await response.clone().text());
     assert.deepEqual(await state(), before);
+  }
+});
+void test('ordinary state saves preserve existing company original metadata', async () => {
+  const initial = withOperationalRecords(await state());
+  const initialDocuments = initial.companyDocuments as Record<string, unknown>[];
+  initialDocuments[0] = {
+    ...initial.companyDocuments[0],
+    status: '제출완료',
+    storageFileId: 'stored-file-one',
+    fileName: 'source.pdf',
+    fileSize: 1_024,
+  };
+  const created = await saveState(
+    request({ state: initial }, ownerHeaders, 'PUT'),
+  );
+  assert.equal(created.status, 200, await created.clone().text());
+
+  const review = await state();
+  review.companyDocuments[0].status = '검토완료';
+  review.companyDocuments[0].updatedAt = '검토 방금 전';
+  const reviewed = await saveState(
+    request({ state: review }, ownerHeaders, 'PUT'),
+  );
+  assert.equal(reviewed.status, 200, await reviewed.clone().text());
+  const protectedState = await state();
+
+  for (const mutate of [
+    (changed: typeof protectedState) => { changed.companyDocuments = []; },
+    (changed: typeof protectedState) => { changed.companyDocuments[0].storageFileId = 'stored-file-two'; },
+    (changed: typeof protectedState) => { changed.companyDocuments[0].fileName = 'replacement.pdf'; },
+    (changed: typeof protectedState) => { changed.companyDocuments[0].fileSize = 2_048; },
+    (changed: typeof protectedState) => { changed.companyDocuments[0].company = '다른기업'; },
+  ]) {
+    const changed = structuredClone(protectedState);
+    mutate(changed);
+    const response = await saveState(
+      request({ state: changed }, ownerHeaders, 'PUT'),
+    );
+    assert.equal(response.status, 409, await response.clone().text());
+    assert.deepEqual(await state(), protectedState);
   }
 });
 void test('stored invalid root counters and diagnosis records block access and generic repair', async () => {

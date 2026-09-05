@@ -1362,6 +1362,7 @@ function AdminDashboard({
     member_revision: '명단 버전',
     state_revision: '화면 버전',
     recovery_proof: '회수 증적 보호',
+    document_file_metadata: '원본 메타데이터 보호',
     cas_exhausted: '동시 저장 반복',
     other: '분류 확인 필요',
   };

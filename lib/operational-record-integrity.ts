@@ -1,5 +1,6 @@
 import { companyFileCategories } from './company-file-policy';
 import { COMPANY_DOCUMENT_STATUSES } from './company-document-review';
+import { companyDocumentFileMetadataStateError } from './company-document-file-metadata-integrity';
 import {
   PORTAL_TASK_DUE_STATES,
   PORTAL_TASK_KINDS,
@@ -136,6 +137,7 @@ export function operationalRecordStateError(
   return (
     taskStateError(tasks) ??
     companyDocumentStateError(companyDocuments) ??
+    companyDocumentFileMetadataStateError(companyDocuments) ??
     scheduleStateError(schedule)
   );
 }

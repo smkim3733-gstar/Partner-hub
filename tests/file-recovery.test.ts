@@ -199,10 +199,15 @@ void test('ordinary saves reject removing, replacing or duplicating recovered id
   for (const [index, mutate] of mutations.entries()) {
     const next = structuredClone(original);
     mutate(next);
-    // Structural case/member-link corruption is rejected before the narrower
-    // immutable-recovery comparison; both paths must remain atomic.
-    const expectedStatus = index === 4 || index === 5 ? 403 : 409;
-    assert.equal((await ordinarySave(next)).status, expectedStatus);
+    // Structural links and duplicate original references are rejected before
+    // the narrower immutable-recovery comparison; all paths stay atomic.
+    const expectedStatus = [4, 5, 6, 7].includes(index) ? 403 : 409;
+    const response = await ordinarySave(next);
+    assert.equal(
+      response.status,
+      expectedStatus,
+      `${index}: ${await response.clone().text()}`,
+    );
     assert.deepEqual(await state(), original);
   }
 });
@@ -213,6 +218,8 @@ void test('generic state saves cannot create fake recovery facts for either role
   const fakeDocument = {
     id: 'fake-recovery',
     storageFileId: id,
+    fileName: 'original.txt',
+    fileSize: 24,
     caseId,
     company: '가상기업',
     partnerMemberId: member.id,

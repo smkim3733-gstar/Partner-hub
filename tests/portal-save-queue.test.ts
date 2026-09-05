@@ -384,6 +384,8 @@ void test('lost save response followed by retry retains one case, timeline and d
         id: 'stable-document',
         caseId: 'stable-case',
         storageFileId: 'stable-file',
+        fileName: 'stable-file.pdf',
+        fileSize: 1_024,
         company: '가상기업',
         title: '가상 접수자료',
         category: '기타자료',

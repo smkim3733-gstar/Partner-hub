@@ -22,6 +22,7 @@ export type PortalConflictKind =
   | 'member_revision'
   | 'state_revision'
   | 'recovery_proof'
+  | 'document_file_metadata'
   | 'cas_exhausted'
   | 'capacity'
   | 'other';

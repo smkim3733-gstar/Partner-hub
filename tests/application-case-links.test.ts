@@ -146,6 +146,8 @@ void test('two same-company applications retain both timelines and each private 
   assert.equal(uploadB.status, 201, await uploadB.clone().text());
   type Stored = {
     id: string;
+    fileName: string;
+    sizeBytes: number;
     caseId: string;
     partnerMemberId: string;
     assignedTrainee: string;
@@ -172,6 +174,8 @@ void test('two same-company applications retain both timelines and each private 
       partnerMemberId: member.id,
       assignedTrainee: member.name,
       storageFileId: file.id,
+      fileName: file.fileName,
+      fileSize: file.sizeBytes,
       title: '협업신청 접수자료',
       category: '기타자료',
       status: '제출완료',
