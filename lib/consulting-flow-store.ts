@@ -11,6 +11,7 @@ import {
   consultingFlowFileOwnersCaseIndexSql,
   consultingFlowFileOwnersTableSql,
   consultingFlowsAuditAppendOnlyTriggerSql,
+  consultingFlowsCommandHistoryTriggerSql,
   consultingFlowsFailureEvidenceTriggerSql,
   consultingFlowsFailureHistoryTriggerSql,
   consultingFlowsIdentityTriggerSql,
@@ -18,9 +19,11 @@ import {
   consultingFlowsJobsInsertTriggerSql,
   consultingFlowsJobsTransitionTriggerSql,
   consultingFlowsJobCreationAuditIdentityTriggerSql,
+  consultingFlowsJobCreationCommandTriggerSql,
   consultingFlowsJobCreationOriginTriggerSql,
   consultingFlowsJobIdentityTriggerSql,
   consultingFlowsJobInsertAuditIdentityTriggerSql,
+  consultingFlowsJobInsertCommandTriggerSql,
   consultingFlowsJobInsertOriginTriggerSql,
   consultingFlowsJobLifecycleTriggerSql,
   consultingFlowsJobStatusTriggerSql,
@@ -111,6 +114,9 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsJobCreationOriginTriggerSql),
         db.prepare(consultingFlowsJobInsertAuditIdentityTriggerSql),
         db.prepare(consultingFlowsJobCreationAuditIdentityTriggerSql),
+        db.prepare(consultingFlowsCommandHistoryTriggerSql),
+        db.prepare(consultingFlowsJobInsertCommandTriggerSql),
+        db.prepare(consultingFlowsJobCreationCommandTriggerSql),
         db.prepare(consultingFlowsNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),
@@ -959,12 +965,20 @@ function assertFlowCommitTransition(
     throw storedFlowIntegrityError();
   const sameValue = (left: unknown, right: unknown) =>
     JSON.stringify(left) === JSON.stringify(right);
+  const beforeReceipts = before.commandReceipts ?? {};
+  const afterReceipts = after.commandReceipts ?? {};
   if (
+    before.commandIds.length > after.commandIds.length ||
+    before.commandIds.some((id, index) => after.commandIds[index] !== id) ||
+    Object.entries(beforeReceipts).some(
+      ([id, receipt]) => !sameValue(receipt, afterReceipts[id]),
+    ) ||
     before.audit.length > after.audit.length ||
     before.audit.some((entry, index) => !sameValue(entry, after.audit[index]))
   )
     throw storedFlowIntegrityError();
   const newAudit = after.audit.slice(before.audit.length);
+  const newCommandIds = after.commandIds.slice(before.commandIds.length);
   const previousJobIds = new Set(before.jobs.map((job) => job.id));
   const newJobs = after.jobs.filter((job) => !previousJobIds.has(job.id));
   if (
@@ -1008,6 +1022,8 @@ function assertFlowCommitTransition(
           entry.action === expectedAction,
       ).length !== 1
     )
+      throw storedFlowIntegrityError();
+    if (newCommandIds.filter((id) => `${id}-job` === job.id).length !== 1)
       throw storedFlowIntegrityError();
   }
   const nextJobs = new Map(after.jobs.map((job) => [job.id, job]));

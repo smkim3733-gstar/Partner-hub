@@ -221,6 +221,12 @@ const flowAiJobCreationAuditIdentityTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowCommandHistoryTriggerSql = migrationStatements(
+  await readFile(
+    path.join(project, 'drizzle', '0050_consulting_flow_command_history.sql'),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -235,6 +241,8 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_job_transition_audit_guard',
   'consulting_flows_job_creation_origin_guard',
   'consulting_flows_job_creation_audit_identity_guard',
+  'consulting_flows_command_history_guard',
+  'consulting_flows_job_creation_command_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -253,6 +261,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowAiJobTransitionAuditTriggerSql,
       ...flowAiJobCreationOriginTriggerSql,
       ...flowAiJobCreationAuditIdentityTriggerSql,
+      ...flowCommandHistoryTriggerSql,
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3658,6 +3667,23 @@ try {
       },
     },
     {
+      name: 'FLOW native D1 preserves existing command IDs',
+      pattern: /command history is immutable/,
+      apply(flow) {
+        flow.commandIds[0] = 'native-replaced-command-id';
+      },
+    },
+    {
+      name: 'FLOW native D1 preserves existing command receipts',
+      pattern: /command history is immutable/,
+      apply(flow) {
+        const commandId = Object.keys(flow.commandReceipts)[0];
+        assert.ok(commandId);
+        flow.commandReceipts[commandId].fingerprint =
+          'native-mutated-command-fingerprint';
+      },
+    },
+    {
       name: 'FLOW native D1 preserves existing jobs',
       pattern: /job transition is invalid/,
       apply(flow) {
@@ -3666,7 +3692,8 @@ try {
     },
     {
       name: 'FLOW native D1 rejects an unaudited new AI job',
-      pattern: /(?:job creation origin|job creation audit identity) is invalid/,
+      pattern:
+        /(?:job creation origin|job creation audit identity|job creation command identity) is invalid/,
       apply(flow) {
         flow.jobs.push({
           id: 'native-unaudited-new-job',
@@ -3690,6 +3717,27 @@ try {
         });
         flow.audit.push({
           id: 'native-different-creation',
+          at: flow.updatedAt,
+          actor: '가상 대표',
+          action: 'queue_report1',
+          detail: '1차 분석보고서 생성 요청',
+        });
+        flow.commandIds.push('native-substituted-creation');
+      },
+    },
+    {
+      name: 'FLOW native D1 binds each new AI job to its command ID',
+      pattern: /job creation command identity is invalid/,
+      apply(flow) {
+        flow.jobs.push({
+          id: 'native-commandless-creation-job',
+          stage: 1,
+          status: 'queued',
+          reason: '',
+          createdAt: flow.updatedAt,
+        });
+        flow.audit.push({
+          id: 'native-commandless-creation',
           at: flow.updatedAt,
           actor: '가상 대표',
           action: 'queue_report1',
