@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [포털 상태 UTF-8 payload 용량 무결성 경계](PORTAL_STATE_PAYLOAD_CAPACITY_INTEGRITY_2026_09_05.md)                    | 애플리케이션·D1의 900,000바이트 상한 통일과 정확한 경계 검사                             |
 | [포털 상태 저장 envelope 무결성 경계](PORTAL_STATE_STORAGE_ENVELOPE_INTEGRITY_2026_09_05.md)                         | D1 payload JSON 객체와 수정시각 UTC 밀리초 형식 강제                                     |
 | [포털 상태 루트 행 수명주기 무결성 경계](PORTAL_STATE_ROOT_LIFECYCLE_INTEGRITY_2026_09_05.md)                        | 단일 고정 루트 ID, ID 변경·직접 삭제 차단과 정상 CAS 저장 보존                           |
 | [협업신청 임시저장 수명주기 무결성 경계](APPLICATION_DRAFT_LIFECYCLE_INTEGRITY_2026_09_05.md)                        | 소유자 불변, revision 전진, 초안 ID 전이와 clear tombstone 영구 보존                     |
