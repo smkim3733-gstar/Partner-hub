@@ -72,6 +72,7 @@ async function seed() {
   await db.batch(
     [
       'company_file_object_integrity',
+      'company_file_storage_keys',
       'company_file_case_links',
       'company_file_assignments',
       'company_file_objects',
@@ -131,6 +132,11 @@ async function seed() {
       (file_id, validation_mode, r2_etag, r2_content_type)
       VALUES (?1, 'etag', ?2, 'text/plain')`)
     .bind(id, object.etag)
+    .run();
+  await db
+    .prepare(`INSERT INTO company_file_storage_keys (file_id, storage_key)
+      VALUES (?1, ?2)`)
+    .bind(id, `company-source/${id}`)
     .run();
 }
 

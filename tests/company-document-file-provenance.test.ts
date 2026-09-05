@@ -141,6 +141,11 @@ async function seedFile({
       VALUES (?1, 'metadata', NULL, 'application/pdf')`)
     .bind(fileId)
     .run();
+  await db
+    .prepare(`INSERT INTO company_file_storage_keys (file_id, storage_key)
+      VALUES (?1, ?2)`)
+    .bind(fileId, `company-source/${fileId}`)
+    .run();
   if (partnerMemberId !== null)
     await db
       .prepare(
@@ -196,6 +201,7 @@ beforeEach(async () => {
   await db.batch(
     [
       'company_file_object_integrity',
+      'company_file_storage_keys',
       'company_file_case_links',
       'company_file_assignments',
       'company_file_objects',

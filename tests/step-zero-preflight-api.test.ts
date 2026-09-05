@@ -136,6 +136,11 @@ async function insertFile(id: string, category: string, linkedCaseId: string) {
     .bind(id)
     .run();
   await db
+    .prepare(`INSERT INTO company_file_storage_keys (file_id, storage_key)
+      VALUES (?1, ?2)`)
+    .bind(id, `company-source/${id}`)
+    .run();
+  await db
     .prepare(
       'INSERT INTO company_file_assignments (file_id, partner_member_id) VALUES (?1, ?2)',
     )
@@ -156,6 +161,7 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
   await db.batch([
     db.prepare('DELETE FROM ai_diagnosis_runs'),
     db.prepare('DELETE FROM company_file_object_integrity'),
+    db.prepare('DELETE FROM company_file_storage_keys'),
     db.prepare('DELETE FROM company_file_case_links'),
     db.prepare('DELETE FROM company_file_assignments'),
     db.prepare('DELETE FROM company_file_upload_requests'),

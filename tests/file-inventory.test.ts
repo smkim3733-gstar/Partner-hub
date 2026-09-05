@@ -89,6 +89,11 @@ async function file(
         VALUES (?1, 'metadata', NULL, 'text/plain')`)
       .bind(id)
       .run();
+    await db
+      .prepare(`INSERT INTO company_file_storage_keys (file_id, storage_key)
+        VALUES (?1, ?2)`)
+      .bind(id, `company-source/${id}`)
+      .run();
     if (caseId)
       await db
         .prepare(
@@ -149,6 +154,7 @@ void test('actual document and intake references distinguish linked files from s
   await file('metadata-missing', 'ready', false);
   await file('integrity-missing', 'ready');
   await file('integrity-mime-mismatch', 'ready');
+  await file('storage-key-mismatch', 'ready');
   await file('deletion-incomplete', 'deleted');
   await file('deleted-reference', 'deleted', false);
   await file('deleted-complete', 'deleted', false);
@@ -160,6 +166,11 @@ void test('actual document and intake references distinguish linked files from s
     .prepare(`UPDATE company_file_object_integrity
       SET r2_content_type = 'text/markdown' WHERE file_id = ?1`)
     .bind('integrity-mime-mismatch')
+    .run();
+  await companyFileDatabase()
+    .prepare(`UPDATE company_file_objects
+      SET storage_key = 'company-source/another-file' WHERE id = ?1`)
+    .bind('storage-key-mismatch')
     .run();
   await (
     await flowDatabase()
@@ -182,6 +193,7 @@ void test('actual document and intake references distinguish linked files from s
     Object.fromEntries(all.items.map((item) => [item.id, item.status])),
     {
       'unlinked-legacy': 'unlinked',
+      'storage-key-mismatch': 'inconsistent',
       'staged-only': 'unlinked',
       'pending-record': 'pending',
       'metadata-missing': 'inconsistent',
@@ -327,6 +339,33 @@ void test('presence uses metadata-only R2 head; size and object-integrity mismat
     )?.count,
     6,
   );
+});
+
+void test('presence rejects a cross-file storage key before probing R2', async () => {
+  await seed();
+  await file('presence-key-mismatch', 'ready');
+  await companyFileDatabase()
+    .prepare(`UPDATE company_file_objects
+      SET storage_key = 'company-source/foreign-private-object' WHERE id = ?1`)
+    .bind('presence-key-mismatch')
+    .run();
+  const bucket = companyFileBucket();
+  const originalHead = bucket.head.bind(bucket);
+  let headCalls = 0;
+  bucket.head = async (...args: Parameters<R2Bucket['head']>) => {
+    headCalls++;
+    return originalHead(...args);
+  };
+  try {
+    const response = await presence(request(), {
+      params: Promise.resolve({ id: 'presence-key-mismatch' }),
+    });
+    assert.equal(response.status, 503);
+    assert.match(await response.text(), /무결성/);
+    assert.equal(headCalls, 0);
+  } finally {
+    bucket.head = originalHead;
+  }
 });
 
 void test('pending-only reservations can be checked without inventing file metadata; storage errors are not reported as absence', async () => {

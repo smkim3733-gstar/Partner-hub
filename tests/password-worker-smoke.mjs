@@ -305,6 +305,22 @@ try {
   checks.push(
     'version 162 company originals receive explicit legacy R2 metadata validation mode',
   );
+  assert.deepEqual(
+    await db
+      .prepare(
+        'SELECT storage_key FROM company_file_storage_keys WHERE file_id = ?1',
+      )
+      .bind(migrationCompanyFile.id)
+      .first(),
+    { storage_key: migrationCompanyFile.key },
+  );
+  checks.push(
+    'version 162 company originals retain their exact legacy R2 key binding',
+  );
+  await db
+    .prepare('DELETE FROM company_file_storage_keys WHERE file_id = ?1')
+    .bind(migrationCompanyFile.id)
+    .run();
   await db
     .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
     .bind(migrationCompanyFile.id)
@@ -1076,6 +1092,10 @@ try {
       (file_id, validation_mode, r2_etag, r2_content_type)
       VALUES ('runtime-private-file', 'metadata', NULL, 'text/plain')`)
     .run();
+  await db
+    .prepare(`INSERT INTO company_file_storage_keys (file_id, storage_key)
+      VALUES ('runtime-private-file', 'synthetic-private-file')`)
+    .run();
   await expect(
     await call('/files/runtime-private-file', undefined, { cookie }),
     403,
@@ -1174,8 +1194,17 @@ try {
       r2_content_type: 'text/plain',
     },
   );
+  assert.deepEqual(
+    await db
+      .prepare(
+        'SELECT storage_key FROM company_file_storage_keys WHERE file_id = ?1',
+      )
+      .bind(normalizedFile.id)
+      .first(),
+    { storage_key: `company-source/${normalizedFile.id}` },
+  );
   checks.push(
-    'new company uploads bind registry MIME and native R2 ETag in D1',
+    'new company uploads bind registry MIME, native R2 ETag and storage key in D1',
   );
   const normalizedBytes = new TextEncoder().encode(
     'SYNTHETIC_MIME_NORMALIZATION',
@@ -1434,6 +1463,10 @@ try {
         inventoryIntegrityId,
         inventoryIntegrityCreatedAt,
       ),
+    db
+      .prepare(`INSERT INTO company_file_storage_keys (file_id, storage_key)
+        VALUES (?1, ?2)`)
+      .bind(inventoryIntegrityId, `company-source/${inventoryIntegrityId}`),
   ]);
   const inconsistentInventory = await (
     await call('/inventory?status=inconsistent', undefined, ownerHeaders)
@@ -1446,6 +1479,29 @@ try {
   );
   checks.push(
     'inventory classifies a missing company object-integrity ledger before R2 access',
+  );
+  await db.batch([
+    db
+      .prepare(`INSERT INTO company_file_object_integrity
+        (file_id, validation_mode, r2_etag, r2_content_type)
+        VALUES (?1, 'metadata', NULL, 'text/plain')`)
+      .bind(inventoryIntegrityId),
+    db
+      .prepare(`UPDATE company_file_objects
+        SET storage_key = 'company-source/foreign-private-object' WHERE id = ?1`)
+      .bind(inventoryIntegrityId),
+  ]);
+  const mismatchedKeyInventory = await (
+    await call('/inventory?status=inconsistent', undefined, ownerHeaders)
+  ).json();
+  assert.ok(
+    mismatchedKeyInventory.items.some(
+      (item) =>
+        item.id === inventoryIntegrityId && item.status === 'inconsistent',
+    ),
+  );
+  checks.push(
+    'inventory classifies a cross-file company storage key before R2 access',
   );
   await db.batch([
     db
@@ -3813,6 +3869,11 @@ try {
         (file_id, validation_mode, r2_etag, r2_content_type)
         VALUES (?1, 'metadata', NULL, 'text/plain')`)
       .bind(fileId)
+      .run();
+    await db
+      .prepare(`INSERT INTO company_file_storage_keys (file_id, storage_key)
+        VALUES (?1, ?2)`)
+      .bind(fileId, `company-source/${fileId}`)
       .run();
     await db
       .prepare(

@@ -1,5 +1,6 @@
 import { Buffer } from 'node:buffer';
 import {
+  assertCompanyFileStorageKeyIntegrity,
   companyFileBucket,
   companyFileDatabase,
   companyFileObjectMatchesIntegrity,
@@ -119,6 +120,8 @@ export async function listFileInventory(
         f.created_at, f.assigned_trainee, a.partner_member_id, f.uploaded_by_email,
         u.owner_key, c.case_id, u.status AS upload_status, 1 AS has_metadata,
         CASE WHEN integrity.file_id IS NOT NULL
+          AND object_key.file_id IS NOT NULL
+          AND object_key.storage_key = f.storage_key
           AND typeof(integrity.r2_content_type) = 'text'
           AND integrity.r2_content_type = f.content_type
           AND ((integrity.validation_mode = 'metadata' AND integrity.r2_etag IS NULL)
@@ -131,6 +134,7 @@ export async function listFileInventory(
       LEFT JOIN company_file_case_links c ON c.file_id = f.id
       LEFT JOIN company_file_upload_requests u ON u.file_id = f.id
       LEFT JOIN company_file_object_integrity integrity ON integrity.file_id = f.id
+      LEFT JOIN company_file_storage_keys object_key ON object_key.file_id = f.id
       UNION ALL
       SELECT u.file_id, NULL, NULL, NULL, NULL, NULL, u.created_at, NULL, NULL, NULL,
         u.owner_key, NULL, u.status, 0, 0
@@ -226,6 +230,18 @@ export async function checkInventoryPresence(
     }>();
   if (!row)
     throw new CompanyFileError('확인할 파일 기록을 찾지 못했습니다.', 404);
+  if (
+    row.id !== null &&
+    row.storage_key !== null &&
+    row.content_type !== null &&
+    row.size_bytes !== null
+  )
+    await assertCompanyFileStorageKeyIntegrity({
+      id: row.id,
+      storage_key: row.storage_key,
+      content_type: row.content_type,
+      size_bytes: row.size_bytes,
+    });
   const key = row.storage_key ?? `company-source/${row.file_id}`;
   const object = await companyFileBucket().head(key);
   let integrityMode: InventoryPresence['integrityMode'] = null;

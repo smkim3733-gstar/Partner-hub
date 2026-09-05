@@ -408,6 +408,10 @@ void test('lost save response followed by retry retains one case, timeline and d
       (file_id, validation_mode, r2_etag, r2_content_type)
       VALUES ('stable-file', 'metadata', NULL, 'application/pdf')`)
     .run();
+  await db
+    .prepare(`INSERT INTO company_file_storage_keys (file_id, storage_key)
+      VALUES ('stable-file', 'company-source/stable-file')`)
+    .run();
   await companyFileBucket().put(
     'company-source/stable-file',
     new Uint8Array(1_024),

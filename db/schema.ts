@@ -134,6 +134,20 @@ FROM company_file_objects
 ORDER BY created_at, id
 `;
 
+export const companyFileStorageKeysTableSql = `
+CREATE TABLE IF NOT EXISTS company_file_storage_keys (
+  file_id TEXT PRIMARY KEY NOT NULL REFERENCES company_file_objects(id) ON DELETE CASCADE,
+  storage_key TEXT NOT NULL UNIQUE
+)
+`;
+
+export const companyFileStorageKeysBackfillSql = `
+INSERT OR IGNORE INTO company_file_storage_keys (file_id, storage_key)
+SELECT id, storage_key
+FROM company_file_objects
+ORDER BY created_at, id
+`;
+
 // A missing row denotes a legacy name assignment. An empty member ID explicitly
 // means administrator-only and must never fall back to a name match.
 export const companyFileAssignmentsTableSql = `

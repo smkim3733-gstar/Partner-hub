@@ -7,6 +7,7 @@ import {
   companyFileObjectsCompanyIndexSql,
   companyFileObjectsOwnerIndexSql,
   companyFileObjectsTableSql,
+  companyFileStorageKeysTableSql,
   companyFileUploadRequestsTableSql,
   portalStateId,
 } from '@/db/schema';
@@ -98,6 +99,7 @@ export async function ensureCompanyFileTables(db: D1Database) {
     db.prepare(companyFileObjectsOwnerIndexSql),
     db.prepare(companyFileObjectsCompanyIndexSql),
     db.prepare(companyFileObjectIntegrityTableSql),
+    db.prepare(companyFileStorageKeysTableSql),
     db.prepare(companyFileAssignmentsTableSql),
     db.prepare(companyFileCaseLinksTableSql),
     db.prepare(companyFileUploadRequestsTableSql),
@@ -115,6 +117,7 @@ export function companyFileObjectBinding(
   object: R2Object,
 ): CompanyFileObjectBinding {
   if (
+    file.storage_key !== `company-source/${file.id}` ||
     object.key !== file.storage_key ||
     object.size !== file.size_bytes ||
     object.httpMetadata?.contentType !== file.content_type ||
@@ -143,6 +146,21 @@ export function companyFileObjectMatchesIntegrity(
   );
 }
 
+export async function assertCompanyFileStorageKeyIntegrity(
+  file: CompanyFileObjectFacts,
+) {
+  const row = await companyFileDatabase()
+    .prepare(`SELECT object_key.storage_key
+      FROM company_file_objects file
+      JOIN company_file_storage_keys object_key ON object_key.file_id = file.id
+      WHERE file.id = ?1 AND file.storage_key = ?2
+        AND object_key.storage_key = file.storage_key`)
+    .bind(file.id, file.storage_key)
+    .first<{ storage_key: string }>();
+  if (!row || row.storage_key !== file.storage_key)
+    throw storedCompanyFileIntegrityError();
+}
+
 export async function readCompanyFileObjectIntegrity(
   file: CompanyFileObjectFacts,
 ): Promise<CompanyFileObjectIntegrity> {
@@ -151,8 +169,9 @@ export async function readCompanyFileObjectIntegrity(
       integrity.r2_content_type
     FROM company_file_objects file
     JOIN company_file_object_integrity integrity ON integrity.file_id = file.id
+    JOIN company_file_storage_keys object_key ON object_key.file_id = file.id
     WHERE file.id = ?1 AND file.storage_key = ?2 AND file.content_type = ?3
-      AND file.size_bytes = ?4`)
+      AND file.size_bytes = ?4 AND object_key.storage_key = file.storage_key`)
     .bind(file.id, file.storage_key, file.content_type, file.size_bytes)
     .first<StoredCompanyFileObjectIntegrityRow>();
   if (

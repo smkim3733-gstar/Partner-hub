@@ -399,9 +399,16 @@ void test('new uploads bind the native R2 ETag and MIME in D1', async () => {
   await seed();
   const id = await create(),
     head = await companyFileBucket().head(`company-source/${id}`),
-    integrity = await companyFileDatabase()
+    db = companyFileDatabase(),
+    integrity = await db
       .prepare(`SELECT validation_mode, r2_etag, r2_content_type
         FROM company_file_object_integrity WHERE file_id = ?1`)
+      .bind(id)
+      .first(),
+    storageKey = await db
+      .prepare(
+        'SELECT storage_key FROM company_file_storage_keys WHERE file_id = ?1',
+      )
       .bind(id)
       .first();
   assert.ok(head);
@@ -413,6 +420,7 @@ void test('new uploads bind the native R2 ETag and MIME in D1', async () => {
       r2_content_type: 'text/plain',
     },
   );
+  assert.deepEqual({ ...storageKey }, { storage_key: `company-source/${id}` });
 });
 
 void test('download rejects an R2 MIME replacement', async () => {
@@ -436,6 +444,46 @@ void test('download fails closed when the object-integrity ledger row is missing
   const response = await download(request('GET'), context(id));
   assert.equal(response.status, 503, await response.clone().text());
   assert.match(((await response.json()) as { error: string }).error, /무결성/);
+});
+
+void test('download rejects a cross-file R2 key before reading that object', async () => {
+  await seed();
+  const id = await create();
+  const foreignKey = 'company-source/foreign-private-object';
+  const db = companyFileDatabase();
+  const bucket = companyFileBucket();
+  await bucket.put(foreignKey, 'SYNTHETIC_RACE_ORIGINAL', {
+    httpMetadata: { contentType: 'text/plain' },
+  });
+  await db.batch([
+    db
+      .prepare(`UPDATE company_file_objects
+        SET storage_key = ?2 WHERE id = ?1`)
+      .bind(id, foreignKey),
+    db
+      .prepare(`UPDATE company_file_object_integrity
+        SET validation_mode = 'metadata', r2_etag = NULL WHERE file_id = ?1`)
+      .bind(id),
+  ]);
+  const originalGet = bucket.get.bind(bucket);
+  let getCalls = 0;
+  bucket.get = async (...args: Parameters<R2Bucket['get']>) => {
+    getCalls++;
+    return originalGet(...args);
+  };
+  try {
+    const response = await download(request('GET'), context(id));
+    assert.equal(response.status, 503, await response.clone().text());
+    assert.match(
+      ((await response.json()) as { error: string }).error,
+      /무결성/,
+    );
+    assert.equal(getCalls, 0);
+  } finally {
+    bucket.get = originalGet;
+  }
+  assert.ok(await originalGet(`company-source/${id}`));
+  assert.ok(await originalGet(foreignKey));
 });
 
 void test('ready upload retry rejects a same-size R2 replacement', async () => {
@@ -598,7 +646,7 @@ void test('suspension immediately before the metadata transaction cannot commit 
     batch = db.batch.bind(db);
   let once = true;
   db.batch = async <T = unknown>(statements: D1PreparedStatement[]) => {
-    if (once && statements.length === 4) {
+    if (once && statements.length === 5) {
       once = false;
       await suspend();
     }

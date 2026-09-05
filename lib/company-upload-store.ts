@@ -271,6 +271,13 @@ export async function storeCompanyUpload(
         metadata.sizeBytes,
       ),
     db
+      .prepare(`INSERT INTO company_file_storage_keys (file_id, storage_key)
+      SELECT ?1, ?2
+      WHERE EXISTS (SELECT 1 FROM company_file_objects WHERE id = ?1 AND storage_key = ?2)
+      AND EXISTS (SELECT 1 FROM company_file_upload_requests
+        WHERE file_id = ?1 AND status = 'pending')`)
+      .bind(id, storageKey),
+    db
       .prepare(`INSERT INTO company_file_assignments (file_id, partner_member_id)
       SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM company_file_objects WHERE id = ?1)
       AND EXISTS (SELECT 1 FROM company_file_upload_requests WHERE file_id = ?1 AND status = 'pending')
@@ -291,8 +298,16 @@ export async function storeCompanyUpload(
       AND EXISTS (SELECT 1 FROM company_file_objects WHERE id = ?1)
       AND EXISTS (SELECT 1 FROM company_file_object_integrity WHERE file_id = ?1
         AND validation_mode = 'etag' AND r2_etag = ?2 AND r2_content_type = ?3)
+      AND EXISTS (SELECT 1 FROM company_file_storage_keys WHERE file_id = ?1
+        AND storage_key = ?5)
       AND ${fileStateGuard('?4')}`)
-      .bind(id, objectBinding.etag, objectBinding.contentType, payload),
+      .bind(
+        id,
+        objectBinding.etag,
+        objectBinding.contentType,
+        payload,
+        storageKey,
+      ),
   ]);
   const status = await db
     .prepare(
