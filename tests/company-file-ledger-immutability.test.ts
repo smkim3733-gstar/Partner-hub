@@ -17,7 +17,7 @@ function sourceFiles(directory: string): string[] {
 void test('application code cannot rewrite or directly remove immutable company-file ledgers', () => {
   const root = process.cwd();
   const forbidden =
-    /\b(?:UPDATE|DELETE\s+FROM)\s+company_file_(?:metadata|object_integrity|storage_keys)\b/i;
+    /\b(?:UPDATE|DELETE\s+FROM)\s+company_file_(?:metadata|object_integrity|storage_keys|assignments|case_links)\b/i;
   const violations = [
     ...sourceFiles(join(root, 'app')),
     ...sourceFiles(join(root, 'lib')),

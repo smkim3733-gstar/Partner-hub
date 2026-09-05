@@ -1,7 +1,11 @@
 import { env } from 'cloudflare:workers';
 
 import {
+  companyFileAssignmentsNoDirectDeleteTriggerSql,
+  companyFileAssignmentsNoUpdateTriggerSql,
   companyFileAssignmentsTableSql,
+  companyFileCaseLinksNoDirectDeleteTriggerSql,
+  companyFileCaseLinksNoUpdateTriggerSql,
   companyFileCaseLinksTableSql,
   companyFileMetadataNoDirectDeleteTriggerSql,
   companyFileMetadataNoUpdateTriggerSql,
@@ -116,6 +120,10 @@ export async function ensureCompanyFileTables(db: D1Database) {
     db.prepare(companyFileStorageKeysNoDirectDeleteTriggerSql),
     db.prepare(companyFileAssignmentsTableSql),
     db.prepare(companyFileCaseLinksTableSql),
+    db.prepare(companyFileAssignmentsNoUpdateTriggerSql),
+    db.prepare(companyFileAssignmentsNoDirectDeleteTriggerSql),
+    db.prepare(companyFileCaseLinksNoUpdateTriggerSql),
+    db.prepare(companyFileCaseLinksNoDirectDeleteTriggerSql),
     db.prepare(companyFileUploadRequestsTableSql),
   ]);
 }

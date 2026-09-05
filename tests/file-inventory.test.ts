@@ -39,8 +39,6 @@ async function seed(documents: unknown[] = []) {
   await ensureCompanyFileTables(db);
   await flowDatabase();
   await db.batch([
-    db.prepare('DELETE FROM company_file_case_links'),
-    db.prepare('DELETE FROM company_file_assignments'),
     db.prepare('DELETE FROM company_file_objects'),
     db.prepare('DELETE FROM company_file_upload_requests'),
     db.prepare('DELETE FROM consulting_flows'),

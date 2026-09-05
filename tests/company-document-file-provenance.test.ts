@@ -217,12 +217,9 @@ beforeEach(async () => {
   const db = companyFileDatabase();
   await ensureCompanyFileTables(db);
   await db.batch(
-    [
-      'company_file_case_links',
-      'company_file_assignments',
-      'company_file_objects',
-      'company_file_upload_requests',
-    ].map((table) => db.prepare(`DELETE FROM ${table}`)),
+    ['company_file_objects', 'company_file_upload_requests'].map((table) =>
+      db.prepare(`DELETE FROM ${table}`),
+    ),
   );
   objects.clear();
   await writePortalState(emptyState());

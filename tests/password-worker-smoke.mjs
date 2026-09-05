@@ -1307,6 +1307,44 @@ try {
       .run(),
     /storage key requires parent deletion/,
   );
+  await db
+    .prepare(
+      'INSERT INTO company_file_case_links (file_id, case_id) VALUES (?1, ?2)',
+    )
+    .bind(normalizedFile.id, 'immutable-case-link')
+    .run();
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE company_file_assignments SET partner_member_id = 'direct-rewrite' WHERE file_id = ?1",
+      )
+      .bind(normalizedFile.id)
+      .run(),
+    /assignment is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM company_file_assignments WHERE file_id = ?1')
+      .bind(normalizedFile.id)
+      .run(),
+    /assignment requires parent deletion/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE company_file_case_links SET case_id = 'direct-rewrite' WHERE file_id = ?1",
+      )
+      .bind(normalizedFile.id)
+      .run(),
+    /case link is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM company_file_case_links WHERE file_id = ?1')
+      .bind(normalizedFile.id)
+      .run(),
+    /case link requires parent deletion/,
+  );
   checks.push(
     'new company uploads bind registry MIME, native R2 ETag, storage key and immutable metadata in D1',
   );
@@ -1315,6 +1353,9 @@ try {
   );
   checks.push(
     'company object-integrity and storage-key ledgers reject direct rewrite and removal in native D1',
+  );
+  checks.push(
+    'company account and case ownership ledgers reject direct rewrite and removal in native D1',
   );
   const deletionGuardFile = (
     await (

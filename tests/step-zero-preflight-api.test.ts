@@ -176,8 +176,6 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
   await writePortalState(state());
   await db.batch([
     db.prepare('DELETE FROM ai_diagnosis_runs'),
-    db.prepare('DELETE FROM company_file_case_links'),
-    db.prepare('DELETE FROM company_file_assignments'),
     db.prepare('DELETE FROM company_file_upload_requests'),
     db.prepare('DELETE FROM company_file_objects'),
   ]);
@@ -296,11 +294,15 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
     assert.equal(externalCalls, 0, 'another case file must fail before fetch');
 
     await db
-      .prepare(
-        'UPDATE company_file_case_links SET case_id = ?1 WHERE file_id = ?2',
-      )
-      .bind(caseId, 'step-zero-finance')
+      .prepare('DELETE FROM company_file_objects WHERE id = ?1')
+      .bind('step-zero-finance')
       .run();
+    await insertFile(
+      'step-zero-finance',
+      '재무제표',
+      caseId,
+      financeObject.etag,
+    );
     await companyFileBucket().delete('company-source/step-zero-finance');
     assert.equal((await POST(request())).status, 403);
     assert.equal(

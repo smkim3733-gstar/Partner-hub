@@ -676,6 +676,49 @@ void test('object-integrity and storage-key ledgers reject direct mutation but p
   assert.equal(await bucket.get(`company-source/${id}`), null);
 });
 
+void test('account and case ownership ledgers reject direct mutation but permit guarded parent deletion', async () => {
+  await seed();
+  const id = await create(),
+    db = companyFileDatabase(),
+    bucket = companyFileBucket();
+  await db
+    .prepare(
+      'INSERT INTO company_file_case_links (file_id, case_id) VALUES (?1, ?2)',
+    )
+    .bind(id, 'immutable-case-link')
+    .run();
+  for (const [sql, message] of [
+    [
+      "UPDATE company_file_assignments SET partner_member_id = 'direct-rewrite' WHERE file_id = ?1",
+      /assignment is immutable/,
+    ],
+    [
+      'DELETE FROM company_file_assignments WHERE file_id = ?1',
+      /assignment requires parent deletion/,
+    ],
+    [
+      "UPDATE company_file_case_links SET case_id = 'direct-rewrite' WHERE file_id = ?1",
+      /case link is immutable/,
+    ],
+    [
+      'DELETE FROM company_file_case_links WHERE file_id = ?1',
+      /case link requires parent deletion/,
+    ],
+  ] as const)
+    await assert.rejects(db.prepare(sql).bind(id).run(), message);
+  assert.ok(await bucket.get(`company-source/${id}`));
+  assert.equal((await remove(request('DELETE'), context(id))).status, 204);
+  for (const table of ['company_file_assignments', 'company_file_case_links'])
+    assert.equal(
+      await db
+        .prepare(`SELECT file_id FROM ${table} WHERE file_id = ?1`)
+        .bind(id)
+        .first(),
+      null,
+    );
+  assert.equal(await bucket.get(`company-source/${id}`), null);
+});
+
 void test('download rejects valid-looking company metadata drift before R2 access', async () => {
   await seed();
   const id = await create(),

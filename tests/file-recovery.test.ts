@@ -65,14 +65,18 @@ async function state() {
     [key: string]: unknown;
   };
 }
-async function seed() {
+async function seed({
+  includeAssignment = true,
+  includeCaseLink = true,
+}: {
+  includeAssignment?: boolean;
+  includeCaseLink?: boolean;
+} = {}) {
   const db = companyFileDatabase();
   await ensureCompanyFileTables(db);
   await flowDatabase();
   await db.batch(
     [
-      'company_file_case_links',
-      'company_file_assignments',
       'company_file_objects',
       'company_file_upload_requests',
       'consulting_flows',
@@ -111,18 +115,20 @@ async function seed() {
       FROM company_file_objects WHERE id = ?1`)
     .bind(id)
     .run();
-  await db
-    .prepare(
-      'INSERT INTO company_file_assignments (file_id, partner_member_id) VALUES (?1, ?2)',
-    )
-    .bind(id, member.id)
-    .run();
-  await db
-    .prepare(
-      'INSERT INTO company_file_case_links (file_id, case_id) VALUES (?1, ?2)',
-    )
-    .bind(id, caseId)
-    .run();
+  if (includeAssignment)
+    await db
+      .prepare(
+        'INSERT INTO company_file_assignments (file_id, partner_member_id) VALUES (?1, ?2)',
+      )
+      .bind(id, member.id)
+      .run();
+  if (includeCaseLink)
+    await db
+      .prepare(
+        'INSERT INTO company_file_case_links (file_id, case_id) VALUES (?1, ?2)',
+      )
+      .bind(id, caseId)
+      .run();
   await db
     .prepare(
       "INSERT INTO company_file_upload_requests (owner_key, request_key, fingerprint, file_id, created_at, status) VALUES (?1, 'private-upload-request', 'private-hash', ?2, '2026-08-31T00:00:00Z', 'ready')",
@@ -622,7 +628,10 @@ void test('pending, deleted, missing originals and ambiguous or mismatched assig
     'wrong-account',
     'inactive',
   ] as const) {
-    await seed();
+    await seed({
+      includeAssignment: kind !== 'no-account',
+      includeCaseLink: kind !== 'no-case',
+    });
     const db = companyFileDatabase();
     if (kind === 'pending' || kind === 'deleted')
       await db
@@ -633,10 +642,6 @@ void test('pending, deleted, missing originals and ambiguous or mismatched assig
       await companyFileBucket().delete(`company-source/${id}`);
     if (kind === 'size')
       await companyFileBucket().put(`company-source/${id}`, 'SHORT');
-    if (kind === 'no-case')
-      await db.prepare('DELETE FROM company_file_case_links').run();
-    if (kind === 'no-account')
-      await db.prepare('DELETE FROM company_file_assignments').run();
     if (kind === 'wrong-account' || kind === 'inactive') {
       const changed = await state();
       if (kind === 'wrong-account') changed.cases[0].partnerMemberId = peer.id;
@@ -675,13 +680,21 @@ void test('deletion or reassignment immediately after the object check fails the
           )
           .bind(id)
           .run();
-      if (change === 'assignment')
+      if (change === 'assignment') {
         await db
-          .prepare(
-            'UPDATE company_file_assignments SET partner_member_id = ?1 WHERE file_id = ?2',
-          )
-          .bind(peer.id, id)
+          .prepare('DROP TRIGGER company_file_assignments_no_update')
           .run();
+        try {
+          await db
+            .prepare(
+              'UPDATE company_file_assignments SET partner_member_id = ?1 WHERE file_id = ?2',
+            )
+            .bind(peer.id, id)
+            .run();
+        } finally {
+          await ensureCompanyFileTables(db);
+        }
+      }
       if (change === 'flow')
         await db
           .prepare(
