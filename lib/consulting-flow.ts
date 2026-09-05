@@ -82,7 +82,7 @@ export type FlowRequest = {
   reviewedAt?: string;
   verifiedAt?: string;
 };
-export type FlowAiEvidence = {
+export type FlowAiSuccessObservation = {
   instructionVersion: string;
   requestedModel: string;
   providerRequestId: string;
@@ -90,6 +90,10 @@ export type FlowAiEvidence = {
   providerMessageId: string;
   inputTokens: number;
   outputTokens: number;
+  observedAt: string;
+};
+export type FlowAiEvidence = FlowAiSuccessObservation & {
+  auditId: string;
 };
 export type FlowAiFailureObservation = {
   instructionVersion: string;

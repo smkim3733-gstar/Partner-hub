@@ -7,8 +7,8 @@ import {
   hasSensitiveIdentifier,
   latestReport,
   type ConsultingFlow,
-  type FlowAiEvidence,
   type FlowAiFailureObservation,
+  type FlowAiSuccessObservation,
   type FlowFile,
   type FlowJob,
 } from '@/lib/consulting-flow';
@@ -266,6 +266,7 @@ async function generate(
       response,
       result.requestId,
     );
+  const observedAt = new Date().toISOString();
   const body = result.text;
   if (
     result.stopReason !== 'end_turn' ||
@@ -300,7 +301,8 @@ async function generate(
       providerMessageId: result.messageId,
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
-    } satisfies FlowAiEvidence,
+      observedAt,
+    } satisfies FlowAiSuccessObservation,
   };
 }
 
@@ -317,7 +319,7 @@ export async function runNextFlowJob(
   if (claimed.jobs.find((j) => j.id === job.id)?.status !== 'processing')
     return claimed;
   let body: string | undefined;
-  let evidence: FlowAiEvidence | undefined;
+  let evidence: FlowAiSuccessObservation | undefined;
   let failureEvidence: FlowAiFailureObservation | undefined;
   let error: string | undefined;
   try {

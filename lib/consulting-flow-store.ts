@@ -279,7 +279,7 @@ const invalidFlowAiFailureEvidenceSql = (expression: string) =>
       (json_type(${expression}, '$.providerRequestId') <> 'text' OR
         length(json_extract(${expression}, '$.providerRequestId')) NOT BETWEEN 1 AND ${FLOW_AI_EVIDENCE_LIMITS.providerRequestId} OR
         json_extract(${expression}, '$.providerRequestId') <> trim(json_extract(${expression}, '$.providerRequestId'))))`;
-const flowAiEvidenceViolationSql = `SELECT 1 AS invalid FROM consulting_flows
+const flowAiSuccessEvidenceViolationSql = `SELECT 1 AS invalid FROM consulting_flows
   WHERE CASE WHEN json_valid(payload) AND json_type(payload, '$.jobs') = 'array' THEN
     EXISTS (SELECT 1 FROM json_each(payload, '$.jobs') j WHERE
       (json_type(j.value, '$.evidence') IS NOT NULL AND
@@ -288,6 +288,9 @@ const flowAiEvidenceViolationSql = `SELECT 1 AS invalid FROM consulting_flows
             "json_extract(j.value, '$.evidence')",
             FLOW_OBJECT_KEYS.jobEvidence,
           )} OR
+          COALESCE(json_type(j.value, '$.evidence.auditId'), '') <> 'text' OR
+          length(json_extract(j.value, '$.evidence.auditId')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.id} OR
+          json_extract(j.value, '$.evidence.auditId') <> trim(json_extract(j.value, '$.evidence.auditId')) OR
           COALESCE(json_type(j.value, '$.evidence.instructionVersion'), '') <> 'text' OR
           length(json_extract(j.value, '$.evidence.instructionVersion')) NOT BETWEEN 1 AND ${FLOW_AI_EVIDENCE_LIMITS.instructionVersion} OR
           json_extract(j.value, '$.evidence.instructionVersion') <> trim(json_extract(j.value, '$.evidence.instructionVersion')) OR
@@ -309,6 +312,18 @@ const flowAiEvidenceViolationSql = `SELECT 1 AS invalid FROM consulting_flows
           json_extract(j.value, '$.evidence.outputTokens') NOT BETWEEN 1 AND 9007199254740991)) OR
       (json_extract(j.value, '$.status') <> 'complete' AND
         json_type(j.value, '$.evidence') IS NOT NULL) OR
+      (json_type(j.value, '$.evidence') IS NOT NULL AND
+        (COALESCE(json_type(j.value, '$.evidence.observedAt'), '') <> 'text' OR
+          length(json_extract(j.value, '$.evidence.observedAt')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.timestamp} OR
+          julianday(json_extract(j.value, '$.evidence.observedAt')) IS NULL OR
+          julianday(json_extract(j.value, '$.evidence.observedAt')) <
+            julianday(json_extract(j.value, '$.startedAt')) OR
+          julianday(json_extract(j.value, '$.evidence.observedAt')) >
+            julianday(json_extract(j.value, '$.completedAt')))))
+  ELSE 0 END LIMIT 1`;
+const flowAiFailureEvidenceViolationSql = `SELECT 1 AS invalid FROM consulting_flows
+  WHERE CASE WHEN json_valid(payload) AND json_type(payload, '$.jobs') = 'array' THEN
+    EXISTS (SELECT 1 FROM json_each(payload, '$.jobs') j WHERE
       (json_type(j.value, '$.failureEvidence') IS NOT NULL AND
         (${invalidFlowAiFailureEvidenceSql(
           "json_extract(j.value, '$.failureEvidence')",
@@ -335,6 +350,25 @@ const flowAiEvidenceViolationSql = `SELECT 1 AS invalid FROM consulting_flows
               ON previous.key = history.key - 1
             WHERE julianday(json_extract(history.value, '$.observedAt')) <
               julianday(json_extract(previous.value, '$.observedAt'))))))
+  ELSE 0 END LIMIT 1`;
+const flowAiSuccessAuditViolationSql = `SELECT 1 AS invalid FROM consulting_flows
+  WHERE CASE WHEN json_valid(payload) AND json_type(payload, '$.jobs') = 'array' AND
+    json_type(payload, '$.audit') = 'array' THEN
+    EXISTS (SELECT 1 FROM json_each(payload, '$.jobs') j WHERE
+      (json_type(j.value, '$.evidence') IS NOT NULL AND
+        ((SELECT count(*) FROM json_each(payload, '$.audit') audit WHERE
+          json_extract(audit.value, '$.id') = json_extract(j.value, '$.evidence.auditId') AND
+          json_extract(audit.value, '$.id') = json_extract(j.value, '$.id') || '-' || json_extract(audit.value, '$.at') AND
+          json_extract(audit.value, '$.actor') = '보고서 자동생성' AND
+          json_extract(audit.value, '$.action') = 'ai_result' AND
+          json_extract(audit.value, '$.at') = json_extract(j.value, '$.completedAt') AND
+          julianday(json_extract(audit.value, '$.at')) >=
+            julianday(json_extract(j.value, '$.evidence.observedAt')) AND
+          julianday(json_extract(audit.value, '$.at')) <=
+            julianday(json_extract(payload, '$.updatedAt'))) <> 1 OR
+        EXISTS (SELECT 1 FROM json_each(j.value, '$.failureEvidenceHistory') history
+          WHERE json_extract(history.value, '$.auditId') =
+            json_extract(j.value, '$.evidence.auditId')))))
   ELSE 0 END LIMIT 1`;
 const flowAiFailureAuditViolationSql = `SELECT 1 AS invalid FROM consulting_flows
   WHERE CASE WHEN json_valid(payload) AND json_type(payload, '$.jobs') = 'array' AND
@@ -649,7 +683,9 @@ export async function stateWithConsultingFlows(raw: unknown) {
   const database = await flowDatabase();
   const batch = await database.batch([
     database.prepare(hiddenFlowSemanticViolationSql),
-    database.prepare(flowAiEvidenceViolationSql),
+    database.prepare(flowAiSuccessEvidenceViolationSql),
+    database.prepare(flowAiFailureEvidenceViolationSql),
+    database.prepare(flowAiSuccessAuditViolationSql),
     database.prepare(flowAiFailureAuditViolationSql),
     database.prepare(flowFileOwnershipViolationSql(false)),
     database.prepare(`SELECT case_id,
@@ -827,14 +863,18 @@ export async function stateWithConsultingFlows(raw: unknown) {
         ) ELSE NULL END ELSE NULL END AS payload FROM consulting_flows`),
   ]);
   const semanticViolations = batch[0] as D1Result<{ invalid: number }>;
-  const evidenceViolations = batch[1] as D1Result<{ invalid: number }>;
-  const failureAuditViolations = batch[2] as D1Result<{ invalid: number }>;
-  const ownershipViolations = batch[3] as D1Result<{ invalid: number }>;
-  const fileNameRows = batch[4] as D1Result<StoredFlowFileNamesRow>;
-  const rows = batch[5] as D1Result<StoredFlowRow>;
+  const successEvidenceViolations = batch[1] as D1Result<{ invalid: number }>;
+  const failureEvidenceViolations = batch[2] as D1Result<{ invalid: number }>;
+  const successAuditViolations = batch[3] as D1Result<{ invalid: number }>;
+  const failureAuditViolations = batch[4] as D1Result<{ invalid: number }>;
+  const ownershipViolations = batch[5] as D1Result<{ invalid: number }>;
+  const fileNameRows = batch[6] as D1Result<StoredFlowFileNamesRow>;
+  const rows = batch[7] as D1Result<StoredFlowRow>;
   if (
     semanticViolations.results.length > 0 ||
-    evidenceViolations.results.length > 0 ||
+    successEvidenceViolations.results.length > 0 ||
+    failureEvidenceViolations.results.length > 0 ||
+    successAuditViolations.results.length > 0 ||
     failureAuditViolations.results.length > 0 ||
     ownershipViolations.results.length > 0
   )

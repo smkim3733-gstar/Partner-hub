@@ -16,6 +16,7 @@ import {
   signingPreparationDone,
   type ConsultingFlow,
   type FlowAiEvidence,
+  type FlowAiSuccessObservation,
   type FlowAiFailureEvidence,
   type FlowAiFailureObservation,
   type FlowActor,
@@ -60,7 +61,7 @@ const body =
   '확인된 기업 자료에 기초한 내부 검토용 보고서입니다. 제출되지 않은 수치와 사실은 확인 필요로 표시하고 대표가 추가 상담에서 검토합니다. '.repeat(
     4,
   );
-const aiEvidence: FlowAiEvidence = {
+const aiSuccessObservation: FlowAiSuccessObservation = {
   instructionVersion: 'synthetic-flow-instruction-v1',
   requestedModel: 'claude-requested-test-model',
   providerRequestId: 'req_synthetic_flow',
@@ -68,6 +69,11 @@ const aiEvidence: FlowAiEvidence = {
   providerMessageId: 'msg_synthetic_flow',
   inputTokens: 10,
   outputTokens: 20,
+  observedAt: now,
+};
+const aiEvidence: FlowAiEvidence = {
+  ...aiSuccessObservation,
+  auditId: 'synthetic-success-audit',
 };
 const aiFailureObservation: FlowAiFailureObservation = {
   instructionVersion: 'synthetic-flow-instruction-v1',
@@ -679,10 +685,23 @@ test('AI disabled by default; policy requires privacy, external processing and c
   );
   const done = finishFlowJob(claimed, s.jobs[0].id, now, now, {
     body,
-    evidence: aiEvidence,
+    evidence: aiSuccessObservation,
   });
+  const storedSuccessEvidence = {
+    ...aiSuccessObservation,
+    auditId: `${s.jobs[0].id}-${now}`,
+  };
   assert.equal(done.jobs[0].status, 'complete');
-  assert.deepEqual(done.jobs[0].evidence, aiEvidence);
+  assert.deepEqual(done.jobs[0].evidence, storedSuccessEvidence);
+  assert.equal(
+    done.audit.filter(
+      (entry) =>
+        entry.id === storedSuccessEvidence.auditId &&
+        entry.action === 'ai_result' &&
+        entry.at === done.jobs[0].completedAt,
+    ).length,
+    1,
+  );
   assert.equal(done.reports.length, 1);
   assert.equal(phaseOf(done), '공동분석');
 });
@@ -694,6 +713,8 @@ test('FLOW AI evidence accepts only complete exact bounded provider records', ()
     { ...aiEvidence, providerMessageId: '' },
     { ...aiEvidence, inputTokens: 0 },
     { ...aiEvidence, outputTokens: Number.MAX_SAFE_INTEGER + 1 },
+    { ...aiEvidence, observedAt: 'not-a-date' },
+    { ...aiEvidence, auditId: '' },
   ])
     assert.equal(hasFlowAiEvidenceStructure(evidence), false);
   assert.equal(hasFlowAiFailureEvidenceStructure(aiFailureEvidence), true);

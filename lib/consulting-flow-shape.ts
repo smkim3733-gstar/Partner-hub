@@ -1,4 +1,8 @@
-import type { ConsultingFlow, FlowAiFailureEvidence } from './consulting-flow';
+import type {
+  ConsultingFlow,
+  FlowAiEvidence,
+  FlowAiFailureEvidence,
+} from './consulting-flow';
 import {
   storedFlowFileKeyMatches,
   storedFlowFileNameMatches,
@@ -235,6 +239,7 @@ export const FLOW_OBJECT_KEYS = {
     'failureEvidenceHistory',
   ],
   jobEvidence: [
+    'auditId',
     'instructionVersion',
     'requestedModel',
     'providerRequestId',
@@ -242,6 +247,7 @@ export const FLOW_OBJECT_KEYS = {
     'providerMessageId',
     'inputTokens',
     'outputTokens',
+    'observedAt',
   ],
   jobFailureEvidence: [
     'auditId',
@@ -524,6 +530,7 @@ export function hasFlowAiEvidenceStructure(value: unknown) {
   return Boolean(
     evidence &&
     hasOnlyKeys(evidence, FLOW_OBJECT_KEYS.jobEvidence) &&
+    boundedName(evidence.auditId, FLOW_FIELD_LIMITS.id) &&
     boundedExactName(
       evidence.instructionVersion,
       FLOW_AI_EVIDENCE_LIMITS.instructionVersion,
@@ -539,7 +546,8 @@ export function hasFlowAiEvidenceStructure(value: unknown) {
       FLOW_AI_EVIDENCE_LIMITS.providerMessageId,
     ) &&
     safeInteger(evidence.inputTokens, 1) &&
-    safeInteger(evidence.outputTokens, 1),
+    safeInteger(evidence.outputTokens, 1) &&
+    timestamp(evidence.observedAt),
   );
 }
 
@@ -618,6 +626,14 @@ function validJob(item: JsonRecord) {
     (failureEvidence !== undefined && item.status !== 'failed') ||
     (failureEvidenceHistory !== undefined &&
       !hasFlowAiFailureEvidenceHistoryStructure(failureEvidenceHistory))
+  )
+    return false;
+  if (
+    evidence !== undefined &&
+    (Date.parse((evidence as FlowAiEvidence).observedAt) <
+      Date.parse(startedAt as string) ||
+      Date.parse((evidence as FlowAiEvidence).observedAt) >
+        Date.parse(completedAt as string))
   )
     return false;
   if (
@@ -856,11 +872,12 @@ function hasStateIntegrity(flow: JsonRecord, mode: ShapeMode) {
   if (
     mode !== 'projected' &&
     (flow.jobs as Array<JsonRecord>).some((job) => {
+      const success = asRecord(job.evidence);
       const current = asRecord(job.failureEvidence);
       const history = job.failureEvidenceHistory as
         | Array<JsonRecord>
         | undefined;
-      const evidence = [current, ...(history ?? [])].filter(
+      const evidence = [success, current, ...(history ?? [])].filter(
         (entry): entry is JsonRecord => Boolean(entry),
       );
       const auditIds = evidence.map((entry) => entry.auditId as string);
@@ -876,7 +893,8 @@ function hasStateIntegrity(flow: JsonRecord, mode: ShapeMode) {
               audit.actor === '보고서 자동생성' &&
               audit.action === 'ai_result' &&
               Date.parse(auditAt) >= observedAt &&
-              Date.parse(auditAt) <= updatedAt
+              Date.parse(auditAt) <= updatedAt &&
+              (entry !== success || auditAt === job.completedAt)
             );
           });
           return observedAt > updatedAt || matches.length !== 1;

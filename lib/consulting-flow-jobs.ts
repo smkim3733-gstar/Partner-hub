@@ -5,8 +5,8 @@ import {
   reportLabels,
   type ConsultingFlow,
   type FlowAiFailureObservation,
+  type FlowAiSuccessObservation,
   type FlowFile,
-  type FlowAiEvidence,
   type FlowJob,
 } from './consulting-flow';
 import {
@@ -67,7 +67,7 @@ export function finishFlowJob(
     body?: string;
     file?: FlowFile;
     error?: string;
-    evidence?: FlowAiEvidence;
+    evidence?: FlowAiSuccessObservation;
     failureEvidence?: FlowAiFailureObservation;
   },
 ) {
@@ -113,7 +113,15 @@ export function finishFlowJob(
         flowTextLength(outcome.body) > FLOW_TEXT_LIMITS.reportBody)
     )
       throw new FlowError('생성 보고서가 저장 한도를 초과했습니다.', 413);
-    if (!hasFlowAiEvidenceStructure(outcome.evidence))
+    if (
+      !outcome.evidence ||
+      !hasFlowAiEvidenceStructure({
+        ...outcome.evidence,
+        auditId: `${job.id}-${now}`,
+      }) ||
+      Date.parse(outcome.evidence.observedAt) < Date.parse(lease) ||
+      Date.parse(outcome.evidence.observedAt) > Date.parse(now)
+    )
       throw new FlowError(
         'Claude 응답 추적 증거를 확인하지 못해 정식 보고서로 저장하지 않았습니다.',
       );
@@ -152,7 +160,10 @@ export function finishFlowJob(
     job.status = 'complete';
     job.reportId = report.id;
     job.completedAt = now;
-    job.evidence = { ...outcome.evidence! };
+    job.evidence = {
+      ...outcome.evidence!,
+      auditId: `${job.id}-${now}`,
+    };
   }
   next.revision++;
   next.updatedAt = now;

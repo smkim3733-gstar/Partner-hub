@@ -551,7 +551,23 @@ void nodeTest(
       ).flow;
       assert.equal(flow.reports.length, 2);
       assert.equal(flow.reports.at(-1)?.origin, 'ai');
-      assert.deepEqual(flow.jobs.at(-1)?.evidence, {
+      const completedFirstJob = flow.jobs.at(-1)!;
+      const firstSuccessEvidence = completedFirstJob.evidence!;
+      const firstSuccessAudit = flow.audit.find(
+        (entry) => entry.id === firstSuccessEvidence.auditId,
+      );
+      assert.equal(firstSuccessAudit?.action, 'ai_result');
+      assert.equal(firstSuccessAudit?.at, completedFirstJob.completedAt);
+      assert.ok(
+        Date.parse(firstSuccessEvidence.observedAt) <=
+          Date.parse(completedFirstJob.completedAt!),
+      );
+      const {
+        observedAt: _firstObservedAt,
+        auditId: _firstAuditId,
+        ...firstSuccessFacts
+      } = firstSuccessEvidence;
+      assert.deepEqual(firstSuccessFacts, {
         instructionVersion: 'v2.5-partner-workflow-2026-08-30',
         requestedModel: 'claude-opus-5',
         providerRequestId: 'req_consulting_flow',
@@ -663,7 +679,23 @@ void nodeTest(
         result.recordings.at(-1)?.id,
       );
       assert.equal(result.jobs.at(-1)?.status, 'complete');
-      assert.deepEqual(result.jobs.at(-1)?.evidence, {
+      const completedDeepJob = result.jobs.at(-1)!;
+      const deepSuccessEvidence = completedDeepJob.evidence!;
+      const deepSuccessAudit = result.audit.find(
+        (entry) => entry.id === deepSuccessEvidence.auditId,
+      );
+      assert.equal(deepSuccessAudit?.action, 'ai_result');
+      assert.equal(deepSuccessAudit?.at, completedDeepJob.completedAt);
+      assert.ok(
+        Date.parse(deepSuccessEvidence.observedAt) <=
+          Date.parse(completedDeepJob.completedAt!),
+      );
+      const {
+        observedAt: _deepObservedAt,
+        auditId: _deepAuditId,
+        ...deepSuccessFacts
+      } = deepSuccessEvidence;
+      assert.deepEqual(deepSuccessFacts, {
         instructionVersion: 'v2.5-partner-workflow-2026-08-30',
         requestedModel: 'claude-opus-5',
         providerRequestId: 'req_consulting_flow',
