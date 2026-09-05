@@ -647,6 +647,42 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
     job.startedAt = startedAt;
   }
   await commitFlow(queued, processing);
+  const collapsedRetry = structuredClone(processing);
+  collapsedRetry.revision++;
+  collapsedRetry.updatedAt = historyAt;
+  for (const job of collapsedRetry.jobs.slice(-2)) {
+    job.status = 'queued';
+    job.startedAt = undefined;
+  }
+  collapsedRetry.audit.push({
+    id: `collapsed-retry-audit-${++sequence}`,
+    at: historyAt,
+    actor: '가상 대표',
+    action: 'retry_job',
+    detail: '한 감사로 두 작업을 재시도한 손상 fixture',
+  });
+  await assert.rejects(
+    commitFlow(processing, collapsedRetry),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        collapsedRetry.revision,
+        JSON.stringify(collapsedRetry),
+        collapsedRetry.updatedAt,
+        processing.caseId,
+        processing.revision,
+      )
+      .run(),
+    /job transition audit is invalid/,
+  );
   const firstResult = structuredClone(processing);
   firstResult.revision++;
   firstResult.updatedAt = historyAt;
@@ -702,6 +738,13 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
   retryJob.startedAt = undefined;
   retryJob.failureEvidenceHistory = [retryJob.failureEvidence!];
   retryJob.failureEvidence = undefined;
+  retry.audit.push({
+    id: `retry-audit-${++sequence}`,
+    at: retryAt,
+    actor: '가상 대표',
+    action: 'retry_job',
+    detail: '대표 확인 후 AI 생성 재시도',
+  });
   await commitFlow(firstResult, retry);
   const restarted = structuredClone(retry);
   restarted.revision++;
@@ -1052,6 +1095,58 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
     (error) => error instanceof FlowError && error.status === 503,
   );
   assert.deepEqual(await readFlow(processing.caseId), processing);
+  const unauditedRetry = structuredClone(processing);
+  unauditedRetry.revision++;
+  unauditedRetry.updatedAt = timestamp(6);
+  unauditedRetry.jobs.at(-1)!.status = 'queued';
+  unauditedRetry.jobs.at(-1)!.startedAt = undefined;
+  await assert.rejects(
+    commitFlow(processing, unauditedRetry),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        unauditedRetry.revision,
+        JSON.stringify(unauditedRetry),
+        unauditedRetry.updatedAt,
+        processing.caseId,
+        processing.revision,
+      )
+      .run(),
+    /job transition audit is invalid/,
+  );
+  const unauditedFailure = structuredClone(processing);
+  unauditedFailure.revision++;
+  unauditedFailure.updatedAt = timestamp(6);
+  unauditedFailure.jobs.at(-1)!.status = 'failed';
+  unauditedFailure.jobs.at(-1)!.reason = '가상 공급자 오류';
+  await assert.rejects(
+    commitFlow(processing, unauditedFailure),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        unauditedFailure.revision,
+        JSON.stringify(unauditedFailure),
+        unauditedFailure.updatedAt,
+        processing.caseId,
+        processing.revision,
+      )
+      .run(),
+    /job transition audit is invalid/,
+  );
   const completionAt = timestamp(7);
   const completionAuditId = `${jobId}-${completionAt}`;
   const completed = structuredClone(processing);
@@ -1105,7 +1200,7 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
         processing.revision,
       )
       .run(),
-    /job transition timestamp is invalid/,
+    /job transition (?:timestamp|audit) is invalid/,
   );
   await commitFlow(processing, completed);
   assert.deepEqual(await readFlow(completed.caseId), completed);

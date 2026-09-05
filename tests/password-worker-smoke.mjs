@@ -191,6 +191,16 @@ const flowAiJobTransitionTimestampTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowAiJobTransitionAuditTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0047_consulting_flow_ai_job_transition_audit.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -202,6 +212,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_job_status_guard',
   'consulting_flows_job_lifecycle_guard',
   'consulting_flows_job_transition_timestamp_guard',
+  'consulting_flows_job_transition_audit_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -217,6 +228,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowAiEvidenceTransitionTriggerSql,
       ...flowAiJobLifecycleTriggerSql,
       ...flowAiJobTransitionTimestampTriggerSql,
+      ...flowAiJobTransitionAuditTriggerSql,
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3486,6 +3498,19 @@ try {
     retriedFailureJob.failureEvidence,
   );
   delete retriedFailureJob.failureEvidence;
+  const unauditedRetryEvidenceFlow = structuredClone(retriedEvidenceFlow);
+  await assert.rejects(
+    saveEvidenceTransition(evidenceFlow, unauditedRetryEvidenceFlow),
+    /job transition audit is invalid/,
+  );
+  checks.push('FLOW native D1 requires an audit for explicit AI job retry');
+  retriedEvidenceFlow.audit.push({
+    id: 'native-immutable-retry',
+    at: evidenceTimes[2],
+    actor: '가상 대표',
+    action: 'retry_job',
+    detail: '대표 확인 후 AI 생성 재시도',
+  });
   await saveEvidenceTransition(evidenceFlow, retriedEvidenceFlow);
   const processingEvidenceFlow = structuredClone(retriedEvidenceFlow);
   processingEvidenceFlow.revision++;
@@ -3530,9 +3555,22 @@ try {
   });
   await assert.rejects(
     saveEvidenceTransition(processingEvidenceFlow, staleCompletionEvidenceFlow),
-    /job transition timestamp is invalid/,
+    /job transition (?:timestamp|audit) is invalid/,
   );
   checks.push('FLOW native D1 binds AI job completion time to the root update');
+  const unauditedFailureEvidenceFlow = structuredClone(processingEvidenceFlow);
+  unauditedFailureEvidenceFlow.revision++;
+  unauditedFailureEvidenceFlow.updatedAt = evidenceTimes[4];
+  unauditedFailureEvidenceFlow.jobs[1].status = 'failed';
+  unauditedFailureEvidenceFlow.jobs[1].reason = '증거 없는 가상 처리 오류';
+  await assert.rejects(
+    saveEvidenceTransition(
+      processingEvidenceFlow,
+      unauditedFailureEvidenceFlow,
+    ),
+    /job transition audit is invalid/,
+  );
+  checks.push('FLOW native D1 requires an audit for an AI job result');
   const failedEvidenceFlow = structuredClone(processingEvidenceFlow);
   failedEvidenceFlow.revision++;
   failedEvidenceFlow.updatedAt = evidenceTimes[4];

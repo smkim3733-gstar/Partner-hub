@@ -20,6 +20,7 @@ import {
   consultingFlowsJobIdentityTriggerSql,
   consultingFlowsJobLifecycleTriggerSql,
   consultingFlowsJobStatusTriggerSql,
+  consultingFlowsJobTransitionAuditTriggerSql,
   consultingFlowsJobTransitionTimestampTriggerSql,
   consultingFlowsNoDeleteTriggerSql,
   consultingFlowsSuccessEvidenceTriggerSql,
@@ -99,6 +100,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsJobStatusTriggerSql),
         db.prepare(consultingFlowsJobLifecycleTriggerSql),
         db.prepare(consultingFlowsJobTransitionTimestampTriggerSql),
+        db.prepare(consultingFlowsJobTransitionAuditTriggerSql),
         db.prepare(consultingFlowsNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),
@@ -952,6 +954,7 @@ function assertFlowCommitTransition(
     before.audit.some((entry, index) => !sameValue(entry, after.audit[index]))
   )
     throw storedFlowIntegrityError();
+  const newAudit = after.audit.slice(before.audit.length);
   const previousJobIds = new Set(before.jobs.map((job) => job.id));
   if (
     after.jobs.some(
@@ -968,6 +971,20 @@ function assertFlowCommitTransition(
   )
     throw storedFlowIntegrityError();
   const nextJobs = new Map(after.jobs.map((job) => [job.id, job]));
+  const retryTransitionCount = before.jobs.filter(
+    (job) =>
+      ['blocked', 'failed', 'processing'].includes(job.status) &&
+      nextJobs.get(job.id)?.status === 'queued',
+  ).length;
+  if (
+    retryTransitionCount > 0 &&
+    newAudit.filter(
+      (entry) =>
+        entry.at === after.updatedAt &&
+        (entry.action === 'retry_job' || entry.action === 'save_transcript'),
+    ).length !== retryTransitionCount
+  )
+    throw storedFlowIntegrityError();
   for (const job of before.jobs) {
     const next = nextJobs.get(job.id);
     if (!next) throw storedFlowIntegrityError();
@@ -1030,6 +1047,18 @@ function assertFlowCommitTransition(
         next.evidence !== undefined &&
         next.failureEvidence === undefined);
     if (!validLifecycle) throw storedFlowIntegrityError();
+    if (
+      job.status === 'processing' &&
+      ['blocked', 'failed', 'complete'].includes(next.status) &&
+      newAudit.filter(
+        (entry) =>
+          entry.id === `${job.id}-${after.updatedAt}` &&
+          entry.at === after.updatedAt &&
+          entry.actor === '보고서 자동생성' &&
+          entry.action === 'ai_result',
+      ).length !== 1
+    )
+      throw storedFlowIntegrityError();
     const previousHistory = job.failureEvidenceHistory ?? [];
     const nextHistory = next.failureEvidenceHistory ?? [];
     if (

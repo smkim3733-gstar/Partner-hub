@@ -1277,3 +1277,50 @@ test('transcript review is server enforced; audio wait, supplement and duplicate
     /이미 저장/,
   );
 });
+
+test('transcript correction preserves current AI failure evidence in history', () => {
+  let flow = apply(consulted(), {
+    type: 'set_ai_policy',
+    enabled: true,
+    thirdPartyConsent: true,
+    privacyMasked: true,
+    costConsent: true,
+  });
+  flow = apply(flow, {
+    type: 'save_recording',
+    meetingId: firstMeeting(flow)!.id,
+    transcript: body,
+    recordingConsent: true,
+    privacyMasked: true,
+  });
+  const job = flow.jobs.at(-1)!;
+  flow = claimFlowJob(flow, job.id, now);
+  flow = finishFlowJob(flow, job.id, now, now, {
+    error: '가상 공급자 오류',
+    failureEvidence: aiFailureObservation,
+  });
+  const failureEvidence = flow.jobs.at(-1)!.failureEvidence!;
+  const disabled = apply(flow, { type: 'set_ai_policy', enabled: false });
+  const correctedWhileDisabled = apply(disabled, {
+    type: 'save_transcript',
+    recordingId: disabled.recordings.at(-1)!.id,
+    transcript: `${body} 비활성 상태 정정사항`,
+    recordingConsent: true,
+    privacyMasked: true,
+  });
+  assert.equal(correctedWhileDisabled.jobs.at(-1)!.status, 'failed');
+  assert.deepEqual(
+    correctedWhileDisabled.jobs.at(-1)!.failureEvidence,
+    failureEvidence,
+  );
+  flow = apply(flow, {
+    type: 'save_transcript',
+    recordingId: flow.recordings.at(-1)!.id,
+    transcript: `${body} 확인된 정정사항`,
+    recordingConsent: true,
+    privacyMasked: true,
+  });
+  assert.equal(flow.jobs.at(-1)!.status, 'queued');
+  assert.equal(flow.jobs.at(-1)!.failureEvidence, undefined);
+  assert.deepEqual(flow.jobs.at(-1)!.failureEvidenceHistory, [failureEvidence]);
+});

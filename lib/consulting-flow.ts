@@ -982,14 +982,30 @@ export function applyFlowCommand(
       const job = s.jobs
         .filter((j) => j.sourceRecordingId === recording.id)
         .at(-1);
-      if (job) {
+      const failedWhileAiDisabled = job?.status === 'failed' && !s.ai.enabled;
+      if (job && !failedWhileAiDisabled) {
+        demand(
+          !job.failureEvidence ||
+            (job.failureEvidenceHistory?.length ?? 0) <
+              FLOW_COLLECTION_LIMITS.aiFailureEvidenceHistory,
+          'AI 실패 추적 이력이 가득 찼습니다. 관리자 검토 후 계속해 주세요.',
+          409,
+        );
+        if (job.failureEvidence)
+          job.failureEvidenceHistory = [
+            ...(job.failureEvidenceHistory ?? []),
+            job.failureEvidence,
+          ];
+        job.failureEvidence = undefined;
         job.status = s.ai.enabled ? 'queued' : 'blocked';
         job.reason = s.ai.enabled
           ? ''
           : '대표의 AI 자동생성 승인이 필요합니다.';
         job.startedAt = undefined;
       }
-      detail = '전사문 보완 · 4차 생성 준비';
+      detail = failedWhileAiDisabled
+        ? '전사문 보완 · AI 재승인 후 재시도 필요'
+        : '전사문 보완 · 4차 생성 준비';
       break;
     }
     case 'retry_job': {
