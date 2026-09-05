@@ -68,20 +68,29 @@ async function state() {
 async function seed({
   includeAssignment = true,
   includeCaseLink = true,
+  uploadStatus = 'ready',
 }: {
   includeAssignment?: boolean;
   includeCaseLink?: boolean;
+  uploadStatus?: 'pending' | 'ready' | 'deleted';
 } = {}) {
   const db = companyFileDatabase();
   await ensureCompanyFileTables(db);
   await flowDatabase();
-  await db.batch(
-    [
-      'company_file_objects',
-      'company_file_upload_requests',
-      'consulting_flows',
-    ].map((table) => db.prepare(`DELETE FROM ${table}`)),
-  );
+  await db
+    .prepare('DROP TRIGGER IF EXISTS company_file_upload_requests_no_delete')
+    .run();
+  try {
+    await db.batch(
+      [
+        'company_file_objects',
+        'company_file_upload_requests',
+        'consulting_flows',
+      ].map((table) => db.prepare(`DELETE FROM ${table}`)),
+    );
+  } finally {
+    await ensureCompanyFileTables(db);
+  }
   await writePortalState({
     version: 1,
     consultationNumber: 0,
@@ -131,9 +140,9 @@ async function seed({
       .run();
   await db
     .prepare(
-      "INSERT INTO company_file_upload_requests (owner_key, request_key, fingerprint, file_id, created_at, status) VALUES (?1, 'private-upload-request', 'private-hash', ?2, '2026-08-31T00:00:00Z', 'ready')",
+      "INSERT INTO company_file_upload_requests (owner_key, request_key, fingerprint, file_id, created_at, status) VALUES (?1, 'private-upload-request', 'private-hash', ?2, '2026-08-31T00:00:00Z', ?3)",
     )
-    .bind(`member:${member.id}`, id)
+    .bind(`member:${member.id}`, id, uploadStatus)
     .run();
   const object = await companyFileBucket().put(
     `company-source/${id}`,
@@ -631,13 +640,8 @@ void test('pending, deleted, missing originals and ambiguous or mismatched assig
     await seed({
       includeAssignment: kind !== 'no-account',
       includeCaseLink: kind !== 'no-case',
+      uploadStatus: kind === 'pending' || kind === 'deleted' ? kind : 'ready',
     });
-    const db = companyFileDatabase();
-    if (kind === 'pending' || kind === 'deleted')
-      await db
-        .prepare('UPDATE company_file_upload_requests SET status = ?1')
-        .bind(kind)
-        .run();
     if (kind === 'missing')
       await companyFileBucket().delete(`company-source/${id}`);
     if (kind === 'size')

@@ -101,6 +101,73 @@ async function rowFor(key: string) {
     .first<{ file_id: string; status: string }>();
 }
 
+void test('upload request identity is fixed, lifecycle only advances and tombstones cannot be removed', async () => {
+  const db = companyFileDatabase();
+  await ensureCompanyFileTables(db);
+  const id = 'upload-request-lifecycle-file';
+  await db
+    .prepare(`INSERT INTO company_file_upload_requests
+      (owner_key, request_key, fingerprint, file_id, created_at, status)
+      VALUES ('member:lifecycle', 'lifecycle-request', 'lifecycle-fingerprint', ?1,
+        '2026-09-05T00:00:00.000Z', 'pending')`)
+    .bind(id)
+    .run();
+  for (const sql of [
+    "UPDATE company_file_upload_requests SET owner_key = 'member:other' WHERE file_id = ?1",
+    "UPDATE company_file_upload_requests SET file_id = 'other-file' WHERE file_id = ?1",
+    "UPDATE company_file_upload_requests SET created_at = '2026-09-05T00:00:01.000Z' WHERE file_id = ?1",
+    "UPDATE company_file_upload_requests SET fingerprint = 'other-fingerprint' WHERE file_id = ?1",
+  ])
+    await assert.rejects(
+      db.prepare(sql).bind(id).run(),
+      /upload request transition is invalid/,
+    );
+  await db
+    .prepare(`UPDATE company_file_upload_requests
+      SET request_key = 'normalized-request', fingerprint = 'normalized-fingerprint'
+      WHERE file_id = ?1`)
+    .bind(id)
+    .run();
+  await db
+    .prepare(
+      "UPDATE company_file_upload_requests SET status = 'ready' WHERE file_id = ?1",
+    )
+    .bind(id)
+    .run();
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE company_file_upload_requests SET status = 'pending' WHERE file_id = ?1",
+      )
+      .bind(id)
+      .run(),
+    /upload request transition is invalid/,
+  );
+  await db
+    .prepare(
+      "UPDATE company_file_upload_requests SET status = 'deleted' WHERE file_id = ?1",
+    )
+    .bind(id)
+    .run();
+  for (const sql of [
+    "UPDATE company_file_upload_requests SET status = 'ready' WHERE file_id = ?1",
+    "UPDATE company_file_upload_requests SET request_key = 'rewritten-request' WHERE file_id = ?1",
+    'DELETE FROM company_file_upload_requests WHERE file_id = ?1',
+  ])
+    await assert.rejects(db.prepare(sql).bind(id).run(), /upload request/);
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT request_key, status FROM company_file_upload_requests WHERE file_id = ?1',
+        )
+        .bind(id)
+        .first<{ request_key: string; status: string }>()
+    )?.status,
+    'deleted',
+  );
+});
+
 void test('application upload keys survive file reselection; standalone keys keep intentional separate uploads distinct', async () => {
   assert.equal(
     await companyUploadKey(input()),
@@ -206,7 +273,7 @@ void test('company upload stores registry MIME instead of browser MIME', async (
   }
 });
 
-void test('normalized application key migrates previous pending, ready and deleted ledgers', async () => {
+void test('normalized application key migrates pending and ready ledgers but preserves a deleted tombstone', async () => {
   await seed();
   const db = companyFileDatabase();
   await ensureCompanyFileTables(db);
@@ -292,14 +359,23 @@ void test('normalized application key migrates previous pending, ready and delet
     204,
   );
   await db
-    .prepare(`UPDATE company_file_upload_requests
-      SET request_key = ?1, fingerprint = ?2
-      WHERE owner_key = ?3 AND request_key = ?4`)
-    .bind(legacyKey, legacyFingerprint, `member:${member.id}`, keys.current)
+    .prepare(
+      'DROP TRIGGER IF EXISTS company_file_upload_requests_lifecycle_guard',
+    )
     .run();
+  try {
+    await db
+      .prepare(`UPDATE company_file_upload_requests
+        SET request_key = ?1, fingerprint = ?2
+        WHERE owner_key = ?3 AND request_key = ?4`)
+      .bind(legacyKey, legacyFingerprint, `member:${member.id}`, keys.current)
+      .run();
+  } finally {
+    await ensureCompanyFileTables(db);
+  }
   assert.equal((await upload(request(keys.current, data))).status, 409);
-  assert.equal(await rowFor(legacyKey), null);
-  assert.equal((await rowFor(keys.current))?.status, 'deleted');
+  assert.equal((await rowFor(legacyKey))?.status, 'deleted');
+  assert.equal(await rowFor(keys.current), null);
   assert.equal(await bucket.get(`company-source/${id}`), null);
 });
 

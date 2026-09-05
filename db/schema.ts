@@ -235,6 +235,14 @@ CREATE TABLE IF NOT EXISTS company_file_upload_requests (
 )
 `;
 
+// Upload requests are durable idempotency receipts. Identity never changes,
+// lifecycle only advances, and a deleted tombstone is fully immutable.
+export const companyFileUploadRequestsLifecycleTriggerSql =
+  "CREATE TRIGGER IF NOT EXISTS company_file_upload_requests_lifecycle_guard BEFORE UPDATE ON company_file_upload_requests WHEN NEW.owner_key <> OLD.owner_key OR NEW.file_id <> OLD.file_id OR NEW.created_at <> OLD.created_at OR (NEW.fingerprint <> OLD.fingerprint AND NEW.request_key = OLD.request_key) OR ((NEW.request_key <> OLD.request_key OR NEW.fingerprint <> OLD.fingerprint) AND NEW.status <> OLD.status) OR (OLD.status = 'deleted' AND (NEW.request_key <> OLD.request_key OR NEW.fingerprint <> OLD.fingerprint)) OR NOT (NEW.status = OLD.status OR (OLD.status = 'pending' AND NEW.status IN ('ready', 'deleted')) OR (OLD.status = 'ready' AND NEW.status = 'deleted')) BEGIN SELECT RAISE(ABORT, 'company file upload request transition is invalid'); END";
+
+export const companyFileUploadRequestsNoDeleteTriggerSql =
+  "CREATE TRIGGER IF NOT EXISTS company_file_upload_requests_no_delete BEFORE DELETE ON company_file_upload_requests BEGIN SELECT RAISE(ABORT, 'company file upload request is durable'); END";
+
 export const aiDiagnosisRunsTableSql = `
 CREATE TABLE IF NOT EXISTS ai_diagnosis_runs (
   id TEXT PRIMARY KEY NOT NULL,

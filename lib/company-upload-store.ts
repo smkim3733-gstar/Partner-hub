@@ -116,6 +116,11 @@ export async function storeCompanyUpload(
           '같은 업로드 요청의 파일 또는 자료정보가 변경되었습니다.',
           409,
         );
+      if (legacyRequest?.status === 'deleted')
+        throw new CompanyFileError(
+          '이미 삭제한 업로드입니다. 새 파일 등록으로 진행해 주세요.',
+          409,
+        );
       if (legacyRequest)
         await db
           .prepare(`UPDATE company_file_upload_requests

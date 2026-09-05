@@ -1061,9 +1061,16 @@ void test('failed explicit deletion of a legacy file also blocks downloads until
     del = bucket.delete.bind(bucket);
   // Synthetic legacy fixture: originals created before the upload request ledger.
   await db
-    .prepare('DELETE FROM company_file_upload_requests WHERE file_id = ?1')
-    .bind(id)
+    .prepare('DROP TRIGGER IF EXISTS company_file_upload_requests_no_delete')
     .run();
+  try {
+    await db
+      .prepare('DELETE FROM company_file_upload_requests WHERE file_id = ?1')
+      .bind(id)
+      .run();
+  } finally {
+    await ensureCompanyFileTables(db);
+  }
   bucket.delete = async () => {
     throw new Error('Synthetic legacy R2 delete failure');
   };

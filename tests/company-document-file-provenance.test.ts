@@ -216,11 +216,18 @@ async function save(next: unknown) {
 beforeEach(async () => {
   const db = companyFileDatabase();
   await ensureCompanyFileTables(db);
-  await db.batch(
-    ['company_file_objects', 'company_file_upload_requests'].map((table) =>
-      db.prepare(`DELETE FROM ${table}`),
-    ),
-  );
+  await db
+    .prepare('DROP TRIGGER IF EXISTS company_file_upload_requests_no_delete')
+    .run();
+  try {
+    await db.batch(
+      ['company_file_objects', 'company_file_upload_requests'].map((table) =>
+        db.prepare(`DELETE FROM ${table}`),
+      ),
+    );
+  } finally {
+    await ensureCompanyFileTables(db);
+  }
   objects.clear();
   await writePortalState(emptyState());
 });

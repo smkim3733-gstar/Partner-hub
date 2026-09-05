@@ -174,11 +174,18 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
   const db = companyFileDatabase();
   await ensureCompanyFileTables(db);
   await writePortalState(state());
-  await db.batch([
-    db.prepare('DELETE FROM ai_diagnosis_runs'),
-    db.prepare('DELETE FROM company_file_upload_requests'),
-    db.prepare('DELETE FROM company_file_objects'),
-  ]);
+  await db
+    .prepare('DROP TRIGGER IF EXISTS company_file_upload_requests_no_delete')
+    .run();
+  try {
+    await db.batch([
+      db.prepare('DELETE FROM ai_diagnosis_runs'),
+      db.prepare('DELETE FROM company_file_upload_requests'),
+      db.prepare('DELETE FROM company_file_objects'),
+    ]);
+  } finally {
+    await ensureCompanyFileTables(db);
+  }
 
   const runtime = env as unknown as {
     ANTHROPIC_API_KEY?: string;

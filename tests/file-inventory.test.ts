@@ -38,11 +38,18 @@ async function seed(documents: unknown[] = []) {
   const db = companyFileDatabase();
   await ensureCompanyFileTables(db);
   await flowDatabase();
-  await db.batch([
-    db.prepare('DELETE FROM company_file_objects'),
-    db.prepare('DELETE FROM company_file_upload_requests'),
-    db.prepare('DELETE FROM consulting_flows'),
-  ]);
+  await db
+    .prepare('DROP TRIGGER IF EXISTS company_file_upload_requests_no_delete')
+    .run();
+  try {
+    await db.batch([
+      db.prepare('DELETE FROM company_file_objects'),
+      db.prepare('DELETE FROM company_file_upload_requests'),
+      db.prepare('DELETE FROM consulting_flows'),
+    ]);
+  } finally {
+    await ensureCompanyFileTables(db);
+  }
   await writePortalState({
     version: 1,
     members: [member],

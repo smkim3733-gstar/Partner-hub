@@ -19,6 +19,8 @@ import {
   companyFileStorageKeysTableSql,
   companyFileStorageKeysNoDirectDeleteTriggerSql,
   companyFileStorageKeysNoUpdateTriggerSql,
+  companyFileUploadRequestsLifecycleTriggerSql,
+  companyFileUploadRequestsNoDeleteTriggerSql,
   companyFileUploadRequestsTableSql,
   portalStateId,
 } from '@/db/schema';
@@ -125,6 +127,8 @@ export async function ensureCompanyFileTables(db: D1Database) {
     db.prepare(companyFileCaseLinksNoUpdateTriggerSql),
     db.prepare(companyFileCaseLinksNoDirectDeleteTriggerSql),
     db.prepare(companyFileUploadRequestsTableSql),
+    db.prepare(companyFileUploadRequestsLifecycleTriggerSql),
+    db.prepare(companyFileUploadRequestsNoDeleteTriggerSql),
   ]);
 }
 

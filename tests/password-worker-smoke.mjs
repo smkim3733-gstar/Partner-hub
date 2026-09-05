@@ -159,6 +159,18 @@ function migrationStatements(source) {
   assert.equal(pending, '', 'migration must end with a complete SQL statement');
   return statements;
 }
+const uploadRequestNoDeleteTriggerSql =
+  "CREATE TRIGGER IF NOT EXISTS company_file_upload_requests_no_delete BEFORE DELETE ON company_file_upload_requests BEGIN SELECT RAISE(ABORT, 'company file upload request is durable'); END";
+async function withoutUploadRequestDeleteGuard(db, action) {
+  await db
+    .prepare('DROP TRIGGER IF EXISTS company_file_upload_requests_no_delete')
+    .run();
+  try {
+    return await action();
+  } finally {
+    await db.prepare(uploadRequestNoDeleteTriggerSql).run();
+  }
+}
 try {
   const db = await mf.getD1Database('DB');
   await db
@@ -1345,6 +1357,42 @@ try {
       .run(),
     /case link requires parent deletion/,
   );
+  for (const [sql, message] of [
+    [
+      "UPDATE company_file_upload_requests SET owner_key = 'member:direct-rewrite' WHERE file_id = ?1",
+      /upload request transition is invalid/,
+    ],
+    [
+      "UPDATE company_file_upload_requests SET fingerprint = 'direct-rewrite' WHERE file_id = ?1",
+      /upload request transition is invalid/,
+    ],
+    [
+      "UPDATE company_file_upload_requests SET status = 'pending' WHERE file_id = ?1",
+      /upload request transition is invalid/,
+    ],
+    [
+      'DELETE FROM company_file_upload_requests WHERE file_id = ?1',
+      /upload request is durable/,
+    ],
+  ])
+    await assert.rejects(
+      db.prepare(sql).bind(normalizedFile.id).run(),
+      message,
+    );
+  await db
+    .prepare(`INSERT INTO company_file_upload_requests
+      (owner_key, request_key, fingerprint, file_id, created_at, status)
+      VALUES ('member:native-tombstone', 'native-tombstone', 'native-tombstone',
+        'native-tombstone', '2026-09-05T00:00:00.000Z', 'deleted')`)
+    .run();
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE company_file_upload_requests SET request_key = 'rewritten-tombstone' WHERE file_id = 'native-tombstone'",
+      )
+      .run(),
+    /upload request transition is invalid/,
+  );
   checks.push(
     'new company uploads bind registry MIME, native R2 ETag, storage key and immutable metadata in D1',
   );
@@ -1356,6 +1404,9 @@ try {
   );
   checks.push(
     'company account and case ownership ledgers reject direct rewrite and removal in native D1',
+  );
+  checks.push(
+    'company upload receipt identity, forward lifecycle and durable tombstones are enforced in native D1',
   );
   const deletionGuardFile = (
     await (
@@ -1792,14 +1843,16 @@ try {
   checks.push(
     'inventory classifies a cross-file company storage key before R2 access',
   );
-  await db.batch([
-    db
-      .prepare('DELETE FROM company_file_upload_requests WHERE file_id = ?1')
-      .bind(inventoryIntegrityId),
-    db
-      .prepare('DELETE FROM company_file_objects WHERE id = ?1')
-      .bind(inventoryIntegrityId),
-  ]);
+  await withoutUploadRequestDeleteGuard(db, () =>
+    db.batch([
+      db
+        .prepare('DELETE FROM company_file_upload_requests WHERE file_id = ?1')
+        .bind(inventoryIntegrityId),
+      db
+        .prepare('DELETE FROM company_file_objects WHERE id = ?1')
+        .bind(inventoryIntegrityId),
+    ]),
+  );
   await db
     .prepare(
       "INSERT INTO company_file_upload_requests (owner_key, request_key, fingerprint, file_id, created_at, status) VALUES (?1, 'worker-inventory-request', 'private-fingerprint', 'worker-inventory-pending', ?2, 'pending')",
@@ -3520,10 +3573,12 @@ try {
     'member status transition atomically revokes sessions and setup links',
   );
   // Convert only this isolated fixture to the pre-ledger legacy shape.
-  await db
-    .prepare('DELETE FROM company_file_upload_requests WHERE file_id = ?1')
-    .bind(suspensionFile.id)
-    .run();
+  await withoutUploadRequestDeleteGuard(db, () =>
+    db
+      .prepare('DELETE FROM company_file_upload_requests WHERE file_id = ?1')
+      .bind(suspensionFile.id)
+      .run(),
+  );
   await expect(
     await call(`/files/${suspensionFile.id}`, undefined, { cookie }, 'DELETE'),
     204,

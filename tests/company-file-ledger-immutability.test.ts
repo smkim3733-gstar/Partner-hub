@@ -31,3 +31,16 @@ void test('application code cannot rewrite or directly remove immutable company-
     'immutable file evidence must be inserted once and removed only by parent cascade',
   );
 });
+
+void test('application code cannot remove durable company-file upload receipts', () => {
+  const root = process.cwd();
+  const forbidden = /\bDELETE\s+FROM\s+company_file_upload_requests\b/i;
+  const violations = [
+    ...sourceFiles(join(root, 'app')),
+    ...sourceFiles(join(root, 'lib')),
+  ]
+    .filter((file) => forbidden.test(readFileSync(file, 'utf8')))
+    .map((file) => relative(root, file));
+
+  assert.deepEqual(violations, [], 'upload tombstones must remain durable');
+});
