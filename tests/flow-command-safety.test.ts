@@ -224,6 +224,23 @@ async function fixture() {
   await commitFlow(initial, flow);
   return (await readFlow(caseId))!;
 }
+async function fixtureWithAttachment() {
+  const flow = await fixture();
+  const response = await POST(
+    request(
+      flow.caseId,
+      { type: 'save_report', stage: 1, body, fileConsent: true },
+      flow.revision,
+      undefined,
+      adminEmail,
+      new File(['SYNTHETIC_ORIGINAL'], 'report.txt', { type: 'text/plain' }),
+    ),
+    context(flow.caseId),
+  );
+  assert.equal(response.status, 200, await response.clone().text());
+  const saved = (await readFlow(flow.caseId))!;
+  return { saved, file: saved.files[0] };
+}
 async function suspend() {
   const state = (await readPortalState()) as {
     members: Array<{ status: string }>;
@@ -608,6 +625,50 @@ void test('FLOW attachment download rechecks suspension after R2 resolves', asyn
   }
   assert.ok(await bucket.get(file.key));
   assert.deepEqual(await readFlow(flow.caseId), saved);
+});
+
+void test('FLOW attachment download rejects an R2 body whose size differs from stored metadata', async () => {
+  const { saved, file } = await fixtureWithAttachment(),
+    bucket = flowBucket();
+  await bucket.put(file.key, 'BAD');
+  const response = await download(
+    request(saved.caseId, undefined),
+    { params: Promise.resolve({ caseId: saved.caseId, fileId: file.id }) },
+  );
+  assert.equal(response.status, 409, await response.clone().text());
+  assert.match(
+    ((await response.json()) as { error: string }).error,
+    /보관 상태/,
+  );
+  assert.deepEqual(await readFlow(saved.caseId), saved);
+  assert.equal((await bucket.head(file.key))?.size, 3);
+});
+
+void test('FLOW attachment download rejects a stored size change committed while R2 resolves', async () => {
+  const { saved, file } = await fixtureWithAttachment(),
+    bucket = flowBucket(),
+    get = bucket.get.bind(bucket);
+  bucket.get = async (...args: Parameters<R2Bucket['get']>) => {
+    const object = await get(...args);
+    const current = (await readFlow(saved.caseId))!,
+      changed = structuredClone(current);
+    changed.files[0].size += 1;
+    changed.revision += 1;
+    changed.updatedAt = new Date().toISOString();
+    await commitFlow(current, changed);
+    return object;
+  };
+  try {
+    const response = await download(
+      request(saved.caseId, undefined),
+      { params: Promise.resolve({ caseId: saved.caseId, fileId: file.id }) },
+    );
+    assert.equal(response.status, 409, await response.clone().text());
+  } finally {
+    bucket.get = get;
+  }
+  assert.equal((await readFlow(saved.caseId))!.files[0].size, file.size + 1);
+  assert.equal((await bucket.head(file.key))?.size, file.size);
 });
 
 void test('all representative-only FLOW commands refuse partners without mutation or network calls', async () => {

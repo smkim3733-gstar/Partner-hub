@@ -19,6 +19,7 @@ import { GET as getState, PUT as saveState } from '@/app/api/state/route';
 import { POST as registerChatGPT } from '@/app/api/register/route';
 import { POST as createPartner } from '@/app/api/admin/partners/route';
 import { GET as getFlow, POST as postFlow } from '@/app/api/consulting-flow/[caseId]/route';
+import { GET as getFlowFile } from '@/app/api/consulting-flow/[caseId]/files/[fileId]/route';
 import { GET as getFile, DELETE as deleteFile } from '@/app/api/files/[id]/route';
 import { POST as uploadFile } from '@/app/api/files/route';
 import { GET as intakeFiles } from '@/app/api/consulting-flow/[caseId]/intake-files/route';
@@ -32,6 +33,10 @@ export default { async fetch(request) {
   if (pathname === '/inventory' && request.method === 'GET') return getInventory(request);
   if (pathname.startsWith('/recovery/') && ['GET', 'POST'].includes(request.method)) return (request.method === 'GET' ? previewRecovery : recoverOriginal)(request, { params: Promise.resolve({ id: pathname.slice(10) }) });
   if (pathname.startsWith('/inventory/') && request.method === 'GET') return getInventoryPresence(request, { params: Promise.resolve({ id: pathname.slice(11) }) });
+  if (pathname.startsWith('/flow-file/') && request.method === 'GET') {
+    const [caseId, fileId] = pathname.slice(11).split('/');
+    return getFlowFile(request, { params: Promise.resolve({ caseId, fileId }) });
+  }
   if (pathname.startsWith('/flow/') && ['GET', 'POST'].includes(request.method)) return (request.method === 'GET' ? getFlow : postFlow)(request, { params: Promise.resolve({ caseId: pathname.slice(6) }) });
   if (pathname.startsWith('/intake/') && request.method === 'GET') return intakeFiles(request, { params: Promise.resolve({ caseId: pathname.slice(8) }) });
   if (pathname.startsWith('/files/') && ['GET', 'DELETE'].includes(request.method)) return (request.method === 'GET' ? getFile : deleteFile)(request, { params: Promise.resolve({ id: pathname.slice(7) }) });
@@ -1873,6 +1878,50 @@ try {
   assert.equal(
     (await bucket.head(privateMimeFile.key)).httpMetadata.contentType,
     'text/plain',
+  );
+  const flowFileBytes = new TextEncoder().encode('SYNTHETIC_FLOW_MIME');
+  await bucket.put(
+    privateMimeFile.key,
+    flowFileBytes.subarray(0, flowFileBytes.byteLength - 1),
+  );
+  const corruptFlowDownload = await expect(
+    await call(
+      `/flow-file/runtime-own/${privateMimeFile.id}`,
+      undefined,
+      ownerHeaders,
+    ),
+    409,
+    'FLOW attachment download rejects a native R2 body with the wrong size',
+  );
+  assertPrivateAuthResponse(corruptFlowDownload);
+  assert.match((await corruptFlowDownload.json()).error, /보관 상태/);
+  assert.equal(
+    JSON.parse(
+      (
+        await db
+          .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+          .bind('runtime-own')
+          .first()
+      ).payload,
+    ).files.at(-1).size,
+    flowFileBytes.byteLength,
+  );
+  checks.push('corrupt FLOW download denial preserves stored file size');
+  await bucket.put(privateMimeFile.key, flowFileBytes, {
+    httpMetadata: { contentType: 'text/plain' },
+  });
+  const restoredFlowDownload = await expect(
+    await call(
+      `/flow-file/runtime-own/${privateMimeFile.id}`,
+      undefined,
+      ownerHeaders,
+    ),
+    200,
+    'FLOW attachment download resumes after native R2 size is restored',
+  );
+  assert.deepEqual(
+    new Uint8Array(await restoredFlowDownload.arrayBuffer()),
+    flowFileBytes,
   );
   assert.deepEqual(
     Object.keys(privateMimeFlow.commandReceipts[mimeCommand.commandId]).sort(),
