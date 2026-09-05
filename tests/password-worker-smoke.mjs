@@ -1953,13 +1953,35 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  await db
+    .prepare('UPDATE consulting_flows SET updated_at = ?1 WHERE case_id = ?2')
+    .bind('2020-01-01T00:00:00.000Z', 'runtime-own')
+    .run();
+  const mismatchedTimestampRead = await expect(
+    await call('/flow/runtime-own', undefined, ownerHeaders),
+    503,
+    'FLOW detail rejects a native D1 row and payload timestamp mismatch',
+  );
+  assertPrivateAuthResponse(mismatchedTimestampRead);
+  assert.match((await mismatchedTimestampRead.json()).error, /무결성/);
+  const mismatchedTimestampDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects a native D1 row and projected payload timestamp mismatch',
+  );
+  assertPrivateAuthResponse(mismatchedTimestampDashboard);
+  assert.match((await mismatchedTimestampDashboard.json()).error, /무결성/);
+  await db
+    .prepare('UPDATE consulting_flows SET updated_at = ?1 WHERE case_id = ?2')
+    .bind(JSON.parse(intactFlowPayload).updatedAt, 'runtime-own')
+    .run();
   await expect(
     await call('/flow/runtime-own', undefined, { cookie }),
     200,
     'FLOW detail resumes after the native D1 payload identity is restored',
   );
   checks.push(
-    'FLOW D1 row identity guards detail ACL and dashboard projection',
+    'FLOW D1 row identity and timestamp guard detail ACL and dashboard projection',
   );
   assert.deepEqual(
     Object.keys(privateMimeFlow.commandReceipts[mimeCommand.commandId]).sort(),
@@ -2762,10 +2784,30 @@ try {
     'generic owner state save rejects a duplicate case ID',
   );
   for (const [mutate, label] of [
-    [(state) => { state.cases[0].company = ' '; }, 'blank case company'],
-    [(state) => { state.cases[0].trainee = '가상 런타임파트너 '; }, 'padded case trainee'],
-    [(state) => { state.cases[0].partnerMemberId = 'missing-runtime-member'; }, 'orphaned case assignment'],
-    [(state) => { state.cases[0].partnerMemberId = null; }, 'non-string case assignment'],
+    [
+      (state) => {
+        state.cases[0].company = ' ';
+      },
+      'blank case company',
+    ],
+    [
+      (state) => {
+        state.cases[0].trainee = '가상 런타임파트너 ';
+      },
+      'padded case trainee',
+    ],
+    [
+      (state) => {
+        state.cases[0].partnerMemberId = 'missing-runtime-member';
+      },
+      'orphaned case assignment',
+    ],
+    [
+      (state) => {
+        state.cases[0].partnerMemberId = null;
+      },
+      'non-string case assignment',
+    ],
   ]) {
     const invalidCaseState = structuredClone(cleanMemberIdState);
     mutate(invalidCaseState);
@@ -2821,7 +2863,10 @@ try {
     },
     {
       field: 'companyDocuments',
-      record: { ...validOperationalRecords.companyDocuments, category: '미분류' },
+      record: {
+        ...validOperationalRecords.companyDocuments,
+        category: '미분류',
+      },
       label: 'unsupported document category',
     },
     {
@@ -2838,7 +2883,12 @@ try {
     const invalidOperationalState = structuredClone(cleanMemberIdState);
     invalidOperationalState[field] = [record];
     await expect(
-      await call('/save', { state: invalidOperationalState }, ownerHeaders, 'PUT'),
+      await call(
+        '/save',
+        { state: invalidOperationalState },
+        ownerHeaders,
+        'PUT',
+      ),
       403,
       `generic owner state save rejects ${label}`,
     );
@@ -2853,11 +2903,18 @@ try {
       label: 'incomplete document original metadata',
     },
     {
-      records: [{ ...validOperationalRecords.companyDocuments, fileName: '../source.pdf' }],
+      records: [
+        {
+          ...validOperationalRecords.companyDocuments,
+          fileName: '../source.pdf',
+        },
+      ],
       label: 'unsafe legacy document filename',
     },
     {
-      records: [{ ...validOperationalRecords.companyDocuments, fileSize: 1_024 }],
+      records: [
+        { ...validOperationalRecords.companyDocuments, fileSize: 1_024 },
+      ],
       label: 'document file size without an original ID',
     },
     {
@@ -2875,7 +2932,12 @@ try {
     const invalidFileMetadataState = structuredClone(cleanMemberIdState);
     invalidFileMetadataState.companyDocuments = records;
     await expect(
-      await call('/save', { state: invalidFileMetadataState }, ownerHeaders, 'PUT'),
+      await call(
+        '/save',
+        { state: invalidFileMetadataState },
+        ownerHeaders,
+        'PUT',
+      ),
       403,
       `generic owner state save rejects ${label}`,
     );
@@ -2949,10 +3011,7 @@ try {
         )
         .run();
     if (includeObject)
-      await bucket.put(
-        `company-source/${fileId}`,
-        new Uint8Array(objectSize),
-      );
+      await bucket.put(`company-source/${fileId}`, new Uint8Array(objectSize));
   }
   const missingProvenanceState = structuredClone(cleanMemberIdState);
   missingProvenanceState.companyDocuments = [
@@ -2960,21 +3019,11 @@ try {
     provenanceDocument('worker-provenance-missing'),
   ];
   await expect(
-    await call(
-      '/save',
-      { state: missingProvenanceState },
-      ownerHeaders,
-      'PUT',
-    ),
+    await call('/save', { state: missingProvenanceState }, ownerHeaders, 'PUT'),
     409,
     'generic state save rejects a document original absent from the D1 ledger',
   );
-  for (const {
-    fileId,
-    seedOptions,
-    documentOverrides = {},
-    label,
-  } of [
+  for (const { fileId, seedOptions, documentOverrides = {}, label } of [
     {
       fileId: 'worker-provenance-mismatch',
       seedOptions: {},
@@ -3038,12 +3087,7 @@ try {
       provenanceDocument(fileId),
     ];
     await expect(
-      await call(
-        '/save',
-        { state: validProvenanceState },
-        ownerHeaders,
-        'PUT',
-      ),
+      await call('/save', { state: validProvenanceState }, ownerHeaders, 'PUT'),
       200,
       `generic state save links ${label}`,
     );
@@ -3076,7 +3120,9 @@ try {
       assert.equal(
         (
           await db
-            .prepare('SELECT size_bytes FROM company_file_objects WHERE id = ?1')
+            .prepare(
+              'SELECT size_bytes FROM company_file_objects WHERE id = ?1',
+            )
             .bind(fileId)
             .first()
         ).size_bytes,
@@ -3105,19 +3151,41 @@ try {
     ['schedule', 'schedule'],
   ]) {
     for (const { record, reason } of [
-      { record: { ...validOperationalRecords[field], id: `invalid-${label}-case-runtime`, caseId: 'missing-runtime-case' }, reason: 'unresolved case link' },
-      { record: { ...validOperationalRecords[field], id: `invalid-${label}-member-runtime`, partnerMemberId: 'missing-runtime-member' }, reason: 'unresolved member link' },
-      { record: {
-        ...validOperationalRecords[field],
-        id: `invalid-${label}-conflict-runtime`,
-        caseId: cleanMemberIdState.cases[0].id,
-        partnerMemberId: peerId,
-      }, reason: 'conflicting case and member link' },
+      {
+        record: {
+          ...validOperationalRecords[field],
+          id: `invalid-${label}-case-runtime`,
+          caseId: 'missing-runtime-case',
+        },
+        reason: 'unresolved case link',
+      },
+      {
+        record: {
+          ...validOperationalRecords[field],
+          id: `invalid-${label}-member-runtime`,
+          partnerMemberId: 'missing-runtime-member',
+        },
+        reason: 'unresolved member link',
+      },
+      {
+        record: {
+          ...validOperationalRecords[field],
+          id: `invalid-${label}-conflict-runtime`,
+          caseId: cleanMemberIdState.cases[0].id,
+          partnerMemberId: peerId,
+        },
+        reason: 'conflicting case and member link',
+      },
     ]) {
       const invalidRelatedState = structuredClone(cleanMemberIdState);
       invalidRelatedState[field] = [record];
       await expect(
-        await call('/save', { state: invalidRelatedState }, ownerHeaders, 'PUT'),
+        await call(
+          '/save',
+          { state: invalidRelatedState },
+          ownerHeaders,
+          'PUT',
+        ),
         403,
         `generic owner state save rejects ${reason} on ${label}`,
       );
@@ -3133,10 +3201,25 @@ try {
     tone: 'blue',
   };
   for (const { records, label } of [
-    { records: [{ ...validTimelineRecord, title: ' ' }], label: 'blank timeline title' },
-    { records: [{ ...validTimelineRecord, caseId: 'missing-runtime-case' }], label: 'unresolved timeline case link' },
-    { records: [{ ...validTimelineRecord, id: null }], label: 'non-string timeline stable ID' },
-    { records: [validTimelineRecord, { ...validTimelineRecord, caseId: cleanMemberIdState.cases.at(-1).id }], label: 'duplicate timeline stable ID' },
+    {
+      records: [{ ...validTimelineRecord, title: ' ' }],
+      label: 'blank timeline title',
+    },
+    {
+      records: [{ ...validTimelineRecord, caseId: 'missing-runtime-case' }],
+      label: 'unresolved timeline case link',
+    },
+    {
+      records: [{ ...validTimelineRecord, id: null }],
+      label: 'non-string timeline stable ID',
+    },
+    {
+      records: [
+        validTimelineRecord,
+        { ...validTimelineRecord, caseId: cleanMemberIdState.cases.at(-1).id },
+      ],
+      label: 'duplicate timeline stable ID',
+    },
   ]) {
     const invalidTimelineState = structuredClone(cleanMemberIdState);
     invalidTimelineState.timeline = records;
@@ -3147,16 +3230,39 @@ try {
     );
   }
   for (const [mutate, label] of [
-    [(state) => { state.version = 2; }, 'unsupported state version'],
-    [(state) => { state.consultationNumber = -1; }, 'negative consultation counter'],
-    [(state) => { state.membersRevision = 1.5; }, 'fractional member revision'],
-    [(state) => { state.diagnosisAssessments = [null]; }, 'non-object diagnosis record'],
-    [(state) => {
-      state.diagnosisAssessments = [
-        { id: 'diagnosis-collision-runtime' },
-        { id: 'diagnosis-collision-runtime' },
-      ];
-    }, 'duplicate diagnosis ID'],
+    [
+      (state) => {
+        state.version = 2;
+      },
+      'unsupported state version',
+    ],
+    [
+      (state) => {
+        state.consultationNumber = -1;
+      },
+      'negative consultation counter',
+    ],
+    [
+      (state) => {
+        state.membersRevision = 1.5;
+      },
+      'fractional member revision',
+    ],
+    [
+      (state) => {
+        state.diagnosisAssessments = [null];
+      },
+      'non-object diagnosis record',
+    ],
+    [
+      (state) => {
+        state.diagnosisAssessments = [
+          { id: 'diagnosis-collision-runtime' },
+          { id: 'diagnosis-collision-runtime' },
+        ];
+      },
+      'duplicate diagnosis ID',
+    ],
   ]) {
     const invalidMetadataState = structuredClone(cleanMemberIdState);
     mutate(invalidMetadataState);
@@ -3191,14 +3297,22 @@ try {
       label: 'inconsistent diagnosis decision',
     },
     {
-      assessment: { ...validDiagnosisAssessment, caseId: 'unknown-case-runtime' },
+      assessment: {
+        ...validDiagnosisAssessment,
+        caseId: 'unknown-case-runtime',
+      },
       label: 'unlinked diagnosis case',
     },
   ]) {
     const invalidDiagnosisState = structuredClone(cleanMemberIdState);
     invalidDiagnosisState.diagnosisAssessments = [assessment];
     await expect(
-      await call('/save', { state: invalidDiagnosisState }, ownerHeaders, 'PUT'),
+      await call(
+        '/save',
+        { state: invalidDiagnosisState },
+        ownerHeaders,
+        'PUT',
+      ),
       403,
       `generic owner state save rejects ${label}`,
     );
@@ -3207,10 +3321,7 @@ try {
   protectedFileMetadataState.companyDocuments = [validStoredDocument];
   await db
     .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
-    .bind(
-      JSON.stringify(protectedFileMetadataState),
-      new Date().toISOString(),
-    )
+    .bind(JSON.stringify(protectedFileMetadataState), new Date().toISOString())
     .run();
   for (const { records, label } of [
     {
@@ -3222,14 +3333,23 @@ try {
       label: 'changing an existing document original filename',
     },
     {
-      records: [{ ...validStoredDocument, storageFileId: 'stored-file-replacement' }],
+      records: [
+        { ...validStoredDocument, storageFileId: 'stored-file-replacement' },
+      ],
       label: 'replacing an existing document original ID',
     },
   ]) {
-    const changedFileMetadataState = structuredClone(protectedFileMetadataState);
+    const changedFileMetadataState = structuredClone(
+      protectedFileMetadataState,
+    );
     changedFileMetadataState.companyDocuments = records;
     await expect(
-      await call('/save', { state: changedFileMetadataState }, ownerHeaders, 'PUT'),
+      await call(
+        '/save',
+        { state: changedFileMetadataState },
+        ownerHeaders,
+        'PUT',
+      ),
       409,
       `generic owner state save rejects ${label}`,
     );
@@ -3252,7 +3372,9 @@ try {
       label: 'malformed document original ID',
     },
     {
-      records: [{ ...validOperationalRecords.companyDocuments, fileSize: 1_024 }],
+      records: [
+        { ...validOperationalRecords.companyDocuments, fileSize: 1_024 },
+      ],
       label: 'document file size without an original ID',
     },
     {
@@ -3296,7 +3418,10 @@ try {
     },
     {
       field: 'companyDocuments',
-      record: { ...validOperationalRecords.companyDocuments, sensitive: 'true' },
+      record: {
+        ...validOperationalRecords.companyDocuments,
+        sensitive: 'true',
+      },
       label: 'non-boolean document sensitivity',
     },
     {
@@ -3331,16 +3456,39 @@ try {
     );
   }
   for (const [mutate, label] of [
-    [(state) => { state.version = 2; }, 'unsupported state version'],
-    [(state) => { state.consultationNumber = -1; }, 'negative consultation counter'],
-    [(state) => { state.membersRevision = 1.5; }, 'fractional member revision'],
-    [(state) => { state.diagnosisAssessments = [null]; }, 'non-object diagnosis record'],
-    [(state) => {
-      state.diagnosisAssessments = [
-        { id: 'diagnosis-collision-runtime' },
-        { id: 'diagnosis-collision-runtime' },
-      ];
-    }, 'duplicate diagnosis ID'],
+    [
+      (state) => {
+        state.version = 2;
+      },
+      'unsupported state version',
+    ],
+    [
+      (state) => {
+        state.consultationNumber = -1;
+      },
+      'negative consultation counter',
+    ],
+    [
+      (state) => {
+        state.membersRevision = 1.5;
+      },
+      'fractional member revision',
+    ],
+    [
+      (state) => {
+        state.diagnosisAssessments = [null];
+      },
+      'non-object diagnosis record',
+    ],
+    [
+      (state) => {
+        state.diagnosisAssessments = [
+          { id: 'diagnosis-collision-runtime' },
+          { id: 'diagnosis-collision-runtime' },
+        ];
+      },
+      'duplicate diagnosis ID',
+    ],
   ]) {
     const invalidStoredState = structuredClone(cleanMemberIdState);
     mutate(invalidStoredState);
@@ -3370,7 +3518,10 @@ try {
       label: 'non-boolean diagnosis consent',
     },
     {
-      assessment: { ...validDiagnosisAssessment, caseId: 'unknown-case-runtime' },
+      assessment: {
+        ...validDiagnosisAssessment,
+        caseId: 'unknown-case-runtime',
+      },
       label: 'unlinked diagnosis case',
     },
   ]) {
@@ -3400,17 +3551,24 @@ try {
     );
   }
   for (const [mutate, label] of [
-    [(state) => { state.cases[0].trainee = ''; }, 'blank case trainee'],
-    [(state) => { state.cases[0].partnerMemberId = 'missing-runtime-member'; }, 'orphaned case assignment'],
+    [
+      (state) => {
+        state.cases[0].trainee = '';
+      },
+      'blank case trainee',
+    ],
+    [
+      (state) => {
+        state.cases[0].partnerMemberId = 'missing-runtime-member';
+      },
+      'orphaned case assignment',
+    ],
   ]) {
     const invalidStoredCaseState = structuredClone(cleanMemberIdState);
     mutate(invalidStoredCaseState);
     await db
       .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
-      .bind(
-        JSON.stringify(invalidStoredCaseState),
-        new Date().toISOString(),
-      )
+      .bind(JSON.stringify(invalidStoredCaseState), new Date().toISOString())
       .run();
     await expect(
       await call('/state', undefined, { cookie: structuralCookie }),
@@ -3434,18 +3592,17 @@ try {
     ['schedule', 'schedule'],
   ]) {
     const invalidStoredRelatedState = structuredClone(cleanMemberIdState);
-    invalidStoredRelatedState[field] = [{
-      ...validOperationalRecords[field],
-      id: `stored-${label}-conflict-runtime`,
-      caseId: cleanMemberIdState.cases[0].id,
-      partnerMemberId: peerId,
-    }];
+    invalidStoredRelatedState[field] = [
+      {
+        ...validOperationalRecords[field],
+        id: `stored-${label}-conflict-runtime`,
+        caseId: cleanMemberIdState.cases[0].id,
+        partnerMemberId: peerId,
+      },
+    ];
     await db
       .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
-      .bind(
-        JSON.stringify(invalidStoredRelatedState),
-        new Date().toISOString(),
-      )
+      .bind(JSON.stringify(invalidStoredRelatedState), new Date().toISOString())
       .run();
     await expect(
       await call('/state', undefined, { cookie: structuralCookie }),
@@ -3464,9 +3621,21 @@ try {
     );
   }
   for (const { records, label } of [
-    { records: [{ ...validTimelineRecord, detail: '' }], label: 'blank timeline detail' },
-    { records: [{ ...validTimelineRecord, caseId: 'missing-runtime-case' }], label: 'unresolved timeline case link' },
-    { records: [validTimelineRecord, { ...validTimelineRecord, caseId: cleanMemberIdState.cases.at(-1).id }], label: 'duplicate timeline stable ID' },
+    {
+      records: [{ ...validTimelineRecord, detail: '' }],
+      label: 'blank timeline detail',
+    },
+    {
+      records: [{ ...validTimelineRecord, caseId: 'missing-runtime-case' }],
+      label: 'unresolved timeline case link',
+    },
+    {
+      records: [
+        validTimelineRecord,
+        { ...validTimelineRecord, caseId: cleanMemberIdState.cases.at(-1).id },
+      ],
+      label: 'duplicate timeline stable ID',
+    },
   ]) {
     const invalidStoredTimelineState = structuredClone(cleanMemberIdState);
     invalidStoredTimelineState.timeline = records;
@@ -3632,9 +3801,8 @@ try {
     'generic owner state save rejects a non-string member email',
   );
   const malformedNameState = structuredClone(cleanMemberIdState);
-  malformedNameState.members.find(
-    (member) => member.id === memberId,
-  ).name = null;
+  malformedNameState.members.find((member) => member.id === memberId).name =
+    null;
   malformedNameState.members.find(
     (member) => member.id === chatGPTOwnedMember.id,
   ).name = null;
@@ -3678,10 +3846,7 @@ try {
   ).email = null;
   await db
     .prepare('UPDATE portal_state SET payload = ?1, updated_at = ?2')
-    .bind(
-      JSON.stringify(malformedBoundEmailState),
-      new Date().toISOString(),
-    )
+    .bind(JSON.stringify(malformedBoundEmailState), new Date().toISOString())
     .run();
   await expect(
     await call('/state', undefined, {
@@ -3799,7 +3964,12 @@ try {
     createdBy: 'forged-runtime@example.invalid',
   };
   await expect(
-    await call('/save', { state: protectedMemberFieldsState }, ownerHeaders, 'PUT'),
+    await call(
+      '/save',
+      { state: protectedMemberFieldsState },
+      ownerHeaders,
+      'PUT',
+    ),
     200,
     'generic owner state save preserves server-owned member audit fields',
   );
@@ -4094,7 +4264,12 @@ try {
     (task) => task.id !== 'disposable-linked-task-runtime',
   );
   await expect(
-    await call('/save', { state: unlinkedDisposableState }, ownerHeaders, 'PUT'),
+    await call(
+      '/save',
+      { state: unlinkedDisposableState },
+      ownerHeaders,
+      'PUT',
+    ),
     200,
     'owner removes the disposable account assignment before deletion',
   );

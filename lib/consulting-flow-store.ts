@@ -44,6 +44,7 @@ type StoredFlowRow = {
   case_id: string;
   partner_id: string;
   revision: number;
+  updated_at: string;
   payload: string | null;
 };
 const storedFlowIntegrityError = () =>
@@ -51,6 +52,10 @@ const storedFlowIntegrityError = () =>
     '저장된 상담 FLOW 무결성을 확인할 수 없습니다. 관리자 복구가 필요합니다.',
     503,
   );
+const validFlowTimestamp = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  value.length > 0 &&
+  Number.isFinite(Date.parse(value));
 function storedFlowFromRow(
   row: StoredFlowRow,
   expectedCaseId?: string,
@@ -76,7 +81,10 @@ function storedFlowFromRow(
     (expectedCaseId !== undefined && flow.caseId !== expectedCaseId) ||
     flow.partnerId !== row.partner_id ||
     !Number.isSafeInteger(flow.revision) ||
-    flow.revision !== row.revision
+    flow.revision !== row.revision ||
+    !validFlowTimestamp(row.updated_at) ||
+    !validFlowTimestamp(flow.updatedAt) ||
+    flow.updatedAt !== row.updated_at
   )
     throw storedFlowIntegrityError();
   return flow;
@@ -86,7 +94,7 @@ export async function readFlow(caseId: string): Promise<ConsultingFlow | null> {
     await flowDatabase()
   )
     .prepare(
-      'SELECT case_id, partner_id, revision, payload FROM consulting_flows WHERE case_id = ?1',
+      'SELECT case_id, partner_id, revision, updated_at, payload FROM consulting_flows WHERE case_id = ?1',
     )
     .bind(caseId)
     .first<StoredFlowRow>();
@@ -102,7 +110,7 @@ export async function stateWithConsultingFlows(raw: unknown) {
     await flowDatabase()
   )
     // Project inside SQLite: a dashboard refresh must not load every firm's report or transcript.
-    .prepare(`SELECT case_id, partner_id, revision,
+    .prepare(`SELECT case_id, partner_id, revision, updated_at,
       CASE WHEN json_valid(payload) THEN json_set(
         json_remove(payload, '$.files', '$.ai.sourceText', '$.audit', '$.commandIds', '$.commandReceipts', '$.jobs'),
         '$.reports', json((SELECT json_group_array(json_object(
@@ -124,12 +132,35 @@ export async function stateWithConsultingFlows(raw: unknown) {
     );
   return projected;
 }
+function assertFlowCommitTransition(
+  before: ConsultingFlow,
+  after: ConsultingFlow,
+) {
+  if (
+    before.schemaVersion !== 1 ||
+    after.schemaVersion !== 1 ||
+    typeof before.caseId !== 'string' ||
+    !before.caseId ||
+    after.caseId !== before.caseId ||
+    typeof before.partnerId !== 'string' ||
+    !before.partnerId ||
+    after.partnerId !== before.partnerId ||
+    !Number.isSafeInteger(before.revision) ||
+    before.revision < 0 ||
+    !Number.isSafeInteger(after.revision) ||
+    after.revision !== before.revision + 1 ||
+    (before.revision > 0 && !validFlowTimestamp(before.updatedAt)) ||
+    !validFlowTimestamp(after.updatedAt)
+  )
+    throw storedFlowIntegrityError();
+}
 export async function commitFlow(
   before: ConsultingFlow,
   after: ConsultingFlow,
   statePayload?: string | null,
 ) {
   if (after === before) return;
+  assertFlowCommitTransition(before, after);
   const payload = JSON.stringify(after);
   if (new TextEncoder().encode(payload).length > 1_800_000)
     throw new FlowError(

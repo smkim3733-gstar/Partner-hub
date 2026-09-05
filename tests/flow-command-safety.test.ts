@@ -273,13 +273,7 @@ void test('FLOW rejects a payload partner identity mismatch before access contro
     partnerId: 'other',
   }));
   const response = await GET(
-    request(
-      flow.caseId,
-      undefined,
-      0,
-      undefined,
-      'other-flow@example.invalid',
-    ),
+    request(flow.caseId, undefined, 0, undefined, 'other-flow@example.invalid'),
     context(flow.caseId),
   );
   assert.equal(response.status, 503, await response.clone().text());
@@ -313,6 +307,77 @@ void test('FLOW isolates malformed stored JSON from detail and dashboard reads',
   await db
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind('{malformed', flow.caseId)
+    .run();
+  await assert.rejects(
+    readFlow(flow.caseId),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    stateWithConsultingFlows(await readPortalState()),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+});
+
+void test('FLOW commit refuses case and partner identity changes before D1 writes', async () => {
+  for (const field of ['caseId', 'partnerId'] as const) {
+    const initial = newConsultingFlow(
+      `flow-transition-${field}-${++sequence}`,
+      '가상기업',
+      partner.id,
+      partner.name,
+    );
+    const changed = {
+      ...initial,
+      [field]: `${initial[field]}-changed`,
+      revision: 1,
+      updatedAt: new Date().toISOString(),
+    };
+    await assert.rejects(
+      commitFlow(initial, changed),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    assert.equal(await readFlow(initial.caseId), null);
+    assert.equal(await readFlow(changed.caseId), null);
+  }
+});
+
+void test('FLOW commit requires exactly one revision and a valid stored timestamp', async () => {
+  for (const revision of [0, 2]) {
+    const initial = newConsultingFlow(
+      `flow-transition-revision-${revision}-${++sequence}`,
+      '가상기업',
+      partner.id,
+      partner.name,
+    );
+    await assert.rejects(
+      commitFlow(initial, {
+        ...initial,
+        revision,
+        updatedAt: new Date().toISOString(),
+      }),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    assert.equal(await readFlow(initial.caseId), null);
+  }
+  const initial = newConsultingFlow(
+    `flow-transition-time-${++sequence}`,
+    '가상기업',
+    partner.id,
+    partner.name,
+  );
+  await assert.rejects(
+    commitFlow(initial, { ...initial, revision: 1, updatedAt: 'invalid' }),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  assert.equal(await readFlow(initial.caseId), null);
+});
+
+void test('FLOW rejects a D1 updated timestamp that differs from its payload', async () => {
+  const flow = await fixture();
+  const db = await flowDatabase();
+  await db
+    .prepare('UPDATE consulting_flows SET updated_at = ?1 WHERE case_id = ?2')
+    .bind('2020-01-01T00:00:00.000Z', flow.caseId)
     .run();
   await assert.rejects(
     readFlow(flow.caseId),
@@ -706,10 +771,9 @@ void test('FLOW attachment download rejects an R2 body whose size differs from s
   const { saved, file } = await fixtureWithAttachment(),
     bucket = flowBucket();
   await bucket.put(file.key, 'BAD');
-  const response = await download(
-    request(saved.caseId, undefined),
-    { params: Promise.resolve({ caseId: saved.caseId, fileId: file.id }) },
-  );
+  const response = await download(request(saved.caseId, undefined), {
+    params: Promise.resolve({ caseId: saved.caseId, fileId: file.id }),
+  });
   assert.equal(response.status, 409, await response.clone().text());
   assert.match(
     ((await response.json()) as { error: string }).error,
@@ -734,10 +798,9 @@ void test('FLOW attachment download rejects a stored size change committed while
     return object;
   };
   try {
-    const response = await download(
-      request(saved.caseId, undefined),
-      { params: Promise.resolve({ caseId: saved.caseId, fileId: file.id }) },
-    );
+    const response = await download(request(saved.caseId, undefined), {
+      params: Promise.resolve({ caseId: saved.caseId, fileId: file.id }),
+    });
     assert.equal(response.status, 409, await response.clone().text());
   } finally {
     bucket.get = get;
