@@ -169,6 +169,15 @@ try {
   const migrations = (await readdir(path.join(project, 'drizzle')))
     .filter((name) => /^\d+.*\.sql$/.test(name))
     .sort();
+  const migrationCompatibilityFile = {
+    id: 'migration-v159-file',
+    name: 'migration-v159.txt',
+    contentType: 'text/plain',
+    size: 15,
+    key: 'consulting-flow/migration-v159-file',
+    createdAt: '2026-09-05T00:00:00.000Z',
+    purpose: 'report',
+  };
   for (let pass = 0; pass < 2; pass++) {
     for (const name of migrations) {
       const migration = await readFile(
@@ -181,6 +190,35 @@ try {
         .map((s) => s.trim())
         .filter(Boolean))
         await db.prepare(sql).run();
+      if (pass === 0 && name === '0014_consulting_flow_file_owners.sql') {
+        await db
+          .prepare(
+            `INSERT INTO consulting_flows
+              (case_id, partner_id, revision, payload, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)`,
+          )
+          .bind(
+            'migration-v159-case',
+            'migration-v159-partner',
+            1,
+            JSON.stringify({ files: [migrationCompatibilityFile] }),
+            migrationCompatibilityFile.createdAt,
+          )
+          .run();
+        await db
+          .prepare(
+            `INSERT INTO consulting_flow_file_owners
+              (file_id, case_id, storage_key, created_at)
+            VALUES (?1, ?2, ?3, ?4)`,
+          )
+          .bind(
+            migrationCompatibilityFile.id,
+            'migration-v159-case',
+            migrationCompatibilityFile.key,
+            migrationCompatibilityFile.createdAt,
+          )
+          .run();
+      }
     }
   }
   assert.deepEqual(
@@ -192,6 +230,36 @@ try {
   checks.push(
     'all additive migrations can run twice without replacing existing state',
   );
+  assert.deepEqual(
+    await db
+      .prepare(
+        `SELECT original_name, content_type, size_bytes, purpose
+        FROM consulting_flow_file_metadata WHERE file_id = ?1`,
+      )
+      .bind(migrationCompatibilityFile.id)
+      .first(),
+    {
+      original_name: migrationCompatibilityFile.name,
+      content_type: migrationCompatibilityFile.contentType,
+      size_bytes: migrationCompatibilityFile.size,
+      purpose: migrationCompatibilityFile.purpose,
+    },
+  );
+  checks.push(
+    'version 159 ownership rows upgrade through additive metadata migration',
+  );
+  await db
+    .prepare('DELETE FROM consulting_flow_file_metadata WHERE file_id = ?1')
+    .bind(migrationCompatibilityFile.id)
+    .run();
+  await db
+    .prepare('DELETE FROM consulting_flow_file_owners WHERE file_id = ?1')
+    .bind(migrationCompatibilityFile.id)
+    .run();
+  await db
+    .prepare('DELETE FROM consulting_flows WHERE case_id = ?1')
+    .bind('migration-v159-case')
+    .run();
   await expect(await call('/state'), 401, 'anonymous private-state denial');
   await expect(
     await call('/signup', {
@@ -2271,18 +2339,26 @@ try {
   await db
     .prepare(
       `INSERT INTO consulting_flow_file_owners
-        (file_id, case_id, storage_key, original_name, content_type, size_bytes,
-          created_at, purpose)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+        (file_id, case_id, storage_key, created_at) VALUES (?1, ?2, ?3, ?4)`,
     )
     .bind(
       foreignOwnedFlowFile.id,
       'foreign-flow-case',
       foreignOwnedFlowFile.key,
+      foreignOwnedFlowFile.createdAt,
+    )
+    .run();
+  await db
+    .prepare(
+      `INSERT INTO consulting_flow_file_metadata
+        (file_id, original_name, content_type, size_bytes, purpose)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+    )
+    .bind(
+      foreignOwnedFlowFile.id,
       foreignOwnedFlowFile.name,
       foreignOwnedFlowFile.contentType,
       foreignOwnedFlowFile.size,
-      foreignOwnedFlowFile.createdAt,
       foreignOwnedFlowFile.purpose,
     )
     .run();

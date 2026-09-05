@@ -37,7 +37,10 @@ import {
 import { MAX_AI_SOURCE_BYTES } from '../lib/intake-source-policy';
 import { MAX_TRANSCRIPT_FILE_BYTES } from '../lib/transcript-policy';
 import { flowFileStorageKey } from '../lib/consulting-flow-file-policy';
-import { consultingFlowFileOwnersBackfillSql } from '../db/schema';
+import {
+  consultingFlowFileMetadataBackfillSql,
+  consultingFlowFileOwnersBackfillSql,
+} from '../db/schema';
 
 const partner = {
   id: 'safety-partner',
@@ -1183,6 +1186,10 @@ void test('FLOW metadata backfill restores every authoritative field for a clean
   const { saved, file } = await fixtureWithAttachment();
   const db = await flowDatabase();
   await db
+    .prepare('DELETE FROM consulting_flow_file_metadata WHERE file_id = ?1')
+    .bind(file.id)
+    .run();
+  await db
     .prepare('DELETE FROM consulting_flow_file_owners WHERE file_id = ?1')
     .bind(file.id)
     .run();
@@ -1191,12 +1198,15 @@ void test('FLOW metadata backfill restores every authoritative field for a clean
     (error) => error instanceof FlowError && error.status === 503,
   );
   await db.prepare(consultingFlowFileOwnersBackfillSql).run();
+  await db.prepare(consultingFlowFileMetadataBackfillSql).run();
   const owner = await db
     .prepare(
       `SELECT case_id, storage_key, original_name, content_type, size_bytes,
           created_at, purpose, intake_file_id, intake_source_hash,
           source_reviewed_at, source_reviewed_by
-        FROM consulting_flow_file_owners WHERE file_id = ?1`,
+        FROM consulting_flow_file_owners owner
+        JOIN consulting_flow_file_metadata metadata USING (file_id)
+        WHERE owner.file_id = ?1`,
     )
     .bind(file.id)
     .first<Record<string, unknown>>();
@@ -1252,7 +1262,7 @@ void test('FLOW source archival advances the authoritative purpose in the same c
         await flowDatabase()
       )
         .prepare(
-          'SELECT purpose FROM consulting_flow_file_owners WHERE file_id = ?1',
+          'SELECT purpose FROM consulting_flow_file_metadata WHERE file_id = ?1',
         )
         .bind(fileId)
         .first<{ purpose: string }>()

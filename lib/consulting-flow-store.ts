@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:workers';
 import {
+  consultingFlowFileMetadataTableSql,
   consultingFlowFileOwnersCaseIndexSql,
   consultingFlowFileOwnersTableSql,
   consultingFlowsTableSql,
@@ -64,6 +65,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsTableSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersCaseIndexSql),
+        db.prepare(consultingFlowFileMetadataTableSql),
       ])
       .then(() => undefined);
     flowDatabaseInitialization = initialization.catch((error) => {
@@ -224,54 +226,72 @@ const flowFileOwnershipViolationSql = (
     json_each(CASE WHEN json_valid(flow.payload) THEN flow.payload ELSE '{"files":[]}' END, '$.files') file
   LEFT JOIN consulting_flow_file_owners owner
     ON owner.file_id = json_extract(file.value, '$.id')
+  LEFT JOIN consulting_flow_file_metadata metadata
+    ON metadata.file_id = json_extract(file.value, '$.id')
   WHERE ${caseIdOnly ? 'flow.case_id = ?1 AND ' : ''}(
     owner.file_id IS NULL OR owner.case_id IS NOT flow.case_id OR
     owner.storage_key IS NOT json_extract(file.value, '$.key') OR
-    owner.original_name IS NOT json_extract(file.value, '$.name') OR
-    owner.content_type IS NOT json_extract(file.value, '$.contentType') OR
-    owner.size_bytes IS NOT json_extract(file.value, '$.size') OR
     owner.created_at IS NOT json_extract(file.value, '$.createdAt') OR
-    owner.purpose IS NOT json_extract(file.value, '$.purpose') OR
-    owner.intake_file_id IS NOT json_extract(file.value, '$.intakeFileId') OR
-    owner.intake_source_hash IS NOT json_extract(file.value, '$.intakeSourceHash') OR
-    owner.source_reviewed_at IS NOT json_extract(file.value, '$.sourceReviewedAt') OR
-    owner.source_reviewed_by IS NOT json_extract(file.value, '$.sourceReviewedBy'))
+    metadata.file_id IS NULL OR
+    metadata.original_name IS NOT json_extract(file.value, '$.name') OR
+    metadata.content_type IS NOT json_extract(file.value, '$.contentType') OR
+    metadata.size_bytes IS NOT json_extract(file.value, '$.size') OR
+    metadata.purpose IS NOT json_extract(file.value, '$.purpose') OR
+    metadata.intake_file_id IS NOT json_extract(file.value, '$.intakeFileId') OR
+    metadata.intake_source_hash IS NOT json_extract(file.value, '$.intakeSourceHash') OR
+    metadata.source_reviewed_at IS NOT json_extract(file.value, '$.sourceReviewedAt') OR
+    metadata.source_reviewed_by IS NOT json_extract(file.value, '$.sourceReviewedBy'))
   LIMIT 1`;
 const claimFlowFileOwnershipSql = `INSERT INTO consulting_flow_file_owners
-    (file_id, case_id, storage_key, original_name, content_type, size_bytes,
-      created_at, purpose, intake_file_id, intake_source_hash,
-      source_reviewed_at, source_reviewed_by)
-  SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12
+    (file_id, case_id, storage_key, created_at)
+  SELECT ?1, ?2, ?3, ?4
   WHERE EXISTS (SELECT 1 FROM consulting_flows
-      WHERE case_id = ?2 AND revision = ?13 AND payload = ?14)
+      WHERE case_id = ?2 AND revision = ?5 AND payload = ?6)
     AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners
       WHERE file_id = ?1 OR storage_key = ?3)
   UNION ALL
-  SELECT NULL, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12
+  SELECT NULL, ?2, ?3, ?4
   WHERE NOT EXISTS (SELECT 1 FROM consulting_flows
-      WHERE case_id = ?2 AND revision = ?13 AND payload = ?14)
+      WHERE case_id = ?2 AND revision = ?5 AND payload = ?6)
     OR EXISTS (SELECT 1 FROM consulting_flow_file_owners
       WHERE (file_id = ?1 OR storage_key = ?3)
         AND NOT (file_id = ?1 AND case_id = ?2 AND storage_key = ?3 AND
-          original_name = ?4 AND content_type = ?5 AND size_bytes = ?6 AND
-          created_at = ?7 AND purpose = ?8 AND intake_file_id IS ?9 AND
-          intake_source_hash IS ?10 AND source_reviewed_at IS ?11 AND
-          source_reviewed_by IS ?12))`;
-const transitionFlowFilePurposeSql = `INSERT INTO consulting_flow_file_owners
-    (file_id, case_id, storage_key, original_name, content_type, size_bytes,
-      created_at, purpose, intake_file_id, intake_source_hash,
-      source_reviewed_at, source_reviewed_by)
+          created_at = ?4))`;
+const claimFlowFileMetadataSql = `INSERT INTO consulting_flow_file_metadata
+    (file_id, original_name, content_type, size_bytes, purpose, intake_file_id,
+      intake_source_hash, source_reviewed_at, source_reviewed_by)
+  SELECT ?1, ?4, ?5, ?6, ?8, ?9, ?10, ?11, ?12
+  WHERE EXISTS (SELECT 1 FROM consulting_flows
+      WHERE case_id = ?2 AND revision = ?13 AND payload = ?14)
+    AND EXISTS (SELECT 1 FROM consulting_flow_file_owners
+      WHERE file_id = ?1 AND case_id = ?2 AND storage_key = ?3 AND created_at = ?7)
+    AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_metadata WHERE file_id = ?1)
+  UNION ALL
+  SELECT NULL, ?4, ?5, ?6, ?8, ?9, ?10, ?11, ?12
+  WHERE NOT EXISTS (SELECT 1 FROM consulting_flows
+      WHERE case_id = ?2 AND revision = ?13 AND payload = ?14)
+    OR NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners
+      WHERE file_id = ?1 AND case_id = ?2 AND storage_key = ?3 AND created_at = ?7)
+    OR EXISTS (SELECT 1 FROM consulting_flow_file_metadata WHERE file_id = ?1 AND
+      NOT (original_name = ?4 AND content_type = ?5 AND size_bytes = ?6 AND
+        purpose = ?8 AND intake_file_id IS ?9 AND intake_source_hash IS ?10 AND
+        source_reviewed_at IS ?11 AND source_reviewed_by IS ?12))`;
+const transitionFlowFilePurposeSql = `INSERT INTO consulting_flow_file_metadata
+    (file_id, original_name, content_type, size_bytes, purpose, intake_file_id,
+      intake_source_hash, source_reviewed_at, source_reviewed_by)
   SELECT CASE WHEN
     EXISTS (SELECT 1 FROM consulting_flows
       WHERE case_id = ?2 AND revision = ?14 AND payload = ?15) AND
-    EXISTS (SELECT 1 FROM consulting_flow_file_owners WHERE
-      file_id = ?1 AND case_id = ?2 AND storage_key = ?3 AND
-      original_name = ?4 AND content_type = ?5 AND size_bytes = ?6 AND
-      created_at = ?7 AND purpose = ?8 AND intake_file_id IS ?10 AND
+    EXISTS (SELECT 1 FROM consulting_flow_file_owners WHERE file_id = ?1 AND
+      case_id = ?2 AND storage_key = ?3 AND created_at = ?7) AND
+    EXISTS (SELECT 1 FROM consulting_flow_file_metadata WHERE
+      file_id = ?1 AND
+      original_name = ?4 AND content_type = ?5 AND size_bytes = ?6 AND purpose = ?8 AND
+      intake_file_id IS ?10 AND
       intake_source_hash IS ?11 AND source_reviewed_at IS ?12 AND
       source_reviewed_by IS ?13)
     THEN ?1 ELSE NULL END,
-    ?2, ?3, ?4, ?5, ?6, ?7, ?9, ?10, ?11, ?12, ?13
+    ?4, ?5, ?6, ?9, ?10, ?11, ?12, ?13
   ON CONFLICT(file_id) DO UPDATE SET purpose = excluded.purpose`;
 function flowFileOwnershipValues(file: FlowFile) {
   return [
@@ -694,9 +714,19 @@ export async function commitFlow(
               payload,
             );
         }),
-        ...newFiles.map((file) =>
+        ...newFiles.flatMap((file) => [
           db
             .prepare(claimFlowFileOwnershipSql)
+            .bind(
+              file.id,
+              after.caseId,
+              file.key,
+              file.createdAt,
+              after.revision,
+              payload,
+            ),
+          db
+            .prepare(claimFlowFileMetadataSql)
             .bind(
               file.id,
               after.caseId,
@@ -713,7 +743,7 @@ export async function commitFlow(
               after.revision,
               payload,
             ),
-        ),
+        ]),
       ]);
     } catch {
       throw new FlowError(
