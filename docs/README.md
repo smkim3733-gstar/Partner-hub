@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                     | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                  | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [상담 FLOW 첨부 다운로드 원본 크기 무결성 경계](FLOW_ATTACHMENT_DOWNLOAD_OBJECT_INTEGRITY_2026_09_05.md)       | FLOW 저장 크기와 R2 실제 크기 대조, 조회 중 변경·손상된 첨부 본문 반환 차단              |
 | [기업자료 다운로드 원본 크기 무결성 경계](COMPANY_FILE_DOWNLOAD_OBJECT_INTEGRITY_2026_09_05.md)                 | D1 원장과 R2 실제 크기 대조, 조회 중 메타데이터 변경과 손상 본문 반환 차단               |
 | [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)       | 포털 카드가 참조하는 원본의 직접·경합 삭제 차단과 D1/R2 보존                              |
 | [기업자료 원본 보관 원장 무결성 경계](COMPANY_DOCUMENT_FILE_PROVENANCE_INTEGRITY_2026_09_05.md)                | 새 원본 연결의 D1 권위값·업로드 상태·R2 존재 대조와 저장 직전 경쟁 차단                   |
