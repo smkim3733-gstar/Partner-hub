@@ -1410,6 +1410,51 @@ try {
   assert.equal(inventoryPresence.sizeMatches, true);
   assert.equal(inventoryPresence.integrityMode, 'etag');
   assert.equal(inventoryPresence.integrityMatches, true);
+  const inventoryIntegrityId = 'worker-inventory-integrity-missing';
+  const inventoryIntegrityCreatedAt = new Date().toISOString();
+  await db.batch([
+    db
+      .prepare(`INSERT INTO company_file_objects
+        (id, storage_key, original_name, company, category, title, assigned_trainee,
+          uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
+        VALUES (?1, ?2, 'integrity-missing.txt', '가상기업', '기타자료',
+          '무결성 원장 누락 점검', '가상 담당자', ?3, ?3, 'text/plain', 4, ?4)`)
+      .bind(
+        inventoryIntegrityId,
+        `company-source/${inventoryIntegrityId}`,
+        email,
+        inventoryIntegrityCreatedAt,
+      ),
+    db
+      .prepare(`INSERT INTO company_file_upload_requests
+        (owner_key, request_key, fingerprint, file_id, created_at, status)
+        VALUES (?1, 'worker-inventory-integrity-request', 'private-fingerprint', ?2, ?3, 'ready')`)
+      .bind(
+        `member:${memberId}`,
+        inventoryIntegrityId,
+        inventoryIntegrityCreatedAt,
+      ),
+  ]);
+  const inconsistentInventory = await (
+    await call('/inventory?status=inconsistent', undefined, ownerHeaders)
+  ).json();
+  assert.ok(
+    inconsistentInventory.items.some(
+      (item) =>
+        item.id === inventoryIntegrityId && item.status === 'inconsistent',
+    ),
+  );
+  checks.push(
+    'inventory classifies a missing company object-integrity ledger before R2 access',
+  );
+  await db.batch([
+    db
+      .prepare('DELETE FROM company_file_upload_requests WHERE file_id = ?1')
+      .bind(inventoryIntegrityId),
+    db
+      .prepare('DELETE FROM company_file_objects WHERE id = ?1')
+      .bind(inventoryIntegrityId),
+  ]);
   await db
     .prepare(
       "INSERT INTO company_file_upload_requests (owner_key, request_key, fingerprint, file_id, created_at, status) VALUES (?1, 'worker-inventory-request', 'private-fingerprint', 'worker-inventory-pending', ?2, 'pending')",

@@ -147,9 +147,20 @@ void test('actual document and intake references distinguish linked files from s
   await file('staged-only', 'ready', true, 'case-draft-not-submitted');
   await file('pending-record', 'pending', false);
   await file('metadata-missing', 'ready', false);
+  await file('integrity-missing', 'ready');
+  await file('integrity-mime-mismatch', 'ready');
   await file('deletion-incomplete', 'deleted');
   await file('deleted-reference', 'deleted', false);
   await file('deleted-complete', 'deleted', false);
+  await companyFileDatabase()
+    .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
+    .bind('integrity-missing')
+    .run();
+  await companyFileDatabase()
+    .prepare(`UPDATE company_file_object_integrity
+      SET r2_content_type = 'text/markdown' WHERE file_id = ?1`)
+    .bind('integrity-mime-mismatch')
+    .run();
   await (
     await flowDatabase()
   )
@@ -174,6 +185,8 @@ void test('actual document and intake references distinguish linked files from s
       'staged-only': 'unlinked',
       'pending-record': 'pending',
       'metadata-missing': 'inconsistent',
+      'integrity-missing': 'inconsistent',
+      'integrity-mime-mismatch': 'inconsistent',
       'flow-linked': 'linked',
       'document-linked': 'linked',
       'deletion-incomplete': 'deleted',

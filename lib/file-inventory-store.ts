@@ -117,14 +117,23 @@ export async function listFileInventory(
     candidates AS (
       SELECT f.id, f.original_name, f.company, f.title, f.category, f.size_bytes,
         f.created_at, f.assigned_trainee, a.partner_member_id, f.uploaded_by_email,
-        u.owner_key, c.case_id, u.status AS upload_status, 1 AS has_metadata
+        u.owner_key, c.case_id, u.status AS upload_status, 1 AS has_metadata,
+        CASE WHEN integrity.file_id IS NOT NULL
+          AND typeof(integrity.r2_content_type) = 'text'
+          AND integrity.r2_content_type = f.content_type
+          AND ((integrity.validation_mode = 'metadata' AND integrity.r2_etag IS NULL)
+            OR (integrity.validation_mode = 'etag'
+              AND typeof(integrity.r2_etag) = 'text'
+              AND length(trim(integrity.r2_etag)) BETWEEN 1 AND 256))
+          THEN 1 ELSE 0 END AS has_object_integrity
       FROM company_file_objects f
       LEFT JOIN company_file_assignments a ON a.file_id = f.id
       LEFT JOIN company_file_case_links c ON c.file_id = f.id
       LEFT JOIN company_file_upload_requests u ON u.file_id = f.id
+      LEFT JOIN company_file_object_integrity integrity ON integrity.file_id = f.id
       UNION ALL
       SELECT u.file_id, NULL, NULL, NULL, NULL, NULL, u.created_at, NULL, NULL, NULL,
-        u.owner_key, NULL, u.status, 0
+        u.owner_key, NULL, u.status, 0, 0
       FROM company_file_upload_requests u
       WHERE NOT EXISTS (SELECT 1 FROM company_file_objects f WHERE f.id = u.file_id)
         AND (u.status <> 'deleted' OR u.file_id IN (SELECT id FROM document_refs) OR u.file_id IN (SELECT id FROM flow_refs))
@@ -134,6 +143,7 @@ export async function listFileInventory(
         CASE WHEN upload_status = 'deleted' THEN 'deleted'
           WHEN upload_status = 'pending' THEN 'pending'
           WHEN has_metadata = 0 THEN 'inconsistent'
+          WHEN has_object_integrity = 0 THEN 'inconsistent'
           WHEN id IN (SELECT id FROM document_refs) OR id IN (SELECT id FROM flow_refs) THEN 'linked'
           ELSE 'unlinked' END AS status
       FROM candidates
