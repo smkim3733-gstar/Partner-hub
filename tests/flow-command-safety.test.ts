@@ -37,6 +37,7 @@ import {
 import { MAX_AI_SOURCE_BYTES } from '../lib/intake-source-policy';
 import { MAX_TRANSCRIPT_FILE_BYTES } from '../lib/transcript-policy';
 import { flowFileStorageKey } from '../lib/consulting-flow-file-policy';
+import { consultingFlowFileOwnersBackfillSql } from '../db/schema';
 
 const partner = {
   id: 'safety-partner',
@@ -1057,6 +1058,56 @@ void test('FLOW rejects stored filenames outside the canonical upload boundary b
       `unsafe name ${index} preserves R2`,
     );
   }
+});
+
+void test('FLOW rejects a file ID and key copied from another case before detail, dashboard and download', async () => {
+  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  const source = await fixtureWithAttachment();
+  const target = await fixture();
+  const copied = structuredClone(target);
+  copied.revision++;
+  copied.updatedAt = new Date().toISOString();
+  copied.files.push({ ...source.file });
+  await assert.rejects(
+    commitFlow(target, copied),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  assert.deepEqual(await readFlow(target.caseId), target);
+  await replaceStoredFlow(target.caseId, (payload) => {
+    (payload.files as Array<Record<string, unknown>>).push({ ...source.file });
+    return payload;
+  });
+  const db = await flowDatabase();
+  await db
+    .prepare('DELETE FROM consulting_flow_file_owners WHERE file_id = ?1')
+    .bind(source.file.id)
+    .run();
+  await db.prepare(consultingFlowFileOwnersBackfillSql).run();
+  assert.equal(
+    await db
+      .prepare(
+        'SELECT file_id FROM consulting_flow_file_owners WHERE file_id = ?1',
+      )
+      .bind(source.file.id)
+      .first(),
+    null,
+  );
+  await assert.rejects(
+    readFlow(target.caseId),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    stateWithConsultingFlows(await readPortalState()),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const response = await download(request(target.caseId, undefined), {
+    params: Promise.resolve({ caseId: target.caseId, fileId: source.file.id }),
+  });
+  assert.equal(response.status, 503, await response.clone().text());
+  assert.equal(
+    await (await flowBucket().get(source.file.key))?.text(),
+    'SYNTHETIC_ORIGINAL',
+  );
 });
 
 void test('FLOW rejects a file key outside its ID-bound R2 namespace before detail, dashboard and download', async () => {

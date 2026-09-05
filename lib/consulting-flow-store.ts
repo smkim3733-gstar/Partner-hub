@@ -1,5 +1,11 @@
 import { env } from 'cloudflare:workers';
-import { consultingFlowsTableSql, portalStateId } from '@/db/schema';
+import {
+  consultingFlowFileOwnersBackfillSql,
+  consultingFlowFileOwnersCaseIndexSql,
+  consultingFlowFileOwnersTableSql,
+  consultingFlowsTableSql,
+  portalStateId,
+} from '@/db/schema';
 import {
   FlowError,
   newConsultingFlow,
@@ -48,10 +54,25 @@ export function flowEnvironment() {
     ANTHROPIC_MODEL?: string;
   };
 }
+let flowDatabaseInitialization: Promise<void> | undefined;
 export async function flowDatabase() {
   const db = flowEnvironment().DB;
   if (!db) throw new FlowError('진행 저장소가 연결되지 않았습니다.', 503);
-  await db.prepare(consultingFlowsTableSql).run();
+  if (!flowDatabaseInitialization) {
+    const initialization = db
+      .batch([
+        db.prepare(consultingFlowsTableSql),
+        db.prepare(consultingFlowFileOwnersTableSql),
+        db.prepare(consultingFlowFileOwnersCaseIndexSql),
+        db.prepare(consultingFlowFileOwnersBackfillSql),
+      ])
+      .then(() => undefined);
+    flowDatabaseInitialization = initialization.catch((error) => {
+      flowDatabaseInitialization = undefined;
+      throw error;
+    });
+  }
+  await flowDatabaseInitialization;
   return db;
 }
 export function flowBucket() {
@@ -197,6 +218,31 @@ const hiddenFlowSemanticViolationSql = `SELECT 1 AS invalid FROM consulting_flow
       ${blankSqlText('receipt.key')} OR ${blankJsonTextSql('receipt', 'actorKey')} OR
       ${blankJsonTextSql('receipt', 'fingerprint')})
   ELSE 0 END LIMIT 1`;
+const flowFileOwnershipViolationSql = (
+  caseIdOnly: boolean,
+) => `SELECT 1 AS invalid
+  FROM consulting_flows flow,
+    json_each(CASE WHEN json_valid(flow.payload) THEN flow.payload ELSE '{"files":[]}' END, '$.files') file
+  LEFT JOIN consulting_flow_file_owners owner
+    ON owner.file_id = json_extract(file.value, '$.id')
+  WHERE ${caseIdOnly ? 'flow.case_id = ?1 AND ' : ''}(
+    owner.file_id IS NULL OR owner.case_id <> flow.case_id OR
+    owner.storage_key <> json_extract(file.value, '$.key'))
+  LIMIT 1`;
+const claimFlowFileOwnershipSql = `INSERT INTO consulting_flow_file_owners
+    (file_id, case_id, storage_key, created_at)
+  SELECT ?1, ?2, ?3, ?4
+  WHERE EXISTS (SELECT 1 FROM consulting_flows
+      WHERE case_id = ?2 AND revision = ?5 AND payload = ?6)
+    AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners
+      WHERE file_id = ?1 OR storage_key = ?3)
+  UNION ALL
+  SELECT NULL, ?2, ?3, ?4
+  WHERE NOT EXISTS (SELECT 1 FROM consulting_flows
+      WHERE case_id = ?2 AND revision = ?5 AND payload = ?6)
+    OR EXISTS (SELECT 1 FROM consulting_flow_file_owners
+      WHERE (file_id = ?1 OR storage_key = ?3)
+        AND NOT (file_id = ?1 AND case_id = ?2 AND storage_key = ?3))`;
 function storedFlowFromRow(
   row: StoredFlowRow,
   expectedCaseId?: string,
@@ -236,14 +282,18 @@ function storedFlowFromRow(
   return flow;
 }
 export async function readFlow(caseId: string): Promise<ConsultingFlow | null> {
-  const row = await (
-    await flowDatabase()
-  )
-    .prepare(
-      'SELECT case_id, partner_id, revision, updated_at, payload FROM consulting_flows WHERE case_id = ?1',
-    )
-    .bind(caseId)
-    .first<StoredFlowRow>();
+  const database = await flowDatabase();
+  const batch = await database.batch([
+    database
+      .prepare(
+        'SELECT case_id, partner_id, revision, updated_at, payload FROM consulting_flows WHERE case_id = ?1',
+      )
+      .bind(caseId),
+    database.prepare(flowFileOwnershipViolationSql(true)).bind(caseId),
+  ]);
+  const row = (batch[0] as D1Result<StoredFlowRow>).results[0];
+  if ((batch[1] as D1Result<{ invalid: number }>).results.length > 0)
+    throw storedFlowIntegrityError();
   return row ? storedFlowFromRow(row, caseId) : null;
 }
 export async function stateWithConsultingFlows(raw: unknown) {
@@ -255,6 +305,7 @@ export async function stateWithConsultingFlows(raw: unknown) {
   const database = await flowDatabase();
   const batch = await database.batch([
     database.prepare(hiddenFlowSemanticViolationSql),
+    database.prepare(flowFileOwnershipViolationSql(false)),
     database.prepare(`SELECT case_id,
       (SELECT json_group_array(json_extract(f.value, '$.name'))
         FROM json_each(payload, '$.files') f) AS names
@@ -430,9 +481,14 @@ export async function stateWithConsultingFlows(raw: unknown) {
         ) ELSE NULL END ELSE NULL END AS payload FROM consulting_flows`),
   ]);
   const semanticViolations = batch[0] as D1Result<{ invalid: number }>;
-  const fileNameRows = batch[1] as D1Result<StoredFlowFileNamesRow>;
-  const rows = batch[2] as D1Result<StoredFlowRow>;
-  if (semanticViolations.results.length > 0) throw storedFlowIntegrityError();
+  const ownershipViolations = batch[1] as D1Result<{ invalid: number }>;
+  const fileNameRows = batch[2] as D1Result<StoredFlowFileNamesRow>;
+  const rows = batch[3] as D1Result<StoredFlowRow>;
+  if (
+    semanticViolations.results.length > 0 ||
+    ownershipViolations.results.length > 0
+  )
+    throw storedFlowIntegrityError();
   for (const row of fileNameRows.results) {
     let names: unknown;
     try {
@@ -479,6 +535,9 @@ function assertFlowCommitTransition(
     !validFlowTimestamp(after.updatedAt)
   )
     throw storedFlowIntegrityError();
+  const nextKeys = new Map(after.files.map((file) => [file.id, file.key]));
+  if (before.files.some((file) => nextKeys.get(file.id) !== file.key))
+    throw storedFlowIntegrityError();
 }
 export async function commitFlow(
   before: ConsultingFlow,
@@ -494,9 +553,9 @@ export async function commitFlow(
       413,
     );
   const db = await flowDatabase();
-  const result =
+  const flowWrite =
     before.revision === 0
-      ? await db
+      ? db
           .prepare(
             `INSERT INTO consulting_flows (case_id, partner_id, revision, payload, updated_at)
             SELECT ?1, ?2, ?3, ?4, ?5 WHERE (?6 = 0 OR (SELECT payload FROM portal_state WHERE id = '${portalStateId}') IS ?7)
@@ -511,8 +570,7 @@ export async function commitFlow(
             statePayload === undefined ? 0 : 1,
             statePayload ?? null,
           )
-          .run()
-      : await db
+      : db
           .prepare(
             `UPDATE consulting_flows SET revision = ?1, payload = ?2, updated_at = ?3 WHERE case_id = ?4 AND revision = ?5
             AND (?6 = 0 OR (SELECT payload FROM portal_state WHERE id = '${portalStateId}') IS ?7)`,
@@ -525,8 +583,37 @@ export async function commitFlow(
             before.revision,
             statePayload === undefined ? 0 : 1,
             statePayload ?? null,
-          )
-          .run();
+          );
+  const previousFileIds = new Set(before.files.map((file) => file.id));
+  const newFiles = after.files.filter((file) => !previousFileIds.has(file.id));
+  let result: D1Result;
+  if (!newFiles.length) result = await flowWrite.run();
+  else {
+    let results: D1Result[];
+    try {
+      results = await db.batch([
+        flowWrite,
+        ...newFiles.map((file) =>
+          db
+            .prepare(claimFlowFileOwnershipSql)
+            .bind(
+              file.id,
+              after.caseId,
+              file.key,
+              file.createdAt,
+              after.revision,
+              payload,
+            ),
+        ),
+      ]);
+    } catch {
+      throw new FlowError(
+        '첨부파일 소유권을 안전하게 저장하지 못했습니다. 새로고침 후 다시 확인해 주세요.',
+        503,
+      );
+    }
+    result = results[0];
+  }
   if (result.meta.changes !== 1)
     throw new FlowError(
       '다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 확인해 주세요.',

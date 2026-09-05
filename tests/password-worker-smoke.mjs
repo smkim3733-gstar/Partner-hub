@@ -2219,6 +2219,61 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  const foreignOwnedFlowFile = {
+    id: 'foreign-owned-flow-file',
+    name: 'foreign-report.txt',
+    contentType: 'text/plain',
+    size: new TextEncoder().encode('SYNTHETIC_FOREIGN_FLOW_OBJECT').byteLength,
+    key: 'consulting-flow/foreign-owned-flow-file',
+    createdAt: JSON.parse(intactFlowPayload).updatedAt,
+    purpose: 'report',
+  };
+  await bucket.put(foreignOwnedFlowFile.key, 'SYNTHETIC_FOREIGN_FLOW_OBJECT');
+  await db
+    .prepare(
+      `INSERT INTO consulting_flow_file_owners
+        (file_id, case_id, storage_key, created_at) VALUES (?1, ?2, ?3, ?4)`,
+    )
+    .bind(
+      foreignOwnedFlowFile.id,
+      'foreign-flow-case',
+      foreignOwnedFlowFile.key,
+      foreignOwnedFlowFile.createdAt,
+    )
+    .run();
+  const copiedForeignFlowFile = JSON.parse(intactFlowPayload);
+  copiedForeignFlowFile.files.push(foreignOwnedFlowFile);
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(copiedForeignFlowFile), 'runtime-own')
+    .run();
+  await expect(
+    await call('/flow/runtime-own', undefined, ownerHeaders),
+    503,
+    'FLOW detail rejects a file ID and key owned by another case',
+  );
+  const copiedForeignFlowFileDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects a cross-case file owner before projection',
+  );
+  assertPrivateAuthResponse(copiedForeignFlowFileDashboard);
+  assert.match((await copiedForeignFlowFileDashboard.json()).error, /무결성/);
+  await expect(
+    await call(
+      `/flow-file/runtime-own/${foreignOwnedFlowFile.id}`,
+      undefined,
+      ownerHeaders,
+    ),
+    503,
+    'FLOW download rejects another case owner before reading its R2 body',
+  );
+  assert.ok(await bucket.head(foreignOwnedFlowFile.key));
+  checks.push('FLOW cross-case rejection preserves the foreign private object');
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   const foreignFlowFileKey = JSON.parse(intactFlowPayload);
   const foreignFlowFileId = foreignFlowFileKey.files.at(-1).id;
   foreignFlowFileKey.files.at(-1).key = 'synthetic-private-file';
