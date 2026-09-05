@@ -1,0 +1,44 @@
+# 상담 FLOW 저장 전이·수정시각 무결성 경계
+
+기준일: 2026-09-05
+
+## 확인한 문제
+
+정상 FLOW 명령과 AI 작업은 진행 ID·담당 계정 ID를 유지하고 revision을 1씩 올린다. 그러나 공용 `commitFlow`는 이 전이를 직접 검증하지 않아 내부 호출 실수로 다른 진행·담당 ID, 같은 revision 또는 건너뛴 revision, 잘못된 수정시각을 D1에 쓸 수 있었다.
+
+D1 `updated_at`과 JSON payload의 `updatedAt`도 읽을 때 대조하지 않았다. 둘 중 하나가 손상되면 정체일 계산과 최근 변경 표시가 서로 다른 기준을 사용할 수 있었다.
+
+## 적용한 경계
+
+- D1 쓰기 전에 이전·다음 FLOW의 schema version, 진행 ID와 담당 계정 ID가 같은지 확인한다.
+- 이전 revision은 0 이상의 안전한 정수, 다음 revision은 정확히 이전 값보다 1 큰 안전한 정수여야 한다.
+- 저장할 `updatedAt`은 해석 가능한 비어 있지 않은 시각이어야 한다. 이미 저장된 이전 FLOW도 revision이 1 이상이면 정상 수정시각을 가져야 한다.
+- 상세 조회와 SQLite 내부 축소 대시보드 투영에서 D1 `updated_at`과 payload `updatedAt`이 모두 정상 시각이며 정확히 같은지 검증한다.
+- 잘못된 내부 저장 전이는 D1 쓰기 전에 HTTP 503 무결성 오류로 차단한다. 이미 손상된 시각 불일치는 자동 수정하지 않고 관리자 복구 상태로 격리한다.
+- 정상 명령의 CAS 409, 멱등 재시도, D1/R2 스키마와 보관·삭제 정책은 변경하지 않았다.
+
+## 검증
+
+- 진행 ID 또는 담당 ID를 바꾼 최초 저장을 거절하고 어느 ID에도 D1 행을 만들지 않는다.
+- 같은 revision과 2단계 건너뛴 revision, 잘못된 수정시각을 D1 쓰기 전에 모두 거절한다.
+- D1 `updated_at`만 payload와 다르게 바꾸면 상세 조회와 대시보드 투영이 모두 HTTP 503으로 실패한다.
+- 격리 Worker의 실제 D1 경로에서 수정시각 불일치를 상세·대시보드 모두 차단하고 원래 시각 복구 뒤 정상 조회가 재개된다.
+- Node 자동 테스트 568/568 통과.
+- 격리 workerd+D1+R2 검사 359/359 통과.
+- 타입검사, 전체 lint, 프로덕션 빌드 통과.
+- 로컬 프로덕션 `/`, `/account`, `/account/setup` HTTP 200과 CSP·`nosniff`·`no-referrer` 확인.
+- 실제 운영 쓰기, 메일 발송, 유료 AI 요청, 외부 요청 0건.
+
+## 반영 상태
+
+- 기능 커밋: `dce84ffcaec587a2ef3bd1e3036bd8f2ef2a56b7`
+- Sites 저장 버전: 143 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_700c930ae6348191af84fedf3ae8cdd5`)
+- Sites 저장 산출물: 142개 파일, 4,055,040바이트, `sha256:d46ed4eafb65d869f2af4a404583f4b5ecf8a33dfc5c93efe0ef6a33876f58a0`
+- GitHub `main`과 Sites 소스: 동일 기능 커밋 반영
+- 공개 운영본: 버전 107 유지
+
+버전 108~142는 버전 143으로 대체하며 공개 배포하지 않는다. 버전 143 공개 배포는 정확히 `버전 143 운영 배포 승인`이라는 사용자 명시 승인 뒤 진행한다.
+
+## 다음 감사
+
+FLOW payload의 기업명·담당자명·수정시각과 reports·files·meetings·recordings·requests·payments·jobs·audit·commandIds, analysis·ai의 필수 최상위 구조를 서버 사용 전에 검증한다. 식별 envelope가 일치해도 필수 컬렉션이 없거나 다른 형식인 손상 payload는 ACL·응답·진행단계 계산에 전달하지 않는다.

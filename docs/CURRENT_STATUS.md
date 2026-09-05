@@ -214,7 +214,9 @@
 
 [상담 FLOW 저장 행·payload 무결성 경계](FLOW_STORAGE_ENVELOPE_INTEGRITY_2026_09_05.md)에서는 D1 행과 JSON payload의 진행 ID·담당 계정 ID·revision 불일치를 감지하지 않고 payload 담당자가 ACL에 쓰이던 문제를 재현하고 차단했다. 상세 조회와 SQLite 내부 축소 대시보드 투영 모두 행의 권위 열과 payload를 먼저 대조하고 손상 JSON과 불일치를 HTTP 503 관리자 복구 상태로 격리한다. 기능 커밋 `c3b622247278a9175fdb2152691a41b223fea9a8`을 GitHub `main`과 Sites 소스 저장소에 반영했고 Sites 버전 142 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_6b17858082e48191a5af5c5edd36432f`)로 저장했다. 현재 공개 운영본은 버전 107이며 버전 108~141은 버전 142로 대체해 배포하지 않는다. 버전 142는 정확한 버전 운영 배포 승인 전까지 공개 배포하지 않는다.
 
-현재 소스는 자동 테스트 565개와 격리 workerd/D1/R2 검증 357개를 기준으로 확인한다. 타입검사·전체 lint·프로덕션 빌드와 로컬 운영 화면 3곳의 HTTP 200 및 CSP·`nosniff`·`no-referrer`도 통과했다. 최신 검증·운영 경계 문서는 [개발 문서 목록](README.md)에 구분해 남긴다. 기존 DB/R2 연결과 추가형 DB 마이그레이션을 유지한다.
+[상담 FLOW 저장 전이·수정시각 무결성 경계](FLOW_COMMIT_TRANSITION_INTEGRITY_2026_09_05.md)에서는 `commitFlow`가 진행·담당 ID 변경과 revision 건너뜀, 잘못된 수정시각을 쓰기 전에 검사하지 않던 문제와 D1 `updated_at`·payload `updatedAt` 불일치를 조회에서 놓치던 문제를 차단했다. 정상 CAS·멱등 의미는 유지하고 잘못된 내부 전이는 쓰기 전, 이미 손상된 행은 상세·대시보드 사용 전에 HTTP 503으로 격리한다. 기능 커밋 `dce84ffcaec587a2ef3bd1e3036bd8f2ef2a56b7`을 GitHub `main`과 Sites 소스 저장소에 반영했고 Sites 버전 143 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_700c930ae6348191af84fedf3ae8cdd5`)으로 저장했다. 현재 공개 운영본은 버전 107이며 버전 108~142는 버전 143으로 대체해 배포하지 않는다. 버전 143은 정확한 버전 운영 배포 승인 전까지 공개 배포하지 않는다.
+
+현재 소스는 자동 테스트 568개와 격리 workerd/D1/R2 검증 359개를 기준으로 확인한다. 타입검사·전체 lint·프로덕션 빌드와 로컬 운영 화면 3곳의 HTTP 200 및 CSP·`nosniff`·`no-referrer`도 통과했다. 최신 검증·운영 경계 문서는 [개발 문서 목록](README.md)에 구분해 남긴다. 기존 DB/R2 연결과 추가형 DB 마이그레이션을 유지한다.
 
 2026-09-04 사용자 운영 반영 승인 후 커밋 `8fa3091`까지 GitHub `main`과 기존 공개 Sites 버전 73에 반영했다. 공개 범위와 D1 `DB`, R2 `AI_SOURCE_FILES` 연결을 유지했으며 `/`, `/account`, `/account/setup`의 HTTP 200 응답을 확인했다. 결과는 `outputs/release/client-response-boundary-deployment.json`에 기록한다.
 

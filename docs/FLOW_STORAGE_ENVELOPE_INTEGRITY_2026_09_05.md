@@ -40,6 +40,6 @@ D1 행의 `partner_id`와 payload의 `partnerId`가 다르면 payload에 적힌 
 
 버전 108~141은 버전 142로 대체하며 공개 배포하지 않는다. 버전 142 공개 배포는 정확히 `버전 142 운영 배포 승인`이라는 사용자 명시 승인 뒤 진행한다.
 
-## 다음 감사
+## 다음 감사 결과
 
-`commitFlow`가 저장 전 진행 ID·담당 ID 불변, revision 정확히 1 증가, D1 `updated_at`과 payload `updatedAt` 일치를 강제하는지 확인한다. 잘못된 내부 상태 전이는 D1에 손상 행을 만든 뒤 읽기 경계에서 발견되도록 두지 않고 쓰기 전에 차단한다.
+[상담 FLOW 저장 전이·수정시각 무결성 경계](FLOW_COMMIT_TRANSITION_INTEGRITY_2026_09_05.md)에서 `commitFlow`의 진행 ID·담당 ID 불변, revision 정확히 1 증가와 정상 수정시각을 D1 쓰기 전에 강제했다. 상세 조회와 대시보드 투영은 D1 `updated_at`과 payload `updatedAt`도 대조해 이미 손상된 시각을 관리자 복구 상태로 격리한다.
