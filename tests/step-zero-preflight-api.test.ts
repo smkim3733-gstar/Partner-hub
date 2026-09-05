@@ -199,25 +199,28 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
   const oldFetch = globalThis.fetch;
   let externalCalls = 0;
   const modelResponse = () =>
-    Response.json({
-      stop_reason: 'end_turn',
-      content: [
-        {
-          type: 'text',
-          text: JSON.stringify({
-            companyOverview: '가상 기업 현황은 추가 확인이 필요합니다.',
-            confirmedStrengths: [],
-            mainRisks: ['확인 필요'],
-            solutionCandidates: [],
-            verificationQuestions: ['가상 현황을 확인했습니까?'],
-            missingDocuments: [],
-            complianceNotes: ['대표 검토 전 내부 초안'],
-            nextAction: '가상 입력을 검토합니다.',
-          }),
-        },
-      ],
-      usage: { input_tokens: 10, output_tokens: 20 },
-    });
+    Response.json(
+      {
+        stop_reason: 'end_turn',
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              companyOverview: '가상 기업 현황은 추가 확인이 필요합니다.',
+              confirmedStrengths: [],
+              mainRisks: ['확인 필요'],
+              solutionCandidates: [],
+              verificationQuestions: ['가상 현황을 확인했습니까?'],
+              missingDocuments: [],
+              complianceNotes: ['대표 검토 전 내부 초안'],
+              nextAction: '가상 입력을 검토합니다.',
+            }),
+          },
+        ],
+        usage: { input_tokens: 10, output_tokens: 20 },
+      },
+      { headers: { 'request-id': 'req_step_zero' } },
+    );
   runtime.ANTHROPIC_API_KEY = 'synthetic-step-zero-key';
   runtime.ANTHROPIC_MODEL = 'synthetic-step-zero-model';
   globalThis.fetch = async (_input, init) => {

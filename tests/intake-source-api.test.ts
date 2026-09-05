@@ -163,19 +163,22 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
     );
     assert.equal(typeof options?.body, 'string');
     transmitted = options?.body as string;
-    return Response.json({
-      stop_reason: 'end_turn',
-      content: [
-        {
-          type: 'text',
-          text:
-            '가상 기업의 자료를 검토한 내부 초안이며 실제 고객 판단이나 정책자금 승인을 의미하지 않습니다. '.repeat(
-              8,
-            ) + '[분석 끝]',
-        },
-      ],
-      usage: { input_tokens: 10, output_tokens: 20 },
-    });
+    return Response.json(
+      {
+        stop_reason: 'end_turn',
+        content: [
+          {
+            type: 'text',
+            text:
+              '가상 기업의 자료를 검토한 내부 초안이며 실제 고객 판단이나 정책자금 승인을 의미하지 않습니다. '.repeat(
+                8,
+              ) + '[분석 끝]',
+          },
+        ],
+        usage: { input_tokens: 10, output_tokens: 20 },
+      },
+      { headers: { 'request-id': 'req_intake_source' } },
+    );
   };
   const environment = flowEnvironment();
   const previousKey = environment.ANTHROPIC_API_KEY;

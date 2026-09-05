@@ -450,11 +450,14 @@ void nodeTest(
       assert.equal(data.model, 'claude-opus-5');
       assert.ok(data.messages.length);
       calls++;
-      return Response.json({
-        stop_reason: 'end_turn',
-        content: [{ type: 'text', text: reportBody + '\n[분석 끝]' }],
-        usage: { input_tokens: 10, output_tokens: 20 },
-      });
+      return Response.json(
+        {
+          stop_reason: 'end_turn',
+          content: [{ type: 'text', text: reportBody + '\n[분석 끝]' }],
+          usage: { input_tokens: 10, output_tokens: 20 },
+        },
+        { headers: { 'request-id': 'req_consulting_flow' } },
+      );
     };
     try {
       flow = (

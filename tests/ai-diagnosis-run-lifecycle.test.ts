@@ -40,6 +40,7 @@ function completedRun(id: string, caseId: string): SavedStepZeroRun {
     status: '대표 검토 대기',
     instructionVersion: 'test-instruction-v1',
     model: 'synthetic-model',
+    providerRequestId: 'req_synthetic_lifecycle',
     result: {
       companyOverview: '가상 기업 현황',
       confirmedStrengths: [],
@@ -163,10 +164,13 @@ void test('AI diagnosis runs preserve one durable forward lifecycle', async () =
   const validEnvelope = {
     ...completedRun(runId, caseId).result,
     _requestFingerprint: fingerprint,
+    _providerRequestId: 'req_synthetic_lifecycle',
   };
   for (const invalidEnvelope of [
     { ...validEnvelope, mainRisks: [3] },
     { ...validEnvelope, unexpected: true },
+    { ...validEnvelope, _providerRequestId: '' },
+    { ...validEnvelope, _providerRequestId: 'r'.repeat(201) },
   ])
     await assert.rejects(
       db

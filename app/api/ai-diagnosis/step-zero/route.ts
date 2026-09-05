@@ -320,6 +320,10 @@ export async function POST(request: Request) {
         throw new AnthropicMessageResponseError(
           'Claude Step 0 응답이 완결되지 않았습니다.',
         );
+      if (!payload.requestId)
+        throw new AnthropicMessageResponseError(
+          'Claude 요청 식별값을 확인하지 못했습니다.',
+        );
       let result: ReturnType<typeof parseStepZeroResult>;
       try {
         result = parseStepZeroResult(payload.text.trim());
@@ -358,6 +362,7 @@ export async function POST(request: Request) {
         status: '대표 검토 대기',
         instructionVersion: CLAUDE_FLOW_INSTRUCTION_VERSION,
         model,
+        providerRequestId: payload.requestId,
         result,
         usage: payload.usage,
         createdAt: new Date().toISOString(),

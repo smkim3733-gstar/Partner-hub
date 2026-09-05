@@ -32,6 +32,7 @@ const run = {
   status: '대표 검토 대기',
   instructionVersion: 'v-test',
   model: 'claude-test',
+  providerRequestId: 'req_synthetic_response',
   result: {
     companyOverview: '확인된 가상 현황',
     confirmedStrengths: ['가상 강점'],
@@ -136,6 +137,8 @@ void test('mismatched or malformed Step 0 results never reach the screen', async
     { ...run, createdAt: '2026-02-30T00:00:00.000Z' },
     { ...run, result: { ...run.result, mainRisks: [3] } },
     { ...run, model: '손상�모델' },
+    { ...run, providerRequestId: '' },
+    { ...run, providerRequestId: '손상\u0001요청' },
     { ...run, result: { ...run.result, mainRisks: ['손상\u0001위험'] } },
   ])
     await assert.rejects(

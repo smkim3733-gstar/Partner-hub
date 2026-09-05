@@ -17,6 +17,7 @@ import {
 } from '@/db/schema';
 import { companyFileDatabase } from '@/lib/company-files';
 import {
+  AI_PROVIDER_REQUEST_ID_LIMIT,
   AI_DIAGNOSIS_RUN_FIELD_LIMITS,
   STEP_ZERO_PENDING_LIMIT_BYTES,
   STEP_ZERO_MAX_OUTPUT_TOKENS,
@@ -49,6 +50,7 @@ export type SavedStepZeroRun = {
   status: '대표 검토 대기';
   instructionVersion: string;
   model: string;
+  providerRequestId: string | null;
   result: StepZeroResult;
   usage: { inputTokens: number; outputTokens: number };
   createdAt: string;
@@ -247,6 +249,7 @@ function safeTokenCount(value: unknown, maximum = Number.MAX_SAFE_INTEGER) {
 
 function runFromRow(row: AiDiagnosisRunRow): SavedStepZeroRun | null {
   try {
+    const providerRequestId = storedProviderRequestId(row);
     assertValidStepZeroClaimInput({
       requestId: row.id,
       requestFingerprint: storedFingerprint(row),
@@ -260,6 +263,8 @@ function runFromRow(row: AiDiagnosisRunRow): SavedStepZeroRun | null {
     if (
       row.stage !== 'Step 0' ||
       row.status !== '대표 검토 대기' ||
+      (providerRequestId !== null &&
+        !boundedIdentity(providerRequestId, AI_PROVIDER_REQUEST_ID_LIMIT)) ||
       !safeTokenCount(row.input_tokens) ||
       !safeTokenCount(row.output_tokens, STEP_ZERO_MAX_OUTPUT_TOKENS)
     )
@@ -272,6 +277,7 @@ function runFromRow(row: AiDiagnosisRunRow): SavedStepZeroRun | null {
       status: '대표 검토 대기',
       instructionVersion: row.instruction_version,
       model: row.model,
+      providerRequestId,
       result: parseStepZeroResult(row.result_json),
       usage: { inputTokens: row.input_tokens, outputTokens: row.output_tokens },
       createdAt: row.created_at,
@@ -299,6 +305,18 @@ function storedFingerprint(row: AiDiagnosisRunRow) {
     const value = JSON.parse(row.result_json) as Record<string, unknown>;
     return typeof value._requestFingerprint === 'string'
       ? value._requestFingerprint
+      : '';
+  } catch {
+    return '';
+  }
+}
+
+function storedProviderRequestId(row: AiDiagnosisRunRow) {
+  try {
+    const value = JSON.parse(row.result_json) as Record<string, unknown>;
+    if (value._providerRequestId === undefined) return null;
+    return typeof value._providerRequestId === 'string'
+      ? value._providerRequestId
       : '';
   } catch {
     return '';
@@ -388,6 +406,8 @@ export async function completeStepZeroRequest(
     if (
       run.stage !== 'Step 0' ||
       run.status !== '대표 검토 대기' ||
+      typeof run.providerRequestId !== 'string' ||
+      !boundedIdentity(run.providerRequestId, AI_PROVIDER_REQUEST_ID_LIMIT) ||
       !safeTokenCount(run.usage.inputTokens) ||
       !safeTokenCount(run.usage.outputTokens, STEP_ZERO_MAX_OUTPUT_TOKENS)
     )
@@ -398,7 +418,13 @@ export async function completeStepZeroRequest(
   const resultEnvelope = JSON.stringify({
     ...parseStepZeroResult(JSON.stringify(run.result)),
     _requestFingerprint: requestFingerprint,
+    _providerRequestId: run.providerRequestId,
   });
+  if (
+    new TextEncoder().encode(resultEnvelope).length >
+    STEP_ZERO_RESULT_LIMIT_BYTES
+  )
+    throw new Error('AI 진단 완료 결과 허용 용량을 초과했습니다.');
   const db = companyFileDatabase();
   await ensureAiDiagnosisTables(db);
   const result = await db

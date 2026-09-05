@@ -8,22 +8,25 @@ import {
 
 void test('Anthropic response parser returns only validated text, completion, usage and request identity', () => {
   assert.deepEqual(
-    parseAnthropicMessageResponse({
-      stop_reason: 'end_turn',
-      request_id: 'request-synthetic-1',
-      content: [
-        { type: 'text', text: '첫 블록' },
-        { type: 'tool_use', id: 'ignored-private-field' },
-        { type: 'text', text: '둘째 블록' },
-      ],
-      usage: { input_tokens: 10, output_tokens: 20, cache_creation: 30 },
-      unknown: 'not returned',
-    }),
+    parseAnthropicMessageResponse(
+      {
+        id: 'msg_synthetic_body_id',
+        stop_reason: 'end_turn',
+        content: [
+          { type: 'text', text: '첫 블록' },
+          { type: 'tool_use', id: 'ignored-private-field' },
+          { type: 'text', text: '둘째 블록' },
+        ],
+        usage: { input_tokens: 10, output_tokens: 20, cache_creation: 30 },
+        unknown: 'not returned',
+      },
+      { responseRequestId: 'req_synthetic_header_id' },
+    ),
     {
       stopReason: 'end_turn',
       text: '첫 블록\n둘째 블록',
       usage: { inputTokens: 10, outputTokens: 20 },
-      requestId: 'request-synthetic-1',
+      requestId: 'req_synthetic_header_id',
     },
   );
 });
@@ -49,9 +52,20 @@ void test('Anthropic response parser rejects malformed blocks, token counts and 
     { content: [{ type: 'text', text: '가'.repeat(100_001) }] },
   ])
     assert.throws(
-      () => parseAnthropicMessageResponse(value),
+      () =>
+        parseAnthropicMessageResponse(value, {
+          responseRequestId: 'req_synthetic_invalid_case',
+        }),
       /Claude .+ 형식|허용 길이/,
     );
+  assert.throws(
+    () =>
+      parseAnthropicMessageResponse({
+        content: [{ type: 'text', text: 'ok' }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+    /요청 식별값 형식이 올바르지 않습니다/,
+  );
 });
 
 void test('unreadable Anthropic response hides provider payload details', async () => {
@@ -66,13 +80,16 @@ void test('unreadable Anthropic response hides provider payload details', async 
   );
   assert.deepEqual(
     await readAnthropicMessageResponse(
-      Response.json({ request_id: 'failed-request' }, { status: 429 }),
+      Response.json(
+        { request_id: 'req_failed_request' },
+        { status: 429, headers: { 'request-id': 'req_failed_request' } },
+      ),
     ),
     {
       stopReason: null,
       text: '',
       usage: { inputTokens: 0, outputTokens: 0 },
-      requestId: 'failed-request',
+      requestId: 'req_failed_request',
     },
   );
 });

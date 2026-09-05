@@ -109,11 +109,14 @@ void test('FLOW stops a queued model request when the caller is suspended during
   runtime.ANTHROPIC_API_KEY = 'SYNTHETIC_NOT_A_REAL_KEY';
   globalThis.fetch = async () => {
     calls++;
-    return Response.json({
-      stop_reason: 'end_turn',
-      content: [{ type: 'text', text: body + '[분석 끝]' }],
-      usage: { input_tokens: 10, output_tokens: 20 },
-    });
+    return Response.json(
+      {
+        stop_reason: 'end_turn',
+        content: [{ type: 'text', text: body + '[분석 끝]' }],
+        usage: { input_tokens: 10, output_tokens: 20 },
+      },
+      { headers: { 'request-id': 'req_suspended_flow' } },
+    );
   };
   bucket.get = async (...args: Parameters<R2Bucket['get']>) => {
     const object = await get(...args);
@@ -164,16 +167,19 @@ void test('FLOW rejects a decorated oversized AI result without leaving the job 
   runtime.ANTHROPIC_API_KEY = 'SYNTHETIC_NOT_A_REAL_KEY';
   globalThis.fetch = async () => {
     calls++;
-    return Response.json({
-      stop_reason: 'end_turn',
-      content: [
-        {
-          type: 'text',
-          text: `${'가'.repeat(79990)}\n[분석 끝]`,
-        },
-      ],
-      usage: { input_tokens: 10, output_tokens: 20 },
-    });
+    return Response.json(
+      {
+        stop_reason: 'end_turn',
+        content: [
+          {
+            type: 'text',
+            text: `${'가'.repeat(79990)}\n[분석 끝]`,
+          },
+        ],
+        usage: { input_tokens: 10, output_tokens: 20 },
+      },
+      { headers: { 'request-id': 'req_oversized_flow' } },
+    );
   };
   try {
     const response = await run(

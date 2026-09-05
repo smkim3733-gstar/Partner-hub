@@ -269,19 +269,22 @@ void test('DOCX review -> private files -> one mocked fourth report; audio-only 
     assert.ok(content.includes('사용자 보완'));
     assert.ok(!content.includes('FAKE_AUDIO_PRIVATE_BYTES'));
     assert.ok(!content.includes('base64'));
-    return Response.json({
-      stop_reason: 'end_turn',
-      content: [
-        {
-          type: 'text',
-          text:
-            '가상 내부 심화보고서입니다. 확인할 사실과 미확인 수치를 분리합니다. '.repeat(
-              15,
-            ) + '[분석 끝]',
-        },
-      ],
-      usage: { input_tokens: 10, output_tokens: 20 },
-    });
+    return Response.json(
+      {
+        stop_reason: 'end_turn',
+        content: [
+          {
+            type: 'text',
+            text:
+              '가상 내부 심화보고서입니다. 확인할 사실과 미확인 수치를 분리합니다. '.repeat(
+                15,
+              ) + '[분석 끝]',
+          },
+        ],
+        usage: { input_tokens: 10, output_tokens: 20 },
+      },
+      { headers: { 'request-id': 'req_transcript_flow' } },
+    );
   };
   try {
     const response = await run(

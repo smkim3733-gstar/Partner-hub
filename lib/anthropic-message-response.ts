@@ -1,3 +1,6 @@
+import { AI_PROVIDER_REQUEST_ID_LIMIT } from './storage-limits';
+import { isSafeStoredText } from './unicode-text';
+
 export class AnthropicMessageResponseError extends Error {}
 
 type ParsedAnthropicMessage = {
@@ -17,7 +20,13 @@ function optionalText(
   maxLength: number,
 ): string | null {
   if (value === undefined || value === null) return null;
-  if (typeof value !== 'string' || !value.trim() || value.length > maxLength)
+  if (
+    typeof value !== 'string' ||
+    !value.trim() ||
+    value !== value.trim() ||
+    !isSafeStoredText(value) ||
+    Array.from(value).length > maxLength
+  )
     throw new AnthropicMessageResponseError(
       `${label} 형식이 올바르지 않습니다.`,
     );
@@ -35,7 +44,7 @@ function tokenCount(value: unknown, label: string, required: boolean) {
 
 export function parseAnthropicMessageResponse(
   value: unknown,
-  options: { requireUsage?: boolean } = {},
+  options: { requireUsage?: boolean; responseRequestId?: unknown } = {},
 ): ParsedAnthropicMessage {
   if (!isObject(value))
     throw new AnthropicMessageResponseError(
@@ -43,7 +52,16 @@ export function parseAnthropicMessageResponse(
     );
 
   const stopReason = optionalText(value.stop_reason, 'Claude 완료 사유', 100);
-  const requestId = optionalText(value.request_id, 'Claude 요청 식별값', 200);
+  const bodyRequestId = optionalText(
+    value.request_id,
+    'Claude 요청 식별값',
+    AI_PROVIDER_REQUEST_ID_LIMIT,
+  );
+  const responseRequestId = optionalText(
+    options.responseRequestId,
+    'Claude 응답 헤더 요청 식별값',
+    AI_PROVIDER_REQUEST_ID_LIMIT,
+  );
   const content = value.content;
   const textBlocks: string[] = [];
   if (content !== undefined) {
@@ -77,6 +95,15 @@ export function parseAnthropicMessageResponse(
 
   const usage = value.usage;
   const requireUsage = options.requireUsage ?? true;
+  if (
+    (responseRequestId &&
+      bodyRequestId &&
+      responseRequestId !== bodyRequestId) ||
+    (requireUsage && !responseRequestId)
+  )
+    throw new AnthropicMessageResponseError(
+      'Claude 요청 식별값 형식이 올바르지 않습니다.',
+    );
   if ((requireUsage || usage !== undefined) && !isObject(usage))
     throw new AnthropicMessageResponseError(
       'Claude 토큰 사용량 형식이 올바르지 않습니다.',
@@ -97,7 +124,7 @@ export function parseAnthropicMessageResponse(
         requireUsage,
       ),
     },
-    requestId,
+    requestId: responseRequestId ?? bodyRequestId,
   };
 }
 
@@ -110,5 +137,8 @@ export async function readAnthropicMessageResponse(response: Response) {
       'Claude 응답을 JSON으로 읽지 못했습니다.',
     );
   }
-  return parseAnthropicMessageResponse(value, { requireUsage: response.ok });
+  return parseAnthropicMessageResponse(value, {
+    requireUsage: response.ok,
+    responseRequestId: response.headers.get('request-id'),
+  });
 }

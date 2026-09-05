@@ -1,5 +1,8 @@
 import type { SavedStepZeroRun, StepZeroResult } from './ai-diagnosis';
-import { STEP_ZERO_MAX_OUTPUT_TOKENS } from './storage-limits';
+import {
+  AI_PROVIDER_REQUEST_ID_LIMIT,
+  STEP_ZERO_MAX_OUTPUT_TOKENS,
+} from './storage-limits';
 import { isSafeStoredText } from './unicode-text';
 import { isUtcMillisecondTimestamp } from './utc-timestamp';
 
@@ -189,6 +192,8 @@ function parseRun(
     run.status !== '대표 검토 대기' ||
     !text(run.instructionVersion, 100) ||
     !text(run.model, 200) ||
+    (run.providerRequestId !== null &&
+      !text(run.providerRequestId, AI_PROVIDER_REQUEST_ID_LIMIT)) ||
     !result ||
     !usage ||
     !safeInteger(usage.inputTokens) ||
@@ -204,6 +209,7 @@ function parseRun(
     status: '대표 검토 대기',
     instructionVersion: run.instructionVersion as string,
     model: run.model as string,
+    providerRequestId: run.providerRequestId as string | null,
     result,
     usage: {
       inputTokens: usage.inputTokens as number,
