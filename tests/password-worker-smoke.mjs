@@ -163,6 +163,14 @@ const uploadRequestNoDeleteTriggerSql =
   "CREATE TRIGGER IF NOT EXISTS company_file_upload_requests_no_delete BEFORE DELETE ON company_file_upload_requests BEGIN SELECT RAISE(ABORT, 'company file upload request is durable'); END";
 const companyFileObjectsNoUpdateTriggerSql =
   "CREATE TRIGGER IF NOT EXISTS company_file_objects_no_update BEFORE UPDATE ON company_file_objects BEGIN SELECT RAISE(ABORT, 'company file object is immutable'); END";
+const flowLedgerNoDeleteTriggerSql = {
+  consulting_flow_file_owners:
+    "CREATE TRIGGER IF NOT EXISTS consulting_flow_file_owners_no_delete BEFORE DELETE ON consulting_flow_file_owners BEGIN SELECT RAISE(ABORT, 'consulting FLOW file owner is durable'); END",
+  consulting_flow_file_metadata:
+    "CREATE TRIGGER IF NOT EXISTS consulting_flow_file_metadata_no_delete BEFORE DELETE ON consulting_flow_file_metadata BEGIN SELECT RAISE(ABORT, 'consulting FLOW file metadata is durable'); END",
+  consulting_flow_file_object_integrity:
+    "CREATE TRIGGER IF NOT EXISTS consulting_flow_file_object_integrity_no_delete BEFORE DELETE ON consulting_flow_file_object_integrity BEGIN SELECT RAISE(ABORT, 'consulting FLOW file object integrity is durable'); END",
+};
 async function withoutUploadRequestDeleteGuard(db, action) {
   await db
     .prepare('DROP TRIGGER IF EXISTS company_file_upload_requests_no_delete')
@@ -184,6 +192,18 @@ async function mutateCompanyFileObjectFixture(db, sql, values) {
       .run();
   } finally {
     await db.prepare(companyFileObjectsNoUpdateTriggerSql).run();
+  }
+}
+async function deleteFlowFileLedgerFixture(db, table, fileId) {
+  const trigger = `${table}_no_delete`;
+  await db.prepare(`DROP TRIGGER IF EXISTS ${trigger}`).run();
+  try {
+    return await db
+      .prepare(`DELETE FROM ${table} WHERE file_id = ?1`)
+      .bind(fileId)
+      .run();
+  } finally {
+    await db.prepare(flowLedgerNoDeleteTriggerSql[table]).run();
   }
 }
 try {
@@ -218,7 +238,7 @@ try {
     size: 15,
     key: 'consulting-flow/migration-v159-file',
     createdAt: '2026-09-05T00:00:00.000Z',
-    purpose: 'report',
+    purpose: 'source',
   };
   const migrationCompanyFile = {
     id: 'migration-v162-company-file',
@@ -387,24 +407,102 @@ try {
   checks.push(
     'pre-version-169 company originals receive exact legacy metadata facts',
   );
+  await assert.rejects(
+    db
+      .prepare(
+        'UPDATE consulting_flow_file_owners SET case_id = ?1 WHERE file_id = ?2',
+      )
+      .bind('migration-other-case', migrationCompatibilityFile.id)
+      .run(),
+    /owner is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM consulting_flow_file_owners WHERE file_id = ?1')
+      .bind(migrationCompatibilityFile.id)
+      .run(),
+    /owner is durable/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'UPDATE consulting_flow_file_metadata SET original_name = ?1 WHERE file_id = ?2',
+      )
+      .bind('tampered.txt', migrationCompatibilityFile.id)
+      .run(),
+    /metadata transition is invalid/,
+  );
+  await db
+    .prepare(
+      "UPDATE consulting_flow_file_metadata SET purpose = 'source_archived' WHERE file_id = ?1",
+    )
+    .bind(migrationCompatibilityFile.id)
+    .run();
+  assert.deepEqual(
+    await db
+      .prepare(
+        'SELECT purpose FROM consulting_flow_file_metadata WHERE file_id = ?1',
+      )
+      .bind(migrationCompatibilityFile.id)
+      .first(),
+    { purpose: 'source_archived' },
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE consulting_flow_file_metadata SET purpose = 'source' WHERE file_id = ?1",
+      )
+      .bind(migrationCompatibilityFile.id)
+      .run(),
+    /metadata transition is invalid/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM consulting_flow_file_metadata WHERE file_id = ?1')
+      .bind(migrationCompatibilityFile.id)
+      .run(),
+    /metadata is durable/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'UPDATE consulting_flow_file_object_integrity SET r2_content_type = ?1 WHERE file_id = ?2',
+      )
+      .bind('application/octet-stream', migrationCompatibilityFile.id)
+      .run(),
+    /object integrity is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'DELETE FROM consulting_flow_file_object_integrity WHERE file_id = ?1',
+      )
+      .bind(migrationCompatibilityFile.id)
+      .run(),
+    /object integrity is durable/,
+  );
+  checks.push(
+    'FLOW file ledgers reject rewrites and deletion while permitting source archival',
+  );
   await db
     .prepare('DELETE FROM company_file_objects WHERE id = ?1')
     .bind(migrationCompanyFile.id)
     .run();
-  await db
-    .prepare(
-      'DELETE FROM consulting_flow_file_object_integrity WHERE file_id = ?1',
-    )
-    .bind(migrationCompatibilityFile.id)
-    .run();
-  await db
-    .prepare('DELETE FROM consulting_flow_file_metadata WHERE file_id = ?1')
-    .bind(migrationCompatibilityFile.id)
-    .run();
-  await db
-    .prepare('DELETE FROM consulting_flow_file_owners WHERE file_id = ?1')
-    .bind(migrationCompatibilityFile.id)
-    .run();
+  await deleteFlowFileLedgerFixture(
+    db,
+    'consulting_flow_file_object_integrity',
+    migrationCompatibilityFile.id,
+  );
+  await deleteFlowFileLedgerFixture(
+    db,
+    'consulting_flow_file_metadata',
+    migrationCompatibilityFile.id,
+  );
+  await deleteFlowFileLedgerFixture(
+    db,
+    'consulting_flow_file_owners',
+    migrationCompatibilityFile.id,
+  );
   await db
     .prepare('DELETE FROM consulting_flows WHERE case_id = ?1')
     .bind('migration-v159-case')

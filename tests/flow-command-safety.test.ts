@@ -42,6 +42,7 @@ import {
   consultingFlowFileMetadataBackfillSql,
   consultingFlowFileOwnersBackfillSql,
 } from '../db/schema';
+import { deleteFlowFileLedgerFixture } from './flow-file-ledger-fixture';
 
 const partner = {
   id: 'safety-partner',
@@ -1100,10 +1101,11 @@ void test('FLOW rejects a file ID and key copied from another case before detail
     return payload;
   });
   const db = await flowDatabase();
-  await db
-    .prepare('DELETE FROM consulting_flow_file_owners WHERE file_id = ?1')
-    .bind(source.file.id)
-    .run();
+  await deleteFlowFileLedgerFixture(
+    db,
+    'consulting_flow_file_owners',
+    source.file.id,
+  );
   await db.prepare(consultingFlowFileOwnersBackfillSql).run();
   assert.equal(
     await db
@@ -1204,14 +1206,12 @@ void test('FLOW metadata backfill restores every authoritative field for a clean
   await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
   const { saved, file } = await fixtureWithAttachment();
   const db = await flowDatabase();
-  await db
-    .prepare('DELETE FROM consulting_flow_file_metadata WHERE file_id = ?1')
-    .bind(file.id)
-    .run();
-  await db
-    .prepare('DELETE FROM consulting_flow_file_owners WHERE file_id = ?1')
-    .bind(file.id)
-    .run();
+  await deleteFlowFileLedgerFixture(
+    db,
+    'consulting_flow_file_metadata',
+    file.id,
+  );
+  await deleteFlowFileLedgerFixture(db, 'consulting_flow_file_owners', file.id);
   await assert.rejects(
     readFlow(saved.caseId),
     (error) => error instanceof FlowError && error.status === 503,
@@ -1292,12 +1292,11 @@ void test('FLOW requires an R2 write binding and fails closed when its integrity
       r2_content_type: file.contentType,
     },
   );
-  await db
-    .prepare(
-      'DELETE FROM consulting_flow_file_object_integrity WHERE file_id = ?1',
-    )
-    .bind(file.id)
-    .run();
+  await deleteFlowFileLedgerFixture(
+    db,
+    'consulting_flow_file_object_integrity',
+    file.id,
+  );
   await assert.rejects(
     readFlow(saved.caseId),
     (error) => error instanceof FlowError && error.status === 503,
@@ -1371,6 +1370,66 @@ void test('FLOW source archival advances the authoritative purpose in the same c
   assert.equal(
     (await readFlow(flow.caseId))?.files.at(-1)?.purpose,
     'source_archived',
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        'UPDATE consulting_flow_file_owners SET case_id = ?1 WHERE file_id = ?2',
+      )
+      .bind('other-case', fileId)
+      .run(),
+    /owner is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM consulting_flow_file_owners WHERE file_id = ?1')
+      .bind(fileId)
+      .run(),
+    /owner is durable/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'UPDATE consulting_flow_file_metadata SET original_name = ?1 WHERE file_id = ?2',
+      )
+      .bind('tampered.txt', fileId)
+      .run(),
+    /metadata transition is invalid/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE consulting_flow_file_metadata SET purpose = 'source' WHERE file_id = ?1",
+      )
+      .bind(fileId)
+      .run(),
+    /metadata transition is invalid/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM consulting_flow_file_metadata WHERE file_id = ?1')
+      .bind(fileId)
+      .run(),
+    /metadata is durable/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'UPDATE consulting_flow_file_object_integrity SET r2_content_type = ?1 WHERE file_id = ?2',
+      )
+      .bind('application/octet-stream', fileId)
+      .run(),
+    /object integrity is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'DELETE FROM consulting_flow_file_object_integrity WHERE file_id = ?1',
+      )
+      .bind(fileId)
+      .run(),
+    /object integrity is durable/,
   );
 });
 

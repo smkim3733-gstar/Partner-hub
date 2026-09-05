@@ -1,7 +1,13 @@
 import { env } from 'cloudflare:workers';
 import {
+  consultingFlowFileMetadataLifecycleTriggerSql,
+  consultingFlowFileMetadataNoDeleteTriggerSql,
   consultingFlowFileObjectIntegrityTableSql,
+  consultingFlowFileObjectIntegrityNoDeleteTriggerSql,
+  consultingFlowFileObjectIntegrityNoUpdateTriggerSql,
   consultingFlowFileMetadataTableSql,
+  consultingFlowFileOwnersNoDeleteTriggerSql,
+  consultingFlowFileOwnersNoUpdateTriggerSql,
   consultingFlowFileOwnersCaseIndexSql,
   consultingFlowFileOwnersTableSql,
   consultingFlowsTableSql,
@@ -66,9 +72,15 @@ export async function flowDatabase() {
       .batch([
         db.prepare(consultingFlowsTableSql),
         db.prepare(consultingFlowFileOwnersTableSql),
+        db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),
+        db.prepare(consultingFlowFileOwnersNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersCaseIndexSql),
         db.prepare(consultingFlowFileMetadataTableSql),
+        db.prepare(consultingFlowFileMetadataLifecycleTriggerSql),
+        db.prepare(consultingFlowFileMetadataNoDeleteTriggerSql),
         db.prepare(consultingFlowFileObjectIntegrityTableSql),
+        db.prepare(consultingFlowFileObjectIntegrityNoUpdateTriggerSql),
+        db.prepare(consultingFlowFileObjectIntegrityNoDeleteTriggerSql),
       ])
       .then(() => undefined);
     flowDatabaseInitialization = initialization.catch((error) => {
