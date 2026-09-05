@@ -7,7 +7,10 @@ import {
   companyFileObjectsOwnerIndexSql,
   companyFileObjectsTableSql,
   portalLoginStatsTableSql,
+  portalStateIdentityTriggerSql,
   portalStateId,
+  portalStateInsertTriggerSql,
+  portalStateNoDeleteTriggerSql,
   portalStateTableSql,
 } from '@/db/schema';
 import { PORTAL_STATE_LIMIT_BYTES } from '@/lib/pilot-readiness';
@@ -43,6 +46,9 @@ function database(): D1Database {
 async function ensurePortalTables(db: D1Database) {
   await db.batch([
     db.prepare(portalStateTableSql),
+    db.prepare(portalStateInsertTriggerSql),
+    db.prepare(portalStateIdentityTriggerSql),
+    db.prepare(portalStateNoDeleteTriggerSql),
     db.prepare(portalLoginStatsTableSql),
     db.prepare(companyFileObjectsTableSql),
     db.prepare(companyFileObjectsOwnerIndexSql),
@@ -144,9 +150,7 @@ export async function mutatePortalState<T>(
     }
     const updatedAt = new Date().toISOString();
     const guard = requiredDraft?.();
-    const conditionSql = [
-      ...new Set(commitConditions?.() ?? []),
-    ]
+    const conditionSql = [...new Set(commitConditions?.() ?? [])]
       .map((condition) => `AND (${portalStateCommitConditionSql[condition]})`)
       .join(' ');
     const write = guard

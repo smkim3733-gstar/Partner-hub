@@ -275,6 +275,14 @@ ON ai_diagnosis_runs (case_id) WHERE status = '생성중'
 
 export const portalStateId = 'keve-partner-hub';
 
+export const portalStateInsertTriggerSql = `CREATE TRIGGER IF NOT EXISTS portal_state_fixed_identity_insert BEFORE INSERT ON portal_state WHEN NEW.id IS NOT '${portalStateId}' BEGIN SELECT RAISE(ABORT, 'portal state identity is fixed'); END`;
+
+export const portalStateIdentityTriggerSql =
+  "CREATE TRIGGER IF NOT EXISTS portal_state_identity_immutable BEFORE UPDATE ON portal_state WHEN NEW.id IS NOT OLD.id BEGIN SELECT RAISE(ABORT, 'portal state identity is immutable'); END";
+
+export const portalStateNoDeleteTriggerSql =
+  "CREATE TRIGGER IF NOT EXISTS portal_state_no_delete BEFORE DELETE ON portal_state BEGIN SELECT RAISE(ABORT, 'portal state root is durable'); END";
+
 export const applicationDraftsTableSql = `
 CREATE TABLE IF NOT EXISTS application_drafts (
   owner_key TEXT PRIMARY KEY NOT NULL,

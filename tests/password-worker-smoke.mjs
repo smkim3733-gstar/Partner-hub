@@ -347,6 +347,43 @@ try {
   checks.push(
     'all additive migrations can run twice without replacing existing state',
   );
+  const intactPortalRoot = await db
+    .prepare('SELECT id, payload, updated_at FROM portal_state')
+    .first();
+  await assert.rejects(
+    db
+      .prepare(
+        'INSERT INTO portal_state (id, payload, updated_at) VALUES (?1, ?2, ?3)',
+      )
+      .bind(
+        'another-portal-root',
+        intactPortalRoot.payload,
+        intactPortalRoot.updated_at,
+      )
+      .run(),
+    /identity is fixed/,
+  );
+  await assert.rejects(
+    db
+      .prepare('UPDATE portal_state SET id = ?1 WHERE id = ?2')
+      .bind('another-portal-root', intactPortalRoot.id)
+      .run(),
+    /identity is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM portal_state WHERE id = ?1')
+      .bind(intactPortalRoot.id)
+      .run(),
+    /root is durable/,
+  );
+  assert.deepEqual(
+    await db
+      .prepare('SELECT id, payload, updated_at FROM portal_state')
+      .first(),
+    intactPortalRoot,
+  );
+  checks.push('portal state keeps one fixed durable native D1 root');
   assert.deepEqual(
     await db
       .prepare(
