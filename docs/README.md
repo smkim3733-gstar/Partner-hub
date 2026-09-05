@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [상담 FLOW 새 명령 증거 무결성](FLOW_NEW_COMMAND_EVIDENCE_INTEGRITY_2026_09_06.md)                                  | 모든 새 명령 ID와 같은 ID 감사기록·불변 멱등 영수증의 앱·D1 원자 결속                   |
 | [상담 FLOW 명령 이력 무결성](FLOW_COMMAND_HISTORY_INTEGRITY_2026_09_06.md)                                           | 기존 멱등 명령 ID·영수증 보존과 새 AI 작업 생성 명령 결속                                |
 | [상담 FLOW AI 작업 생성 감사 ID 무결성](FLOW_AI_JOB_CREATION_AUDIT_IDENTITY_2026_09_06.md)                           | 새 작업 ID와 생성 명령 감사 ID의 앱·D1 일대일 결속                                       |
 | [상담 FLOW AI 작업 생성 원본 무결성](FLOW_AI_JOB_CREATION_ORIGIN_INTEGRITY_2026_09_06.md)                            | 새 작업 생성시각·단계별 원본·생성 감사기록의 앱·D1 원자 결속                             |
