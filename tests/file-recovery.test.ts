@@ -707,10 +707,12 @@ void test('deletion or reassignment immediately after the object check fails the
           .bind(
             caseId,
             member.id,
-            JSON.stringify(
-              newConsultingFlow(caseId, '가상기업', member.id, member.name),
-            ),
-            'now',
+            JSON.stringify({
+              ...newConsultingFlow(caseId, '가상기업', member.id, member.name),
+              revision: 1,
+              updatedAt: '2026-09-05T00:00:00.000Z',
+            }),
+            '2026-09-05T00:00:00.000Z',
           )
           .run();
       return object;

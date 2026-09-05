@@ -9,6 +9,7 @@ import {
 } from '../lib/company-files';
 import { readPortalState, writePortalState } from '../lib/portal-state';
 import { flowDatabase } from '../lib/consulting-flow-store';
+import { newConsultingFlow } from '../lib/consulting-flow';
 import type { InventoryPage, InventoryPresence } from '../lib/file-inventory';
 import {
   readFileInventoryPageResponse,
@@ -212,8 +213,16 @@ void test('actual document and intake references distinguish linked files from s
       'inventory-flow',
       member.id,
       JSON.stringify({
+        ...newConsultingFlow(
+          'inventory-flow',
+          '가상 보관기업',
+          member.id,
+          member.name,
+        ),
+        revision: 1,
+        updatedAt: date,
         files: [{ id: 'derived-file', intakeFileId: 'flow-linked' }],
-        ai: { sourceText: 'PRIVATE_TRANSCRIPT' },
+        ai: { enabled: false, sourceText: 'PRIVATE_TRANSCRIPT' },
       }),
       date,
     )

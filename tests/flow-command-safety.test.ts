@@ -43,7 +43,10 @@ import {
   consultingFlowFileOwnersBackfillSql,
 } from '../db/schema';
 import { deleteFlowFileLedgerFixture } from './flow-file-ledger-fixture';
-import { deleteConsultingFlowFixture } from './flow-root-fixture';
+import {
+  deleteConsultingFlowFixture,
+  mutateConsultingFlowFixture,
+} from './flow-root-fixture';
 
 const partner = {
   id: 'safety-partner',
@@ -375,10 +378,11 @@ async function replaceStoredFlow(
     .bind(caseId)
     .first<{ payload: string }>();
   assert.ok(row);
-  await db
-    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
-    .bind(JSON.stringify(transform(JSON.parse(row.payload))), caseId)
-    .run();
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    [JSON.stringify(transform(JSON.parse(row.payload))), caseId],
+  );
 }
 async function suspend() {
   const state = (await readPortalState()) as {
@@ -426,10 +430,11 @@ void test('FLOW rejects stored case and revision envelope mismatches', async () 
 void test('FLOW isolates malformed stored JSON from detail and dashboard reads', async () => {
   const flow = await fixture();
   const db = await flowDatabase();
-  await db
-    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
-    .bind('{malformed', flow.caseId)
-    .run();
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    ['{malformed', flow.caseId],
+  );
   await assert.rejects(
     readFlow(flow.caseId),
     (error) => error instanceof FlowError && error.status === 503,
@@ -488,6 +493,69 @@ void test('FLOW root identity and durable row reject direct D1 rewrite or deleti
   assert.deepEqual(await readFlow(flow.caseId), flow);
 });
 
+void test('FLOW root insert and revision transition require an atomic D1 envelope', async () => {
+  const flow = await fixture();
+  const db = await flowDatabase();
+  const stored = await db
+    .prepare(
+      'SELECT revision, payload, updated_at FROM consulting_flows WHERE case_id = ?1',
+    )
+    .bind(flow.caseId)
+    .first<{ revision: number; payload: string; updated_at: string }>();
+  assert.ok(stored);
+
+  await assert.rejects(
+    db
+      .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+      .bind(stored.payload, flow.caseId)
+      .run(),
+    /transition envelope is invalid/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'UPDATE consulting_flows SET revision = ?1, payload = ?2, updated_at = ?3 WHERE case_id = ?4',
+      )
+      .bind(stored.revision + 2, stored.payload, stored.updated_at, flow.caseId)
+      .run(),
+    /transition envelope is invalid/,
+  );
+
+  const invalid = newConsultingFlow(
+    `flow-invalid-insert-${++sequence}`,
+    '가상기업',
+    partner.id,
+    partner.name,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        invalid.caseId,
+        invalid.partnerId,
+        1,
+        JSON.stringify(invalid),
+        new Date().toISOString(),
+      )
+      .run(),
+    /insert envelope is invalid/,
+  );
+  assert.deepEqual(
+    await db
+      .prepare(
+        'SELECT revision, payload, updated_at FROM consulting_flows WHERE case_id = ?1',
+      )
+      .bind(flow.caseId)
+      .first(),
+    stored,
+  );
+  assert.equal(await readFlow(invalid.caseId), null);
+});
+
 void test('FLOW commit requires exactly one revision and a valid stored timestamp', async () => {
   for (const revision of [0, 2]) {
     const initial = newConsultingFlow(
@@ -522,10 +590,11 @@ void test('FLOW commit requires exactly one revision and a valid stored timestam
 void test('FLOW rejects a D1 updated timestamp that differs from its payload', async () => {
   const flow = await fixture();
   const db = await flowDatabase();
-  await db
-    .prepare('UPDATE consulting_flows SET updated_at = ?1 WHERE case_id = ?2')
-    .bind('2020-01-01T00:00:00.000Z', flow.caseId)
-    .run();
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET updated_at = ?1 WHERE case_id = ?2',
+    ['2020-01-01T00:00:00.000Z', flow.caseId],
+  );
   await assert.rejects(
     readFlow(flow.caseId),
     (error) => error instanceof FlowError && error.status === 503,

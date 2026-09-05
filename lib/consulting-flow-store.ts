@@ -11,7 +11,9 @@ import {
   consultingFlowFileOwnersCaseIndexSql,
   consultingFlowFileOwnersTableSql,
   consultingFlowsIdentityTriggerSql,
+  consultingFlowsInsertEnvelopeTriggerSql,
   consultingFlowsNoDeleteTriggerSql,
+  consultingFlowsTransitionTriggerSql,
   consultingFlowsTableSql,
   portalStateId,
 } from '@/db/schema';
@@ -74,6 +76,8 @@ export async function flowDatabase() {
       .batch([
         db.prepare(consultingFlowsTableSql),
         db.prepare(consultingFlowsIdentityTriggerSql),
+        db.prepare(consultingFlowsInsertEnvelopeTriggerSql),
+        db.prepare(consultingFlowsTransitionTriggerSql),
         db.prepare(consultingFlowsNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),

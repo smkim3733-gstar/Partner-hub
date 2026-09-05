@@ -156,6 +156,7 @@ void test('shared FLOW scan projects only request transition fields for metrics'
     createdAt: '2026-08-01T00:00:00.000Z',
     receivedAt: '2026-08-02T00:00:00.000Z',
   });
+  flow.updatedAt = now;
   await db
     .prepare(
       'INSERT INTO consulting_flows (case_id, partner_id, revision, payload, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)',

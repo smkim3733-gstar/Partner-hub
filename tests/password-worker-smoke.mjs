@@ -165,6 +165,8 @@ const companyFileObjectsNoUpdateTriggerSql =
   "CREATE TRIGGER IF NOT EXISTS company_file_objects_no_update BEFORE UPDATE ON company_file_objects BEGIN SELECT RAISE(ABORT, 'company file object is immutable'); END";
 const consultingFlowsNoDeleteTriggerSql =
   "CREATE TRIGGER IF NOT EXISTS consulting_flows_no_delete BEFORE DELETE ON consulting_flows BEGIN SELECT RAISE(ABORT, 'consulting flow root is durable'); END";
+const consultingFlowsTransitionTriggerSql =
+  "CREATE TRIGGER IF NOT EXISTS consulting_flows_transition_guard BEFORE UPDATE ON consulting_flows WHEN NEW.case_id IS OLD.case_id AND NEW.partner_id IS OLD.partner_id AND (NEW.revision IS NOT OLD.revision + 1 OR json_valid(NEW.payload) <> 1 OR COALESCE(json_type(NEW.payload), '') <> 'object' OR COALESCE(json_type(NEW.payload, '$.caseId'), '') <> 'text' OR json_extract(NEW.payload, '$.caseId') IS NOT NEW.case_id OR COALESCE(json_type(NEW.payload, '$.partnerId'), '') <> 'text' OR json_extract(NEW.payload, '$.partnerId') IS NOT NEW.partner_id OR COALESCE(json_type(NEW.payload, '$.revision'), '') <> 'integer' OR json_extract(NEW.payload, '$.revision') IS NOT NEW.revision OR COALESCE(json_type(NEW.payload, '$.updatedAt'), '') <> 'text' OR json_extract(NEW.payload, '$.updatedAt') IS NOT NEW.updated_at) BEGIN SELECT RAISE(ABORT, 'consulting flow transition envelope is invalid'); END";
 const flowLedgerNoDeleteTriggerSql = {
   consulting_flow_file_owners:
     "CREATE TRIGGER IF NOT EXISTS consulting_flow_file_owners_no_delete BEFORE DELETE ON consulting_flow_file_owners BEGIN SELECT RAISE(ABORT, 'consulting FLOW file owner is durable'); END",
@@ -217,6 +219,19 @@ async function deleteConsultingFlowFixture(db, caseId) {
       .run();
   } finally {
     await db.prepare(consultingFlowsNoDeleteTriggerSql).run();
+  }
+}
+async function mutateConsultingFlowFixture(db, sql, values) {
+  await db
+    .prepare('DROP TRIGGER IF EXISTS consulting_flows_transition_guard')
+    .run();
+  try {
+    return await db
+      .prepare(sql)
+      .bind(...values)
+      .run();
+  } finally {
+    await db.prepare(consultingFlowsTransitionTriggerSql).run();
   }
 }
 try {
@@ -2788,12 +2803,66 @@ try {
     new Uint8Array(await restoredFlowDownload.arrayBuffer()),
     flowFileBytes,
   );
-  const intactFlowPayload = (
+  const intactFlowRow = await db
+    .prepare(
+      'SELECT revision, payload, updated_at FROM consulting_flows WHERE case_id = ?1',
+    )
+    .bind('runtime-own')
+    .first();
+  const intactFlowPayload = intactFlowRow.payload;
+  await assert.rejects(
+    db
+      .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+      .bind(intactFlowPayload, 'runtime-own')
+      .run(),
+    /transition envelope is invalid/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'UPDATE consulting_flows SET revision = ?1, payload = ?2, updated_at = ?3 WHERE case_id = ?4',
+      )
+      .bind(
+        intactFlowRow.revision + 2,
+        intactFlowPayload,
+        intactFlowRow.updated_at,
+        'runtime-own',
+      )
+      .run(),
+    /transition envelope is invalid/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        'invalid-native-flow-insert',
+        memberId,
+        intactFlowRow.revision,
+        intactFlowPayload,
+        intactFlowRow.updated_at,
+      )
+      .run(),
+    /insert envelope is invalid/,
+  );
+  assert.deepEqual(
     await db
-      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .prepare(
+        'SELECT revision, payload, updated_at FROM consulting_flows WHERE case_id = ?1',
+      )
       .bind('runtime-own')
-      .first()
-  ).payload;
+      .first(),
+    intactFlowRow,
+  );
+  checks.push(
+    'FLOW inserts and updates require one atomic native D1 revision envelope',
+  );
+  await db
+    .prepare('DROP TRIGGER IF EXISTS consulting_flows_transition_guard')
+    .run();
   const mismatchedFlow = JSON.parse(intactFlowPayload);
   mismatchedFlow.partnerId = peerId;
   await db
@@ -3390,6 +3459,7 @@ try {
   checks.push(
     'FLOW D1 row identity, timestamp, structure, collection field, hidden field length and semantics, reference, state-evidence and resource-ceiling guards protect detail ACL, dashboard projection and AI result capacity',
   );
+  await db.prepare(consultingFlowsTransitionTriggerSql).run();
   assert.deepEqual(
     Object.keys(privateMimeFlow.commandReceipts[mimeCommand.commandId]).sort(),
     ['actorKey', 'fingerprint'],
@@ -3574,10 +3644,11 @@ try {
     createdAt: '2026-08-31T00:00:00.000Z',
     receivedAt: '2026-08-31T00:00:00.000Z',
   });
-  await db
-    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
-    .bind(JSON.stringify(metricFlow), 'runtime-own')
-    .run();
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    [JSON.stringify(metricFlow), 'runtime-own'],
+  );
 
   const suspensionFile = (
     await (

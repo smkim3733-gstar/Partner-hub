@@ -19,20 +19,31 @@ void test('application code cannot delete or reassign a FLOW root', async () => 
   const roots = ['app', 'lib'].map((root) => path.resolve(root));
   const files = (await Promise.all(roots.map(sourceFiles))).flat();
   const violations: string[] = [];
+  const writers: string[] = [];
 
   for (const file of files) {
     const source = await readFile(file, 'utf8');
+    const relative = path.relative(process.cwd(), file).replaceAll('\\', '/');
     const deletesRoot = /\bDELETE\s+FROM\s+consulting_flows\b/i.test(source);
-    const reassignsRoot = Array.from(
+    const updates = Array.from(
       source.matchAll(
         /\bUPDATE\s+consulting_flows\s+SET([\s\S]{0,1000}?)\bWHERE\b/gi,
       ),
-      (match) => match[1],
-    ).some((setClause) => /\b(?:case_id|partner_id)\s*=/.test(setClause));
+    );
+    const reassignsRoot = updates.some((match) =>
+      /\b(?:case_id|partner_id)\s*=/.test(match[1]),
+    );
     if (deletesRoot || reassignsRoot) {
-      violations.push(path.relative(process.cwd(), file));
+      violations.push(relative);
+    }
+    if (
+      updates.length > 0 ||
+      /\bINSERT\s+INTO\s+consulting_flows\b/i.test(source)
+    ) {
+      writers.push(relative);
     }
   }
 
   assert.deepEqual(violations, []);
+  assert.deepEqual(writers, ['lib/consulting-flow-store.ts']);
 });

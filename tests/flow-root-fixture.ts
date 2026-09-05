@@ -1,4 +1,7 @@
-import { consultingFlowsNoDeleteTriggerSql } from '../db/schema';
+import {
+  consultingFlowsNoDeleteTriggerSql,
+  consultingFlowsTransitionTriggerSql,
+} from '../db/schema';
 
 /** Remove synthetic FLOW roots, then immediately restore the runtime guard. */
 export async function deleteConsultingFlowFixture(
@@ -15,5 +18,24 @@ export async function deleteConsultingFlowFixture(
     return await statement.run();
   } finally {
     await db.prepare(consultingFlowsNoDeleteTriggerSql).run();
+  }
+}
+
+/** Introduce one synthetic legacy drift, then restore transition enforcement. */
+export async function mutateConsultingFlowFixture(
+  db: D1Database,
+  sql: string,
+  values: unknown[],
+) {
+  await db
+    .prepare('DROP TRIGGER IF EXISTS consulting_flows_transition_guard')
+    .run();
+  try {
+    return await db
+      .prepare(sql)
+      .bind(...values)
+      .run();
+  } finally {
+    await db.prepare(consultingFlowsTransitionTriggerSql).run();
   }
 }
