@@ -1,4 +1,5 @@
 import {
+  assertCompanyFileStorageKeyIntegrity,
   companyFileBucket,
   companyFileDatabase,
   companyFileObjectMatchesIntegrity,
@@ -218,6 +219,7 @@ export async function DELETE(
         '기업자료 카드에 연결된 원본은 삭제할 수 없습니다.',
         409,
       );
+    await assertCompanyFileStorageKeyIntegrity(row);
 
     // Authorize the durable deletion decision against the same state, including
     // legacy files without an upload ledger. A linked portal card also blocks
@@ -226,9 +228,12 @@ export async function DELETE(
       .prepare(`INSERT INTO company_file_upload_requests
         (owner_key, request_key, fingerprint, file_id, created_at, status)
         SELECT ?1, 'delete', 'legacy-explicit-delete', f.id, f.created_at, 'deleted'
-        FROM company_file_objects f LEFT JOIN company_file_assignments a ON a.file_id = f.id
+        FROM company_file_objects f
+        JOIN company_file_storage_keys object_key ON object_key.file_id = f.id
+        LEFT JOIN company_file_assignments a ON a.file_id = f.id
         WHERE f.id = ?2 AND f.storage_key = ?3 AND a.partner_member_id IS ?4
         AND f.assigned_trainee = ?5 AND f.uploaded_by_user_id = ?6
+        AND object_key.storage_key = f.storage_key
         AND NOT EXISTS (SELECT 1 FROM json_each(?7, '$.companyDocuments') document
           WHERE json_extract(document.value, '$.storageFileId') = f.id)
         AND ${fileStateGuard('?7')}

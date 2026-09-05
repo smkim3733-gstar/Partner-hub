@@ -145,6 +145,95 @@ void test('a portal link committed immediately before deletion keeps the origina
   );
 });
 
+void test('deletion rejects a cross-file R2 key before deleting that object', async () => {
+  await seed();
+  const id = await create(),
+    originalKey = `company-source/${id}`,
+    foreignKey = `company-source/foreign-delete-${id}`,
+    db = companyFileDatabase(),
+    bucket = companyFileBucket(),
+    del = bucket.delete.bind(bucket);
+  await bucket.put(foreignKey, 'SYNTHETIC_RACE_ORIGINAL', {
+    httpMetadata: { contentType: 'text/plain' },
+  });
+  await db
+    .prepare('UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1')
+    .bind(id, foreignKey)
+    .run();
+  let deleteCalls = 0;
+  bucket.delete = async (...args: Parameters<R2Bucket['delete']>) => {
+    deleteCalls++;
+    return del(...args);
+  };
+  try {
+    const response = await remove(request('DELETE'), context(id));
+    assert.equal(response.status, 503, await response.clone().text());
+    assert.match(
+      ((await response.json()) as { error: string }).error,
+      /무결성/,
+    );
+    assert.equal(deleteCalls, 0);
+  } finally {
+    bucket.delete = del;
+  }
+  assert.ok(await bucket.get(originalKey));
+  assert.ok(await bucket.get(foreignKey));
+});
+
+void test('a storage-key change before the durable deletion decision preserves both objects', async () => {
+  await seed();
+  const id = await create(),
+    originalKey = `company-source/${id}`,
+    foreignKey = `company-source/foreign-delete-race-${id}`,
+    db = companyFileDatabase(),
+    bucket = companyFileBucket(),
+    prepare = db.prepare.bind(db),
+    del = bucket.delete.bind(bucket);
+  await bucket.put(foreignKey, 'SYNTHETIC_RACE_ORIGINAL', {
+    httpMetadata: { contentType: 'text/plain' },
+  });
+  let once = true;
+  const wrap = (statement: D1PreparedStatement): D1PreparedStatement =>
+    new Proxy(statement, {
+      get(target, property) {
+        if (property === 'bind')
+          return (...values: unknown[]) => wrap(target.bind(...values));
+        if (property === 'run')
+          return async () => {
+            if (once) {
+              once = false;
+              await prepare(
+                'UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1',
+              )
+                .bind(id, foreignKey)
+                .run();
+            }
+            return target.run();
+          };
+        const value = Reflect.get(target, property);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  db.prepare = (sql: string) =>
+    sql.includes("'legacy-explicit-delete'")
+      ? wrap(prepare(sql))
+      : prepare(sql);
+  let deleteCalls = 0;
+  bucket.delete = async (...args: Parameters<R2Bucket['delete']>) => {
+    deleteCalls++;
+    return del(...args);
+  };
+  try {
+    assert.equal((await remove(request('DELETE'), context(id))).status, 409);
+    assert.equal(deleteCalls, 0);
+  } finally {
+    db.prepare = prepare;
+    bucket.delete = del;
+  }
+  assert.ok(await bucket.get(originalKey));
+  assert.ok(await bucket.get(foreignKey));
+});
+
 void test(
   'upload finishing between the delete lookup and ledger check cannot yield false deletion success',
   { timeout: 10_000 },

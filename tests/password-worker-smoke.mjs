@@ -1206,6 +1206,64 @@ try {
   checks.push(
     'new company uploads bind registry MIME, native R2 ETag and storage key in D1',
   );
+  const deletionGuardFile = (
+    await (
+      await expect(
+        await uploadSource(
+          {
+            cookie,
+            'idempotency-key': 'worker-company-delete-storage-key-guard',
+          },
+          memberId,
+          undefined,
+          'SYNTHETIC_DELETE_KEY_GUARD',
+        ),
+        201,
+        'company deletion key guard fixture is stored',
+      )
+    ).json()
+  ).file;
+  const deletionGuardOriginalKey = `company-source/${deletionGuardFile.id}`;
+  const deletionGuardForeignKey = `company-source/foreign-delete-${deletionGuardFile.id}`;
+  await bucket.put(deletionGuardForeignKey, 'SYNTHETIC_DELETE_KEY_GUARD', {
+    httpMetadata: { contentType: 'text/plain' },
+  });
+  await db
+    .prepare('UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1')
+    .bind(deletionGuardFile.id, deletionGuardForeignKey)
+    .run();
+  const guardedDelete = await expect(
+    await call(
+      `/files/${deletionGuardFile.id}`,
+      undefined,
+      { cookie },
+      'DELETE',
+    ),
+    503,
+    'company deletion rejects a cross-file R2 key',
+  );
+  assertPrivateAuthResponse(guardedDelete);
+  assert.match((await guardedDelete.json()).error, /무결성/);
+  assert.ok(await bucket.head(deletionGuardOriginalKey));
+  assert.ok(await bucket.head(deletionGuardForeignKey));
+  checks.push(
+    'company deletion rejects a cross-file key before preserving both R2 objects',
+  );
+  await db
+    .prepare('UPDATE company_file_objects SET storage_key = ?2 WHERE id = ?1')
+    .bind(deletionGuardFile.id, deletionGuardOriginalKey)
+    .run();
+  await expect(
+    await call(
+      `/files/${deletionGuardFile.id}`,
+      undefined,
+      { cookie },
+      'DELETE',
+    ),
+    204,
+    'restored company deletion fixture is removed',
+  );
+  await bucket.delete(deletionGuardForeignKey);
   const normalizedBytes = new TextEncoder().encode(
     'SYNTHETIC_MIME_NORMALIZATION',
   );
