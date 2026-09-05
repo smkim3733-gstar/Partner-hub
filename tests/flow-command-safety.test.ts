@@ -842,6 +842,103 @@ void test('FLOW native D1 keeps existing audit records append-only', async () =>
   assert.deepEqual(await readFlow(flow.caseId), flow);
 });
 
+void test('FLOW native D1 rejects terminal AI evidence on the first root insert', async () => {
+  const initial = newConsultingFlow(
+    `flow-native-insert-job-${++sequence}`,
+    '가상기업',
+    partner.id,
+    partner.name,
+  );
+  const at = new Date().toISOString();
+  const inserted = applyFlowCommand(
+    initial,
+    { type: 'save_report', stage: 1, body },
+    { id: adminEmail, role: 'admin', name: '가상 대표' },
+    { commandId: `native-insert-${++sequence}`, now: at },
+  );
+  const jobId = `native-insert-terminal-${++sequence}`;
+  const auditId = `${jobId}-${at}`;
+  inserted.jobs.push({
+    id: jobId,
+    stage: 1,
+    status: 'complete',
+    reason: '',
+    createdAt: at,
+    startedAt: at,
+    completedAt: at,
+    reportId: inserted.reports[0].id,
+    evidence: {
+      auditId,
+      instructionVersion: 'synthetic-flow-instruction-v1',
+      requestedModel: 'claude-requested-test-model',
+      providerRequestId: 'req_native_insert_terminal',
+      providerModel: 'claude-resolved-test-model',
+      providerMessageId: 'msg_native_insert_terminal',
+      inputTokens: 10,
+      outputTokens: 20,
+      observedAt: at,
+    },
+  });
+  inserted.audit.push({
+    id: auditId,
+    at,
+    actor: '보고서 자동생성',
+    action: 'ai_result',
+    detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
+  });
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        inserted.caseId,
+        inserted.partnerId,
+        inserted.revision,
+        JSON.stringify(inserted),
+        inserted.updatedAt,
+      )
+      .run(),
+    /initial job is invalid/,
+  );
+  assert.equal(await readFlow(initial.caseId), null);
+  const queuedInitial = newConsultingFlow(
+    `flow-native-insert-queued-${++sequence}`,
+    '가상기업',
+    partner.id,
+    partner.name,
+  );
+  const queued = structuredClone(queuedInitial);
+  queued.revision++;
+  queued.updatedAt = new Date(Date.parse(at) + 1).toISOString();
+  queued.jobs.push({
+    id: `native-insert-queued-${++sequence}`,
+    stage: 1,
+    status: 'queued',
+    reason: '',
+    createdAt: queued.updatedAt,
+  });
+  await db
+    .prepare(
+      `INSERT INTO consulting_flows
+        (case_id, partner_id, revision, payload, updated_at)
+      VALUES (?1, ?2, ?3, ?4, ?5)`,
+    )
+    .bind(
+      queued.caseId,
+      queued.partnerId,
+      queued.revision,
+      JSON.stringify(queued),
+      queued.updatedAt,
+    )
+    .run();
+  assert.deepEqual(await readFlow(queued.caseId), queued);
+  await deleteConsultingFlowFixture(db, queued.caseId);
+});
+
 void test('FLOW rejects a D1 updated timestamp that differs from its payload', async () => {
   const flow = await fixture();
   const db = await flowDatabase();

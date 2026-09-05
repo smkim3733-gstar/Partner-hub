@@ -169,6 +169,12 @@ const flowAiEvidenceTransitionTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const [flowAiEvidenceInsertTriggerSql] = migrationStatements(
+  await readFile(
+    path.join(project, 'drizzle', '0044_consulting_flow_initial_ai_job.sql'),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -3407,20 +3413,31 @@ try {
       detail: '1차 분석보고서 실패 · 가상 공급자 오류',
     },
   ];
+  const insertEvidenceFlow = () =>
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        evidenceCaseId,
+        evidenceFlow.partnerId,
+        evidenceFlow.revision,
+        JSON.stringify(evidenceFlow),
+        evidenceFlow.updatedAt,
+      )
+      .run();
+  await assert.rejects(insertEvidenceFlow(), /initial job is invalid/);
+  checks.push('FLOW native D1 rejects terminal AI evidence on root insert');
   await db
-    .prepare(
-      `INSERT INTO consulting_flows
-        (case_id, partner_id, revision, payload, updated_at)
-      VALUES (?1, ?2, ?3, ?4, ?5)`,
-    )
-    .bind(
-      evidenceCaseId,
-      evidenceFlow.partnerId,
-      evidenceFlow.revision,
-      JSON.stringify(evidenceFlow),
-      evidenceFlow.updatedAt,
-    )
+    .prepare('DROP TRIGGER IF EXISTS consulting_flows_jobs_insert_guard')
     .run();
+  try {
+    await insertEvidenceFlow();
+  } finally {
+    await db.prepare(flowAiEvidenceInsertTriggerSql).run();
+  }
   const saveEvidenceTransition = async (before, after) =>
     db
       .prepare(
