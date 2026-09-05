@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `ea6cece0491bc62b35f37a54ae60449fc9a01357` (`fix: bind FLOW AI job transition audits`)
-- 최신 기능: 상담 FLOW AI 작업의 처리 종료·명시적 재시도를 새 감사기록과 앱·D1에서 원자 결속하고 실패 전사문 보완 증거 보존
-- 검증: Node 회귀 검사 652개, 격리 workerd/D1/R2 검사 466개, 타입검사, 전체 lint, 변경 파일 포맷 검사, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200·CSP·`DENY`·`nosniff`·`no-referrer` 통과
+- 최신 기능 커밋: `17dfc4e564ac6506f4e058ad49208c2937087cac` (`fix: bind FLOW AI job creation origin`)
+- 최신 기능: 상담 FLOW 새 AI 작업의 생성시각·단계별 원본·생성 명령 감사를 앱·D1에서 같은 revision에 원자 결속
+- 검증: Node 회귀 검사 653개, 격리 workerd/D1/R2 검사 467개, 타입검사, 전체 lint, 변경 파일 포맷 검사, 프로덕션 빌드와 로컬 운영 Worker 화면 3곳 HTTP 200·CSP·`DENY`·`nosniff`·`no-referrer` 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 206 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_3aaf5c5f26548191bf2ca5c70fc709f9`), 소스 `ea6cece0491bc62b35f37a54ae60449fc9a01357`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–205는 버전 206으로 대체해 배포하지 않으며, FLOW AI 작업 상태 전이 감사 무결성본 버전 206이 정확한 버전 운영 배포 승인 대기 중이다.
+- 최신 Sites 저장 버전: 207 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_09c322237be08191bf2727fc7bf2a151`), 소스 `17dfc4e564ac6506f4e058ad49208c2937087cac`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–206은 버전 207로 대체해 배포하지 않으며, FLOW AI 작업 생성 원본 무결성본 버전 207이 정확한 버전 운영 배포 승인 대기 중이다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -44,7 +44,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW AI 작업 상태 전이 감사 무결성](FLOW_AI_JOB_TRANSITION_AUDIT_INTEGRITY_2026_09_06.md)을 확인한다.
+먼저 [상담 FLOW AI 작업 생성 원본 무결성](FLOW_AI_JOB_CREATION_ORIGIN_INTEGRITY_2026_09_06.md)을 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
