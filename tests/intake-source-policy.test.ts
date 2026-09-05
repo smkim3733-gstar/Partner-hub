@@ -19,6 +19,7 @@ import {
   newConsultingFlow,
   type FlowFile,
 } from '../lib/consulting-flow';
+import { flowFileStorageKey } from '../lib/consulting-flow-file-policy';
 
 void test('intake review distinguishes readable text, binary sources and auxiliary audio', () => {
   assert.equal(MAX_AI_SOURCE_MEGABYTES, 8);
@@ -54,7 +55,7 @@ void test('source import enforces verified context, capacity, locked stages and 
   const now = '2026-08-30T10:00:00.000Z';
   const upload: FlowFile = {
     id: 'copy',
-    key: 'private/copy',
+    key: flowFileStorageKey('copy'),
     name: 'reviewed.txt',
     size: 100,
     contentType: 'text/plain',

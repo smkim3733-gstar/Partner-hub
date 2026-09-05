@@ -15,6 +15,7 @@ import {
   type FlowCommand,
   type FlowFile,
 } from './consulting-flow';
+import { flowFileStorageKey } from './consulting-flow-file-policy';
 import {
   intakeSourceKind,
   intakeSourceProblem,
@@ -214,7 +215,7 @@ export async function prepareIntakeImport(
     contentType,
     size: bytes.byteLength,
     createdAt: now,
-    key: `consulting-flow/${id}`,
+    key: flowFileStorageKey(id),
     purpose: 'source',
     intakeFileId: source.file.id,
     intakeSourceHash: source.sourceHash,

@@ -18,6 +18,10 @@ import {
 } from '../lib/consulting-flow-upload-policy';
 import { MAX_AI_SOURCE_BYTES } from '../lib/intake-source-policy';
 import { MAX_TRANSCRIPT_FILE_BYTES } from '../lib/transcript-policy';
+import {
+  flowFileStorageKey,
+  storedFlowFileKeyMatches,
+} from '../lib/consulting-flow-file-policy';
 
 void test('consulting flow upload policy owns purpose and command-specific formats', () => {
   assert.equal(flowUploadPurpose({ type: 'save_source' }), 'source');
@@ -96,6 +100,18 @@ void test('consulting flow upload policy owns purpose and command-specific forma
       (rule) =>
         rule.purpose === 'requested_document' && rule.extension === 'xlsx',
     ),
+  );
+  assert.equal(
+    flowFileStorageKey('stored-file'),
+    'consulting-flow/stored-file',
+  );
+  assert.equal(
+    storedFlowFileKeyMatches('stored-file', 'consulting-flow/stored-file'),
+    true,
+  );
+  assert.equal(
+    storedFlowFileKeyMatches('stored-file', 'company-source/stored-file'),
+    false,
   );
 });
 

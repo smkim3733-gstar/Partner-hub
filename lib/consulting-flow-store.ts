@@ -19,6 +19,7 @@ import { isCrossSiteRequest } from '@/lib/request-origin';
 import { QueryRequestError } from '@/lib/request-query';
 import { readRouteParam, RouteParamError } from '@/lib/request-path';
 import { privateJsonResponse } from '@/lib/private-response';
+import { FLOW_FILE_STORAGE_PREFIX } from '@/lib/consulting-flow-file-policy';
 import {
   MAX_FLOW_UPLOAD_BYTES,
   storedFlowFileExtensionRules,
@@ -151,6 +152,8 @@ const hiddenFlowSemanticViolationSql = `SELECT 1 AS invalid FROM consulting_flow
       ${blankJsonTextSql('f', 'contentType')} OR ${blankJsonTextSql('f', 'key')} OR
       ${invalidJsonTimestampSql('f', 'createdAt')} OR ${blankJsonTextSql('f', 'purpose')} OR
       json_extract(f.value, '$.purpose') NOT IN (${storedFlowFilePurposesSql}) OR
+      json_extract(f.value, '$.key') <> ${sqlTextLiteral(FLOW_FILE_STORAGE_PREFIX)} ||
+        json_extract(f.value, '$.id') OR
       NOT EXISTS (SELECT 1 FROM json_each(${storedFlowFileFormatRulesSql}) file_format WHERE
         json_extract(file_format.value, '$.purpose') = json_extract(f.value, '$.purpose') AND
         substr(lower(json_extract(f.value, '$.name')),

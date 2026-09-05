@@ -36,6 +36,7 @@ import {
 } from '../lib/consulting-flow-upload-policy';
 import { MAX_AI_SOURCE_BYTES } from '../lib/intake-source-policy';
 import { MAX_TRANSCRIPT_FILE_BYTES } from '../lib/transcript-policy';
+import { flowFileStorageKey } from '../lib/consulting-flow-file-policy';
 
 const partner = {
   id: 'safety-partner',
@@ -64,7 +65,7 @@ void test('FLOW stops a queued model request when the caller is suspended during
     name: 'source.txt',
     contentType: 'text/plain',
     size: source.length,
-    key: `synthetic/${flow.caseId}`,
+    key: flowFileStorageKey('source'),
     createdAt: new Date().toISOString(),
   });
   next.jobs.push({
@@ -175,7 +176,7 @@ void test('FLOW duplicate payment requests persist one payment and accept an exa
     name: 'synthetic-signed.pdf',
     contentType: 'application/pdf',
     size: 1,
-    key: 'synthetic/signed.pdf',
+    key: flowFileStorageKey('synthetic-signed'),
     createdAt: new Date().toISOString(),
     purpose: 'signed_contract',
   });
@@ -537,7 +538,7 @@ void test('FLOW rejects malformed collection entries before detail use', async (
             name: '손상.pdf',
             contentType: 'application/pdf',
             size: -1,
-            key: 'flow/corrupt.pdf',
+            key: flowFileStorageKey('corrupt-file'),
             createdAt: new Date().toISOString(),
             purpose: 'source',
           },
@@ -789,7 +790,7 @@ void test('FLOW rejects inconsistent time and status evidence before detail use'
             name: 'status.pdf',
             contentType: 'application/pdf',
             size: 1,
-            key: 'flow/status.pdf',
+            key: flowFileStorageKey('status-file'),
             createdAt: '2026-09-05T00:00:00.000Z',
             purpose: 'requested_document',
           },
@@ -946,7 +947,7 @@ void test('FLOW detail and dashboard reject empty, oversized and unknown-purpose
         name: corruption.name,
         contentType: corruption.contentType,
         size: corruption.size,
-        key: `synthetic/invalid-file-${index}`,
+        key: flowFileStorageKey(`invalid-file-${index}`),
         createdAt: payload.updatedAt,
         purpose: corruption.purpose,
       });
@@ -996,7 +997,7 @@ void test('FLOW detail and dashboard reject file extensions and MIME outside the
         name: corruption.name,
         contentType: corruption.contentType,
         size: 1,
-        key: `synthetic/invalid-file-format-${index}`,
+        key: flowFileStorageKey(`invalid-file-format-${index}`),
         createdAt: payload.updatedAt,
         purpose: corruption.purpose,
       });
@@ -1011,6 +1012,42 @@ void test('FLOW detail and dashboard reject file extensions and MIME outside the
       (error) => error instanceof FlowError && error.status === 503,
     );
   }
+});
+
+void test('FLOW rejects a file key outside its ID-bound R2 namespace before detail, dashboard and download', async () => {
+  const flow = await fixture();
+  const foreignBytes = 'SYNTHETIC_FOREIGN_PRIVATE_OBJECT';
+  const foreignKey = `company-source/foreign-flow-object-${++sequence}`;
+  const fileId = `foreign-key-file-${sequence}`;
+  await flowBucket().put(foreignKey, foreignBytes);
+  await replaceStoredFlow(flow.caseId, (payload) => {
+    (payload.files as Array<Record<string, unknown>>).push({
+      id: fileId,
+      name: 'foreign.txt',
+      contentType: 'text/plain',
+      size: foreignBytes.length,
+      key: foreignKey,
+      createdAt: payload.updatedAt,
+      purpose: 'report',
+    });
+    return payload;
+  });
+  await assert.rejects(
+    readFlow(flow.caseId),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    stateWithConsultingFlows(await readPortalState()),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const response = await download(request(flow.caseId, undefined), {
+    params: Promise.resolve({ caseId: flow.caseId, fileId }),
+  });
+  assert.equal(response.status, 503, await response.clone().text());
+  assert.equal(
+    await (await flowBucket().get(foreignKey))?.text(),
+    foreignBytes,
+  );
 });
 
 void test('FLOW commit rejects an oversized field before D1 writes', async () => {
@@ -1334,7 +1371,7 @@ void test('FLOW dashboard rejects malformed or oversized fields removed by SQLit
             name: `synthetic-${suffix}.txt`,
             contentType: 'text/plain',
             size: 1,
-            key: `synthetic/${suffix}`,
+            key: flowFileStorageKey('duplicate-hidden-file'),
             createdAt: payload.updatedAt,
             purpose: 'source_archived',
           });
@@ -1381,7 +1418,7 @@ void test('FLOW dashboard rejects blank or invalid-date fields removed by SQLite
       name: 'synthetic.txt',
       contentType: 'text/plain',
       size: 1,
-      key: 'synthetic/semantic-hidden-file',
+      key: flowFileStorageKey('semantic-hidden-file'),
       createdAt: payload.updatedAt,
       purpose: 'source_archived',
       ...overrides,

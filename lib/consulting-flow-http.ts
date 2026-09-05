@@ -10,6 +10,7 @@ import {
   flowUploadMaxMegabytes,
   flowUploadPurpose,
 } from './consulting-flow-upload-policy';
+import { flowFileStorageKey } from './consulting-flow-file-policy';
 import { safeFileName } from './company-file-policy';
 import { uploadFileExtension, uploadFileFormat } from './upload-file-formats';
 import { audioFileProblem, transcriptFileProblem } from './transcript-policy';
@@ -135,7 +136,7 @@ export function describeUpload(
     name: safeFileName(file.name),
     contentType: format.contentType,
     size: file.size,
-    key: `consulting-flow/${id}`,
+    key: flowFileStorageKey(id),
     createdAt: now,
     purpose,
   };

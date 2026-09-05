@@ -2184,6 +2184,40 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  const foreignFlowFileKey = JSON.parse(intactFlowPayload);
+  const foreignFlowFileId = foreignFlowFileKey.files.at(-1).id;
+  foreignFlowFileKey.files.at(-1).key = 'synthetic-private-file';
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(foreignFlowFileKey), 'runtime-own')
+    .run();
+  await expect(
+    await call('/flow/runtime-own', undefined, ownerHeaders),
+    503,
+    'FLOW detail rejects a file key outside its ID-bound namespace',
+  );
+  const foreignFlowFileKeyDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects a foreign R2 key before native SQLite projection',
+  );
+  assertPrivateAuthResponse(foreignFlowFileKeyDashboard);
+  assert.match((await foreignFlowFileKeyDashboard.json()).error, /무결성/);
+  await expect(
+    await call(
+      `/flow-file/runtime-own/${foreignFlowFileId}`,
+      undefined,
+      ownerHeaders,
+    ),
+    503,
+    'FLOW download rejects a foreign R2 key before reading its body',
+  );
+  assert.ok(await bucket.head('synthetic-private-file'));
+  checks.push('FLOW foreign R2 key rejection preserves the private object');
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   const flowAtAiResultCapacity = JSON.parse(intactFlowPayload);
   flowAtAiResultCapacity.ai = {
     enabled: true,

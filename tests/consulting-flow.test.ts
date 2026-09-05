@@ -19,6 +19,7 @@ import {
   type FlowCommand,
   type FlowFile,
 } from '../lib/consulting-flow';
+import { flowFileStorageKey } from '../lib/consulting-flow-file-policy';
 import { claimFlowJob, finishFlowJob } from '../lib/consulting-flow-jobs';
 import {
   resolveFlowAssignment,
@@ -81,11 +82,12 @@ function apply(
   );
 }
 function file(purpose = 'report', name = 'test.pdf'): FlowFile {
+  const id = `file-${++sequence}`;
   return {
-    id: `file-${++sequence}`,
+    id,
     purpose,
     name,
-    key: `private/${sequence}`,
+    key: flowFileStorageKey(id),
     contentType: 'application/pdf',
     size: 100,
     createdAt: now,
