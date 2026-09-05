@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                     | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                  | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [기업자료 메타데이터 원장 불변 경계](COMPANY_FILE_METADATA_LEDGER_IMMUTABILITY_2026_09_05.md)                    | 원장 직접 수정·선행 삭제 차단과 정상 부모 연쇄 삭제 보존                                 |
 | [기업자료 전체 메타데이터 원장 무결성 경계](COMPANY_FILE_METADATA_LEDGER_INTEGRITY_2026_09_05.md)                | 원본 10개 사실 가산 결속, 유효값 변조 격리와 원자적 삭제 정리                            |
 | [기업자료 삭제 후 D1 정리 무결성 경계](COMPANY_FILE_DELETION_CLEANUP_INTEGRITY_2026_09_05.md)                    | R2 삭제 뒤 조건부 원장 정리와 키 변경 경합 증거·tombstone 보존                           |
 | [기업자료 삭제 저장 키 무결성 경계](COMPANY_FILE_DELETION_STORAGE_KEY_INTEGRITY_2026_09_05.md)                   | 삭제 전 키 원장 검사와 내구성 결정 재확인으로 교차 객체 삭제·키 변경 경쟁 차단           |
