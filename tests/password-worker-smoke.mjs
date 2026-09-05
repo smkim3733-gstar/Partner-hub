@@ -227,6 +227,16 @@ const flowCommandHistoryTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowNewCommandEvidenceTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0051_consulting_flow_new_command_evidence.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -243,6 +253,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_job_creation_audit_identity_guard',
   'consulting_flows_command_history_guard',
   'consulting_flows_job_creation_command_guard',
+  'consulting_flows_new_command_evidence_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -262,6 +273,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowAiJobCreationOriginTriggerSql,
       ...flowAiJobCreationAuditIdentityTriggerSql,
       ...flowCommandHistoryTriggerSql,
+      ...flowNewCommandEvidenceTriggerSql,
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3496,7 +3508,18 @@ try {
       )
       .run();
   await assert.rejects(
-    insertEvidenceFlow(),
+    (async () => {
+      await db
+        .prepare(
+          'DROP TRIGGER IF EXISTS consulting_flows_command_insert_evidence_guard',
+        )
+        .run();
+      try {
+        return await insertEvidenceFlow();
+      } finally {
+        await db.prepare(flowNewCommandEvidenceTriggerSql[0]).run();
+      }
+    })(),
     /initial job(?: origin)? is invalid/,
   );
   checks.push('FLOW native D1 rejects terminal AI evidence on root insert');
@@ -3505,6 +3528,9 @@ try {
     db.prepare(
       'DROP TRIGGER IF EXISTS consulting_flows_job_insert_origin_guard',
     ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_command_insert_evidence_guard',
+    ),
   ]);
   try {
     await insertEvidenceFlow();
@@ -3512,6 +3538,7 @@ try {
     await db.batch([
       db.prepare(flowAiEvidenceInsertTriggerSql),
       db.prepare(flowAiJobCreationOriginTriggerSql[0]),
+      db.prepare(flowNewCommandEvidenceTriggerSql[0]),
     ]);
   }
   const saveEvidenceTransition = async (before, after) =>
@@ -3684,6 +3711,33 @@ try {
       },
     },
     {
+      name: 'FLOW native D1 requires a receipt for each new command ID',
+      pattern: /new command evidence is invalid/,
+      apply(flow) {
+        const commandId = 'native-command-without-receipt';
+        flow.commandIds.push(commandId);
+        flow.audit.push({
+          id: commandId,
+          at: flow.updatedAt,
+          actor: '가상 대표',
+          action: 'set_ai_policy',
+          detail: '가상 명령 영수증 누락 검사',
+        });
+      },
+    },
+    {
+      name: 'FLOW native D1 requires an audit for each new command ID',
+      pattern: /new command evidence is invalid/,
+      apply(flow) {
+        const commandId = 'native-command-without-audit';
+        flow.commandIds.push(commandId);
+        flow.commandReceipts[commandId] = {
+          actorKey: 'admin:synthetic-owner',
+          fingerprint: 'native-command-without-audit-fingerprint',
+        };
+      },
+    },
+    {
       name: 'FLOW native D1 preserves existing jobs',
       pattern: /job transition is invalid/,
       apply(flow) {
@@ -3706,7 +3760,8 @@ try {
     },
     {
       name: 'FLOW native D1 binds each new AI job to its creation audit ID',
-      pattern: /job creation audit identity is invalid/,
+      pattern:
+        /(?:job creation audit identity|new command evidence) is invalid/,
       apply(flow) {
         flow.jobs.push({
           id: 'native-substituted-creation-job',
@@ -3831,23 +3886,32 @@ try {
       .run(),
     /transition envelope is invalid/,
   );
-  await assert.rejects(
-    db
-      .prepare(
-        `INSERT INTO consulting_flows
+  await db
+    .prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_command_insert_evidence_guard',
+    )
+    .run();
+  try {
+    await assert.rejects(
+      db
+        .prepare(
+          `INSERT INTO consulting_flows
           (case_id, partner_id, revision, payload, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5)`,
-      )
-      .bind(
-        'invalid-native-flow-insert',
-        memberId,
-        intactFlowRow.revision,
-        intactFlowPayload,
-        intactFlowRow.updated_at,
-      )
-      .run(),
-    /insert envelope is invalid/,
-  );
+          VALUES (?1, ?2, ?3, ?4, ?5)`,
+        )
+        .bind(
+          'invalid-native-flow-insert',
+          memberId,
+          intactFlowRow.revision,
+          intactFlowPayload,
+          intactFlowRow.updated_at,
+        )
+        .run(),
+      /insert envelope is invalid/,
+    );
+  } finally {
+    await db.prepare(flowNewCommandEvidenceTriggerSql[0]).run();
+  }
   assert.deepEqual(
     await db
       .prepare(

@@ -370,6 +370,12 @@ void nodeTest(
       { id: 'admin', role: 'admin', name: '대표' },
       { commandId: 'cas-insert-01', now: new Date().toISOString() },
     );
+    a.commandReceipts = {
+      'cas-insert-01': {
+        actorKey: 'admin:seedy@sites.test',
+        fingerprint: 'synthetic-cas-insert-receipt',
+      },
+    };
     await commitFlow(old, a);
     await assert.rejects(commitFlow(old, a));
     assert.equal((await readFlow('cas-only'))?.revision, 1);

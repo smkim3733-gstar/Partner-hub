@@ -12,6 +12,7 @@ import {
   consultingFlowFileOwnersTableSql,
   consultingFlowsAuditAppendOnlyTriggerSql,
   consultingFlowsCommandHistoryTriggerSql,
+  consultingFlowsCommandInsertEvidenceTriggerSql,
   consultingFlowsFailureEvidenceTriggerSql,
   consultingFlowsFailureHistoryTriggerSql,
   consultingFlowsIdentityTriggerSql,
@@ -30,6 +31,7 @@ import {
   consultingFlowsJobTransitionAuditTriggerSql,
   consultingFlowsJobTransitionTimestampTriggerSql,
   consultingFlowsNoDeleteTriggerSql,
+  consultingFlowsNewCommandEvidenceTriggerSql,
   consultingFlowsSuccessEvidenceTriggerSql,
   consultingFlowsTransitionTriggerSql,
   consultingFlowsTableSql,
@@ -117,6 +119,8 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandHistoryTriggerSql),
         db.prepare(consultingFlowsJobInsertCommandTriggerSql),
         db.prepare(consultingFlowsJobCreationCommandTriggerSql),
+        db.prepare(consultingFlowsCommandInsertEvidenceTriggerSql),
+        db.prepare(consultingFlowsNewCommandEvidenceTriggerSql),
         db.prepare(consultingFlowsNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),
@@ -979,6 +983,19 @@ function assertFlowCommitTransition(
     throw storedFlowIntegrityError();
   const newAudit = after.audit.slice(before.audit.length);
   const newCommandIds = after.commandIds.slice(before.commandIds.length);
+  if (
+    newCommandIds.some(
+      (id) =>
+        !Object.hasOwn(afterReceipts, id) ||
+        newAudit.filter(
+          (entry) =>
+            entry.id === id &&
+            entry.at === after.updatedAt &&
+            entry.action !== 'ai_result',
+        ).length !== 1,
+    )
+  )
+    throw storedFlowIntegrityError();
   const previousJobIds = new Set(before.jobs.map((job) => job.id));
   const newJobs = after.jobs.filter((job) => !previousJobIds.has(job.id));
   if (

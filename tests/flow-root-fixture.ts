@@ -1,6 +1,7 @@
 import {
   consultingFlowsAuditAppendOnlyTriggerSql,
   consultingFlowsCommandHistoryTriggerSql,
+  consultingFlowsNewCommandEvidenceTriggerSql,
   consultingFlowsFailureEvidenceTriggerSql,
   consultingFlowsFailureHistoryTriggerSql,
   consultingFlowsJobsTransitionTriggerSql,
@@ -33,6 +34,7 @@ const transitionTriggers = [
   consultingFlowsJobCreationAuditIdentityTriggerSql,
   consultingFlowsCommandHistoryTriggerSql,
   consultingFlowsJobCreationCommandTriggerSql,
+  consultingFlowsNewCommandEvidenceTriggerSql,
 ] as const;
 
 const transitionTriggerNames = [
@@ -51,6 +53,7 @@ const transitionTriggerNames = [
   'consulting_flows_job_creation_audit_identity_guard',
   'consulting_flows_command_history_guard',
   'consulting_flows_job_creation_command_guard',
+  'consulting_flows_new_command_evidence_guard',
 ] as const;
 
 /** Remove synthetic FLOW roots, then immediately restore the runtime guard. */

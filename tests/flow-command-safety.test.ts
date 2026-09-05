@@ -72,6 +72,16 @@ async function storeFlowFileBinding(
   return new Map([[file.id, flowFileObjectBinding(file, object)]]);
 }
 
+function addSyntheticCommandReceipt(flow: ConsultingFlow, commandId: string) {
+  flow.commandReceipts = {
+    ...flow.commandReceipts,
+    [commandId]: {
+      actorKey: `admin:${adminEmail}`,
+      fingerprint: `synthetic-${commandId}`,
+    },
+  };
+}
+
 void test('FLOW stops a queued model request when the caller is suspended during source preparation', async () => {
   const flow = await fixture();
   const next = structuredClone(flow),
@@ -103,6 +113,7 @@ void test('FLOW stops a queued model request when the caller is suspended during
     detail: '1차 분석보고서 생성 요청',
   });
   next.commandIds.push('synthetic');
+  addSyntheticCommandReceipt(next, 'synthetic');
   await commitFlow(
     flow,
     next,
@@ -179,6 +190,7 @@ void test('FLOW rejects a decorated oversized AI result without leaving the job 
     detail: '1차 분석보고서 생성 요청',
   });
   queued.commandIds.push('oversized-ai-result');
+  addSyntheticCommandReceipt(queued, 'oversized-ai-result');
   await commitFlow(flow, queued);
 
   const runtime = env as unknown as Record<string, unknown>;
@@ -375,12 +387,14 @@ async function fixture() {
     partner.id,
     partner.name,
   );
+  const commandId = `fixture-${++sequence}`;
   const flow = applyFlowCommand(
     initial,
     { type: 'save_report', stage: 1, body },
     { id: adminEmail, role: 'admin', name: '가상 대표' },
-    { commandId: `fixture-${++sequence}`, now: new Date().toISOString() },
+    { commandId, now: new Date().toISOString() },
   );
+  addSyntheticCommandReceipt(flow, commandId);
   await commitFlow(initial, flow);
   return (await readFlow(caseId))!;
 }
@@ -674,6 +688,8 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
     },
   );
   queued.commandIds.push(successCreationAuditId, failureCreationAuditId);
+  addSyntheticCommandReceipt(queued, successCreationAuditId);
+  addSyntheticCommandReceipt(queued, failureCreationAuditId);
   await commitFlow(initial, queued);
   const processing = structuredClone(queued);
   processing.revision++;
@@ -774,13 +790,16 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
   retryJob.startedAt = undefined;
   retryJob.failureEvidenceHistory = [retryJob.failureEvidence!];
   retryJob.failureEvidence = undefined;
+  const retryCommandId = `retry-audit-${++sequence}`;
   retry.audit.push({
-    id: `retry-audit-${++sequence}`,
+    id: retryCommandId,
     at: retryAt,
     actor: '가상 대표',
     action: 'retry_job',
     detail: '대표 확인 후 AI 생성 재시도',
   });
+  retry.commandIds.push(retryCommandId);
+  addSyntheticCommandReceipt(retry, retryCommandId);
   await commitFlow(firstResult, retry);
   const restarted = structuredClone(retry);
   restarted.revision++;
@@ -929,12 +948,14 @@ void test('FLOW native D1 rejects terminal AI evidence on the first root insert'
     partner.name,
   );
   const at = new Date().toISOString();
+  const insertedCommandId = `native-insert-${++sequence}`;
   const inserted = applyFlowCommand(
     initial,
     { type: 'save_report', stage: 1, body },
     { id: adminEmail, role: 'admin', name: '가상 대표' },
-    { commandId: `native-insert-${++sequence}`, now: at },
+    { commandId: insertedCommandId, now: at },
   );
+  addSyntheticCommandReceipt(inserted, insertedCommandId);
   const jobId = `native-insert-terminal-${++sequence}`;
   const auditId = `${jobId}-${at}`;
   inserted.jobs.push({
@@ -1009,6 +1030,7 @@ void test('FLOW native D1 rejects terminal AI evidence on the first root insert'
     detail: '1차 분석보고서 생성 요청',
   });
   queued.commandIds.push(queuedAuditId);
+  addSyntheticCommandReceipt(queued, queuedAuditId);
   const staleQueued = structuredClone(queued);
   staleQueued.jobs[0].createdAt = new Date(
     Date.parse(queued.updatedAt) - 1,
@@ -1048,7 +1070,7 @@ void test('FLOW native D1 rejects terminal AI evidence on the first root insert'
         mismatchedQueued.updatedAt,
       )
       .run(),
-    /initial job audit identity is invalid/,
+    /(?:initial job audit identity|initial command evidence) is invalid/,
   );
   await db
     .prepare(
@@ -1091,6 +1113,7 @@ void test('FLOW new AI jobs bind creation time, stage source and audit', async (
     detail: '1차 분석보고서 생성 요청',
   });
   valid.commandIds.push(auditId);
+  addSyntheticCommandReceipt(valid, auditId);
   const invalid = [
     (flow: ConsultingFlow) => {
       flow.jobs.at(-1)!.createdAt = initial.updatedAt;
@@ -1125,7 +1148,7 @@ void test('FLOW new AI jobs bind creation time, stage source and audit', async (
           initial.revision,
         )
         .run(),
-      /job creation (?:origin|audit identity) is invalid/,
+      /(?:job creation (?:origin|audit identity)|new command evidence) is invalid/,
     );
     assert.deepEqual(await readFlow(initial.caseId), initial);
   }
@@ -1155,6 +1178,7 @@ void test('FLOW new AI job ID binds to one exact creation audit ID', async () =>
     detail: '1차 분석보고서 생성 요청',
   });
   valid.commandIds.push(auditId);
+  addSyntheticCommandReceipt(valid, auditId);
   const mismatched = structuredClone(valid);
   mismatched.jobs.at(-1)!.id = `substituted-creation-${++sequence}-job`;
   mismatched.commandIds[mismatched.commandIds.length - 1] = mismatched.jobs
@@ -1180,7 +1204,7 @@ void test('FLOW new AI job ID binds to one exact creation audit ID', async () =>
         initial.revision,
       )
       .run(),
-    /job creation audit identity is invalid/,
+    /(?:job creation audit identity|new command evidence) is invalid/,
   );
   assert.deepEqual(await readFlow(initial.caseId), initial);
   const missingCommand = structuredClone(valid);
@@ -1280,6 +1304,58 @@ void test('FLOW command IDs and receipts remain append-only', async () => {
   }
 });
 
+void test('FLOW new command IDs require one audit and immutable receipt', async () => {
+  const initial = await fixture();
+  const commandId = `new-command-evidence-${++sequence}`;
+  const valid = applyFlowCommand(
+    initial,
+    { type: 'set_ai_policy', enabled: false },
+    { id: adminEmail, role: 'admin', name: '가상 대표' },
+    { commandId, now: new Date().toISOString() },
+  );
+  addSyntheticCommandReceipt(valid, commandId);
+  const invalid = [
+    (flow: ConsultingFlow) => {
+      delete flow.commandReceipts![commandId];
+    },
+    (flow: ConsultingFlow) => {
+      flow.audit.pop();
+    },
+  ];
+  const db = await flowDatabase();
+  for (const mutate of invalid) {
+    const changed = structuredClone(valid);
+    mutate(changed);
+    await assert.rejects(
+      commitFlow(initial, changed),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          changed.revision,
+          JSON.stringify(changed),
+          changed.updatedAt,
+          initial.caseId,
+          initial.revision,
+        )
+        .run(),
+      /new command evidence is invalid/,
+    );
+    assert.deepEqual(await readFlow(initial.caseId), initial);
+  }
+  await commitFlow(initial, valid);
+  assert.deepEqual(
+    await readFlow(valid.caseId),
+    JSON.parse(JSON.stringify(valid)),
+  );
+});
+
 void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => {
   const initial = await fixture();
   const timestamp = (offset: number) =>
@@ -1304,6 +1380,7 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
     detail: '1차 분석보고서 생성 요청',
   });
   queued.commandIds.push(creationAuditId);
+  addSyntheticCommandReceipt(queued, creationAuditId);
   await commitFlow(initial, queued);
   const invalidChanges: Array<{
     pattern: RegExp;
@@ -2368,12 +2445,14 @@ void test('FLOW source archival advances the authoritative purpose in the same c
     ),
   );
   const current = (await readFlow(flow.caseId))!;
+  const archiveCommandId = `archive-${++sequence}`;
   const archived = applyFlowCommand(
     current,
     { type: 'exclude_source', fileId },
     { id: adminEmail, role: 'admin', name: '가상 대표' },
-    { commandId: `archive-${++sequence}`, now: new Date().toISOString() },
+    { commandId: archiveCommandId, now: new Date().toISOString() },
   );
+  addSyntheticCommandReceipt(archived, archiveCommandId);
   await commitFlow(current, archived);
   assert.equal(
     (
