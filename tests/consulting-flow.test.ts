@@ -31,7 +31,11 @@ import {
   escapeHtml,
   parseFlowRequest,
 } from '../lib/consulting-flow-http';
-import { FLOW_COLLECTION_LIMITS } from '../lib/consulting-flow-shape';
+import {
+  FLOW_COLLECTION_LIMITS,
+  FLOW_TEXT_LIMITS,
+  flowTextLength,
+} from '../lib/consulting-flow-shape';
 
 function test(name: string, fn: () => void | Promise<void>) {
   void nodeTest(name, fn);
@@ -683,6 +687,25 @@ test('AI result capacity and report size are rejected before an invalid state is
         body: '가'.repeat(80001),
       }),
     (error) => error instanceof FlowError && error.status === 413,
+  );
+});
+test('FLOW text limits count Unicode code points like SQLite', () => {
+  assert.equal(flowTextLength('가😀'), 2);
+  const acceptedBody = '😀'.repeat(FLOW_TEXT_LIMITS.reportBody);
+  const accepted = apply(start(), {
+    type: 'save_report',
+    stage: 1,
+    body: acceptedBody,
+  });
+  assert.equal(accepted.reports[0].body, acceptedBody);
+  assert.throws(
+    () =>
+      apply(start(), {
+        type: 'save_report',
+        stage: 1,
+        body: `${acceptedBody}😀`,
+      }),
+    FlowError,
   );
 });
 test('AI failures remain failed; stale/disabled job results cannot drive the workflow', () => {

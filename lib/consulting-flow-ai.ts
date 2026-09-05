@@ -28,7 +28,7 @@ import {
   readFlow,
 } from '@/lib/consulting-flow-store';
 import { readAnthropicMessageResponse } from '@/lib/anthropic-message-response';
-import { FLOW_TEXT_LIMITS } from '@/lib/consulting-flow-shape';
+import { FLOW_TEXT_LIMITS, flowTextLength } from '@/lib/consulting-flow-shape';
 
 type TextBlock = { type: 'text'; text: string };
 type BinaryBlock = {
@@ -128,8 +128,8 @@ export async function buildAnalysisSourceBlocks(
         );
       }
       if (
-        value.trim().length < 20 ||
-        value.length > 80000 ||
+        flowTextLength(value.trim()) < 20 ||
+        flowTextLength(value) > FLOW_TEXT_LIMITS.aiSourceText ||
         invalidTextCharacters(value) ||
         hasSensitiveIdentifier(value)
       )
@@ -209,8 +209,8 @@ async function generate(
   const body = result.text;
   if (
     result.stopReason !== 'end_turn' ||
-    body.length < 200 ||
-    body.length > FLOW_TEXT_LIMITS.reportBody ||
+    flowTextLength(body) < 200 ||
+    flowTextLength(body) > FLOW_TEXT_LIMITS.reportBody ||
     !body.includes('[분석 끝]')
   )
     throw new FlowError(
@@ -221,7 +221,7 @@ async function generate(
       '출력에서 개인정보 형식이 감지되어 공유를 중지했습니다. 원문 마스킹 상태를 확인해 주세요.',
     );
   const storedBody = `AI 생성 내부 초안 · 김성민 대표 검토 전\n지침: ${CLAUDE_FLOW_INSTRUCTION_VERSION}\n기준: 제출된 자료 / 최신 외부 법령·정책 미조회\n\n${body}`;
-  if (storedBody.length > FLOW_TEXT_LIMITS.reportBody)
+  if (flowTextLength(storedBody) > FLOW_TEXT_LIMITS.reportBody)
     throw new FlowError(
       '보고서가 저장 한도를 초과해 정식 보고서로 저장하지 않았습니다. 비용 확인 후 재시도하거나 수동 등록해 주세요.',
     );

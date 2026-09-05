@@ -2156,6 +2156,29 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  const astralBoundaryHiddenAudit = JSON.parse(intactFlowPayload);
+  astralBoundaryHiddenAudit.audit[0].detail = '😀'.repeat(2000);
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(astralBoundaryHiddenAudit), 'runtime-own')
+    .run();
+  await expect(
+    await call('/flow/runtime-own', undefined, ownerHeaders),
+    200,
+    'FLOW detail accepts an astral hidden field at the Unicode code-point limit',
+  );
+  await expect(
+    await call('/state', undefined, ownerHeaders),
+    200,
+    'FLOW dashboard accepts the same astral hidden field at the SQLite limit',
+  );
+  checks.push(
+    'FLOW detail and D1 dashboard use the same Unicode code-point text limits',
+  );
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   const oversizedHiddenAudit = JSON.parse(intactFlowPayload);
   oversizedHiddenAudit.audit[0].detail = '가'.repeat(2001);
   await db

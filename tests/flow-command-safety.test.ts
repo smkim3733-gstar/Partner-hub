@@ -1006,6 +1006,37 @@ void test('FLOW dashboard rejects excessive hidden collection entries', async ()
   );
 });
 
+void test('FLOW detail and dashboard share SQLite Unicode code-point limits', async () => {
+  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  const flow = await fixture();
+  await replaceStoredFlow(flow.caseId, (payload) => {
+    const audit = payload.audit as Array<Record<string, unknown>>;
+    audit[0].detail = '😀'.repeat(FLOW_TEXT_LIMITS.auditDetail);
+    return payload;
+  });
+  const stored = await readFlow(flow.caseId);
+  assert.ok(stored);
+  assert.equal(
+    stored.audit[0].detail,
+    '😀'.repeat(FLOW_TEXT_LIMITS.auditDetail),
+  );
+  await stateWithConsultingFlows(await readPortalState());
+
+  await replaceStoredFlow(flow.caseId, (payload) => {
+    const audit = payload.audit as Array<Record<string, unknown>>;
+    audit[0].detail += '😀';
+    return payload;
+  });
+  await assert.rejects(
+    readFlow(flow.caseId),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    stateWithConsultingFlows(await readPortalState()),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+});
+
 void test('FLOW dashboard rejects malformed or oversized fields removed by SQLite projection', async () => {
   const corruptions: Array<{
     label: string;

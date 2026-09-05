@@ -10,6 +10,7 @@ import {
 import {
   FLOW_COLLECTION_LIMITS,
   FLOW_TEXT_LIMITS,
+  flowTextLength,
 } from './consulting-flow-shape';
 
 const resultCapacityError = () =>
@@ -72,7 +73,7 @@ export function finishFlowJob(
   if (
     current &&
     typeof outcome.error === 'string' &&
-    outcome.error.length > FLOW_TEXT_LIMITS.jobReason
+    flowTextLength(outcome.error) > FLOW_TEXT_LIMITS.jobReason
   )
     throw new FlowError('생성 실패 안내가 저장 한도를 초과했습니다.', 413);
   if (current && !outcome.error) {
@@ -81,7 +82,10 @@ export function finishFlowJob(
       (outcome.file && next.files.length >= FLOW_COLLECTION_LIMITS.files)
     )
       throw resultCapacityError();
-    if (outcome.body && outcome.body.length > FLOW_TEXT_LIMITS.reportBody)
+    if (
+      outcome.body &&
+      flowTextLength(outcome.body) > FLOW_TEXT_LIMITS.reportBody
+    )
       throw new FlowError('생성 보고서가 저장 한도를 초과했습니다.', 413);
   }
   if (!current) {
@@ -92,7 +96,7 @@ export function finishFlowJob(
     job.status = 'failed';
     job.reason = outcome.error;
   } else {
-    if (!outcome.body || outcome.body.length < 200)
+    if (!outcome.body || flowTextLength(outcome.body) < 200)
       throw new FlowError('완성된 분석 결과가 없습니다.');
     const report = {
       id: `${job.id}-result`,
@@ -126,7 +130,7 @@ export function finishFlowJob(
         ? `${reportLabels[job.stage]} 자동 저장 · 담당 파트너 공유`
         : `${reportLabels[job.stage]} ${job.status === 'blocked' ? '보류' : '실패'} · ${job.reason}`,
   });
-  if (next.audit.at(-1)!.detail.length > FLOW_TEXT_LIMITS.auditDetail)
+  if (flowTextLength(next.audit.at(-1)!.detail) > FLOW_TEXT_LIMITS.auditDetail)
     throw new FlowError('생성 결과 감사기록이 저장 한도를 초과했습니다.', 413);
   return next;
 }

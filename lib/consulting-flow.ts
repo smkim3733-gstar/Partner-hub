@@ -7,6 +7,7 @@ import {
 import {
   FLOW_COLLECTION_LIMITS,
   FLOW_TEXT_LIMITS,
+  flowTextLength,
 } from './consulting-flow-shape';
 
 /** Pure, server-enforced consulting workflow. No browser state is authoritative. */
@@ -398,7 +399,7 @@ function txt(c: FlowCommand, key: string, max = 1000, required = true) {
   );
   const value = typeof raw === 'string' ? raw.trim() : '';
   demand(
-    value.length <= max && (!required || value.length > 0),
+    flowTextLength(value) <= max && (!required || value.length > 0),
     `${key} 내용을 확인해 주세요.`,
   );
   return value;
@@ -574,7 +575,7 @@ export function applyFlowCommand(
         false,
       );
       demand(
-        s.ai.sourceText.length >= 20 || upload,
+        flowTextLength(s.ai.sourceText) >= 20 || upload,
         '기업 근거자료 또는 20자 이상 정리한 내용을 등록해 주세요.',
       );
       demand(
@@ -640,7 +641,7 @@ export function applyFlowCommand(
         409,
       );
       demand(
-        s.ai.sourceText.length >= 20 ||
+        flowTextLength(s.ai.sourceText) >= 20 ||
           s.files.some((f) => f.purpose === 'source'),
         '1차 분석용 근거자료를 먼저 등록해 주세요.',
       );
@@ -701,7 +702,7 @@ export function applyFlowCommand(
       const body = txt(command, 'body', FLOW_TEXT_LIMITS.reportBody, false);
       const attachment = upload ?? (command.fileId ? file() : undefined);
       demand(
-        body.length >= 80 || attachment,
+        flowTextLength(body) >= 80 || attachment,
         '보고서 본문 80자 이상 또는 완성 파일이 필요합니다.',
       );
       if (stage === 3)
@@ -711,7 +712,7 @@ export function applyFlowCommand(
         );
       if (stage === 1 && attachment && /\.docx$/i.test(attachment.name))
         demand(
-          body.length >= 80,
+          flowTextLength(body) >= 80,
           'DOCX 1차 보고서는 4차 AI 분석을 위해 본문을 함께 입력하거나 PDF로 변환해 등록해 주세요.',
         );
       const report: FlowReport = {
@@ -852,11 +853,11 @@ export function applyFlowCommand(
       );
       const isDocument = upload && /\.(docx|txt)$/i.test(upload.name);
       demand(
-        upload || audioUpload || transcript.length >= 20,
+        upload || audioUpload || flowTextLength(transcript) >= 20,
         '20자 이상의 전사문 또는 보관할 음성파일이 필요합니다.',
       );
       demand(
-        !isDocument || transcript.length >= 20,
+        !isDocument || flowTextLength(transcript) >= 20,
         '문서에서 읽은 전사문 본문을 확인한 뒤 등록해 주세요.',
       );
       if (transcript) {
@@ -945,7 +946,7 @@ export function applyFlowCommand(
       recording.transcriptReviewedBy = actor.id;
       if (upload) recording.transcriptFileId = upload.id;
       demand(
-        recording.transcript.length >= 20 &&
+        flowTextLength(recording.transcript) >= 20 &&
           !hasSensitiveIdentifier(recording.transcript),
         '20자 이상 마스킹한 전사문을 입력해 주세요.',
       );
@@ -1023,7 +1024,9 @@ export function applyFlowCommand(
           command.solutions.length <= 12 &&
           command.solutions.every(
             (x) =>
-              typeof x === 'string' && x.trim().length > 0 && x.length <= 80,
+              typeof x === 'string' &&
+              x.trim().length > 0 &&
+              flowTextLength(x) <= 80,
           ),
         '진행솔루션을 1개 이상 입력해 주세요.',
       );

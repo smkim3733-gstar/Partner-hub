@@ -58,12 +58,14 @@ const asRecord = (value: unknown): JsonRecord | null =>
     ? (value as JsonRecord)
     : null;
 const text = (value: unknown): value is string => typeof value === 'string';
+/** Matches SQLite length(TEXT): Unicode code points, not UTF-16 code units. */
+export const flowTextLength = (value: string) => Array.from(value).length;
 const named = (value: unknown): value is string =>
   text(value) && value.trim().length > 0;
 const boundedText = (value: unknown, maximum: number): value is string =>
-  text(value) && value.length <= maximum;
+  text(value) && flowTextLength(value) <= maximum;
 const boundedName = (value: unknown, maximum: number): value is string =>
-  named(value) && value.length <= maximum;
+  named(value) && flowTextLength(value) <= maximum;
 const timestamp = (value: unknown): value is string =>
   boundedName(value, FLOW_FIELD_LIMITS.timestamp) &&
   Number.isFinite(Date.parse(value));
