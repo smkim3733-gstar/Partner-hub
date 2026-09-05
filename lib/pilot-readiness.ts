@@ -1,4 +1,7 @@
-export const PORTAL_STATE_LIMIT_BYTES = 900_000;
+import { PORTAL_STATE_LIMIT_BYTES } from './storage-limits';
+
+export { PORTAL_STATE_LIMIT_BYTES } from './storage-limits';
+
 export const PROVISIONAL_STORAGE_WARNING_RATIO = 0.7;
 
 export type PilotSeedKind =
@@ -26,15 +29,21 @@ const seedIds: Record<PilotSeedKind, ReadonlySet<string>> = {
     ...Array.from({ length: 7 }, (_, index) => `task-${index + 1}`),
     ...pilotDiagnosisReviewTaskIds.values(),
   ]),
-  document: new Set(Array.from({ length: 6 }, (_, index) => `file-${index + 1}`)),
-  schedule: new Set(Array.from({ length: 5 }, (_, index) => `schedule-${index + 1}`)),
-  member: new Set(Array.from({ length: 4 }, (_, index) => `trainee-${index + 1}`)),
+  document: new Set(
+    Array.from({ length: 6 }, (_, index) => `file-${index + 1}`),
+  ),
+  schedule: new Set(
+    Array.from({ length: 5 }, (_, index) => `schedule-${index + 1}`),
+  ),
+  member: new Set(
+    Array.from({ length: 4 }, (_, index) => `trainee-${index + 1}`),
+  ),
   diagnosis: new Set(pilotDiagnosisIds),
 };
 
 export function pilotDiagnosisReviewTaskId(diagnosisId: unknown) {
   return typeof diagnosisId === 'string'
-    ? pilotDiagnosisReviewTaskIds.get(diagnosisId) ?? null
+    ? (pilotDiagnosisReviewTaskIds.get(diagnosisId) ?? null)
     : null;
 }
 
@@ -116,9 +125,7 @@ export function portalStorageTelemetry({
   warningRatio?: number;
 }): PortalStorageTelemetry {
   const storedBytes = payload === null ? 0 : utf8Bytes(payload);
-  const nextRequestBytes = utf8Bytes(
-    JSON.stringify({ state, expectedUserId }),
-  );
+  const nextRequestBytes = utf8Bytes(JSON.stringify({ state, expectedUserId }));
   const effectiveBytes = Math.max(storedBytes, nextRequestBytes);
   const normalizedWarningRatio = Math.min(1, Math.max(0, warningRatio));
   return {

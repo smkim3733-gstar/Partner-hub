@@ -4,6 +4,7 @@ import { env } from 'cloudflare:workers';
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { portalStateId } from '../db/schema';
+import { PORTAL_STATE_LIMIT_BYTES } from '../lib/pilot-readiness';
 import {
   mutatePortalState,
   readPortalState,
@@ -84,6 +85,54 @@ void test('portal state keeps one fixed durable D1 root', async () => {
       .bind('not-a-timestamp', portalStateId)
       .run(),
     /update envelope is invalid/,
+  );
+  const emptyCapacityPayload = JSON.stringify({ value: '' });
+  const exactCapacityPayload = JSON.stringify({
+    value: 'x'.repeat(
+      PORTAL_STATE_LIMIT_BYTES -
+        new TextEncoder().encode(emptyCapacityPayload).length,
+    ),
+  });
+  const oversizedPayload = JSON.stringify({
+    value: `${JSON.parse(exactCapacityPayload).value}x`,
+  });
+  assert.equal(
+    new TextEncoder().encode(exactCapacityPayload).length,
+    PORTAL_STATE_LIMIT_BYTES,
+  );
+  assert.equal(
+    new TextEncoder().encode(oversizedPayload).length,
+    PORTAL_STATE_LIMIT_BYTES + 1,
+  );
+  await db
+    .prepare(
+      'UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3',
+    )
+    .bind(exactCapacityPayload, stored.updated_at, portalStateId)
+    .run();
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT length(CAST(payload AS BLOB)) AS payload_bytes FROM portal_state WHERE id = ?1',
+        )
+        .bind(portalStateId)
+        .first<{ payload_bytes: number }>()
+    )?.payload_bytes,
+    PORTAL_STATE_LIMIT_BYTES,
+  );
+  await db
+    .prepare(
+      'UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3',
+    )
+    .bind(stored.payload, stored.updated_at, portalStateId)
+    .run();
+  await assert.rejects(
+    db
+      .prepare('UPDATE portal_state SET payload = ?1 WHERE id = ?2')
+      .bind(oversizedPayload, portalStateId)
+      .run(),
+    /payload exceeds capacity/,
   );
   assert.deepEqual(
     await db

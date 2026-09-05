@@ -388,6 +388,53 @@ try {
       .run(),
     /update envelope is invalid/,
   );
+  const portalStateLimitBytes = 900_000;
+  const emptyCapacityPayload = JSON.stringify({ value: '' });
+  const exactCapacityPayload = JSON.stringify({
+    value: 'x'.repeat(portalStateLimitBytes - emptyCapacityPayload.length),
+  });
+  const oversizedPayload = JSON.stringify({
+    value: `${JSON.parse(exactCapacityPayload).value}x`,
+  });
+  assert.equal(Buffer.byteLength(exactCapacityPayload), portalStateLimitBytes);
+  assert.equal(Buffer.byteLength(oversizedPayload), portalStateLimitBytes + 1);
+  await db
+    .prepare(
+      'UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3',
+    )
+    .bind(
+      exactCapacityPayload,
+      intactPortalRoot.updated_at,
+      intactPortalRoot.id,
+    )
+    .run();
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT length(CAST(payload AS BLOB)) AS payload_bytes FROM portal_state',
+        )
+        .first()
+    ).payload_bytes,
+    portalStateLimitBytes,
+  );
+  await db
+    .prepare(
+      'UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3',
+    )
+    .bind(
+      intactPortalRoot.payload,
+      intactPortalRoot.updated_at,
+      intactPortalRoot.id,
+    )
+    .run();
+  await assert.rejects(
+    db
+      .prepare('UPDATE portal_state SET payload = ?1')
+      .bind(oversizedPayload)
+      .run(),
+    /payload exceeds capacity/,
+  );
   assert.deepEqual(
     await db
       .prepare('SELECT id, payload, updated_at FROM portal_state')
@@ -396,6 +443,7 @@ try {
   );
   checks.push('portal state keeps one fixed durable native D1 root');
   checks.push('portal state D1 writes require a JSON object and UTC timestamp');
+  checks.push('portal state D1 writes enforce the UTF-8 payload capacity');
   assert.deepEqual(
     await db
       .prepare(

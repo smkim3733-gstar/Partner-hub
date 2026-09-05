@@ -1,0 +1,1 @@
+export const PORTAL_STATE_LIMIT_BYTES = 900_000;
