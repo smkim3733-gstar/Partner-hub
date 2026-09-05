@@ -991,6 +991,114 @@ BEGIN
 END
 `;
 
+export const FLOW_COMMAND_EFFECT_PATHS = {
+  import_intake_source: ['$.files'],
+  save_source: ['$.ai.sourceText', '$.files'],
+  exclude_source: ['$.files'],
+  set_ai_policy: ['$.ai'],
+  queue_report1: ['$.jobs'],
+  save_report: ['$.reports'],
+  confirm_analysis: ['$.analysis'],
+  book_meeting: ['$.meetings'],
+  complete_meeting: ['$.meetings'],
+  cancel_meeting: ['$.meetings'],
+  save_recording: ['$.recordings'],
+  save_transcript: ['$.recordings'],
+  retry_job: ['$.jobs'],
+  confirm_solutions: ['$.decision'],
+  request_document: ['$.requests'],
+  mark_request_sent: ['$.requests'],
+  receive_document: ['$.requests'],
+  review_document: ['$.requests'],
+  record_contract: ['$.contract'],
+  confirm_payment: ['$.payments'],
+  start_aftercare: ['$.aftercare'],
+} as const;
+
+const consultingFlowInitialEffectDefaults: Record<string, string | null> = {
+  '$.reports': '[]',
+  '$.files': '[]',
+  '$.analysis': '{"reportId":""}',
+  '$.meetings': '[]',
+  '$.recordings': '[]',
+  '$.requests': '[]',
+  '$.decision': null,
+  '$.contract': null,
+  '$.payments': '[]',
+  '$.executionStartedAt': null,
+  '$.aftercare': null,
+  '$.ai': '{"enabled":false,"sourceText":""}',
+  '$.ai.sourceText': '',
+  '$.jobs': '[]',
+};
+
+const consultingFlowCommandActionsSql = Object.keys(FLOW_COMMAND_EFFECT_PATHS)
+  .map((action) => `'${action}'`)
+  .join(', ');
+
+const consultingFlowCommandEffectCaseSql = (initial: boolean) =>
+  Object.entries(FLOW_COMMAND_EFFECT_PATHS)
+    .map(([action, paths]) => {
+      const changed = paths
+        .map((path) => {
+          if (!initial)
+            return `json_extract(NEW.payload, '${path}') IS NOT json_extract(OLD.payload, '${path}')`;
+          const baseline = consultingFlowInitialEffectDefaults[path];
+          return baseline === null
+            ? `json_type(NEW.payload, '${path}') IS NOT NULL`
+            : `COALESCE(json_extract(NEW.payload, '${path}'), char(0)) IS NOT '${baseline}'`;
+        })
+        .join(' OR ');
+      return `WHEN '${action}' THEN NOT (${changed})`;
+    })
+    .join('\n      ');
+
+export const consultingFlowsCommandInsertEffectTriggerSql = `
+CREATE TRIGGER IF NOT EXISTS consulting_flows_command_insert_effect_guard
+BEFORE INSERT ON consulting_flows
+WHEN COALESCE(json_array_length(NEW.payload, '$.commandIds'), 0) > 0
+  AND (
+    EXISTS (
+      SELECT 1 FROM json_each(NEW.payload, '$.commandIds') AS command
+      JOIN json_each(NEW.payload, '$.commandReceipts') AS receipt
+        ON receipt.key IS command.value
+      WHERE COALESCE(json_extract(receipt.value, '$.action'), '') NOT IN (${consultingFlowCommandActionsSql})
+        OR CASE json_extract(receipt.value, '$.action')
+          ${consultingFlowCommandEffectCaseSql(true)}
+          ELSE 1
+        END
+    )
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'consulting flow initial command effect is invalid');
+END
+`;
+
+export const consultingFlowsCommandEffectTriggerSql = `
+CREATE TRIGGER IF NOT EXISTS consulting_flows_command_effect_guard
+BEFORE UPDATE ON consulting_flows
+WHEN COALESCE(json_array_length(NEW.payload, '$.commandIds'), 0) >
+    COALESCE(json_array_length(OLD.payload, '$.commandIds'), 0)
+  AND (
+    EXISTS (
+      SELECT 1 FROM json_each(NEW.payload, '$.commandIds') AS command
+      JOIN json_each(NEW.payload, '$.commandReceipts') AS receipt
+        ON receipt.key IS command.value
+      WHERE command.key >= json_array_length(OLD.payload, '$.commandIds')
+        AND (
+          COALESCE(json_extract(receipt.value, '$.action'), '') NOT IN (${consultingFlowCommandActionsSql})
+          OR CASE json_extract(receipt.value, '$.action')
+            ${consultingFlowCommandEffectCaseSql(false)}
+            ELSE 1
+          END
+        )
+    )
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'consulting flow command effect is invalid');
+END
+`;
+
 const consultingFlowCommandReceiptIdentityViolationSql = (receipt: string) => `
   COALESCE(json_type(${receipt}.value, '$.fingerprint'), '') <> 'text'
   OR length(json_extract(${receipt}.value, '$.fingerprint')) <> 64

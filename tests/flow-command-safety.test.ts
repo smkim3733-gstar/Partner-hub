@@ -1473,7 +1473,7 @@ void test('FLOW command receipt semantics match and preserve their audit', async
           initial.revision,
         )
         .run(),
-      /(?:new admin command display is|command semantics are) invalid/,
+      /(?:new admin command display is|command (?:semantics are|effect is)) invalid/,
     );
     assert.deepEqual(await readFlow(initial.caseId), initial);
   }
@@ -1518,6 +1518,91 @@ void test('FLOW command receipt semantics match and preserve their audit', async
       JSON.parse(JSON.stringify(valid)),
     );
   }
+});
+
+void test('FLOW command actions require their declared business-state effect', async () => {
+  const initial = await fixture();
+  const commandId = `command-effect-${++sequence}`;
+  const valid = applyFlowCommand(
+    initial,
+    { type: 'set_ai_policy', enabled: false },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId,
+      now: new Date(Date.parse(initial.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(valid, commandId);
+  const db = await flowDatabase();
+  for (const action of ['start_aftercare', 'unsupported_action']) {
+    const forged = structuredClone(valid);
+    forged.commandReceipts![commandId].action = action;
+    forged.audit.at(-1)!.action = action;
+    await assert.rejects(
+      commitFlow(initial, forged),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          forged.revision,
+          JSON.stringify(forged),
+          forged.updatedAt,
+          initial.caseId,
+          initial.revision,
+        )
+        .run(),
+      /command effect is invalid/,
+    );
+    assert.deepEqual(await readFlow(initial.caseId), initial);
+  }
+});
+
+void test('FLOW initial command actions require their declared business-state effect', async () => {
+  const initial = newConsultingFlow(
+    `initial-command-effect-${++sequence}`,
+    '가상기업',
+    partner.id,
+    partner.name,
+  );
+  const commandId = `initial-command-effect-${++sequence}`;
+  const forged = applyFlowCommand(
+    initial,
+    { type: 'save_report', stage: 1, body },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    { commandId, now: new Date().toISOString() },
+  );
+  addSyntheticCommandReceipt(forged, commandId);
+  forged.commandReceipts![commandId].action = 'confirm_payment';
+  forged.audit.at(-1)!.action = 'confirm_payment';
+  await assert.rejects(
+    commitFlow(initial, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        forged.caseId,
+        forged.partnerId,
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+      )
+      .run(),
+    /initial command effect is invalid/,
+  );
+  assert.equal(await readFlow(initial.caseId), null);
 });
 
 void test('FLOW new command receipts require canonical identity fields', async () => {

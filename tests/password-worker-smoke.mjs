@@ -293,6 +293,12 @@ const flowAdminCommandDisplayTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowCommandEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(project, 'drizzle', '0058_consulting_flow_command_effect.sql'),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -316,6 +322,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_new_command_member_actor_guard',
   'consulting_flows_new_command_admin_actor_guard',
   'consulting_flows_new_command_admin_display_guard',
+  'consulting_flows_command_effect_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -342,6 +349,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowMemberCommandActorTriggerSql[1],
       flowAdminCommandActorTriggerSql[1],
       flowAdminCommandDisplayTriggerSql[1],
+      flowCommandEffectTriggerSql[1],
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3849,7 +3857,8 @@ try {
     },
     {
       name: 'FLOW native D1 requires a receipt for each new command ID',
-      pattern: /(?:new command evidence|command semantics) (?:is|are) invalid/,
+      pattern:
+        /(?:new command evidence|command semantics|command effect) (?:is|are) invalid/,
       apply(flow) {
         const commandId = 'native-command-without-receipt';
         flow.commandIds.push(commandId);
@@ -3864,8 +3873,10 @@ try {
     },
     {
       name: 'FLOW native D1 requires an audit for each new command ID',
-      pattern: /(?:new command evidence|command semantics) (?:is|are) invalid/,
+      pattern:
+        /(?:new command evidence|command semantics|command effect) (?:is|are) invalid/,
       apply(flow) {
+        flow.ai.approvedAt = flow.updatedAt;
         const commandId = 'native-command-without-audit';
         flow.commandIds.push(commandId);
         flow.commandReceipts[commandId] = {
@@ -3878,7 +3889,7 @@ try {
     },
     {
       name: 'FLOW native D1 binds new command receipt semantics to its audit',
-      pattern: /command semantics are invalid/,
+      pattern: /command (?:semantics are|effect is) invalid/,
       apply(flow) {
         const commandId = 'native-command-semantic-mismatch';
         flow.commandIds.push(commandId);
@@ -3898,9 +3909,31 @@ try {
       },
     },
     {
+      name: 'FLOW native D1 binds command actions to their business-state effect',
+      pattern: /command effect is invalid/,
+      apply(flow) {
+        const commandId = 'native-command-without-declared-effect';
+        flow.commandIds.push(commandId);
+        flow.audit.push({
+          id: commandId,
+          at: flow.updatedAt,
+          actor: '김성민 대표',
+          action: 'start_aftercare',
+          detail: '가상 명령 상태 효과 결속 검사',
+        });
+        flow.commandReceipts[commandId] = {
+          actorKey: 'admin:primary',
+          fingerprint: '6'.repeat(64),
+          actor: '김성민 대표',
+          action: 'start_aftercare',
+        };
+      },
+    },
+    {
       name: 'FLOW native D1 requires a lowercase SHA-256 command fingerprint',
       pattern: /new command receipt identity is invalid/,
       apply(flow) {
+        flow.ai.approvedAt = flow.updatedAt;
         const commandId = 'native-command-uppercase-fingerprint';
         flow.commandIds.push(commandId);
         flow.audit.push({
@@ -3922,6 +3955,7 @@ try {
       name: 'FLOW native D1 requires a namespaced command actor key',
       pattern: /new command receipt identity is invalid/,
       apply(flow) {
+        flow.ai.approvedAt = flow.updatedAt;
         const commandId = 'native-command-invalid-actor-key';
         flow.commandIds.push(commandId);
         flow.audit.push({
@@ -3943,6 +3977,7 @@ try {
       name: 'FLOW native D1 binds member commands to the assigned partner ID',
       pattern: /new member command actor is invalid/,
       apply(flow) {
+        flow.analysis.partnerAt = flow.updatedAt;
         const commandId = 'native-member-command-wrong-account';
         flow.commandIds.push(commandId);
         flow.audit.push({
@@ -3964,6 +3999,7 @@ try {
       name: 'FLOW native D1 binds member command display to the assigned partner',
       pattern: /new member command actor is invalid/,
       apply(flow) {
+        flow.analysis.partnerAt = flow.updatedAt;
         const commandId = 'native-member-command-wrong-display';
         flow.commandIds.push(commandId);
         flow.audit.push({
@@ -3985,6 +4021,7 @@ try {
       name: 'FLOW native D1 binds admin commands to the stable primary identity',
       pattern: /new admin command actor is invalid/,
       apply(flow) {
+        flow.ai.approvedAt = flow.updatedAt;
         const commandId = 'native-admin-command-email-identity';
         flow.commandIds.push(commandId);
         flow.audit.push({
@@ -4006,6 +4043,7 @@ try {
       name: 'FLOW native D1 binds admin command display to the representative role',
       pattern: /new admin command display is invalid/,
       apply(flow) {
+        flow.ai.approvedAt = flow.updatedAt;
         const commandId = 'native-admin-command-wrong-display';
         flow.commandIds.push(commandId);
         flow.audit.push({

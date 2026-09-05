@@ -13,12 +13,14 @@ import {
   consultingFlowsAuditAppendOnlyTriggerSql,
   consultingFlowsCommandHistoryTriggerSql,
   consultingFlowsCommandInsertEvidenceTriggerSql,
+  consultingFlowsCommandInsertEffectTriggerSql,
   consultingFlowsCommandInsertSemanticsTriggerSql,
   consultingFlowsCommandInsertReceiptIdentityTriggerSql,
   consultingFlowsCommandInsertMemberActorTriggerSql,
   consultingFlowsCommandInsertAdminActorTriggerSql,
   consultingFlowsCommandInsertAdminDisplayTriggerSql,
   consultingFlowsCommandReceiptOriginTriggerSql,
+  consultingFlowsCommandEffectTriggerSql,
   consultingFlowsCommandSemanticsTriggerSql,
   consultingFlowsFailureEvidenceTriggerSql,
   consultingFlowsFailureHistoryTriggerSql,
@@ -46,6 +48,7 @@ import {
   consultingFlowsSuccessEvidenceTriggerSql,
   consultingFlowsTransitionTriggerSql,
   consultingFlowsTableSql,
+  FLOW_COMMAND_EFFECT_PATHS,
   portalStateId,
 } from '@/db/schema';
 import {
@@ -139,6 +142,8 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandReceiptOriginTriggerSql),
         db.prepare(consultingFlowsCommandInsertSemanticsTriggerSql),
         db.prepare(consultingFlowsCommandSemanticsTriggerSql),
+        db.prepare(consultingFlowsCommandInsertEffectTriggerSql),
+        db.prepare(consultingFlowsCommandEffectTriggerSql),
         db.prepare(consultingFlowsCommandInsertReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsNewCommandReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsCommandInsertMemberActorTriggerSql),
@@ -1040,6 +1045,28 @@ function assertFlowCommitTransition(
     })
   )
     throw storedFlowIntegrityError();
+  for (const commandId of newCommandIds) {
+    const action = afterReceipts[commandId]?.action;
+    const effectPaths =
+      FLOW_COMMAND_EFFECT_PATHS[
+        action as keyof typeof FLOW_COMMAND_EFFECT_PATHS
+      ];
+    if (
+      !effectPaths ||
+      !effectPaths.some((path) => {
+        const key = path.slice(2).split('.')[0] as keyof ConsultingFlow;
+        const nestedKey = path.slice(2).split('.')[1];
+        const previous = before[key];
+        const next = after[key];
+        if (!nestedKey) return !sameValue(previous, next);
+        return !sameValue(
+          (previous as Record<string, unknown> | undefined)?.[nestedKey],
+          (next as Record<string, unknown> | undefined)?.[nestedKey],
+        );
+      })
+    )
+      throw storedFlowIntegrityError();
+  }
   const previousJobIds = new Set(before.jobs.map((job) => job.id));
   const newJobs = after.jobs.filter((job) => !previousJobIds.has(job.id));
   if (
