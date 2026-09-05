@@ -1,5 +1,6 @@
 import type { SavedStepZeroRun, StepZeroResult } from './ai-diagnosis';
 import { isSafeStoredText } from './unicode-text';
+import { isUtcMillisecondTimestamp } from './utc-timestamp';
 
 type JsonObject = Record<string, unknown>;
 
@@ -187,8 +188,7 @@ function parseRun(
     !usage ||
     !safeInteger(usage.inputTokens) ||
     !safeInteger(usage.outputTokens) ||
-    typeof run.createdAt !== 'string' ||
-    !Number.isFinite(Date.parse(run.createdAt))
+    !isUtcMillisecondTimestamp(run.createdAt)
   )
     return null;
   return {

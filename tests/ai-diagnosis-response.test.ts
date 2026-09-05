@@ -130,6 +130,7 @@ void test('mismatched or malformed Step 0 results never reach the screen', async
     { ...run, status: '완료' },
     { ...run, usage: { inputTokens: -1, outputTokens: 20 } },
     { ...run, createdAt: 'not-a-date' },
+    { ...run, createdAt: '2026-02-30T00:00:00.000Z' },
     { ...run, result: { ...run.result, mainRisks: [3] } },
     { ...run, model: '손상�모델' },
     { ...run, result: { ...run.result, mainRisks: ['손상\u0001위험'] } },

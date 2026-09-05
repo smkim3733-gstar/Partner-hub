@@ -484,6 +484,23 @@ try {
       /field envelope is invalid/,
     );
   checks.push('AI diagnosis run identity fields keep bounded API envelopes');
+  await assert.rejects(
+    db
+      .prepare(
+        `INSERT INTO ai_diagnosis_runs
+          (id, case_id, company, stage, status, instruction_version, model,
+           result_json, input_tokens, output_tokens, created_by_user_id, created_at)
+         VALUES (?1, ?2, '가상 진단기업', 'Step 0', '생성중', 'v1',
+           'model', ?3, 0, 0, 'admin', '2026-02-30T00:00:00.000Z')`,
+      )
+      .bind(
+        'migration-invalid-diagnosis-date',
+        'migration-invalid-diagnosis-date-case',
+        JSON.stringify({ _requestFingerprint: diagnosisFingerprint }),
+      )
+      .run(),
+    /timestamp envelope|insert envelope is invalid/,
+  );
   for (const values of [
     { ...diagnosisIdentityBase, company: '손상\u0001기업' },
     { ...diagnosisIdentityBase, model: '손상�모델' },
@@ -614,6 +631,21 @@ try {
           created_at = ?2 WHERE id = ?3`,
       )
       .bind(
+        completedDiagnosisResult,
+        '2026-02-30T00:01:00.000Z',
+        diagnosisRunId,
+      )
+      .run(),
+    /timestamp envelope|transition is invalid/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE ai_diagnosis_runs SET status = '대표 검토 대기',
+          result_json = ?1, input_tokens = 10, output_tokens = 20,
+          created_at = ?2 WHERE id = ?3`,
+      )
+      .bind(
         JSON.stringify({
           ...JSON.parse(completedDiagnosisResult),
           mainRisks: ['손상\ud800문자열'],
@@ -649,6 +681,7 @@ try {
   checks.push('AI diagnosis runs keep one durable forward lifecycle');
   checks.push('AI diagnosis completed results keep one exact bounded envelope');
   checks.push('AI diagnosis identity and result text reject unsafe Unicode');
+  checks.push('AI diagnosis timestamps require exact UTC calendar instants');
   assert.deepEqual(
     await db
       .prepare(

@@ -94,6 +94,23 @@ void test('AI diagnosis runs preserve one durable forward lifecycle', async () =
       .run(),
     /insert envelope is invalid/,
   );
+  await assert.rejects(
+    db
+      .prepare(
+        `INSERT INTO ai_diagnosis_runs
+          (id, case_id, company, stage, status, instruction_version, model,
+           result_json, input_tokens, output_tokens, created_by_user_id, created_at)
+         VALUES (?1, ?2, '가상 진단기업', 'Step 0', '생성중', 'v1', 'model',
+           ?3, 0, 0, 'admin', '2026-02-30T00:00:00.000Z')`,
+      )
+      .bind(
+        'diagnosis-invalid-date',
+        'diagnosis-invalid-date-case',
+        JSON.stringify({ _requestFingerprint: fingerprint }),
+      )
+      .run(),
+    /timestamp envelope|insert envelope is invalid/,
+  );
   for (const [index, resultJson] of [
     JSON.stringify({ _requestFingerprint: fingerprint, unexpected: true }),
     `{${' '.repeat(300)}"_requestFingerprint":"${fingerprint}"}`,
@@ -181,11 +198,26 @@ void test('AI diagnosis runs preserve one durable forward lifecycle', async () =
   );
 
   const completed = completedRun(runId, caseId);
+  for (const invalid of [
+    { ...completed, createdAt: '2026-02-30T00:01:00.000Z' },
+    { ...completed, usage: { inputTokens: -1, outputTokens: 20 } },
+  ])
+    await assert.rejects(
+      completeStepZeroRequest(invalid, 'synthetic-admin', fingerprint),
+      /완료 메타데이터 형식이 올바르지 않습니다/,
+    );
   assert.equal(
     await completeStepZeroRequest(completed, 'synthetic-admin', fingerprint),
     true,
   );
   assert.deepEqual(await readLatestStepZeroRun(caseId), completed);
+  assert.deepEqual(
+    await claimStepZeroRequest({
+      ...claimInput(runId, caseId),
+      model: 'another-model',
+    }),
+    { state: 'conflict' },
+  );
   await assert.rejects(
     db
       .prepare("UPDATE ai_diagnosis_runs SET status = '생성실패' WHERE id = ?1")
@@ -230,6 +262,7 @@ void test('AI diagnosis run identity fields stay within the API envelope', async
     { ...base, createdByUserId: 'u'.repeat(257) },
     { ...base, company: '손상\ud800기업' },
     { ...base, model: '손상\u0001모델' },
+    { ...base, createdAt: '2026-02-30T00:00:00.000Z' },
   ];
   for (const input of invalidClaims)
     await assert.rejects(

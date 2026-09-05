@@ -1,5 +1,7 @@
 import {
   aiDiagnosisRunsCaseIndexSql,
+  aiDiagnosisRunsCreatedAtInsertTriggerSql,
+  aiDiagnosisRunsCreatedAtUpdateTriggerSql,
   aiDiagnosisRunsFieldEnvelopeTriggerSql,
   aiDiagnosisRunsFieldTextTriggerSql,
   aiDiagnosisRunsIdentityTriggerSql,
@@ -19,6 +21,7 @@ import {
   STEP_ZERO_RESULT_LIMIT_BYTES,
 } from '@/lib/storage-limits';
 import { isSafeStoredText } from '@/lib/unicode-text';
+import { isUtcMillisecondTimestamp } from '@/lib/utc-timestamp';
 
 export type StepZeroResult = {
   companyOverview: string;
@@ -71,6 +74,8 @@ export async function ensureAiDiagnosisTables(db: D1Database) {
     db.prepare(aiDiagnosisRunsInsertEnvelopeTriggerSql),
     db.prepare(aiDiagnosisRunsPendingEnvelopeTriggerSql),
     db.prepare(aiDiagnosisRunsFieldEnvelopeTriggerSql),
+    db.prepare(aiDiagnosisRunsCreatedAtInsertTriggerSql),
+    db.prepare(aiDiagnosisRunsCreatedAtUpdateTriggerSql),
     db.prepare(aiDiagnosisRunsFieldTextTriggerSql),
     db.prepare(aiDiagnosisRunsIdentityTriggerSql),
     db.prepare(aiDiagnosisRunsTransitionTriggerSql),
@@ -92,6 +97,7 @@ function boundedIdentity(value: string, maximum: number) {
 function assertValidStepZeroClaimInput(input: StepZeroClaimInput) {
   if (
     !/^[A-Za-z0-9_-]{16,100}$/.test(input.requestId) ||
+    !/^[0-9a-f]{64}$/.test(input.requestFingerprint) ||
     !boundedIdentity(input.caseId, AI_DIAGNOSIS_RUN_FIELD_LIMITS.caseId) ||
     !boundedIdentity(input.company, AI_DIAGNOSIS_RUN_FIELD_LIMITS.company) ||
     !boundedIdentity(
@@ -102,7 +108,8 @@ function assertValidStepZeroClaimInput(input: StepZeroClaimInput) {
     !boundedIdentity(
       input.createdByUserId,
       AI_DIAGNOSIS_RUN_FIELD_LIMITS.actorId,
-    )
+    ) ||
+    !isUtcMillisecondTimestamp(input.createdAt)
   )
     throw new Error('AI 진단 실행 신원 형식이 올바르지 않습니다.');
 }
@@ -226,19 +233,44 @@ export type StepZeroClaim =
   | { state: 'pending' | 'conflict' | 'failed' }
   | { state: 'completed'; run: SavedStepZeroRun };
 
-function runFromRow(row: AiDiagnosisRunRow): SavedStepZeroRun {
-  return {
-    id: row.id,
-    caseId: row.case_id,
-    company: row.company,
-    stage: 'Step 0',
-    status: '대표 검토 대기',
-    instructionVersion: row.instruction_version,
-    model: row.model,
-    result: parseStepZeroResult(row.result_json),
-    usage: { inputTokens: row.input_tokens, outputTokens: row.output_tokens },
-    createdAt: row.created_at,
-  };
+function safeTokenCount(value: unknown) {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
+function runFromRow(row: AiDiagnosisRunRow): SavedStepZeroRun | null {
+  try {
+    assertValidStepZeroClaimInput({
+      requestId: row.id,
+      requestFingerprint: storedFingerprint(row),
+      caseId: row.case_id,
+      company: row.company,
+      instructionVersion: row.instruction_version,
+      model: row.model,
+      createdByUserId: row.created_by_user_id,
+      createdAt: row.created_at,
+    });
+    if (
+      row.stage !== 'Step 0' ||
+      row.status !== '대표 검토 대기' ||
+      !safeTokenCount(row.input_tokens) ||
+      !safeTokenCount(row.output_tokens)
+    )
+      return null;
+    return {
+      id: row.id,
+      caseId: row.case_id,
+      company: row.company,
+      stage: 'Step 0',
+      status: '대표 검토 대기',
+      instructionVersion: row.instruction_version,
+      model: row.model,
+      result: parseStepZeroResult(row.result_json),
+      usage: { inputTokens: row.input_tokens, outputTokens: row.output_tokens },
+      createdAt: row.created_at,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function diagnosisRun(id: string) {
@@ -301,15 +333,21 @@ export async function claimStepZeroRequest(
   if (
     existing.case_id !== input.caseId ||
     existing.company !== input.company ||
+    existing.stage !== 'Step 0' ||
+    existing.instruction_version !== input.instructionVersion ||
+    existing.model !== input.model ||
     existing.created_by_user_id !== input.createdByUserId ||
     storedFingerprint(existing) !== input.requestFingerprint
   )
     return { state: 'conflict' };
-  return existing.status === '대표 검토 대기'
-    ? { state: 'completed', run: runFromRow(existing) }
-    : existing.status === '생성실패'
-      ? { state: 'failed' }
-      : { state: 'pending' };
+  if (existing.status === '대표 검토 대기') {
+    const run = runFromRow(existing);
+    return run ? { state: 'completed', run } : { state: 'conflict' };
+  }
+  if (existing.status === '생성실패') return { state: 'failed' };
+  return existing.status === '생성중'
+    ? { state: 'pending' }
+    : { state: 'conflict' };
 }
 
 export async function completeStepZeroRequest(
@@ -317,6 +355,31 @@ export async function completeStepZeroRequest(
   createdByUserId: string,
   requestFingerprint: string,
 ) {
+  try {
+    assertValidStepZeroClaimInput({
+      requestId: run.id,
+      requestFingerprint,
+      caseId: run.caseId,
+      company: run.company,
+      instructionVersion: run.instructionVersion,
+      model: run.model,
+      createdByUserId,
+      createdAt: run.createdAt,
+    });
+    if (
+      run.stage !== 'Step 0' ||
+      run.status !== '대표 검토 대기' ||
+      !safeTokenCount(run.usage.inputTokens) ||
+      !safeTokenCount(run.usage.outputTokens)
+    )
+      throw new Error('invalid completion metadata');
+  } catch {
+    throw new Error('AI 진단 완료 메타데이터 형식이 올바르지 않습니다.');
+  }
+  const resultEnvelope = JSON.stringify({
+    ...parseStepZeroResult(JSON.stringify(run.result)),
+    _requestFingerprint: requestFingerprint,
+  });
   const db = companyFileDatabase();
   await ensureAiDiagnosisTables(db);
   const result = await db
@@ -332,10 +395,7 @@ export async function completeStepZeroRequest(
       run.status,
       run.instructionVersion,
       run.model,
-      JSON.stringify({
-        ...run.result,
-        _requestFingerprint: requestFingerprint,
-      }),
+      resultEnvelope,
       run.usage.inputTokens,
       run.usage.outputTokens,
       run.createdAt,
@@ -374,7 +434,7 @@ export async function readLatestStepZeroRun(
   const row = await db
     .prepare(`
     SELECT id, case_id, company, stage, status, instruction_version, model,
-      result_json, input_tokens, output_tokens, created_at
+      result_json, input_tokens, output_tokens, created_by_user_id, created_at
     FROM ai_diagnosis_runs
     WHERE case_id = ?1 AND stage = 'Step 0' AND status = '대표 검토 대기'
     ORDER BY created_at DESC
