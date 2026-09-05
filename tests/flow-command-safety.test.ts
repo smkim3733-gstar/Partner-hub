@@ -939,6 +939,95 @@ void test('FLOW native D1 rejects terminal AI evidence on the first root insert'
   await deleteConsultingFlowFixture(db, queued.caseId);
 });
 
+void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => {
+  const initial = await fixture();
+  const timestamp = (offset: number) =>
+    new Date(Date.parse(initial.updatedAt) + offset).toISOString();
+  const queued = structuredClone(initial);
+  const jobId = `lifecycle-job-${++sequence}`;
+  queued.revision++;
+  queued.updatedAt = timestamp(1);
+  queued.jobs.push({
+    id: jobId,
+    stage: 1,
+    status: 'queued',
+    reason: '',
+    createdAt: queued.updatedAt,
+  });
+  await commitFlow(initial, queued);
+  const invalidChanges: Array<{
+    pattern: RegExp;
+    apply: (flow: ConsultingFlow) => void;
+  }> = [
+    {
+      pattern: /job identity is immutable/,
+      apply(flow) {
+        flow.jobs.at(-1)!.stage = 4;
+      },
+    },
+    {
+      pattern: /job (?:status|lifecycle) transition is invalid/,
+      apply(flow) {
+        const job = flow.jobs.at(-1)!;
+        job.status = 'complete';
+        job.startedAt = timestamp(2);
+        job.completedAt = timestamp(3);
+        job.reportId = flow.reports[0].id;
+      },
+    },
+    {
+      pattern: /job lifecycle transition is invalid/,
+      apply(flow) {
+        flow.jobs.at(-1)!.reason = '구조상 정상인 대기 사유 변조';
+      },
+    },
+  ];
+  const db = await flowDatabase();
+  for (const change of invalidChanges) {
+    const changed = structuredClone(queued);
+    changed.revision++;
+    changed.updatedAt = timestamp(3);
+    change.apply(changed);
+    await assert.rejects(
+      commitFlow(queued, changed),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          changed.revision,
+          JSON.stringify(changed),
+          changed.updatedAt,
+          queued.caseId,
+          queued.revision,
+        )
+        .run(),
+      change.pattern,
+    );
+    assert.deepEqual(await readFlow(queued.caseId), queued);
+  }
+  const processing = structuredClone(queued);
+  processing.revision++;
+  processing.updatedAt = timestamp(4);
+  processing.jobs.at(-1)!.status = 'processing';
+  processing.jobs.at(-1)!.startedAt = timestamp(4);
+  await commitFlow(queued, processing);
+  const changedLease = structuredClone(processing);
+  changedLease.revision++;
+  changedLease.updatedAt = timestamp(5);
+  changedLease.jobs.at(-1)!.startedAt = timestamp(5);
+  await assert.rejects(
+    commitFlow(processing, changedLease),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  assert.deepEqual(await readFlow(processing.caseId), processing);
+});
+
 void test('FLOW rejects a D1 updated timestamp that differs from its payload', async () => {
   const flow = await fixture();
   const db = await flowDatabase();

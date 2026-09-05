@@ -17,6 +17,9 @@ import {
   consultingFlowsInsertEnvelopeTriggerSql,
   consultingFlowsJobsInsertTriggerSql,
   consultingFlowsJobsTransitionTriggerSql,
+  consultingFlowsJobIdentityTriggerSql,
+  consultingFlowsJobLifecycleTriggerSql,
+  consultingFlowsJobStatusTriggerSql,
   consultingFlowsNoDeleteTriggerSql,
   consultingFlowsSuccessEvidenceTriggerSql,
   consultingFlowsTransitionTriggerSql,
@@ -91,6 +94,9 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsSuccessEvidenceTriggerSql),
         db.prepare(consultingFlowsFailureHistoryTriggerSql),
         db.prepare(consultingFlowsFailureEvidenceTriggerSql),
+        db.prepare(consultingFlowsJobIdentityTriggerSql),
+        db.prepare(consultingFlowsJobStatusTriggerSql),
+        db.prepare(consultingFlowsJobLifecycleTriggerSql),
         db.prepare(consultingFlowsNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),
@@ -963,6 +969,65 @@ function assertFlowCommitTransition(
   for (const job of before.jobs) {
     const next = nextJobs.get(job.id);
     if (!next) throw storedFlowIntegrityError();
+    if (
+      next.stage !== job.stage ||
+      next.sourceRecordingId !== job.sourceRecordingId ||
+      next.sourceReportId !== job.sourceReportId ||
+      next.createdAt !== job.createdAt
+    )
+      throw storedFlowIntegrityError();
+    const transition = `${job.status}:${next.status}`;
+    const emptyResult =
+      next.completedAt === undefined &&
+      next.reportId === undefined &&
+      next.evidence === undefined;
+    const emptyAttempt =
+      next.startedAt === undefined &&
+      emptyResult &&
+      next.failureEvidence === undefined;
+    const unchangedAttempt =
+      next.reason === job.reason &&
+      next.startedAt === job.startedAt &&
+      next.completedAt === job.completedAt &&
+      next.reportId === job.reportId &&
+      sameValue(next.evidence, job.evidence) &&
+      sameValue(next.failureEvidence, job.failureEvidence);
+    const validLifecycle =
+      (job.status === next.status &&
+        (job.status === 'blocked'
+          ? (next.startedAt === job.startedAt ||
+              next.startedAt === undefined) &&
+            emptyResult &&
+            next.failureEvidence === undefined
+          : unchangedAttempt)) ||
+      (transition === 'queued:processing' &&
+        next.reason === '' &&
+        next.startedAt !== undefined &&
+        emptyResult &&
+        next.failureEvidence === undefined) ||
+      (transition === 'queued:blocked' && next.reason !== '' && emptyAttempt) ||
+      ((transition === 'blocked:queued' ||
+        transition === 'failed:queued' ||
+        transition === 'processing:queued') &&
+        next.reason === '' &&
+        emptyAttempt) ||
+      (transition === 'processing:blocked' &&
+        next.reason !== '' &&
+        next.startedAt === job.startedAt &&
+        emptyResult &&
+        next.failureEvidence === undefined) ||
+      (transition === 'processing:failed' &&
+        next.reason !== '' &&
+        next.startedAt === job.startedAt &&
+        emptyResult) ||
+      (transition === 'processing:complete' &&
+        next.reason === '' &&
+        next.startedAt === job.startedAt &&
+        next.completedAt !== undefined &&
+        next.reportId !== undefined &&
+        next.evidence !== undefined &&
+        next.failureEvidence === undefined);
+    if (!validLifecycle) throw storedFlowIntegrityError();
     const previousHistory = job.failureEvidenceHistory ?? [];
     const nextHistory = next.failureEvidenceHistory ?? [];
     if (

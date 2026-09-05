@@ -175,6 +175,12 @@ const [flowAiEvidenceInsertTriggerSql] = migrationStatements(
     'utf8',
   ),
 );
+const flowAiJobLifecycleTriggerSql = migrationStatements(
+  await readFile(
+    path.join(project, 'drizzle', '0045_consulting_flow_ai_job_lifecycle.sql'),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -182,6 +188,9 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_success_evidence_guard',
   'consulting_flows_failure_history_guard',
   'consulting_flows_failure_evidence_guard',
+  'consulting_flows_job_identity_guard',
+  'consulting_flows_job_status_guard',
+  'consulting_flows_job_lifecycle_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -195,6 +204,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
     [
       consultingFlowsTransitionTriggerSql,
       ...flowAiEvidenceTransitionTriggerSql,
+      ...flowAiJobLifecycleTriggerSql,
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3497,6 +3507,27 @@ try {
   );
   const nativeEvidenceMutations = [
     {
+      name: 'FLOW native D1 preserves existing AI job identity',
+      pattern: /job identity is immutable/,
+      apply(flow) {
+        flow.jobs[0].stage = 4;
+      },
+    },
+    {
+      name: 'FLOW native D1 rejects a terminal AI job status reversal',
+      pattern: /job (?:status|lifecycle) transition is invalid/,
+      apply(flow) {
+        flow.jobs[0].status = 'queued';
+      },
+    },
+    {
+      name: 'FLOW native D1 preserves settled AI job lifecycle fields',
+      pattern: /job lifecycle transition is invalid/,
+      apply(flow) {
+        flow.jobs[1].reason = '구조상 정상인 실패 사유 변조';
+      },
+    },
+    {
       name: 'FLOW native D1 preserves existing audit records',
       pattern: /audit is append-only/,
       apply(flow) {
@@ -3529,7 +3560,7 @@ try {
     },
     {
       name: 'FLOW native D1 preserves success evidence',
-      pattern: /success evidence transition is invalid/,
+      pattern: /(?:success evidence|job lifecycle) transition is invalid/,
       apply(flow) {
         flow.jobs[0].evidence.providerModel = 'claude-mutated-test-model';
       },
@@ -3544,7 +3575,7 @@ try {
     },
     {
       name: 'FLOW native D1 preserves current failure evidence',
-      pattern: /failure evidence transition is invalid/,
+      pattern: /(?:failure evidence|job lifecycle) transition is invalid/,
       apply(flow) {
         flow.jobs[1].failureEvidence.httpStatus = 429;
       },

@@ -3,6 +3,9 @@ import {
   consultingFlowsFailureEvidenceTriggerSql,
   consultingFlowsFailureHistoryTriggerSql,
   consultingFlowsJobsTransitionTriggerSql,
+  consultingFlowsJobIdentityTriggerSql,
+  consultingFlowsJobLifecycleTriggerSql,
+  consultingFlowsJobStatusTriggerSql,
   consultingFlowsNoDeleteTriggerSql,
   consultingFlowsSuccessEvidenceTriggerSql,
   consultingFlowsTransitionTriggerSql,
@@ -15,6 +18,9 @@ const transitionTriggers = [
   consultingFlowsSuccessEvidenceTriggerSql,
   consultingFlowsFailureHistoryTriggerSql,
   consultingFlowsFailureEvidenceTriggerSql,
+  consultingFlowsJobIdentityTriggerSql,
+  consultingFlowsJobStatusTriggerSql,
+  consultingFlowsJobLifecycleTriggerSql,
 ] as const;
 
 const transitionTriggerNames = [
@@ -24,6 +30,9 @@ const transitionTriggerNames = [
   'consulting_flows_success_evidence_guard',
   'consulting_flows_failure_history_guard',
   'consulting_flows_failure_evidence_guard',
+  'consulting_flows_job_identity_guard',
+  'consulting_flows_job_status_guard',
+  'consulting_flows_job_lifecycle_guard',
 ] as const;
 
 /** Remove synthetic FLOW roots, then immediately restore the runtime guard. */

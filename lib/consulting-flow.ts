@@ -987,6 +987,7 @@ export function applyFlowCommand(
         job.reason = s.ai.enabled
           ? ''
           : '대표의 AI 자동생성 승인이 필요합니다.';
+        job.startedAt = undefined;
       }
       detail = '전사문 보완 · 4차 생성 준비';
       break;
