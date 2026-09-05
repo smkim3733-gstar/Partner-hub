@@ -99,6 +99,7 @@ type SeedOptions = {
   linkedCaseId?: string | null;
   assignedTrainee?: string;
   sizeBytes?: number;
+  objectIntegrityMode?: 'metadata' | 'etag' | null;
 };
 
 async function seedFile({
@@ -113,6 +114,7 @@ async function seedFile({
   linkedCaseId = caseId,
   assignedTrainee = member.name,
   sizeBytes = 1_024,
+  objectIntegrityMode = 'metadata',
 }: SeedOptions) {
   const db = companyFileDatabase();
   await db
@@ -144,12 +146,25 @@ async function seedFile({
       FROM company_file_objects WHERE id = ?1`)
     .bind(fileId)
     .run();
-  await db
-    .prepare(`INSERT INTO company_file_object_integrity
-      (file_id, validation_mode, r2_etag, r2_content_type)
-      VALUES (?1, 'metadata', NULL, 'application/pdf')`)
-    .bind(fileId)
-    .run();
+  const storedObject =
+    objectSize === null
+      ? null
+      : await companyFileBucket().put(
+          `company-source/${fileId}`,
+          new Uint8Array(objectSize),
+          { httpMetadata: { contentType: 'application/pdf' } },
+        );
+  if (objectIntegrityMode !== null)
+    await db
+      .prepare(`INSERT INTO company_file_object_integrity
+        (file_id, validation_mode, r2_etag, r2_content_type)
+        VALUES (?1, ?2, ?3, 'application/pdf')`)
+      .bind(
+        fileId,
+        objectIntegrityMode,
+        objectIntegrityMode === 'etag' ? (storedObject?.etag ?? null) : null,
+      )
+      .run();
   await db
     .prepare(`INSERT INTO company_file_storage_keys (file_id, storage_key)
       VALUES (?1, ?2)`)
@@ -182,12 +197,6 @@ async function seedFile({
         status,
       )
       .run();
-  if (objectSize !== null)
-    await companyFileBucket().put(
-      `company-source/${fileId}`,
-      new Uint8Array(objectSize),
-      { httpMetadata: { contentType: 'application/pdf' } },
-    );
 }
 
 async function save(next: unknown) {
@@ -209,8 +218,6 @@ beforeEach(async () => {
   await ensureCompanyFileTables(db);
   await db.batch(
     [
-      'company_file_object_integrity',
-      'company_file_storage_keys',
       'company_file_case_links',
       'company_file_assignments',
       'company_file_objects',
@@ -299,11 +306,10 @@ void test('ready and legacy ledger originals with intact R2 bytes can be linked'
 });
 
 void test('a missing object-integrity ledger row fails a new document link closed', async () => {
-  await seedFile({ fileId: 'missing-integrity-file' });
-  await companyFileDatabase()
-    .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
-    .bind('missing-integrity-file')
-    .run();
+  await seedFile({
+    fileId: 'missing-integrity-file',
+    objectIntegrityMode: null,
+  });
   const next = emptyState();
   next.companyDocuments = [document('missing-integrity-file')];
   const response = await save(next);
@@ -313,16 +319,11 @@ void test('a missing object-integrity ledger row fails a new document link close
 
 void test('a same-size R2 replacement cannot become a new document original', async () => {
   const fileId = 'replaced-original-file';
-  await seedFile({ fileId });
+  await seedFile({ fileId, objectIntegrityMode: 'etag' });
   const bucket = companyFileBucket(),
     key = `company-source/${fileId}`,
     original = await bucket.head(key);
   assert.ok(original);
-  await companyFileDatabase()
-    .prepare(`UPDATE company_file_object_integrity
-      SET validation_mode = 'etag', r2_etag = ?1 WHERE file_id = ?2`)
-    .bind(original.etag, fileId)
-    .run();
   const replacement = new Uint8Array(1_024);
   replacement[0] = 1;
   await bucket.put(key, replacement, {

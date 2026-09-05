@@ -112,7 +112,13 @@ function request(
   });
 }
 
-async function insertFile(id: string, category: string, linkedCaseId: string) {
+async function insertFile(
+  id: string,
+  category: string,
+  linkedCaseId: string,
+  r2Etag: string | null = null,
+  includeObjectIntegrity = true,
+) {
   const db = companyFileDatabase();
   await db
     .prepare(`INSERT INTO company_file_objects (id, storage_key, original_name, company, category, title,
@@ -138,12 +144,13 @@ async function insertFile(id: string, category: string, linkedCaseId: string) {
       FROM company_file_objects WHERE id = ?1`)
     .bind(id)
     .run();
-  await db
-    .prepare(`INSERT INTO company_file_object_integrity
-      (file_id, validation_mode, r2_etag, r2_content_type)
-      VALUES (?1, 'metadata', NULL, 'application/pdf')`)
-    .bind(id)
-    .run();
+  if (includeObjectIntegrity)
+    await db
+      .prepare(`INSERT INTO company_file_object_integrity
+        (file_id, validation_mode, r2_etag, r2_content_type)
+        VALUES (?1, ?2, ?3, 'application/pdf')`)
+      .bind(id, r2Etag === null ? 'metadata' : 'etag', r2Etag)
+      .run();
   await db
     .prepare(`INSERT INTO company_file_storage_keys (file_id, storage_key)
       VALUES (?1, ?2)`)
@@ -169,8 +176,6 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
   await writePortalState(state());
   await db.batch([
     db.prepare('DELETE FROM ai_diagnosis_runs'),
-    db.prepare('DELETE FROM company_file_object_integrity'),
-    db.prepare('DELETE FROM company_file_storage_keys'),
     db.prepare('DELETE FROM company_file_case_links'),
     db.prepare('DELETE FROM company_file_assignments'),
     db.prepare('DELETE FROM company_file_upload_requests'),
@@ -265,27 +270,28 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
       'metadata-less cards must fail before fetch',
     );
 
-    await insertFile('step-zero-business', '사업자등록증', caseId);
-    await insertFile('step-zero-finance', '재무제표', otherCaseId);
-    await companyFileBucket().put(
+    const businessObject = await companyFileBucket().put(
       'company-source/step-zero-business',
       new Uint8Array([1, 2, 3, 4]),
       { httpMetadata: { contentType: 'application/pdf' } },
     );
-    await companyFileBucket().put(
+    const financeObject = await companyFileBucket().put(
       'company-source/step-zero-finance',
       new Uint8Array([1, 2, 3, 4]),
       { httpMetadata: { contentType: 'application/pdf' } },
     );
-    for (const fileId of ['step-zero-business', 'step-zero-finance']) {
-      const object = await companyFileBucket().head(`company-source/${fileId}`);
-      assert.ok(object);
-      await db
-        .prepare(`UPDATE company_file_object_integrity
-          SET validation_mode = 'etag', r2_etag = ?1 WHERE file_id = ?2`)
-        .bind(object.etag, fileId)
-        .run();
-    }
+    await insertFile(
+      'step-zero-business',
+      '사업자등록증',
+      caseId,
+      businessObject.etag,
+    );
+    await insertFile(
+      'step-zero-finance',
+      '재무제표',
+      otherCaseId,
+      financeObject.etag,
+    );
     assert.equal((await POST(request())).status, 403);
     assert.equal(externalCalls, 0, 'another case file must fail before fetch');
 
@@ -325,9 +331,10 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
       { httpMetadata: { contentType: 'application/pdf' } },
     );
     await db
-      .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
+      .prepare('DELETE FROM company_file_objects WHERE id = ?1')
       .bind('step-zero-finance')
       .run();
+    await insertFile('step-zero-finance', '재무제표', caseId, null, false);
     assert.equal((await POST(request())).status, 503);
     assert.equal(
       externalCalls,

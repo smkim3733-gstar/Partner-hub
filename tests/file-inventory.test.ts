@@ -39,8 +39,6 @@ async function seed(documents: unknown[] = []) {
   await ensureCompanyFileTables(db);
   await flowDatabase();
   await db.batch([
-    db.prepare('DELETE FROM company_file_object_integrity'),
-    db.prepare('DELETE FROM company_file_storage_keys'),
     db.prepare('DELETE FROM company_file_case_links'),
     db.prepare('DELETE FROM company_file_assignments'),
     db.prepare('DELETE FROM company_file_objects'),
@@ -63,6 +61,11 @@ async function file(
   metadata = true,
   caseId?: string,
   metadataLedger = true,
+  objectIntegrity: {
+    validationMode?: 'metadata' | 'etag';
+    r2Etag?: string | null;
+    r2ContentType?: string;
+  } | null = {},
 ) {
   const db = companyFileDatabase();
   if (metadata) {
@@ -96,12 +99,18 @@ async function file(
       )
       .bind(id, member.id)
       .run();
-    await db
-      .prepare(`INSERT INTO company_file_object_integrity
-        (file_id, validation_mode, r2_etag, r2_content_type)
-        VALUES (?1, 'metadata', NULL, 'text/plain')`)
-      .bind(id)
-      .run();
+    if (objectIntegrity !== null)
+      await db
+        .prepare(`INSERT INTO company_file_object_integrity
+          (file_id, validation_mode, r2_etag, r2_content_type)
+          VALUES (?1, ?2, ?3, ?4)`)
+        .bind(
+          id,
+          objectIntegrity.validationMode ?? 'metadata',
+          objectIntegrity.r2Etag ?? null,
+          objectIntegrity.r2ContentType ?? 'text/plain',
+        )
+        .run();
     await db
       .prepare(`INSERT INTO company_file_storage_keys (file_id, storage_key)
         VALUES (?1, ?2)`)
@@ -165,23 +174,16 @@ void test('actual document and intake references distinguish linked files from s
   await file('staged-only', 'ready', true, 'case-draft-not-submitted');
   await file('pending-record', 'pending', false);
   await file('metadata-missing', 'ready', false);
-  await file('integrity-missing', 'ready');
-  await file('integrity-mime-mismatch', 'ready');
+  await file('integrity-missing', 'ready', true, undefined, true, null);
+  await file('integrity-mime-mismatch', 'ready', true, undefined, true, {
+    r2ContentType: 'text/markdown',
+  });
   await file('storage-key-mismatch', 'ready');
   await file('metadata-ledger-missing', 'ready', true, undefined, false);
   await file('metadata-title-mismatch', 'ready');
   await file('deletion-incomplete', 'deleted');
   await file('deleted-reference', 'deleted', false);
   await file('deleted-complete', 'deleted', false);
-  await companyFileDatabase()
-    .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
-    .bind('integrity-missing')
-    .run();
-  await companyFileDatabase()
-    .prepare(`UPDATE company_file_object_integrity
-      SET r2_content_type = 'text/markdown' WHERE file_id = ?1`)
-    .bind('integrity-mime-mismatch')
-    .run();
   await companyFileDatabase()
     .prepare(`UPDATE company_file_objects
       SET storage_key = 'company-source/another-file' WHERE id = ?1`)
@@ -283,11 +285,26 @@ void test('presence uses metadata-only R2 head; size and object-integrity mismat
   await file('presence-present', 'ready');
   await file('presence-mismatch', 'ready');
   await file('presence-missing', 'ready');
-  await file('presence-missing-integrity', 'ready');
+  await file(
+    'presence-missing-integrity',
+    'ready',
+    true,
+    undefined,
+    true,
+    null,
+  );
   await file('presence-mime-mismatch', 'ready');
-  await file('presence-etag-tampered', 'ready');
   const bucket = companyFileBucket();
   const metadata = { httpMetadata: { contentType: 'text/plain' } };
+  const stored = await bucket.put(
+    'company-source/presence-etag-tampered',
+    'GOOD',
+    metadata,
+  );
+  await file('presence-etag-tampered', 'ready', true, undefined, true, {
+    validationMode: 'etag',
+    r2Etag: stored.etag,
+  });
   await bucket.put('company-source/presence-present', 'TEST', metadata);
   await bucket.put('company-source/presence-mismatch', 'LONGER', metadata);
   await bucket.put(
@@ -295,23 +312,9 @@ void test('presence uses metadata-only R2 head; size and object-integrity mismat
     'TEST',
     metadata,
   );
-  await companyFileDatabase()
-    .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
-    .bind('presence-missing-integrity')
-    .run();
   await bucket.put('company-source/presence-mime-mismatch', 'TEST', {
     httpMetadata: { contentType: 'text/markdown' },
   });
-  const stored = await bucket.put(
-    'company-source/presence-etag-tampered',
-    'GOOD',
-    metadata,
-  );
-  await companyFileDatabase()
-    .prepare(`UPDATE company_file_object_integrity
-      SET validation_mode = 'etag', r2_etag = ?2 WHERE file_id = ?1`)
-    .bind('presence-etag-tampered', stored.etag)
-    .run();
   await bucket.put('company-source/presence-etag-tampered', 'EVIL', metadata);
   const before = await readPortalState();
   const originalGet = bucket.get.bind(bucket),

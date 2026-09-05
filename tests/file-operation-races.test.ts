@@ -6,6 +6,7 @@ import { readPortalState, writePortalState } from '../lib/portal-state';
 import {
   companyFileBucket,
   companyFileDatabase,
+  ensureCompanyFileTables,
   findCompanyFile,
 } from '../lib/company-files';
 
@@ -635,6 +636,46 @@ void test('metadata ledger rejects direct mutation but permits guarded parent de
   assert.equal(await bucket.get(`company-source/${id}`), null);
 });
 
+void test('object-integrity and storage-key ledgers reject direct mutation but permit guarded parent deletion', async () => {
+  await seed();
+  const id = await create(),
+    db = companyFileDatabase(),
+    bucket = companyFileBucket();
+  for (const [sql, message] of [
+    [
+      "UPDATE company_file_object_integrity SET r2_content_type = 'text/markdown' WHERE file_id = ?1",
+      /object integrity is immutable/,
+    ],
+    [
+      'DELETE FROM company_file_object_integrity WHERE file_id = ?1',
+      /object integrity requires parent deletion/,
+    ],
+    [
+      "UPDATE company_file_storage_keys SET storage_key = 'company-source/direct-rewrite' WHERE file_id = ?1",
+      /storage key is immutable/,
+    ],
+    [
+      'DELETE FROM company_file_storage_keys WHERE file_id = ?1',
+      /storage key requires parent deletion/,
+    ],
+  ] as const)
+    await assert.rejects(db.prepare(sql).bind(id).run(), message);
+  assert.ok(await bucket.get(`company-source/${id}`));
+  assert.equal((await remove(request('DELETE'), context(id))).status, 204);
+  for (const table of [
+    'company_file_object_integrity',
+    'company_file_storage_keys',
+  ])
+    assert.equal(
+      await db
+        .prepare(`SELECT file_id FROM ${table} WHERE file_id = ?1`)
+        .bind(id)
+        .first(),
+      null,
+    );
+  assert.equal(await bucket.get(`company-source/${id}`), null);
+});
+
 void test('download rejects valid-looking company metadata drift before R2 access', async () => {
   await seed();
   const id = await create(),
@@ -777,11 +818,21 @@ void test('download rejects an R2 MIME replacement', async () => {
 
 void test('download fails closed when the object-integrity ledger row is missing', async () => {
   await seed();
-  const id = await create();
-  await companyFileDatabase()
-    .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
-    .bind(id)
+  const id = await create(),
+    db = companyFileDatabase();
+  await db
+    .prepare(
+      'DROP TRIGGER IF EXISTS company_file_object_integrity_no_direct_delete',
+    )
     .run();
+  try {
+    await db
+      .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
+      .bind(id)
+      .run();
+  } finally {
+    await ensureCompanyFileTables(db);
+  }
   const response = await download(request('GET'), context(id));
   assert.equal(response.status, 503, await response.clone().text());
   assert.match(((await response.json()) as { error: string }).error, /무결성/);
@@ -796,16 +847,11 @@ void test('download rejects a cross-file R2 key before reading that object', asy
   await bucket.put(foreignKey, 'SYNTHETIC_RACE_ORIGINAL', {
     httpMetadata: { contentType: 'text/plain' },
   });
-  await db.batch([
-    db
-      .prepare(`UPDATE company_file_objects
-        SET storage_key = ?2 WHERE id = ?1`)
-      .bind(id, foreignKey),
-    db
-      .prepare(`UPDATE company_file_object_integrity
-        SET validation_mode = 'metadata', r2_etag = NULL WHERE file_id = ?1`)
-      .bind(id),
-  ]);
+  await db
+    .prepare(`UPDATE company_file_objects
+      SET storage_key = ?2 WHERE id = ?1`)
+    .bind(id, foreignKey)
+    .run();
   const originalGet = bucket.get.bind(bucket);
   let getCalls = 0;
   bucket.get = async (...args: Parameters<R2Bucket['get']>) => {

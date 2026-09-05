@@ -361,14 +361,6 @@ try {
     'pre-version-169 company originals receive exact legacy metadata facts',
   );
   await db
-    .prepare('DELETE FROM company_file_storage_keys WHERE file_id = ?1')
-    .bind(migrationCompanyFile.id)
-    .run();
-  await db
-    .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
-    .bind(migrationCompanyFile.id)
-    .run();
-  await db
     .prepare('DELETE FROM company_file_objects WHERE id = ?1')
     .bind(migrationCompanyFile.id)
     .run();
@@ -1283,11 +1275,46 @@ try {
       .run(),
     /requires parent deletion/,
   );
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE company_file_object_integrity SET r2_content_type = 'text/markdown' WHERE file_id = ?1",
+      )
+      .bind(normalizedFile.id)
+      .run(),
+    /object integrity is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM company_file_object_integrity WHERE file_id = ?1')
+      .bind(normalizedFile.id)
+      .run(),
+    /object integrity requires parent deletion/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE company_file_storage_keys SET storage_key = 'company-source/direct-rewrite' WHERE file_id = ?1",
+      )
+      .bind(normalizedFile.id)
+      .run(),
+    /storage key is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM company_file_storage_keys WHERE file_id = ?1')
+      .bind(normalizedFile.id)
+      .run(),
+    /storage key requires parent deletion/,
+  );
   checks.push(
     'new company uploads bind registry MIME, native R2 ETag, storage key and immutable metadata in D1',
   );
   checks.push(
     'company metadata ledger rejects direct rewrite and removal in native D1',
+  );
+  checks.push(
+    'company object-integrity and storage-key ledgers reject direct rewrite and removal in native D1',
   );
   const deletionGuardFile = (
     await (
