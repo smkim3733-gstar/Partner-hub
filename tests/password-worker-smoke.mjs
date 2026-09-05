@@ -305,6 +305,12 @@ const flowCommandScopeTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowCommandTargetTriggerSql = migrationStatements(
+  await readFile(
+    path.join(project, 'drizzle', '0060_consulting_flow_command_target.sql'),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -330,6 +336,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_new_command_admin_display_guard',
   'consulting_flows_command_effect_guard',
   'consulting_flows_command_scope_guard',
+  'consulting_flows_command_target_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -358,6 +365,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowAdminCommandDisplayTriggerSql[1],
       flowCommandEffectTriggerSql[1],
       flowCommandScopeTriggerSql[1],
+      flowCommandTargetTriggerSql[1],
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3629,6 +3637,9 @@ try {
         db.prepare(
           'DROP TRIGGER IF EXISTS consulting_flows_command_insert_scope_guard',
         ),
+        db.prepare(
+          'DROP TRIGGER IF EXISTS consulting_flows_command_insert_target_guard',
+        ),
       ]);
       try {
         return await insertEvidenceFlow();
@@ -3637,6 +3648,7 @@ try {
           db.prepare(flowNewCommandEvidenceTriggerSql[0]),
           db.prepare(flowCommandSemanticsTriggerSql[0]),
           db.prepare(flowCommandScopeTriggerSql[0]),
+          db.prepare(flowCommandTargetTriggerSql[0]),
         ]);
       }
     })(),
@@ -3657,6 +3669,9 @@ try {
     db.prepare(
       'DROP TRIGGER IF EXISTS consulting_flows_command_insert_scope_guard',
     ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_command_insert_target_guard',
+    ),
   ]);
   try {
     await insertEvidenceFlow();
@@ -3668,6 +3683,7 @@ try {
       db.prepare(flowNewCommandEvidenceTriggerSql[0]),
       db.prepare(flowCommandSemanticsTriggerSql[0]),
       db.prepare(flowCommandScopeTriggerSql[0]),
+      db.prepare(flowCommandTargetTriggerSql[0]),
     ]);
   }
   const backfilledReceiptOriginFlow = structuredClone(legacyReceiptOriginFlow);
@@ -3905,7 +3921,7 @@ try {
     },
     {
       name: 'FLOW native D1 binds new command receipt semantics to its audit',
-      pattern: /command (?:semantics are|effect is) invalid/,
+      pattern: /command (?:semantics are|effect is|target is) invalid/,
       apply(flow) {
         const commandId = 'native-command-semantic-mismatch';
         flow.commandIds.push(commandId);
@@ -3965,6 +3981,38 @@ try {
           fingerprint: '7'.repeat(64),
           actor: '김성민 대표',
           action: 'set_ai_policy',
+        };
+      },
+    },
+    {
+      name: 'FLOW native D1 binds append commands to one command target',
+      pattern: /command target is invalid/,
+      apply(flow) {
+        const commandId = 'native-command-extra-report-target';
+        const report = structuredClone(flow.reports[0]);
+        report.id = `${commandId}-report`;
+        report.version = flow.reports.length + 1;
+        report.createdAt = flow.updatedAt;
+        report.createdBy = '김성민 대표';
+        report.origin = 'manual';
+        flow.reports.push(report, {
+          ...structuredClone(report),
+          id: `${commandId}-hidden-report`,
+          version: report.version + 1,
+        });
+        flow.audit.push({
+          id: commandId,
+          at: flow.updatedAt,
+          actor: '김성민 대표',
+          action: 'save_report',
+          detail: '가상 명령 배열 대상 결속 검사',
+        });
+        flow.commandIds.push(commandId);
+        flow.commandReceipts[commandId] = {
+          actorKey: 'admin:primary',
+          fingerprint: '8'.repeat(64),
+          actor: '김성민 대표',
+          action: 'save_report',
         };
       },
     },
@@ -4256,6 +4304,9 @@ try {
     db.prepare(
       'DROP TRIGGER IF EXISTS consulting_flows_command_insert_semantics_guard',
     ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_command_insert_target_guard',
+    ),
   ]);
   try {
     await assert.rejects(
@@ -4279,6 +4330,7 @@ try {
     await db.batch([
       db.prepare(flowNewCommandEvidenceTriggerSql[0]),
       db.prepare(flowCommandSemanticsTriggerSql[0]),
+      db.prepare(flowCommandTargetTriggerSql[0]),
     ]);
   }
   assert.deepEqual(

@@ -1485,7 +1485,7 @@ void test('FLOW command receipt semantics match and preserve their audit', async
           initial.revision,
         )
         .run(),
-      /(?:new admin command display is|command (?:semantics are|effect is|scope is)) invalid/,
+      /(?:new admin command display is|command (?:semantics are|effect is|scope is|target is)) invalid/,
     );
     assert.deepEqual(await readFlow(initial.caseId), initial);
   }
@@ -1698,6 +1698,166 @@ void test('FLOW initial commands cannot preload state outside their declared sco
       )
       .run(),
     /initial command scope is invalid/,
+  );
+  assert.equal(await readFlow(initial.caseId), null);
+});
+
+void test('FLOW append commands add exactly one command-bound target', async () => {
+  const initial = await fixture();
+  const commandId = `command-target-append-${++sequence}`;
+  const forged = applyFlowCommand(
+    initial,
+    {
+      type: 'request_document',
+      title: '가상 추가서류',
+      required: true,
+      channel: '이메일',
+      recipient: '가상 담당자',
+      dueDate: '',
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId,
+      now: new Date(Date.parse(initial.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(forged, commandId);
+  forged.requests.push({
+    ...structuredClone(forged.requests.at(-1)!),
+    id: `${commandId}-hidden-request`,
+    title: '같은 명령에 숨긴 추가 요청',
+  });
+  await assert.rejects(
+    commitFlow(initial, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+        initial.caseId,
+        initial.revision,
+      )
+      .run(),
+    /command target is invalid/,
+  );
+  assert.deepEqual(await readFlow(initial.caseId), initial);
+});
+
+void test('FLOW target updates cannot alter another item or immutable fields', async () => {
+  let saved = await fixture();
+  for (const suffix of ['first', 'second']) {
+    const commandId = `command-target-request-${suffix}-${++sequence}`;
+    const next = applyFlowCommand(
+      saved,
+      {
+        type: 'request_document',
+        title: `가상 ${suffix} 서류`,
+        required: true,
+        channel: '이메일',
+        recipient: '가상 담당자',
+        dueDate: '',
+      },
+      { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+      {
+        commandId,
+        now: new Date(Date.parse(saved.updatedAt) + 1).toISOString(),
+      },
+    );
+    addSyntheticCommandReceipt(next, commandId);
+    await commitFlow(saved, next);
+    saved = next;
+  }
+  const commandId = `command-target-sent-${++sequence}`;
+  const forged = applyFlowCommand(
+    saved,
+    {
+      type: 'mark_request_sent',
+      requestId: saved.requests[0].id,
+      sentConfirmed: true,
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId,
+      now: new Date(Date.parse(saved.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(forged, commandId);
+  forged.requests[1].title = '명령 대상이 아닌 요청 제목 변조';
+  await assert.rejects(
+    commitFlow(saved, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+        saved.caseId,
+        saved.revision,
+      )
+      .run(),
+    /command target is invalid/,
+  );
+  assert.deepEqual(await readFlow(saved.caseId), saved);
+});
+
+void test('FLOW initial append commands cannot preload extra targets', async () => {
+  const initial = newConsultingFlow(
+    `initial-command-target-${++sequence}`,
+    '가상기업',
+    partner.id,
+    partner.name,
+  );
+  const commandId = `initial-command-target-${++sequence}`;
+  const forged = applyFlowCommand(
+    initial,
+    { type: 'save_report', stage: 1, body },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    { commandId, now: new Date().toISOString() },
+  );
+  addSyntheticCommandReceipt(forged, commandId);
+  forged.reports.push({
+    ...structuredClone(forged.reports[0]),
+    id: `${commandId}-hidden-report`,
+    version: 2,
+  });
+  await assert.rejects(
+    commitFlow(initial, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        forged.caseId,
+        forged.partnerId,
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+      )
+      .run(),
+    /initial command target is invalid/,
   );
   assert.equal(await readFlow(initial.caseId), null);
 });

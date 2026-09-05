@@ -1263,6 +1263,387 @@ BEGIN
 END
 `;
 
+const flowCommandTargetCollections = [
+  'reports',
+  'meetings',
+  'recordings',
+  'requests',
+  'payments',
+] as const;
+
+type FlowCommandTargetRule =
+  | { kind: 'append'; idSuffix: string }
+  | {
+      kind: 'update';
+      fields: readonly string[];
+      minimum: number;
+      maximum: number;
+    };
+
+export const FLOW_COMMAND_TARGET_RULES: Record<
+  keyof typeof FLOW_COMMAND_STATE_SCOPE_PATHS,
+  Partial<
+    Record<(typeof flowCommandTargetCollections)[number], FlowCommandTargetRule>
+  >
+> = {
+  import_intake_source: {},
+  save_source: {},
+  exclude_source: {},
+  set_ai_policy: {},
+  queue_report1: {},
+  save_report: { reports: { kind: 'append', idSuffix: 'report' } },
+  confirm_analysis: {},
+  book_meeting: { meetings: { kind: 'append', idSuffix: 'meeting' } },
+  complete_meeting: {
+    meetings: {
+      kind: 'update',
+      fields: ['status', 'completedAt', 'note'],
+      minimum: 1,
+      maximum: 1,
+    },
+  },
+  cancel_meeting: {
+    meetings: {
+      kind: 'update',
+      fields: ['status', 'note'],
+      minimum: 1,
+      maximum: 1,
+    },
+  },
+  save_recording: {
+    recordings: { kind: 'append', idSuffix: 'recording' },
+  },
+  save_transcript: {
+    recordings: {
+      kind: 'update',
+      fields: [
+        'transcript',
+        'transcriptFileId',
+        'transcriptReviewedAt',
+        'transcriptReviewedBy',
+      ],
+      minimum: 1,
+      maximum: 1,
+    },
+  },
+  retry_job: {},
+  confirm_solutions: {},
+  request_document: { requests: { kind: 'append', idSuffix: 'request' } },
+  mark_request_sent: {
+    requests: {
+      kind: 'update',
+      fields: ['sentAt'],
+      minimum: 1,
+      maximum: 1,
+    },
+  },
+  receive_document: {
+    requests: {
+      kind: 'update',
+      fields: [
+        'fileId',
+        'status',
+        'receivedAt',
+        'reviewedAt',
+        'verifiedAt',
+        'note',
+      ],
+      minimum: 1,
+      maximum: 1,
+    },
+  },
+  review_document: {
+    requests: {
+      kind: 'update',
+      fields: ['status', 'note', 'reviewedAt', 'verifiedAt'],
+      minimum: 1,
+      maximum: 1,
+    },
+  },
+  record_contract: {
+    meetings: {
+      kind: 'update',
+      fields: ['status', 'completedAt'],
+      minimum: 0,
+      maximum: 1,
+    },
+  },
+  confirm_payment: { payments: { kind: 'append', idSuffix: 'payment' } },
+  start_aftercare: {},
+};
+
+const flowCommandTrackedCollectionsSql = flowCommandTargetCollections
+  .map((collection) => `('${collection}')`)
+  .join(', ');
+
+const flowCommandAppendTargetRulesSql = Object.entries(
+  FLOW_COMMAND_TARGET_RULES,
+)
+  .flatMap(([action, rules]) =>
+    Object.entries(rules).flatMap(([collection, rule]) =>
+      rule?.kind === 'append'
+        ? [`('${action}', '${collection}', '${rule.idSuffix}')`]
+        : [],
+    ),
+  )
+  .join(',\n      ');
+
+const flowCommandTargetRulesSql = Object.entries(FLOW_COMMAND_TARGET_RULES)
+  .flatMap(([action, rules]) =>
+    Object.entries(rules).map(([collection, rule]) =>
+      rule.kind === 'append'
+        ? `('${action}', '${collection}', 'append', '${rule.idSuffix}', NULL, 1, 1)`
+        : `('${action}', '${collection}', 'update', NULL, '${JSON.stringify(rule.fields)}', ${rule.minimum}, ${rule.maximum})`,
+    ),
+  )
+  .join(',\n      ');
+
+const flowCommandTargetActionsSql = Object.entries(FLOW_COMMAND_TARGET_RULES)
+  .filter(([, rules]) => Object.keys(rules).length > 0)
+  .map(([action]) => `'${action}'`)
+  .join(', ');
+
+export const consultingFlowsCommandInsertTargetTriggerSql = `
+CREATE TRIGGER IF NOT EXISTS consulting_flows_command_insert_target_guard
+BEFORE INSERT ON consulting_flows
+WHEN COALESCE(json_array_length(NEW.payload, '$.commandIds'), 0) > 0
+  AND NOT EXISTS (
+    SELECT 1 FROM json_each(NEW.payload, '$.commandIds') AS command
+    LEFT JOIN json_each(NEW.payload, '$.commandReceipts') AS receipt
+      ON receipt.key IS command.value
+    WHERE receipt.key IS NULL
+  )
+  AND (
+    (
+      json_array_length(NEW.payload, '$.commandIds') <> 1
+      AND EXISTS (
+        SELECT 1 FROM json_each(NEW.payload, '$.commandReceipts') AS receipt
+        WHERE json_extract(receipt.value, '$.action') IN (${flowCommandTargetActionsSql})
+      )
+    )
+    OR EXISTS (
+      WITH command(id, action) AS (
+        SELECT command.value, json_extract(receipt.value, '$.action')
+        FROM json_each(NEW.payload, '$.commandIds') AS command
+        JOIN json_each(NEW.payload, '$.commandReceipts') AS receipt
+          ON receipt.key IS command.value
+        LIMIT 1
+      ), collections(name) AS (
+        VALUES ${flowCommandTrackedCollectionsSql}
+      ), append_rules(action, collection_name, id_suffix) AS (
+        VALUES ${flowCommandAppendTargetRulesSql}
+      )
+      SELECT 1 FROM collections
+      CROSS JOIN command
+      LEFT JOIN append_rules AS rule
+        ON rule.action IS command.action
+        AND rule.collection_name IS collections.name
+      WHERE (
+        rule.id_suffix IS NULL
+        AND json_array_length(NEW.payload, '$.' || collections.name) <> 0
+      ) OR (
+        rule.id_suffix IS NOT NULL
+        AND (
+          json_array_length(NEW.payload, '$.' || collections.name) <> 1
+          OR json_extract(
+            NEW.payload,
+            '$.' || collections.name || '[0].id'
+          ) IS NOT (command.id || '-' || rule.id_suffix)
+        )
+      )
+    )
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'consulting flow initial command target is invalid');
+END
+`;
+
+export const consultingFlowsCommandTargetTriggerSql = `
+CREATE TRIGGER IF NOT EXISTS consulting_flows_command_target_guard
+BEFORE UPDATE ON consulting_flows
+WHEN COALESCE(json_array_length(NEW.payload, '$.commandIds'), 0) >
+    COALESCE(json_array_length(OLD.payload, '$.commandIds'), 0)
+  AND NOT EXISTS (
+    SELECT 1 FROM json_each(NEW.payload, '$.commandIds') AS command
+    LEFT JOIN json_each(NEW.payload, '$.commandReceipts') AS receipt
+      ON receipt.key IS command.value
+    WHERE command.key >= json_array_length(OLD.payload, '$.commandIds')
+      AND receipt.key IS NULL
+  )
+  AND (
+    (
+      json_array_length(NEW.payload, '$.commandIds') -
+        json_array_length(OLD.payload, '$.commandIds') <> 1
+      AND EXISTS (
+        SELECT 1 FROM json_each(NEW.payload, '$.commandIds') AS command
+        JOIN json_each(NEW.payload, '$.commandReceipts') AS receipt
+          ON receipt.key IS command.value
+        WHERE command.key >= json_array_length(OLD.payload, '$.commandIds')
+          AND json_extract(receipt.value, '$.action') IN (${flowCommandTargetActionsSql})
+      )
+    )
+    OR EXISTS (
+      WITH command(id, action) AS (
+        SELECT command.value, json_extract(receipt.value, '$.action')
+        FROM json_each(NEW.payload, '$.commandIds') AS command
+        JOIN json_each(NEW.payload, '$.commandReceipts') AS receipt
+          ON receipt.key IS command.value
+        WHERE command.key = json_array_length(OLD.payload, '$.commandIds')
+      ), collections(name) AS (
+        VALUES ${flowCommandTrackedCollectionsSql}
+      ), rules(action, collection_name, kind, id_suffix, fields, minimum, maximum) AS (
+        VALUES ${flowCommandTargetRulesSql}
+      )
+      SELECT 1 FROM collections
+      CROSS JOIN command
+      LEFT JOIN rules AS rule
+        ON rule.action IS command.action
+        AND rule.collection_name IS collections.name
+      WHERE (
+        rule.kind IS NULL
+        AND json_extract(NEW.payload, '$.' || collections.name) IS NOT
+          json_extract(OLD.payload, '$.' || collections.name)
+      ) OR (
+        rule.kind IS 'append'
+        AND (
+          json_array_length(NEW.payload, '$.' || collections.name) <>
+            json_array_length(OLD.payload, '$.' || collections.name) + 1
+          OR EXISTS (
+            SELECT 1 FROM json_each(
+              OLD.payload,
+              '$.' || collections.name
+            ) AS previous
+            WHERE previous.value IS NOT json_extract(
+              NEW.payload,
+              '$.' || collections.name || '[' || previous.key || ']'
+            )
+          )
+          OR json_extract(
+            NEW.payload,
+            '$.' || collections.name || '[' ||
+              json_array_length(OLD.payload, '$.' || collections.name) || '].id'
+          ) IS NOT (command.id || '-' || rule.id_suffix)
+        )
+      ) OR (
+        rule.kind IS 'update'
+        AND (
+          json_array_length(NEW.payload, '$.' || collections.name) <>
+            json_array_length(OLD.payload, '$.' || collections.name)
+          OR (
+            SELECT COUNT(*) FROM json_each(
+              OLD.payload,
+              '$.' || collections.name
+            ) AS previous
+            WHERE previous.value IS NOT json_extract(
+              NEW.payload,
+              '$.' || collections.name || '[' || previous.key || ']'
+            )
+          ) NOT BETWEEN rule.minimum AND rule.maximum
+          OR EXISTS (
+            SELECT 1 FROM json_each(
+              OLD.payload,
+              '$.' || collections.name
+            ) AS previous
+            WHERE previous.value IS NOT json_extract(
+              NEW.payload,
+              '$.' || collections.name || '[' || previous.key || ']'
+            )
+              AND (
+                EXISTS (
+                  SELECT 1 FROM (
+                    SELECT key FROM json_each(previous.value)
+                    UNION
+                    SELECT key FROM json_each(json_extract(
+                      NEW.payload,
+                      '$.' || collections.name || '[' || previous.key || ']'
+                    ))
+                  ) AS property
+                  WHERE NOT EXISTS (
+                    SELECT 1 FROM json_each(rule.fields) AS allowed
+                    WHERE allowed.value IS property.key
+                  )
+                    AND (
+                      json_type(previous.value, '$.' || property.key) IS NOT
+                        json_type(json_extract(
+                          NEW.payload,
+                          '$.' || collections.name || '[' || previous.key || ']'
+                        ), '$.' || property.key)
+                      OR json_extract(previous.value, '$.' || property.key) IS NOT
+                        json_extract(json_extract(
+                          NEW.payload,
+                          '$.' || collections.name || '[' || previous.key || ']'
+                        ), '$.' || property.key)
+                    )
+                )
+                OR CASE command.action
+                  WHEN 'complete_meeting' THEN
+                    json_extract(json_extract(
+                      NEW.payload,
+                      '$.' || collections.name || '[' || previous.key || ']'
+                    ), '$.status') IS NOT 'completed'
+                    OR json_extract(json_extract(
+                      NEW.payload,
+                      '$.' || collections.name || '[' || previous.key || ']'
+                    ), '$.completedAt') IS NOT NEW.updated_at
+                  WHEN 'cancel_meeting' THEN
+                    json_extract(json_extract(
+                      NEW.payload,
+                      '$.' || collections.name || '[' || previous.key || ']'
+                    ), '$.status') IS NOT 'cancelled'
+                  WHEN 'save_transcript' THEN
+                    json_extract(json_extract(
+                      NEW.payload,
+                      '$.' || collections.name || '[' || previous.key || ']'
+                    ), '$.id') IS NOT json_extract(
+                      NEW.payload,
+                      '$.recordings[' ||
+                        (json_array_length(NEW.payload, '$.recordings') - 1) || '].id'
+                    )
+                    OR json_extract(json_extract(
+                      NEW.payload,
+                      '$.' || collections.name || '[' || previous.key || ']'
+                    ), '$.transcriptReviewedAt') IS NOT NEW.updated_at
+                  WHEN 'mark_request_sent' THEN
+                    json_extract(json_extract(
+                      NEW.payload,
+                      '$.' || collections.name || '[' || previous.key || ']'
+                    ), '$.sentAt') IS NOT NEW.updated_at
+                  WHEN 'receive_document' THEN
+                    json_extract(json_extract(
+                      NEW.payload,
+                      '$.' || collections.name || '[' || previous.key || ']'
+                    ), '$.status') IS NOT 'received'
+                  WHEN 'review_document' THEN
+                    json_extract(json_extract(
+                      NEW.payload,
+                      '$.' || collections.name || '[' || previous.key || ']'
+                    ), '$.status') NOT IN ('verified', 'needs_fix')
+                    OR json_extract(json_extract(
+                      NEW.payload,
+                      '$.' || collections.name || '[' || previous.key || ']'
+                    ), '$.reviewedAt') IS NOT NEW.updated_at
+                  WHEN 'record_contract' THEN
+                    json_extract(json_extract(
+                      NEW.payload,
+                      '$.' || collections.name || '[' || previous.key || ']'
+                    ), '$.id') IS NOT json_extract(NEW.payload, '$.contract.meetingId')
+                    OR json_extract(json_extract(
+                      NEW.payload,
+                      '$.' || collections.name || '[' || previous.key || ']'
+                    ), '$.status') IS NOT 'completed'
+                  ELSE 0
+                END
+              )
+          )
+        )
+      )
+    )
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'consulting flow command target is invalid');
+END
+`;
+
 const consultingFlowCommandReceiptIdentityViolationSql = (receipt: string) => `
   COALESCE(json_type(${receipt}.value, '$.fingerprint'), '') <> 'text'
   OR length(json_extract(${receipt}.value, '$.fingerprint')) <> 64

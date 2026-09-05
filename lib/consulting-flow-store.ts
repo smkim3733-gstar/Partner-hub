@@ -17,12 +17,14 @@ import {
   consultingFlowsCommandInsertSemanticsTriggerSql,
   consultingFlowsCommandInsertReceiptIdentityTriggerSql,
   consultingFlowsCommandInsertScopeTriggerSql,
+  consultingFlowsCommandInsertTargetTriggerSql,
   consultingFlowsCommandInsertMemberActorTriggerSql,
   consultingFlowsCommandInsertAdminActorTriggerSql,
   consultingFlowsCommandInsertAdminDisplayTriggerSql,
   consultingFlowsCommandReceiptOriginTriggerSql,
   consultingFlowsCommandEffectTriggerSql,
   consultingFlowsCommandScopeTriggerSql,
+  consultingFlowsCommandTargetTriggerSql,
   consultingFlowsCommandSemanticsTriggerSql,
   consultingFlowsFailureEvidenceTriggerSql,
   consultingFlowsFailureHistoryTriggerSql,
@@ -52,6 +54,7 @@ import {
   consultingFlowsTableSql,
   FLOW_COMMAND_EFFECT_PATHS,
   FLOW_COMMAND_STATE_SCOPE_PATHS,
+  FLOW_COMMAND_TARGET_RULES,
   portalStateId,
 } from '@/db/schema';
 import {
@@ -149,6 +152,8 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandEffectTriggerSql),
         db.prepare(consultingFlowsCommandInsertScopeTriggerSql),
         db.prepare(consultingFlowsCommandScopeTriggerSql),
+        db.prepare(consultingFlowsCommandInsertTargetTriggerSql),
+        db.prepare(consultingFlowsCommandTargetTriggerSql),
         db.prepare(consultingFlowsCommandInsertReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsNewCommandReceiptIdentityTriggerSql),
         db.prepare(consultingFlowsCommandInsertMemberActorTriggerSql),
@@ -1050,6 +1055,99 @@ function assertFlowCommitTransition(
     })
   )
     throw storedFlowIntegrityError();
+  const commandTargetCollections = [
+    'reports',
+    'meetings',
+    'recordings',
+    'requests',
+    'payments',
+  ] as const;
+  if (newCommandIds.length > 1) {
+    if (
+      newCommandIds.some((commandId) => {
+        const action = afterReceipts[commandId]?.action;
+        const rules =
+          FLOW_COMMAND_TARGET_RULES[
+            action as keyof typeof FLOW_COMMAND_TARGET_RULES
+          ];
+        return !rules || Object.keys(rules).length > 0;
+      }) ||
+      commandTargetCollections.some(
+        (collection) => !sameValue(before[collection], after[collection]),
+      )
+    )
+      throw storedFlowIntegrityError();
+  }
+  if (newCommandIds.length === 1) {
+    const commandId = newCommandIds[0];
+    const action = afterReceipts[commandId]?.action;
+    const rules =
+      FLOW_COMMAND_TARGET_RULES[
+        action as keyof typeof FLOW_COMMAND_TARGET_RULES
+      ];
+    if (!rules) throw storedFlowIntegrityError();
+    for (const collection of commandTargetCollections) {
+      const previous = before[collection] as unknown as Array<
+        Record<string, unknown>
+      >;
+      const next = after[collection] as unknown as Array<
+        Record<string, unknown>
+      >;
+      const rule = rules[collection];
+      if (!rule) {
+        if (!sameValue(previous, next)) throw storedFlowIntegrityError();
+        continue;
+      }
+      if (rule.kind === 'append') {
+        if (
+          next.length !== previous.length + 1 ||
+          previous.some((item, index) => !sameValue(item, next[index])) ||
+          next.at(-1)?.id !== `${commandId}-${rule.idSuffix}`
+        )
+          throw storedFlowIntegrityError();
+        continue;
+      }
+      if (next.length !== previous.length) throw storedFlowIntegrityError();
+      const changedIndexes = previous.flatMap((item, index) =>
+        sameValue(item, next[index]) ? [] : [index],
+      );
+      if (
+        changedIndexes.length < rule.minimum ||
+        changedIndexes.length > rule.maximum
+      )
+        throw storedFlowIntegrityError();
+      for (const index of changedIndexes) {
+        const previousItem = structuredClone(previous[index]);
+        const nextItem = structuredClone(next[index]);
+        for (const field of rule.fields) {
+          delete previousItem[field];
+          delete nextItem[field];
+        }
+        if (!sameValue(previousItem, nextItem))
+          throw storedFlowIntegrityError();
+        const changed = next[index];
+        if (
+          (action === 'complete_meeting' &&
+            (changed.status !== 'completed' ||
+              changed.completedAt !== after.updatedAt)) ||
+          (action === 'cancel_meeting' && changed.status !== 'cancelled') ||
+          (action === 'save_transcript' &&
+            (changed.id !== after.recordings.at(-1)?.id ||
+              changed.transcriptReviewedAt !== after.updatedAt)) ||
+          (action === 'mark_request_sent' &&
+            changed.sentAt !== after.updatedAt) ||
+          (action === 'receive_document' && changed.status !== 'received') ||
+          (action === 'review_document' &&
+            (!['verified', 'needs_fix'].includes(String(changed.status)) ||
+              changed.reviewedAt !== after.updatedAt)) ||
+          (action === 'record_contract' &&
+            (changed.id !== after.contract?.meetingId ||
+              changed.status !== 'completed'))
+        )
+          throw storedFlowIntegrityError();
+      }
+    }
+  }
   for (const commandId of newCommandIds) {
     const action = afterReceipts[commandId]?.action;
     const effectPaths =
