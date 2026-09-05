@@ -1011,6 +1011,32 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
     );
     assert.deepEqual(await readFlow(queued.caseId), queued);
   }
+  const staleClaim = structuredClone(queued);
+  staleClaim.revision++;
+  staleClaim.updatedAt = timestamp(4);
+  staleClaim.jobs.at(-1)!.status = 'processing';
+  staleClaim.jobs.at(-1)!.startedAt = timestamp(3);
+  await assert.rejects(
+    commitFlow(queued, staleClaim),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        staleClaim.revision,
+        JSON.stringify(staleClaim),
+        staleClaim.updatedAt,
+        queued.caseId,
+        queued.revision,
+      )
+      .run(),
+    /job transition timestamp is invalid/,
+  );
   const processing = structuredClone(queued);
   processing.revision++;
   processing.updatedAt = timestamp(4);
@@ -1026,6 +1052,63 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
     (error) => error instanceof FlowError && error.status === 503,
   );
   assert.deepEqual(await readFlow(processing.caseId), processing);
+  const completionAt = timestamp(7);
+  const completionAuditId = `${jobId}-${completionAt}`;
+  const completed = structuredClone(processing);
+  completed.revision++;
+  completed.updatedAt = completionAt;
+  const completedJob = completed.jobs.at(-1)!;
+  completedJob.status = 'complete';
+  completedJob.completedAt = completionAt;
+  completedJob.reportId = completed.reports[0].id;
+  completedJob.evidence = {
+    auditId: completionAuditId,
+    instructionVersion: 'synthetic-flow-instruction-v1',
+    requestedModel: 'claude-requested-test-model',
+    providerRequestId: 'req_lifecycle_completion',
+    providerModel: 'claude-resolved-test-model',
+    providerMessageId: 'msg_lifecycle_completion',
+    inputTokens: 10,
+    outputTokens: 20,
+    observedAt: timestamp(6),
+  };
+  completed.audit.push({
+    id: completionAuditId,
+    at: completionAt,
+    actor: '보고서 자동생성',
+    action: 'ai_result',
+    detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
+  });
+  const staleCompletion = structuredClone(completed);
+  const staleCompletionAt = timestamp(6);
+  const staleCompletionAuditId = `${jobId}-${staleCompletionAt}`;
+  staleCompletion.jobs.at(-1)!.completedAt = staleCompletionAt;
+  staleCompletion.jobs.at(-1)!.evidence!.auditId = staleCompletionAuditId;
+  staleCompletion.audit.at(-1)!.id = staleCompletionAuditId;
+  staleCompletion.audit.at(-1)!.at = staleCompletionAt;
+  await assert.rejects(
+    commitFlow(processing, staleCompletion),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        staleCompletion.revision,
+        JSON.stringify(staleCompletion),
+        staleCompletion.updatedAt,
+        processing.caseId,
+        processing.revision,
+      )
+      .run(),
+    /job transition timestamp is invalid/,
+  );
+  await commitFlow(processing, completed);
+  assert.deepEqual(await readFlow(completed.caseId), completed);
 });
 
 void test('FLOW rejects a D1 updated timestamp that differs from its payload', async () => {

@@ -20,6 +20,7 @@ import {
   consultingFlowsJobIdentityTriggerSql,
   consultingFlowsJobLifecycleTriggerSql,
   consultingFlowsJobStatusTriggerSql,
+  consultingFlowsJobTransitionTimestampTriggerSql,
   consultingFlowsNoDeleteTriggerSql,
   consultingFlowsSuccessEvidenceTriggerSql,
   consultingFlowsTransitionTriggerSql,
@@ -97,6 +98,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsJobIdentityTriggerSql),
         db.prepare(consultingFlowsJobStatusTriggerSql),
         db.prepare(consultingFlowsJobLifecycleTriggerSql),
+        db.prepare(consultingFlowsJobTransitionTimestampTriggerSql),
         db.prepare(consultingFlowsNoDeleteTriggerSql),
         db.prepare(consultingFlowFileOwnersTableSql),
         db.prepare(consultingFlowFileOwnersNoUpdateTriggerSql),
@@ -1002,7 +1004,7 @@ function assertFlowCommitTransition(
           : unchangedAttempt)) ||
       (transition === 'queued:processing' &&
         next.reason === '' &&
-        next.startedAt !== undefined &&
+        next.startedAt === after.updatedAt &&
         emptyResult &&
         next.failureEvidence === undefined) ||
       (transition === 'queued:blocked' && next.reason !== '' && emptyAttempt) ||
@@ -1023,7 +1025,7 @@ function assertFlowCommitTransition(
       (transition === 'processing:complete' &&
         next.reason === '' &&
         next.startedAt === job.startedAt &&
-        next.completedAt !== undefined &&
+        next.completedAt === after.updatedAt &&
         next.reportId !== undefined &&
         next.evidence !== undefined &&
         next.failureEvidence === undefined);

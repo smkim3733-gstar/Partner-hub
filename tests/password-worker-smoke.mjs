@@ -181,6 +181,16 @@ const flowAiJobLifecycleTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowAiJobTransitionTimestampTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0046_consulting_flow_ai_job_transition_timestamp.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -191,6 +201,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_job_identity_guard',
   'consulting_flows_job_status_guard',
   'consulting_flows_job_lifecycle_guard',
+  'consulting_flows_job_transition_timestamp_guard',
 ];
 async function dropConsultingFlowTransitionGuards(db) {
   await db.batch(
@@ -205,6 +216,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       consultingFlowsTransitionTriggerSql,
       ...flowAiEvidenceTransitionTriggerSql,
       ...flowAiJobLifecycleTriggerSql,
+      ...flowAiJobTransitionTimestampTriggerSql,
     ].map((sql) => db.prepare(sql)),
   );
 }
@@ -3480,7 +3492,47 @@ try {
   processingEvidenceFlow.updatedAt = evidenceTimes[3];
   processingEvidenceFlow.jobs[1].status = 'processing';
   processingEvidenceFlow.jobs[1].startedAt = evidenceTimes[3];
+  const staleClaimEvidenceFlow = structuredClone(processingEvidenceFlow);
+  staleClaimEvidenceFlow.jobs[1].startedAt = evidenceTimes[2];
+  await assert.rejects(
+    saveEvidenceTransition(retriedEvidenceFlow, staleClaimEvidenceFlow),
+    /job transition timestamp is invalid/,
+  );
+  checks.push('FLOW native D1 binds AI job claim time to the root update');
   await saveEvidenceTransition(retriedEvidenceFlow, processingEvidenceFlow);
+  const staleCompletionEvidenceFlow = structuredClone(processingEvidenceFlow);
+  staleCompletionEvidenceFlow.revision++;
+  staleCompletionEvidenceFlow.updatedAt = evidenceTimes[4];
+  const staleCompletionJob = staleCompletionEvidenceFlow.jobs[1];
+  const staleCompletedAt = evidenceTimes[3];
+  const staleCompletionAuditId = `${staleCompletionJob.id}-${staleCompletedAt}`;
+  staleCompletionJob.status = 'complete';
+  staleCompletionJob.reason = '';
+  staleCompletionJob.completedAt = staleCompletedAt;
+  staleCompletionJob.reportId = staleCompletionEvidenceFlow.reports[0].id;
+  staleCompletionJob.evidence = {
+    auditId: staleCompletionAuditId,
+    instructionVersion: 'synthetic-flow-instruction-v1',
+    requestedModel: 'claude-requested-test-model',
+    providerRequestId: 'req_native_stale_completion',
+    providerModel: 'claude-resolved-test-model',
+    providerMessageId: 'msg_native_stale_completion',
+    inputTokens: 10,
+    outputTokens: 20,
+    observedAt: staleCompletedAt,
+  };
+  staleCompletionEvidenceFlow.audit.push({
+    id: staleCompletionAuditId,
+    at: staleCompletedAt,
+    actor: '보고서 자동생성',
+    action: 'ai_result',
+    detail: '1차 분석보고서 자동 저장 · 담당 파트너 공유',
+  });
+  await assert.rejects(
+    saveEvidenceTransition(processingEvidenceFlow, staleCompletionEvidenceFlow),
+    /job transition timestamp is invalid/,
+  );
+  checks.push('FLOW native D1 binds AI job completion time to the root update');
   const failedEvidenceFlow = structuredClone(processingEvidenceFlow);
   failedEvidenceFlow.revision++;
   failedEvidenceFlow.updatedAt = evidenceTimes[4];
