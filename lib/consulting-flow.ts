@@ -4,6 +4,7 @@ import {
   MAX_AI_SOURCE_FILES,
   MAX_AI_SOURCE_MEGABYTES,
 } from './intake-source-policy';
+import { FLOW_COLLECTION_LIMITS } from './consulting-flow-shape';
 
 /** Pure, server-enforced consulting workflow. No browser state is authoritative. */
 export type FlowActor = { id: string; role: 'admin' | 'partner'; name: string };
@@ -485,7 +486,8 @@ export function applyFlowCommand(
   );
   if (current.commandIds.includes(commandId)) return current;
   demand(
-    current.audit.length < 2000,
+    current.commandIds.length < FLOW_COLLECTION_LIMITS.commandIds &&
+      current.audit.length < FLOW_COLLECTION_LIMITS.audit,
     '진행 기록이 많습니다. 보관 범위 검토 후 계속해 주세요.',
     409,
   );

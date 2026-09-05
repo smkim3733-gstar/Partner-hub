@@ -3,6 +3,19 @@ import type { ConsultingFlow } from './consulting-flow';
 type JsonRecord = Record<string, unknown>;
 type ShapeMode = 'public' | 'stored' | 'projected';
 
+export const FLOW_COLLECTION_LIMITS = {
+  reports: 4000,
+  files: 4000,
+  meetings: 2000,
+  recordings: 2000,
+  requests: 2000,
+  payments: 2000,
+  jobs: 2000,
+  audit: 4000,
+  commandIds: 2000,
+  commandReceipts: 2000,
+} as const;
+
 const asRecord = (value: unknown): JsonRecord | null =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
     ? (value as JsonRecord)
@@ -10,9 +23,14 @@ const asRecord = (value: unknown): JsonRecord | null =>
 const text = (value: unknown): value is string => typeof value === 'string';
 const named = (value: unknown): value is string =>
   text(value) && value.trim().length > 0;
+const boundedText = (value: unknown, maximum: number): value is string =>
+  text(value) && value.length <= maximum;
+const boundedName = (value: unknown, maximum: number): value is string =>
+  named(value) && value.length <= maximum;
 const timestamp = (value: unknown): value is string =>
-  text(value) && value.length > 0 && Number.isFinite(Date.parse(value));
-const optionalText = (value: unknown) => value === undefined || named(value);
+  boundedName(value, 40) && Number.isFinite(Date.parse(value));
+const optionalText = (value: unknown, maximum = 200) =>
+  value === undefined || boundedName(value, maximum);
 const optionalTimestamp = (value: unknown) =>
   value === undefined || timestamp(value);
 const calendarDate = (value: unknown) => {
@@ -29,12 +47,21 @@ const safeInteger = (value: unknown, minimum = 0) =>
 const oneOf = (value: unknown, allowed: readonly unknown[]) =>
   allowed.includes(value);
 
-function validItems(value: unknown, valid: (item: JsonRecord) => boolean) {
-  if (!Array.isArray(value)) return false;
+function validItems(
+  value: unknown,
+  maximum: number,
+  valid: (item: JsonRecord) => boolean,
+) {
+  if (!Array.isArray(value) || value.length > maximum) return false;
   const ids = new Set<string>();
   return value.every((entry) => {
     const item = asRecord(entry);
-    if (!item || !valid(item) || !named(item.id) || ids.has(item.id as string))
+    if (
+      !item ||
+      !valid(item) ||
+      !boundedName(item.id, 200) ||
+      ids.has(item.id as string)
+    )
       return false;
     ids.add(item.id as string);
     return true;
@@ -49,13 +76,17 @@ function validReport(item: JsonRecord, projected: boolean) {
       'sourceRecordingId',
       'decisionId',
       'documentsKey',
-    ].every((key) => item[key] === null || optionalText(item[key]));
+    ].every(
+      (key) =>
+        item[key] === null ||
+        optionalText(item[key], key === 'documentsKey' ? 300000 : 200),
+    );
   return (
     safeInteger(item.version, 1) &&
-    named(item.title) &&
-    text(item.body) &&
+    boundedName(item.title, 200) &&
+    boundedText(item.body, 80000) &&
     timestamp(item.createdAt) &&
-    named(item.createdBy) &&
+    boundedName(item.createdBy, 200) &&
     oneOf(item.origin, ['manual', 'ai']) &&
     [
       'fileId',
@@ -63,21 +94,23 @@ function validReport(item: JsonRecord, projected: boolean) {
       'sourceRecordingId',
       'decisionId',
       'documentsKey',
-    ].every((key) => optionalText(item[key]))
+    ].every((key) =>
+      optionalText(item[key], key === 'documentsKey' ? 300000 : 200),
+    )
   );
 }
 
 function validFile(item: JsonRecord, stored: boolean) {
   return (
-    named(item.name) &&
-    named(item.contentType) &&
+    boundedName(item.name, 300) &&
+    boundedName(item.contentType, 200) &&
     safeInteger(item.size) &&
-    text(item.key) &&
-    (!stored || named(item.key)) &&
+    boundedText(item.key, 600) &&
+    (!stored || boundedName(item.key, 600)) &&
     timestamp(item.createdAt) &&
-    named(item.purpose) &&
+    boundedName(item.purpose, 100) &&
     ['intakeFileId', 'intakeSourceHash', 'sourceReviewedBy'].every((key) =>
-      optionalText(item[key]),
+      optionalText(item[key], 500),
     ) &&
     optionalTimestamp(item.sourceReviewedAt)
   );
@@ -94,11 +127,11 @@ function validMeeting(item: JsonRecord) {
     timestamp(item.startsAt) &&
     timestamp(item.endsAt) &&
     Date.parse(item.endsAt as string) > Date.parse(item.startsAt as string) &&
-    named(item.location) &&
+    boundedName(item.location, 200) &&
     oneOf(item.attendance, ['both', 'partner', 'admin']) &&
     oneOf(item.status, ['scheduled', 'completed', 'cancelled']) &&
-    text(item.note) &&
-    named(item.createdBy) &&
+    boundedText(item.note, 1500) &&
+    boundedName(item.createdBy, 200) &&
     validStatusTime
   );
 }
@@ -110,7 +143,7 @@ function validRecording(item: JsonRecord, projected: boolean) {
     ['fileId', 'transcriptFileId', 'audioFileId', 'transcriptReviewedBy'].every(
       (key) => optionalText(item[key]),
     ) &&
-    text(item.transcript) &&
+    boundedText(item.transcript, 60000) &&
     optionalTimestamp(item.transcriptReviewedAt) &&
     timestamp(item.consentAt) &&
     timestamp(item.createdAt)
@@ -119,14 +152,14 @@ function validRecording(item: JsonRecord, projected: boolean) {
 
 function validRequest(item: JsonRecord) {
   if (
-    !named(item.title) ||
+    !boundedName(item.title, 150) ||
     typeof item.required !== 'boolean' ||
     !oneOf(item.channel, ['카카오톡', '이메일', '기타']) ||
-    !named(item.recipient) ||
+    !boundedName(item.recipient, 100) ||
     !(item.dueDate === '' || calendarDate(item.dueDate)) ||
     !oneOf(item.status, ['requested', 'received', 'verified', 'needs_fix']) ||
     !optionalText(item.fileId) ||
-    !text(item.note) ||
+    !boundedText(item.note, 1000) ||
     !timestamp(item.createdAt) ||
     !['sentAt', 'receivedAt', 'reviewedAt', 'verifiedAt'].every((key) =>
       optionalTimestamp(item[key]),
@@ -166,8 +199,8 @@ function validPayment(item: JsonRecord) {
     safeInteger(item.amountWon, 1) &&
     (item.amountWon as number) <= 1_000_000_000_000 &&
     calendarDate(item.receivedAt) &&
-    named(item.reference) &&
-    named(item.confirmedBy) &&
+    boundedName(item.reference, 200) &&
+    boundedName(item.confirmedBy, 200) &&
     timestamp(item.recordedAt)
   );
 }
@@ -182,7 +215,7 @@ function validJob(item: JsonRecord) {
       'failed',
       'complete',
     ]) ||
-    !text(item.reason) ||
+    !boundedText(item.reason, 4000) ||
     !timestamp(item.createdAt) ||
     !['sourceRecordingId', 'sourceReportId', 'reportId'].every((key) =>
       optionalText(item[key]),
@@ -216,9 +249,9 @@ function validJob(item: JsonRecord) {
 function validAudit(item: JsonRecord) {
   return (
     timestamp(item.at) &&
-    named(item.actor) &&
-    named(item.action) &&
-    named(item.detail)
+    boundedName(item.actor, 200) &&
+    boundedName(item.action, 100) &&
+    boundedName(item.detail, 2000)
   );
 }
 
@@ -226,7 +259,7 @@ function validAnalysis(value: unknown) {
   const analysis = asRecord(value);
   return Boolean(
     analysis &&
-    text(analysis.reportId) &&
+    boundedText(analysis.reportId, 200) &&
     optionalTimestamp(analysis.adminAt) &&
     optionalTimestamp(analysis.partnerAt),
   );
@@ -237,9 +270,9 @@ function validAi(value: unknown, projected: boolean) {
   return Boolean(
     ai &&
     typeof ai.enabled === 'boolean' &&
-    (projected || text(ai.sourceText)) &&
+    (projected || boundedText(ai.sourceText, 80000)) &&
     optionalTimestamp(ai.approvedAt) &&
-    optionalText(ai.approvedBy),
+    optionalText(ai.approvedBy, 200),
   );
 }
 
@@ -248,11 +281,12 @@ function validDecision(value: unknown) {
   const item = asRecord(value);
   return Boolean(
     item &&
-    named(item.id) &&
-    named(item.reportId) &&
+    boundedName(item.id, 200) &&
+    boundedName(item.reportId, 200) &&
     Array.isArray(item.solutions) &&
-    item.solutions.every(named) &&
-    text(item.note) &&
+    item.solutions.length <= 12 &&
+    item.solutions.every((solution) => boundedName(solution, 80)) &&
+    boundedText(item.note, 2000) &&
     typeof item.documentsNeeded === 'boolean' &&
     timestamp(item.at),
   );
@@ -263,13 +297,13 @@ function validContract(value: unknown) {
   const item = asRecord(value);
   return Boolean(
     item &&
-    named(item.meetingId) &&
-    named(item.reportId) &&
-    named(item.signedFileId) &&
+    boundedName(item.meetingId, 200) &&
+    boundedName(item.reportId, 200) &&
+    boundedName(item.signedFileId, 200) &&
     calendarDate(item.signedAt) &&
     safeInteger(item.expectedDepositWon, 1) &&
     (item.expectedDepositWon as number) <= 1_000_000_000_000 &&
-    named(item.recordedBy),
+    boundedName(item.recordedBy, 200),
   );
 }
 
@@ -279,9 +313,9 @@ function validAftercare(value: unknown) {
   return Boolean(
     item &&
     timestamp(item.at) &&
-    named(item.summary) &&
+    boundedName(item.summary, 3000) &&
     calendarDate(item.nextDate) &&
-    named(item.owner),
+    boundedName(item.owner, 100),
   );
 }
 
@@ -290,13 +324,14 @@ function validReceipts(value: unknown) {
   const receipts = asRecord(value);
   return Boolean(
     receipts &&
+    Object.keys(receipts).length <= FLOW_COLLECTION_LIMITS.commandReceipts &&
     Object.entries(receipts).every(([key, entry]) => {
       const receipt = asRecord(entry);
       return (
-        named(key) &&
+        boundedName(key, 200) &&
         receipt &&
-        named(receipt.actorKey) &&
-        named(receipt.fingerprint)
+        boundedName(receipt.actorKey, 500) &&
+        boundedName(receipt.fingerprint, 200)
       );
     }),
   );
@@ -439,30 +474,42 @@ function hasBaseStructure(value: unknown, mode: ShapeMode) {
   if (!flow) return false;
   const projected = mode === 'projected';
   const stored = mode === 'stored';
-  const requiredStrings = ['caseId', 'company', 'partnerId', 'partnerName'];
+  const requiredStrings = ['caseId', 'partnerId'];
   const valid =
     flow.schemaVersion === 1 &&
-    requiredStrings.every((key) => named(flow[key])) &&
-    text(flow.updatedAt) &&
+    requiredStrings.every((key) => boundedName(flow[key], 200)) &&
+    boundedName(flow.company, 300) &&
+    boundedName(flow.partnerName, 200) &&
+    boundedText(flow.updatedAt, 40) &&
     safeInteger(flow.revision) &&
-    validItems(flow.reports, (item) => validReport(item, projected)) &&
-    (projected || validItems(flow.files, (item) => validFile(item, stored))) &&
+    validItems(flow.reports, FLOW_COLLECTION_LIMITS.reports, (item) =>
+      validReport(item, projected),
+    ) &&
+    (projected ||
+      validItems(flow.files, FLOW_COLLECTION_LIMITS.files, (item) =>
+        validFile(item, stored),
+      )) &&
     validAnalysis(flow.analysis) &&
-    validItems(flow.meetings, validMeeting) &&
-    validItems(flow.recordings, (item) => validRecording(item, projected)) &&
-    validItems(flow.requests, validRequest) &&
+    validItems(flow.meetings, FLOW_COLLECTION_LIMITS.meetings, validMeeting) &&
+    validItems(flow.recordings, FLOW_COLLECTION_LIMITS.recordings, (item) =>
+      validRecording(item, projected),
+    ) &&
+    validItems(flow.requests, FLOW_COLLECTION_LIMITS.requests, validRequest) &&
     validDecision(flow.decision) &&
     validContract(flow.contract) &&
-    validItems(flow.payments, validPayment) &&
+    validItems(flow.payments, FLOW_COLLECTION_LIMITS.payments, validPayment) &&
     (flow.executionStartedAt === undefined ||
       timestamp(flow.executionStartedAt)) &&
     validAftercare(flow.aftercare) &&
     validAi(flow.ai, projected) &&
-    (projected || validItems(flow.jobs, validJob)) &&
-    (projected || validItems(flow.audit, validAudit)) &&
+    (projected ||
+      validItems(flow.jobs, FLOW_COLLECTION_LIMITS.jobs, validJob)) &&
+    (projected ||
+      validItems(flow.audit, FLOW_COLLECTION_LIMITS.audit, validAudit)) &&
     (projected ||
       (Array.isArray(flow.commandIds) &&
-        flow.commandIds.every(named) &&
+        flow.commandIds.length <= FLOW_COLLECTION_LIMITS.commandIds &&
+        flow.commandIds.every((id) => boundedName(id, 200)) &&
         new Set(flow.commandIds).size === flow.commandIds.length)) &&
     (projected || validReceipts(flow.commandReceipts));
   return (

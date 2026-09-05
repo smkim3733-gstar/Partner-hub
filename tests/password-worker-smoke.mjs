@@ -2081,13 +2081,39 @@ try {
     .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
     .bind(intactFlowPayload, 'runtime-own')
     .run();
+  const excessiveFlowCollection = JSON.parse(intactFlowPayload);
+  excessiveFlowCollection.commandIds.push(
+    ...Array.from({ length: 2000 }, (_, index) => `excessive-command-${index}`),
+  );
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(JSON.stringify(excessiveFlowCollection), 'runtime-own')
+    .run();
+  const excessiveCollectionRead = await expect(
+    await call('/flow/runtime-own', undefined, ownerHeaders),
+    503,
+    'FLOW detail rejects excessive collection entries',
+  );
+  assertPrivateAuthResponse(excessiveCollectionRead);
+  assert.match((await excessiveCollectionRead.json()).error, /무결성/);
+  const excessiveCollectionDashboard = await expect(
+    await call('/state', undefined, ownerHeaders),
+    503,
+    'FLOW dashboard rejects excessive hidden collection entries',
+  );
+  assertPrivateAuthResponse(excessiveCollectionDashboard);
+  assert.match((await excessiveCollectionDashboard.json()).error, /무결성/);
+  await db
+    .prepare('UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2')
+    .bind(intactFlowPayload, 'runtime-own')
+    .run();
   await expect(
     await call('/flow/runtime-own', undefined, { cookie }),
     200,
     'FLOW detail resumes after the native D1 payload identity is restored',
   );
   checks.push(
-    'FLOW D1 row identity, timestamp, structure, collection field, reference and state-evidence guards protect detail ACL and dashboard projection',
+    'FLOW D1 row identity, timestamp, structure, collection field, reference, state-evidence and resource-ceiling guards protect detail ACL and dashboard projection',
   );
   assert.deepEqual(
     Object.keys(privateMimeFlow.commandReceipts[mimeCommand.commandId]).sort(),

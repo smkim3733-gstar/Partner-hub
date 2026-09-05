@@ -26,6 +26,7 @@ import {
   isFlowCommandRetry,
 } from '../lib/flow-command-receipt';
 import type { PortalUser } from '../lib/portal-auth';
+import { FLOW_COLLECTION_LIMITS } from '../lib/consulting-flow-shape';
 
 const partner = {
   id: 'safety-partner',
@@ -804,6 +805,58 @@ void test('FLOW commit rejects inconsistent state evidence before D1 writes', as
   assert.equal(await readFlow(initial.caseId), null);
 });
 
+void test('FLOW rejects excessive collections and oversized fields before detail use', async () => {
+  const collectionFlow = await fixture();
+  await replaceStoredFlow(collectionFlow.caseId, (payload) => ({
+    ...payload,
+    commandIds: [
+      ...(payload.commandIds as string[]),
+      ...Array.from(
+        { length: FLOW_COLLECTION_LIMITS.commandIds },
+        (_, index) => `excess-command-${index}`,
+      ),
+    ],
+  }));
+  await assert.rejects(
+    readFlow(collectionFlow.caseId),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+
+  const fieldFlow = await fixture();
+  await replaceStoredFlow(fieldFlow.caseId, (payload) => ({
+    ...payload,
+    reports: (payload.reports as Array<Record<string, unknown>>).map(
+      (item, index) =>
+        index === 0 ? { ...item, body: 'x'.repeat(80001) } : item,
+    ),
+  }));
+  await assert.rejects(
+    readFlow(fieldFlow.caseId),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+});
+
+void test('FLOW commit rejects an oversized field before D1 writes', async () => {
+  const initial = newConsultingFlow(
+    `flow-size-commit-${++sequence}`,
+    '가상기업',
+    partner.id,
+    partner.name,
+  );
+  const changed = applyFlowCommand(
+    initial,
+    { type: 'save_report', stage: 1, body },
+    { id: adminEmail, role: 'admin', name: '가상 대표' },
+    { commandId: `size-command-${++sequence}`, now: new Date().toISOString() },
+  );
+  changed.reports[0].body = 'x'.repeat(80001);
+  await assert.rejects(
+    commitFlow(initial, changed),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  assert.equal(await readFlow(initial.caseId), null);
+});
+
 void test('FLOW dashboard validates full stored structure before SQLite projection', async () => {
   await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
   const flow = await fixture();
@@ -869,6 +922,25 @@ void test('FLOW dashboard rejects inconsistent hidden AI job state', async () =>
         reason: '',
         createdAt: '2026-09-05T00:00:00.000Z',
       },
+    ],
+  }));
+  await assert.rejects(
+    stateWithConsultingFlows(await readPortalState()),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+});
+
+void test('FLOW dashboard rejects excessive hidden collection entries', async () => {
+  await (await flowDatabase()).prepare('DELETE FROM consulting_flows').run();
+  const flow = await fixture();
+  await replaceStoredFlow(flow.caseId, (payload) => ({
+    ...payload,
+    commandIds: [
+      ...(payload.commandIds as string[]),
+      ...Array.from(
+        { length: FLOW_COLLECTION_LIMITS.commandIds },
+        (_, index) => `dashboard-excess-${index}`,
+      ),
     ],
   }));
   await assert.rejects(

@@ -20,6 +20,7 @@ import { QueryRequestError } from '@/lib/request-query';
 import { readRouteParam, RouteParamError } from '@/lib/request-path';
 import { privateJsonResponse } from '@/lib/private-response';
 import {
+  FLOW_COLLECTION_LIMITS,
   hasProjectedConsultingFlowStructure,
   hasStoredConsultingFlowStructure,
 } from '@/lib/consulting-flow-shape';
@@ -130,6 +131,16 @@ export async function stateWithConsultingFlows(raw: unknown) {
         json_type(payload, '$.requests') = 'array' AND json_type(payload, '$.payments') = 'array' AND
         json_type(payload, '$.jobs') = 'array' AND json_type(payload, '$.audit') = 'array' AND
         json_type(payload, '$.commandIds') = 'array' AND json_type(payload, '$.analysis') = 'object' AND
+        json_array_length(payload, '$.reports') <= ${FLOW_COLLECTION_LIMITS.reports} AND
+        json_array_length(payload, '$.files') <= ${FLOW_COLLECTION_LIMITS.files} AND
+        json_array_length(payload, '$.meetings') <= ${FLOW_COLLECTION_LIMITS.meetings} AND
+        json_array_length(payload, '$.recordings') <= ${FLOW_COLLECTION_LIMITS.recordings} AND
+        json_array_length(payload, '$.requests') <= ${FLOW_COLLECTION_LIMITS.requests} AND
+        json_array_length(payload, '$.payments') <= ${FLOW_COLLECTION_LIMITS.payments} AND
+        json_array_length(payload, '$.jobs') <= ${FLOW_COLLECTION_LIMITS.jobs} AND
+        json_array_length(payload, '$.audit') <= ${FLOW_COLLECTION_LIMITS.audit} AND
+        json_array_length(payload, '$.commandIds') <= ${FLOW_COLLECTION_LIMITS.commandIds} AND
+        (SELECT COUNT(*) FROM json_each(payload, '$.commandReceipts')) <= ${FLOW_COLLECTION_LIMITS.commandReceipts} AND
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.reports') e WHERE e.type <> 'object') AND
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.files') e WHERE e.type <> 'object') AND
         NOT EXISTS (SELECT 1 FROM json_each(payload, '$.meetings') e WHERE e.type <> 'object') AND
