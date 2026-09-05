@@ -78,6 +78,7 @@ export function parseAnthropicMessageResponse(
     'Claude 메시지 식별값',
     AI_PROVIDER_MESSAGE_ID_LIMIT,
   );
+  const requireUsage = options.requireUsage ?? true;
   const content = value.content;
   const textBlocks: string[] = [];
   if (content !== undefined) {
@@ -95,8 +96,12 @@ export function parseAnthropicMessageResponse(
         throw new AnthropicMessageResponseError(
           'Claude 응답 블록 형식이 올바르지 않습니다.',
         );
+      if (block.type !== 'text' && requireUsage)
+        throw new AnthropicMessageResponseError(
+          'Claude 응답에 허용되지 않은 블록이 포함되어 있습니다.',
+        );
       if (block.type !== 'text') continue;
-      if (typeof block.text !== 'string')
+      if (typeof block.text !== 'string' || !isSafeStoredText(block.text))
         throw new AnthropicMessageResponseError(
           'Claude 텍스트 응답 형식이 올바르지 않습니다.',
         );
@@ -104,13 +109,14 @@ export function parseAnthropicMessageResponse(
     }
   }
   const text = textBlocks.join('\n');
-  if (text.length > 100_000)
+  if ((requireUsage && textBlocks.length === 0) || text.length > 100_000)
     throw new AnthropicMessageResponseError(
-      'Claude 텍스트 응답 허용 길이를 초과했습니다.',
+      text.length > 100_000
+        ? 'Claude 텍스트 응답 허용 길이를 초과했습니다.'
+        : 'Claude 텍스트 응답 형식이 올바르지 않습니다.',
     );
 
   const usage = value.usage;
-  const requireUsage = options.requireUsage ?? true;
   if (
     (responseRequestId &&
       bodyRequestId &&

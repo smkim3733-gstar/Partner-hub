@@ -17,7 +17,6 @@ void test('Anthropic response parser returns only validated text, completion, us
         stop_reason: 'end_turn',
         content: [
           { type: 'text', text: '첫 블록' },
-          { type: 'tool_use', id: 'ignored-private-field' },
           { type: 'text', text: '둘째 블록' },
         ],
         usage: { input_tokens: 10, output_tokens: 20, cache_creation: 30 },
@@ -109,6 +108,30 @@ void test('Anthropic response parser rejects malformed blocks, token counts and 
           { responseRequestId: 'req_synthetic_invalid_identity' },
         ),
       /메시지 식별값|요청 식별값 형식이 올바르지 않습니다/,
+    );
+  for (const content of [
+    [],
+    [{ type: 'tool_use', id: 'toolu_synthetic' }],
+    [
+      { type: 'text', text: '부분 결과' },
+      { type: 'tool_use', id: 'toolu_synthetic' },
+    ],
+    [{ type: 'text', text: '손상\u0001문자열' }],
+  ])
+    assert.throws(
+      () =>
+        parseAnthropicMessageResponse(
+          {
+            id: 'msg_synthetic_content',
+            type: 'message',
+            role: 'assistant',
+            model: 'claude-synthetic-response-model',
+            content,
+            usage: { input_tokens: 1, output_tokens: 1 },
+          },
+          { responseRequestId: 'req_synthetic_invalid_content' },
+        ),
+      /텍스트 응답 형식|허용되지 않은 블록/,
     );
 });
 
