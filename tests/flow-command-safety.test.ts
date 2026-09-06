@@ -10629,8 +10629,8 @@ type MultipartBodyStateChange =
     }
   | {
       kind: 'email-change';
-      timing?: 'body-read' | 'first-r2-write';
-      status: 403;
+      timing?: 'body-read' | 'first-r2-write' | 'd1-write';
+      status: 403 | 503;
       error: string;
     }
   | {
@@ -10888,7 +10888,8 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
   const stateChangesDuringD1Write =
     (scenario.kind === 'permission' ||
       scenario.kind === 'suspended' ||
-      scenario.kind === 'discontinued') &&
+      scenario.kind === 'discontinued' ||
+      scenario.kind === 'email-change') &&
     scenario.timing === 'd1-write';
   Object.defineProperty(stream, 'getReader', {
     value: () => {
@@ -11176,6 +11177,16 @@ void test('partial R2 retry rejects suspension immediately before the D1 FLOW wr
 void test('partial R2 retry rejects discontinuation immediately before the D1 FLOW write and recovers after reopening', async () => {
   await assertPartialR2RetryHandlesMultipartStateChange({
     kind: 'discontinued',
+    timing: 'd1-write',
+    status: 503,
+    error:
+      '첨부파일 소유권을 안전하게 저장하지 못했습니다. 새로고침 후 다시 확인해 주세요.',
+  });
+});
+
+void test('partial R2 retry rejects login email changes immediately before the D1 FLOW write and recovers after identity restoration', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'email-change',
     timing: 'd1-write',
     status: 503,
     error:
