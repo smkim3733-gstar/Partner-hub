@@ -2500,6 +2500,203 @@ void test('FLOW meeting bookings bind one scheduled meeting and stable creator',
   await commitFlow(changed, adminChanged);
 });
 
+void test('FLOW meeting completion requires a scheduled receipt-bound target', async () => {
+  const stored = await transcriptJobFixture();
+  const commandId = `complete-meeting-effect-${++sequence}`;
+  const changed = structuredClone(stored);
+  changed.revision++;
+  changed.updatedAt = new Date(Date.parse(stored.updatedAt) + 1).toISOString();
+  changed.meetings[0].completedAt = changed.updatedAt;
+  changed.meetings[0].note = '완료된 상담을 다시 완료 처리한 위조 기록';
+  changed.audit.push({
+    id: commandId,
+    at: changed.updatedAt,
+    actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    action: 'complete_meeting',
+    detail: '실제 상담 완료 기록',
+  });
+  changed.commandIds.push(commandId);
+  addSyntheticCommandReceipt(changed, commandId);
+  changed.commandReceipts![commandId].targetId = changed.meetings[0].id;
+
+  await assert.rejects(
+    commitFlow(stored, changed),
+    (error) => error instanceof FlowError && error.status === 503,
+    'application accepted repeat completion of a completed meeting',
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        changed.revision,
+        JSON.stringify(changed),
+        changed.updatedAt,
+        stored.caseId,
+        stored.revision,
+      )
+      .run(),
+    /complete meeting effect is invalid/,
+    'D1 accepted repeat completion of a completed meeting',
+  );
+
+  const firstBookingCommandId = `complete-meeting-booking-a-${++sequence}`;
+  const firstBooked = applyFlowCommand(
+    stored,
+    {
+      type: 'book_meeting',
+      kind: 'followup',
+      attendance: 'partner',
+      startsAt: new Date(Date.parse(stored.updatedAt) - 40_000).toISOString(),
+      endsAt: new Date(Date.parse(stored.updatedAt) - 30_000).toISOString(),
+      location: '가상 완료 검증 상담실 A',
+      note: '',
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId: firstBookingCommandId,
+      now: new Date(Date.parse(stored.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(firstBooked, firstBookingCommandId);
+  await commitFlow(stored, firstBooked);
+
+  const secondBookingCommandId = `complete-meeting-booking-b-${++sequence}`;
+  const secondBooked = applyFlowCommand(
+    firstBooked,
+    {
+      type: 'book_meeting',
+      kind: 'followup',
+      attendance: 'admin',
+      startsAt: new Date(Date.parse(stored.updatedAt) - 20_000).toISOString(),
+      endsAt: new Date(Date.parse(stored.updatedAt) - 10_000).toISOString(),
+      location: '가상 완료 검증 상담실 B',
+      note: '',
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId: secondBookingCommandId,
+      now: new Date(Date.parse(stored.updatedAt) + 2).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(secondBooked, secondBookingCommandId);
+  await commitFlow(firstBooked, secondBooked);
+
+  const completionCommandId = `complete-meeting-valid-${++sequence}`;
+  const completionTarget = secondBooked.meetings.find(
+    (meeting) => meeting.id === `${firstBookingCommandId}-meeting`,
+  )!;
+  const completionCommand = {
+    type: 'complete_meeting',
+    meetingId: completionTarget.id,
+    note: '가상 상담 완료 증빙',
+  } as const;
+  const adminUser: PortalUser = {
+    id: 'stable-owner-subject',
+    email: adminEmail,
+    displayName: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    role: 'admin',
+    memberId: null,
+    memberName: null,
+    permissions: null,
+  };
+  const completionReceipt = await flowCommandReceipt(adminUser, {
+    command: completionCommand,
+  });
+  assert.equal(completionReceipt.targetId, completionTarget.id);
+  const completed = applyFlowCommand(
+    secondBooked,
+    completionCommand,
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId: completionCommandId,
+      now: new Date(Date.parse(stored.updatedAt) + 3).toISOString(),
+    },
+  );
+  completed.commandReceipts = {
+    ...completed.commandReceipts,
+    [completionCommandId]: {
+      ...completionReceipt,
+      actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+      action: 'complete_meeting',
+    },
+  };
+
+  const swappedTarget = structuredClone(completed);
+  const restoredTarget = swappedTarget.meetings.find(
+    (meeting) => meeting.id === completionTarget.id,
+  )!;
+  const forgedTarget = swappedTarget.meetings.find(
+    (meeting) => meeting.id === `${secondBookingCommandId}-meeting`,
+  )!;
+  restoredTarget.status = 'scheduled';
+  restoredTarget.completedAt = undefined;
+  restoredTarget.note = '';
+  forgedTarget.status = 'completed';
+  forgedTarget.completedAt = completed.updatedAt;
+  forgedTarget.note = completionCommand.note;
+  await assert.rejects(
+    commitFlow(secondBooked, swappedTarget),
+    (error) => error instanceof FlowError && error.status === 503,
+    'application accepted a meeting target swap',
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        swappedTarget.revision,
+        JSON.stringify(swappedTarget),
+        swappedTarget.updatedAt,
+        secondBooked.caseId,
+        secondBooked.revision,
+      )
+      .run(),
+    /complete meeting effect is invalid/,
+    'D1 accepted a meeting target swap',
+  );
+
+  const forgedAttendee = structuredClone(swappedTarget);
+  forgedAttendee.commandReceipts![completionCommandId] = {
+    ...forgedAttendee.commandReceipts![completionCommandId],
+    actorKey: `member:${partner.id}`,
+    actor: partner.name,
+    targetId: forgedTarget.id,
+  };
+  forgedAttendee.audit.at(-1)!.actor = partner.name;
+  await assert.rejects(
+    commitFlow(secondBooked, forgedAttendee),
+    (error) => error instanceof FlowError && error.status === 503,
+    'application accepted a non-attendee completion',
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forgedAttendee.revision,
+        JSON.stringify(forgedAttendee),
+        forgedAttendee.updatedAt,
+        secondBooked.caseId,
+        secondBooked.revision,
+      )
+      .run(),
+    /complete meeting effect is invalid/,
+    'D1 accepted a non-attendee completion',
+  );
+  await commitFlow(secondBooked, completed);
+});
+
 void test('FLOW source save commands preserve existing source files', async () => {
   const queued = await queuedReportFixture(true);
   const stored = structuredClone(queued);

@@ -21,6 +21,10 @@ import {
   consultingFlowsSaveReportEffectTriggerSql,
   consultingFlowsConfirmAnalysisEffectTriggerSql,
   consultingFlowsBookMeetingEffectTriggerSql,
+  consultingFlowsCommandInsertReceiptTargetTriggerSql,
+  consultingFlowsNewCommandReceiptTargetTriggerSql,
+  consultingFlowsCommandReceiptTargetHistoryTriggerSql,
+  consultingFlowsCompleteMeetingEffectTriggerSql,
   consultingFlowsSaveSourceEffectTriggerSql,
   consultingFlowsImportIntakeSourceEffectTriggerSql,
   consultingFlowsExcludeSourceEffectTriggerSql,
@@ -89,6 +93,7 @@ import {
   latestRecording,
   latestReport,
   newConsultingFlow,
+  preparationDone,
   reportLabels,
   signingPreparationDone,
   type ConsultingFlow,
@@ -166,6 +171,10 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsSaveReportEffectTriggerSql),
         db.prepare(consultingFlowsConfirmAnalysisEffectTriggerSql),
         db.prepare(consultingFlowsBookMeetingEffectTriggerSql),
+        db.prepare(consultingFlowsCommandInsertReceiptTargetTriggerSql),
+        db.prepare(consultingFlowsNewCommandReceiptTargetTriggerSql),
+        db.prepare(consultingFlowsCommandReceiptTargetHistoryTriggerSql),
+        db.prepare(consultingFlowsCompleteMeetingEffectTriggerSql),
         db.prepare(consultingFlowsSaveSourceEffectTriggerSql),
         db.prepare(consultingFlowsImportIntakeSourceEffectTriggerSql),
         db.prepare(consultingFlowsExcludeSourceEffectTriggerSql),
@@ -390,7 +399,11 @@ const hiddenFlowSemanticViolationSql = `SELECT 1 AS invalid FROM consulting_flow
       ${blankSqlText('command.value')}) OR
     EXISTS (SELECT 1 FROM json_each(payload, '$.commandReceipts') receipt WHERE
       ${blankSqlText('receipt.key')} OR ${blankJsonTextSql('receipt', 'actorKey')} OR
-      ${blankJsonTextSql('receipt', 'fingerprint')})
+      ${blankJsonTextSql('receipt', 'fingerprint')} OR
+      (json_type(receipt.value, '$.targetId') IS NOT NULL AND
+        (json_type(receipt.value, '$.targetId') IS NOT 'text' OR
+          length(json_extract(receipt.value, '$.targetId')) NOT BETWEEN 1 AND ${FLOW_FIELD_LIMITS.id} OR
+          ${blankJsonTextSql('receipt', 'targetId')})))
   ELSE 0 END LIMIT 1`;
 // Evidence checks stay isolated so the broad dashboard projection remains below D1's expression-depth limit.
 const invalidFlowAiFailureEvidenceSql = (expression: string) =>
@@ -1103,7 +1116,10 @@ function assertFlowCommitTransition(
             receipt.actor !== FLOW_ADMIN_COMMAND_ACTOR_NAME)) ||
         matchingAudit.length !== 1 ||
         receipt.actor !== matchingAudit[0].actor ||
-        receipt.action !== matchingAudit[0].action
+        receipt.action !== matchingAudit[0].action ||
+        (receipt.action === 'complete_meeting'
+          ? receipt.targetId === undefined
+          : receipt.targetId !== undefined)
       );
     })
   )
@@ -1321,6 +1337,39 @@ function assertFlowCommitTransition(
             meeting.startsAt < existing.endsAt &&
             meeting.endsAt > existing.startsAt,
         )
+      )
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'complete_meeting') {
+      const receipt = afterReceipts[commandId];
+      const previous = before.meetings.find(
+        (meeting) => meeting.id === receipt?.targetId,
+      );
+      const completed = after.meetings.find(
+        (meeting) => meeting.id === receipt?.targetId,
+      );
+      if (
+        !previous ||
+        !completed ||
+        previous.status !== 'scheduled' ||
+        previous.completedAt !== undefined ||
+        completed.status !== 'completed' ||
+        completed.completedAt !== after.updatedAt ||
+        completed.startsAt > after.updatedAt ||
+        (completed.note === '' && previous.note !== '') ||
+        (receipt.actorKey === `member:${before.partnerId}` &&
+          !['both', 'partner'].includes(previous.attendance)) ||
+        ![FLOW_ADMIN_COMMAND_ACTOR_KEY, `member:${before.partnerId}`].includes(
+          receipt.actorKey,
+        ) ||
+        (previous.kind === 'first' &&
+          (!analysisDone(before) ||
+            !preparationDone(before) ||
+            before.jobs.some(
+              (job) =>
+                job.stage === 1 &&
+                ['queued', 'processing'].includes(job.status),
+            )))
       )
         throw storedFlowIntegrityError();
     }

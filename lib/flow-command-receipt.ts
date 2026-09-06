@@ -71,6 +71,7 @@ function receiptAttachment(
 export type ComputedFlowCommandReceipt = {
   actorKey: string;
   fingerprint: string;
+  targetId?: string;
   /** Used only to resume matching commands saved before filename/MIME normalization. */
   legacyFingerprints?: readonly string[];
 };
@@ -139,11 +140,17 @@ export async function flowCommandReceipt(
   user: PortalUser,
   input: { command: FlowCommand; file?: File; audio?: File },
 ): Promise<ComputedFlowCommandReceipt> {
+  const targetId =
+    input.command.type === 'complete_meeting' &&
+    typeof input.command.meetingId === 'string'
+      ? input.command.meetingId
+      : undefined;
   return {
     actorKey:
       user.role === 'admin'
         ? FLOW_ADMIN_COMMAND_ACTOR_KEY
         : `member:${user.memberId}`,
+    ...(targetId ? { targetId } : {}),
     ...(await commandFingerprints(input)),
   };
 }

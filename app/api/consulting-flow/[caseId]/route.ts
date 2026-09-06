@@ -171,6 +171,7 @@ export async function POST(request: Request, context: Context) {
         fingerprint: receipt.fingerprint,
         actor: commandAudit.actor,
         action: commandAudit.action,
+        ...(receipt.targetId ? { targetId: receipt.targetId } : {}),
       },
     };
     if (imported) {

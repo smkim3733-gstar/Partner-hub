@@ -501,6 +501,16 @@ const flowBookMeetingEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowCompleteMeetingEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0082_consulting_flow_complete_meeting_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -512,6 +522,10 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_save_report_effect_guard',
   'consulting_flows_confirm_analysis_effect_guard',
   'consulting_flows_book_meeting_effect_guard',
+  'consulting_flows_command_insert_receipt_target_guard',
+  'consulting_flows_new_command_receipt_target_guard',
+  'consulting_flows_command_receipt_target_history_guard',
+  'consulting_flows_complete_meeting_effect_guard',
   'consulting_flows_save_source_effect_guard',
   'consulting_flows_import_intake_source_effect_guard',
   'consulting_flows_exclude_source_effect_guard',
@@ -568,6 +582,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowSaveReportEffectTriggerSql[0],
       flowConfirmAnalysisEffectTriggerSql[0],
       flowBookMeetingEffectTriggerSql[0],
+      ...flowCompleteMeetingEffectTriggerSql,
       flowSaveSourceEffectTriggerSql[0],
       flowImportIntakeSourceEffectTriggerSql[0],
       flowExcludeSourceEffectTriggerSql[0],
@@ -3735,7 +3750,7 @@ try {
     .first();
   const intactFlowPayload = intactFlowRow.payload;
   const evidenceCaseId = 'native-flow-ai-evidence-transition';
-  const evidenceTimes = Array.from({ length: 5 }, (_, index) =>
+  const evidenceTimes = Array.from({ length: 7 }, (_, index) =>
     new Date(Date.parse('2026-09-06T12:00:00.000Z') + index).toISOString(),
   );
   const evidenceFlow = JSON.parse(intactFlowPayload);
@@ -4609,8 +4624,8 @@ try {
   validMeetingEffectFlow.meetings.push({
     id: `${meetingEffectCommandId}-meeting`,
     kind: 'followup',
-    startsAt: '2026-10-01T01:00:00.000Z',
-    endsAt: '2026-10-01T02:00:00.000Z',
+    startsAt: '2026-09-06T11:00:00.000Z',
+    endsAt: '2026-09-06T11:30:00.000Z',
     attendance: 'partner',
     location: '가상 후속 상담실',
     status: 'scheduled',
@@ -4670,6 +4685,134 @@ try {
   await saveMeetingEffectTransition(validMeetingEffectFlow);
   checks.push(
     'FLOW native D1 binds one scheduled meeting, creator and prerequisites to booking',
+  );
+  const validCompletionEffectFlow = structuredClone(validMeetingEffectFlow);
+  validCompletionEffectFlow.revision++;
+  validCompletionEffectFlow.updatedAt = evidenceTimes[5];
+  const completionEffectCommandId = 'native-complete-meeting-effect';
+  const completionTarget = validCompletionEffectFlow.meetings.at(-1);
+  completionTarget.status = 'completed';
+  completionTarget.completedAt = evidenceTimes[5];
+  completionTarget.note = '가상 후속 상담 완료 확인';
+  validCompletionEffectFlow.audit.push({
+    id: completionEffectCommandId,
+    at: evidenceTimes[5],
+    actor: validCompletionEffectFlow.partnerName,
+    action: 'complete_meeting',
+    detail: '실제 상담 완료 기록',
+  });
+  validCompletionEffectFlow.commandIds.push(completionEffectCommandId);
+  validCompletionEffectFlow.commandReceipts[completionEffectCommandId] = {
+    actorKey: `member:${validCompletionEffectFlow.partnerId}`,
+    fingerprint: 'c'.repeat(64),
+    actor: validCompletionEffectFlow.partnerName,
+    action: 'complete_meeting',
+    targetId: completionTarget.id,
+  };
+  const saveCompletionEffectTransition = (after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        reportEffectCaseId,
+        validMeetingEffectFlow.revision,
+      )
+      .run();
+  const forgedCompletionTargetFlow = structuredClone(validCompletionEffectFlow);
+  forgedCompletionTargetFlow.commandReceipts[
+    completionEffectCommandId
+  ].targetId = forgedCompletionTargetFlow.meetings[0].id;
+  await assert.rejects(
+    saveCompletionEffectTransition(forgedCompletionTargetFlow),
+    /complete meeting effect is invalid/,
+  );
+  const forgedRepeatCompletionFlow = structuredClone(validMeetingEffectFlow);
+  forgedRepeatCompletionFlow.revision++;
+  forgedRepeatCompletionFlow.updatedAt = evidenceTimes[5];
+  forgedRepeatCompletionFlow.meetings[0].completedAt = evidenceTimes[5];
+  forgedRepeatCompletionFlow.meetings[0].note = '완료 상담 재완료 위조';
+  forgedRepeatCompletionFlow.audit.push({
+    id: completionEffectCommandId,
+    at: evidenceTimes[5],
+    actor: forgedRepeatCompletionFlow.partnerName,
+    action: 'complete_meeting',
+    detail: '실제 상담 완료 기록',
+  });
+  forgedRepeatCompletionFlow.commandIds.push(completionEffectCommandId);
+  forgedRepeatCompletionFlow.commandReceipts[completionEffectCommandId] = {
+    actorKey: `member:${forgedRepeatCompletionFlow.partnerId}`,
+    fingerprint: 'c'.repeat(64),
+    actor: forgedRepeatCompletionFlow.partnerName,
+    action: 'complete_meeting',
+    targetId: forgedRepeatCompletionFlow.meetings[0].id,
+  };
+  await assert.rejects(
+    saveCompletionEffectTransition(forgedRepeatCompletionFlow),
+    /complete meeting effect is invalid/,
+  );
+  const missingCompletionTargetFlow = structuredClone(
+    validCompletionEffectFlow,
+  );
+  delete missingCompletionTargetFlow.commandReceipts[completionEffectCommandId]
+    .targetId;
+  await assert.rejects(
+    saveCompletionEffectTransition(missingCompletionTargetFlow),
+    /new command receipt target is invalid|complete meeting effect is invalid/,
+  );
+  await saveCompletionEffectTransition(validCompletionEffectFlow);
+  const forgedCompletionTargetHistoryFlow = structuredClone(
+    validCompletionEffectFlow,
+  );
+  forgedCompletionTargetHistoryFlow.revision++;
+  forgedCompletionTargetHistoryFlow.updatedAt = evidenceTimes[6];
+  forgedCompletionTargetHistoryFlow.ai.sourceText =
+    '가상 회의 완료 대상 이력 불변성 검증을 위한 비식별 근거자료입니다.';
+  forgedCompletionTargetHistoryFlow.audit.push({
+    id: 'native-completion-target-history',
+    at: evidenceTimes[6],
+    actor: '김성민 대표',
+    action: 'save_source',
+    detail: '1차 분석용 근거자료 저장',
+  });
+  forgedCompletionTargetHistoryFlow.commandIds.push(
+    'native-completion-target-history',
+  );
+  forgedCompletionTargetHistoryFlow.commandReceipts[
+    'native-completion-target-history'
+  ] = {
+    actorKey: 'admin:primary',
+    fingerprint: 'd'.repeat(64),
+    actor: '김성민 대표',
+    action: 'save_source',
+  };
+  forgedCompletionTargetHistoryFlow.commandReceipts[
+    completionEffectCommandId
+  ].targetId = forgedCompletionTargetHistoryFlow.meetings[0].id;
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forgedCompletionTargetHistoryFlow.revision,
+        JSON.stringify(forgedCompletionTargetHistoryFlow),
+        forgedCompletionTargetHistoryFlow.updatedAt,
+        reportEffectCaseId,
+        validCompletionEffectFlow.revision,
+      )
+      .run(),
+    /command receipt target is immutable/,
+  );
+  checks.push(
+    'FLOW native D1 binds one scheduled target, attendee, completion evidence and immutable target history',
   );
   const validSourceEffectFlow = structuredClone(sourceEffectFlow);
   validSourceEffectFlow.revision++;

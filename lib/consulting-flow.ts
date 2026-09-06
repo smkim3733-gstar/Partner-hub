@@ -183,6 +183,7 @@ export type ConsultingFlow = {
       fingerprint: string;
       actor?: string;
       action?: string;
+      targetId?: string;
     }
   >;
 };
