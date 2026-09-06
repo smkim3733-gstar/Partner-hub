@@ -20,6 +20,7 @@ import {
   consultingFlowsQueueReportJobEffectTriggerSql,
   consultingFlowsSaveSourceEffectTriggerSql,
   consultingFlowsImportIntakeSourceEffectTriggerSql,
+  consultingFlowsExcludeSourceEffectTriggerSql,
   consultingFlowsSaveRecordingEffectTriggerSql,
   consultingFlowsSaveTranscriptJobsTriggerSql,
   consultingFlowsRetryJobEffectTriggerSql,
@@ -157,6 +158,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsQueueReportJobEffectTriggerSql),
         db.prepare(consultingFlowsSaveSourceEffectTriggerSql),
         db.prepare(consultingFlowsImportIntakeSourceEffectTriggerSql),
+        db.prepare(consultingFlowsExcludeSourceEffectTriggerSql),
         db.prepare(consultingFlowsSaveRecordingEffectTriggerSql),
         db.prepare(consultingFlowsSaveTranscriptJobsTriggerSql),
         db.prepare(consultingFlowsRetryJobEffectTriggerSql),
@@ -1242,6 +1244,26 @@ function assertFlowCommitTransition(
         !/^[0-9a-f]{64}$/.test(importedFile.intakeSourceHash ?? '') ||
         importedFile.sourceReviewedAt !== after.updatedAt ||
         !importedFile.sourceReviewedBy?.trim()
+      )
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'exclude_source') {
+      const changedFiles = before.files.filter(
+        (file, index) => !sameValue(file, after.files[index]),
+      );
+      const target = changedFiles[0];
+      if (
+        after.files.length !== before.files.length ||
+        before.files.some(
+          (file, index) => after.files[index]?.id !== file.id,
+        ) ||
+        changedFiles.length !== 1 ||
+        !target ||
+        target.purpose !== 'source' ||
+        !sameValue(after.files[before.files.indexOf(target)], {
+          ...target,
+          purpose: 'source_archived',
+        })
       )
         throw storedFlowIntegrityError();
     }

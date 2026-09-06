@@ -2319,6 +2319,89 @@ void test('FLOW intake source imports append one reviewed source file', async ()
   );
 });
 
+void test('FLOW source exclusion changes one selected source file', async () => {
+  const queued = await queuedReportFixture(true);
+  const stored = structuredClone(queued);
+  stored.revision++;
+  stored.updatedAt = new Date(Date.parse(queued.updatedAt) + 1).toISOString();
+  stored.jobs.at(-1)!.status = 'blocked';
+  stored.jobs.at(-1)!.reason = '기존 독립 작업 보류';
+  await commitFlow(queued, stored);
+
+  const secondBytes = 'synthetic second source';
+  const secondAt = new Date(Date.parse(stored.updatedAt) + 1).toISOString();
+  const secondId = `exclude-source-second-${++sequence}`;
+  const secondFile: ConsultingFlow['files'][number] = {
+    id: secondId,
+    name: 'second-source.txt',
+    contentType: 'text/plain',
+    size: new TextEncoder().encode(secondBytes).byteLength,
+    key: flowFileStorageKey(secondId),
+    createdAt: secondAt,
+    purpose: 'source',
+  };
+  const saveCommandId = `exclude-source-setup-${++sequence}`;
+  const withSecond = applyFlowCommand(
+    stored,
+    {
+      type: 'save_source',
+      sourceText: stored.ai.sourceText,
+      privacyMasked: true,
+      fileConsent: true,
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    { commandId: saveCommandId, now: secondAt, upload: secondFile },
+  );
+  addSyntheticCommandReceipt(withSecond, saveCommandId);
+  await commitFlow(
+    stored,
+    withSecond,
+    undefined,
+    await storeFlowFileBinding(secondFile, secondBytes),
+  );
+
+  const commandId = `exclude-source-effect-${++sequence}`;
+  const changed = applyFlowCommand(
+    withSecond,
+    { type: 'exclude_source', fileId: withSecond.files[0]!.id },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId,
+      now: new Date(Date.parse(withSecond.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(changed, commandId);
+  const forged = structuredClone(changed);
+  forged.files[1]!.purpose = 'source_archived';
+  await assert.rejects(
+    commitFlow(withSecond, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+        withSecond.caseId,
+        withSecond.revision,
+      )
+      .run(),
+    /exclude source effect is invalid/,
+  );
+  await commitFlow(withSecond, changed);
+  assert.deepEqual(
+    await readFlow(withSecond.caseId),
+    JSON.parse(JSON.stringify(changed)),
+  );
+});
+
 void test('FLOW command receipts originate only with same-revision commands', async () => {
   const initial = await fixture();
   const legacyCommandId = `legacy-command-without-receipt-${++sequence}`;

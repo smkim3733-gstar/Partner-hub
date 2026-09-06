@@ -461,6 +461,16 @@ const flowImportIntakeSourceEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowExcludeSourceEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0078_consulting_flow_exclude_source_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -471,6 +481,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_queue_report_job_effect_guard',
   'consulting_flows_save_source_effect_guard',
   'consulting_flows_import_intake_source_effect_guard',
+  'consulting_flows_exclude_source_effect_guard',
   'consulting_flows_save_recording_effect_guard',
   'consulting_flows_save_transcript_jobs_guard',
   'consulting_flows_retry_job_effect_guard',
@@ -523,6 +534,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowQueueReportJobEffectTriggerSql[0],
       flowSaveSourceEffectTriggerSql[0],
       flowImportIntakeSourceEffectTriggerSql[0],
+      flowExcludeSourceEffectTriggerSql[0],
       flowSaveRecordingEffectTriggerSql[0],
       flowSaveTranscriptJobsTriggerSql[0],
       flowRetryJobEffectTriggerSql[0],
@@ -4513,6 +4525,50 @@ try {
     /intake source effect is invalid/,
   );
   checks.push('FLOW native D1 binds one reviewed intake source file effect');
+  const forgedExcludeEffectFlow = structuredClone(intakeEffectFlow);
+  forgedExcludeEffectFlow.revision++;
+  forgedExcludeEffectFlow.updatedAt = evidenceTimes[2];
+  forgedExcludeEffectFlow.files.push({
+    id: 'native-exclude-source-added-file',
+    name: 'archived-source.txt',
+    contentType: 'text/plain',
+    size: 10,
+    key: 'consulting-flow/native-exclude-source-added-file',
+    createdAt: evidenceTimes[1],
+    purpose: 'source_archived',
+  });
+  forgedExcludeEffectFlow.audit.push({
+    id: 'native-exclude-source-effect',
+    at: evidenceTimes[2],
+    actor: '김성민 대표',
+    action: 'exclude_source',
+    detail: 'AI 입력에서 근거자료 제외 · 원본은 비공개 보존',
+  });
+  forgedExcludeEffectFlow.commandIds.push('native-exclude-source-effect');
+  forgedExcludeEffectFlow.commandReceipts['native-exclude-source-effect'] = {
+    actorKey: 'admin:primary',
+    fingerprint: '1'.repeat(64),
+    actor: '김성민 대표',
+    action: 'exclude_source',
+  };
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forgedExcludeEffectFlow.revision,
+        JSON.stringify(forgedExcludeEffectFlow),
+        forgedExcludeEffectFlow.updatedAt,
+        intakeEffectCaseId,
+        intakeEffectFlow.revision,
+      )
+      .run(),
+    /exclude source effect is invalid/,
+  );
+  checks.push('FLOW native D1 binds one source exclusion target');
   const commandedClaimEvidenceFlow = structuredClone(processingEvidenceFlow);
   commandedClaimEvidenceFlow.ai.approvedAt = evidenceTimes[3];
   commandedClaimEvidenceFlow.ai.approvedBy = 'native-synthetic-owner';
