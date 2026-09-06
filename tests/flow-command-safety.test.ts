@@ -10628,9 +10628,14 @@ type MultipartBodyStateChange =
       kind: 'email-change';
       status: 403;
       error: string;
+    }
+  | {
+      kind: 'display-name-change';
+      name: string;
+      status: 200;
     };
 
-async function assertPartialR2RetryDeniedByMultipartStateChange(
+async function assertPartialR2RetryHandlesMultipartStateChange(
   scenario: MultipartBodyStateChange,
 ) {
   await deleteConsultingFlowFixture(await flowDatabase());
@@ -10746,8 +10751,58 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
       { slot: 'file', status: 'pending' },
     ],
   );
+  const assertCompleted = async (response: Response) => {
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.equal((await memberBinding())?.subject_id, partner.id);
+    const saved = (await readFlow(stored.caseId))!;
+    const recording = saved.recordings.at(-1)!;
+    const reservedBySlot = new Map(
+      pending.map(({ slot, file_id }) => [slot, file_id]),
+    );
+    assert.equal(recording.transcriptFileId, reservedBySlot.get('file'));
+    assert.equal(recording.audioFileId, reservedBySlot.get('audio'));
+    assert.deepEqual(saved.commandIds.slice(-1), [commandId]);
+    assert.equal(
+      saved.commandReceipts?.[commandId]?.actorKey,
+      `member:${partner.id}`,
+    );
+    assert.equal(saved.commandReceipts?.[commandId]?.actor, stored.partnerName);
+    assert.equal(
+      saved.audit.find(({ id }) => id === commandId)?.actor,
+      stored.partnerName,
+    );
+    assert.equal(saved.partnerName, stored.partnerName);
+    assert.deepEqual(
+      [...objects.keys()]
+        .filter((key) => !previousKeys.has(key))
+        .sort((a, b) => a.localeCompare(b)),
+      pending
+        .map(({ storage_key }) => storage_key)
+        .sort((a, b) => a.localeCompare(b)),
+    );
+    const completions = (
+      await db
+        .prepare(
+          `SELECT reservation.status, completion.command_id
+          FROM consulting_flow_upload_requests reservation
+          LEFT JOIN consulting_flow_upload_completions completion
+            ON completion.file_id = reservation.file_id
+          WHERE reservation.command_id = ?1
+          ORDER BY reservation.file_id`,
+        )
+        .bind(commandId)
+        .all<{ status: string; command_id: string | null }>()
+    ).results;
+    assert.equal(completions.length, 2);
+    assert.ok(
+      completions.every(
+        ({ status, command_id }) =>
+          status === 'ready' && command_id === commandId,
+      ),
+    );
+  };
   const transcriptReservation = pending.find(({ slot }) => slot === 'file')!;
-  const storedBeforeDenial = new Uint8Array(
+  const storedBeforeStateChange = new Uint8Array(
     objects.get(transcriptReservation.storage_key),
   ).slice();
   assert.deepEqual(
@@ -10779,6 +10834,7 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
             members: Array<{
               id: string;
               email: string;
+              name: string;
               status: string;
               permissions: Record<string, boolean>;
             }>;
@@ -10800,6 +10856,9 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
           } else if (scenario.kind === 'email-change') {
             changedState.members.find(({ id }) => id === partner.id)!.email =
               `multipart-email-race-${sequence}@example.invalid`;
+          } else if (scenario.kind === 'display-name-change') {
+            changedState.members.find(({ id }) => id === partner.id)!.name =
+              scenario.name;
           } else {
             changedState.cases.find(
               ({ id }) => id === stored.caseId,
@@ -10825,35 +10884,48 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
       return reader;
     },
   });
-  let deniedPutAttempts = 0;
+  let retryPutAttempts = 0;
   bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
-    deniedPutAttempts++;
+    retryPutAttempts++;
     return put(...args);
   };
-  let denied: Response;
+  let result: Response;
   try {
-    denied = await POST(retryRequest, context(stored.caseId));
+    result = await POST(retryRequest, context(stored.caseId));
   } finally {
     bucket.put = put;
   }
   assert.equal(stateChanged, true);
-  assert.equal(denied.status, scenario.status);
-  assert.deepEqual(await denied.json(), { error: scenario.error });
-  assert.equal(deniedPutAttempts, 0);
-  if (scenario.kind === 'email-change')
-    assert.equal(await memberBinding(), null);
-  else assert.equal((await memberBinding())?.subject_id, partner.id);
-  assert.deepEqual(await readFlow(stored.caseId), stored);
-  assert.deepEqual(
-    new Uint8Array(objects.get(transcriptReservation.storage_key)),
-    storedBeforeDenial,
-  );
-  assert.deepEqual((await reservations()).results, pending);
+  if (scenario.kind === 'display-name-change') {
+    assert.equal(retryPutAttempts, 2);
+    await assertCompleted(result);
+    const currentState = (await readPortalState()) as {
+      members: Array<{ id: string; name: string }>;
+    };
+    assert.equal(
+      currentState.members.find(({ id }) => id === partner.id)?.name,
+      scenario.name,
+    );
+  } else {
+    assert.equal(result.status, scenario.status);
+    assert.deepEqual(await result.json(), { error: scenario.error });
+    assert.equal(retryPutAttempts, 0);
+    if (scenario.kind === 'email-change')
+      assert.equal(await memberBinding(), null);
+    else assert.equal((await memberBinding())?.subject_id, partner.id);
+    assert.deepEqual(await readFlow(stored.caseId), stored);
+    assert.deepEqual(
+      new Uint8Array(objects.get(transcriptReservation.storage_key)),
+      storedBeforeStateChange,
+    );
+    assert.deepEqual((await reservations()).results, pending);
+  }
 
   const restoredState = structuredClone(await readPortalState()) as {
     members: Array<{
       id: string;
       email: string;
+      name: string;
       status: string;
       permissions: Record<string, boolean>;
     }>;
@@ -10871,6 +10943,9 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
   else if (scenario.kind === 'email-change')
     restoredState.members.find(({ id }) => id === partner.id)!.email =
       partner.email;
+  else if (scenario.kind === 'display-name-change')
+    restoredState.members.find(({ id }) => id === partner.id)!.name =
+      partner.name;
   else
     restoredState.cases.find(
       ({ id }) => id === stored.caseId,
@@ -10891,6 +10966,7 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
   if (scenario.kind === 'email-change')
     assert.equal(await memberBinding(), null);
   else assert.equal((await memberBinding())?.subject_id, partner.id);
+  if (scenario.kind === 'display-name-change') return;
 
   const retry = await POST(
     request(
@@ -10904,51 +10980,10 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
     ),
     context(stored.caseId),
   );
-  assert.equal(retry.status, 200, await retry.clone().text());
-  assert.equal((await memberBinding())?.subject_id, partner.id);
-  const saved = (await readFlow(stored.caseId))!;
-  const recording = saved.recordings.at(-1)!;
-  const reservedBySlot = new Map(
-    pending.map(({ slot, file_id }) => [slot, file_id]),
-  );
-  assert.equal(recording.transcriptFileId, reservedBySlot.get('file'));
-  assert.equal(recording.audioFileId, reservedBySlot.get('audio'));
-  assert.deepEqual(saved.commandIds.slice(-1), [commandId]);
-  assert.equal(
-    saved.commandReceipts?.[commandId]?.actorKey,
-    `member:${partner.id}`,
-  );
-  assert.deepEqual(
-    [...objects.keys()]
-      .filter((key) => !previousKeys.has(key))
-      .sort((a, b) => a.localeCompare(b)),
-    pending
-      .map(({ storage_key }) => storage_key)
-      .sort((a, b) => a.localeCompare(b)),
-  );
-  const completions = (
-    await db
-      .prepare(
-        `SELECT reservation.status, completion.command_id
-        FROM consulting_flow_upload_requests reservation
-        LEFT JOIN consulting_flow_upload_completions completion
-          ON completion.file_id = reservation.file_id
-        WHERE reservation.command_id = ?1
-        ORDER BY reservation.file_id`,
-      )
-      .bind(commandId)
-      .all<{ status: string; command_id: string | null }>()
-  ).results;
-  assert.equal(completions.length, 2);
-  assert.ok(
-    completions.every(
-      ({ status, command_id }) =>
-        status === 'ready' && command_id === commandId,
-    ),
-  );
+  await assertCompleted(retry);
 }
 
-void test('partial R2 retry rechecks multipart permission, account, identity and lifecycle changes before reservation or R2 reuse', async () => {
+void test('partial R2 retry preserves profile continuity while rechecking multipart permission, account, identity and lifecycle changes', async () => {
   for (const scenario of [
     {
       kind: 'permission',
@@ -10973,13 +11008,18 @@ void test('partial R2 retry rechecks multipart permission, account, identity and
       error: '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
     },
     {
+      kind: 'display-name-change',
+      name: '가상 multipart 변경 담당자',
+      status: 200,
+    },
+    {
       kind: 'discontinued',
       status: 409,
       error:
         '대표가 진행을 중단한 상태입니다. 진행판에서 다시 연 뒤 이용해 주세요.',
     },
   ] as const)
-    await assertPartialR2RetryDeniedByMultipartStateChange(scenario);
+    await assertPartialR2RetryHandlesMultipartStateChange(scenario);
 });
 
 void test('FLOW commit rejects a suspension immediately before D1 writes', async () => {
