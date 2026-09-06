@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 감사 커밋: `0db4a8fbff48e5702be01b128f2b6944c926afbc` (`test: reject changed FLOW retry command`)
-- 최신 확인: 부분 R2 저장 뒤 같은 명령 ID와 원래 첨부를 유지하면서 명령 본문만 바꾸면 R2 쓰기 전 409로 차단하고 기존 객체·예약 보존
-- 검증: Node 회귀 검사 722개, 격리 workerd/D1/R2 검사 522개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
+- 최신 감사 커밋: `37fbb0e0ff46b91045b885d99f53392e495efacd` (`test: preserve stale FLOW retry uploads`)
+- 최신 확인: 부분 R2 저장 뒤 동시 FLOW 갱신으로 revision이 낡아진 재시도는 R2 쓰기 전 409로 차단하고 동시 변경·기존 객체·예약 보존
+- 검증: Node 회귀 검사 723개, 격리 workerd/D1/R2 검사 522개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 266 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_ff6af7f324a88191a6bb91fc08a5bc52`), 소스 `0db4a8fbff48e5702be01b128f2b6944c926afbc`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–265는 더 완전한 후보인 버전 266으로 대체한다.
+- 최신 Sites 저장 버전: 267 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_6d5e98e0a8b88191af482b1812768529`), 소스 `37fbb0e0ff46b91045b885d99f53392e495efacd`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–266은 더 완전한 후보인 버전 267로 대체한다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -44,7 +44,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW 재시도 명령 불일치 무결성](FLOW_RETRY_COMMAND_MISMATCH_INTEGRITY_2026_09_07.md)을 확인한다.
+먼저 [상담 FLOW 낡은 revision 업로드 재시도 무결성](FLOW_STALE_REVISION_UPLOAD_RETRY_INTEGRITY_2026_09_07.md)을 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
@@ -92,4 +92,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 버전 266 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108–265는 버전 266으로 대체해 배포하지 않는다. 공개 교체는 정확한 `버전 266 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 부분 R2 실패 뒤 동시 FLOW 갱신 때문에 revision이 낡아진 재시도가 R2 객체와 예약을 건드리지 못하는지 감사한다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
+Sites 버전 267 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108–266은 버전 267로 대체해 배포하지 않는다. 공개 교체는 정확한 `버전 267 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 부분 R2 실패 뒤 파트너 계정 정지나 업로드 권한 회수가 발생한 재시도가 R2 객체와 예약을 건드리지 못하는지 감사한다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
