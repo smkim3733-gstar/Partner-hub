@@ -10654,7 +10654,7 @@ type MultipartBodyStateChange =
     }
   | {
       kind: 'case-and-member-deletion';
-      timing: 'first-r2-write' | 'd1-write';
+      timing?: 'body-read' | 'first-r2-write' | 'd1-write';
       status: 403 | 503;
       error: string;
     };
@@ -11392,6 +11392,15 @@ void test('partial R2 retry rejects case and assigned member deletion during the
   await assertPartialR2RetryHandlesMultipartStateChange({
     kind: 'case-and-member-deletion',
     timing: 'first-r2-write',
+    status: 403,
+    error: '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
+  });
+});
+
+void test('partial R2 retry rejects case and assigned member deletion while reading the multipart body before any R2 write and rebinds after restoration', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'case-and-member-deletion',
+    timing: 'body-read',
     status: 403,
     error: '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
   });
