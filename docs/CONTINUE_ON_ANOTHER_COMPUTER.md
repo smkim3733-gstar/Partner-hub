@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `57b02251c0b8157be39db9b38dab39899293204d` (`fix: bind FLOW request send effects`)
-- 최신 기능: 서류 요청 발송 기록을 영수증 선택 요청 한 건, 서버 발송시각과 전달 경로 기반 감사문구에 결속
-- 검증: Node 회귀 검사 691개, 관련 FLOW 검사 139개, 집중 검사 97개, 격리 workerd/D1/R2 검사 513개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
+- 최신 기능 커밋: `c6d95e23da3de644d3b12289efc5581a42bf0749` (`fix: bind FLOW document receipt effects`)
+- 최신 기능: 서류 수령을 영수증 선택 요청 한 건, 요청서류 파일, 서버 수령시각과 대표 검토 대기에 결속
+- 검증: Node 회귀 검사 692개, 관련 FLOW 검사 140개, 집중 검사 98개, 격리 workerd/D1/R2 검사 514개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 245 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_13a01e3caf588191876b7f8c4004c383`), 소스 `57b02251c0b8157be39db9b38dab39899293204d`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. Sites 안전 게이트가 정확한 공개 대상 버전 승인을 요구하며, 버전 108–244는 버전 245로 대체해 배포하지 않는다.
+- 최신 Sites 저장 버전: 246 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_be6ad9b3499c8191b2e8cac6c71502db`), 소스 `c6d95e23da3de644d3b12289efc5581a42bf0749`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. Sites 안전 게이트가 정확한 공개 대상 버전 승인을 요구하며, 버전 108–245는 버전 246으로 대체해 배포하지 않는다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -44,7 +44,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW 서류 요청 발송 효과 무결성](FLOW_REQUEST_SEND_EFFECT_INTEGRITY_2026_09_06.md)을 확인한다.
+먼저 [상담 FLOW 서류 수령 효과 무결성](FLOW_DOCUMENT_RECEIPT_EFFECT_INTEGRITY_2026_09_06.md)을 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
@@ -92,4 +92,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 버전 245 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108–244는 버전 245로 대체해 배포하지 않는다. 공개 교체는 정확한 `버전 245 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 `receive_document` 효과 감사를 이어간다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
+Sites 버전 246 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108–245는 버전 246으로 대체해 배포하지 않는다. 공개 교체는 정확한 `버전 246 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 `review_document` 효과 감사를 이어간다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.

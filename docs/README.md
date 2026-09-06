@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [상담 FLOW 서류 수령 효과 무결성](FLOW_DOCUMENT_RECEIPT_EFFECT_INTEGRITY_2026_09_06.md)                              | 영수증 선택 요청·요청서류 파일·서버 수령시각·검토 대기의 앱·D1 결속                      |
 | [상담 FLOW 서류 요청 발송 효과 무결성](FLOW_REQUEST_SEND_EFFECT_INTEGRITY_2026_09_06.md)                             | 영수증 선택 요청·서버 발송시각·전달 경로 감사문구의 앱·D1 결속                           |
 | [상담 FLOW 서류 요청 등록 효과 무결성](FLOW_DOCUMENT_REQUEST_EFFECT_INTEGRITY_2026_09_06.md)                         | 대표 행위자·명령 기반 새 요청·정규 초기 필드·서버 생성시각의 앱·D1 결속                  |
 | [상담 FLOW 진행솔루션 확정 효과 무결성](FLOW_SOLUTION_CONFIRMATION_EFFECT_INTEGRITY_2026_09_06.md)                   | 최신 심화보고서·대표 행위자·명령 기반 결정·고유 솔루션의 앱·D1 결속                      |
