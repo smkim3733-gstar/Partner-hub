@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `8d072c60fca56d0fe9f2ac6aa0f71a7eb8932c4a` (`fix: bind FLOW aftercare effects`)
-- 최신 기능: 사후관리 등록·업데이트를 계약금 확인·수행 시작, 대표 신원, 정규 요약·다음 점검일·담당자, 서버시각과 감사기록에 결속
-- 검증: Node 회귀 검사 696개, 관련 FLOW 검사 144개, 집중 검사 102개, 격리 workerd/D1/R2 검사 518개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
+- 최신 기능 커밋: `ed58e703915f138f95a8a77c800ef9733073b3f5` (`fix: guard initial FLOW commands`)
+- 최신 기능: 첫 사용자 명령을 빈 revision 0 기준선에서 revision 1로 원자 갱신하고 명령 포함 루트 직접 삽입을 차단해 21개 전용 앱·D1 효과 검사를 동일 적용
+- 검증: Node 회귀 검사 699개, 관련 FLOW 검사 147개, 집중 검사 103개, 격리 workerd/D1/R2 검사 520개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 250 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_17d4b7e1dfd481918bd79c1e863a6c1e`), 소스 `8d072c60fca56d0fe9f2ac6aa0f71a7eb8932c4a`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. Sites 안전 게이트가 정확한 공개 대상 버전 승인을 요구하며, 버전 108–249는 버전 250으로 대체해 배포하지 않는다.
+- 최신 Sites 저장 버전: 251 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_b83c483354088191ba234009332f8c91`), 소스 `ed58e703915f138f95a8a77c800ef9733073b3f5`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. Sites 안전 게이트가 정확한 공개 대상 버전 승인을 요구하며, 버전 108–250은 버전 251로 대체해 배포하지 않는다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -44,7 +44,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW 사후관리 효과 무결성](FLOW_AFTERCARE_EFFECT_INTEGRITY_2026_09_06.md)을 확인한다.
+먼저 [상담 FLOW 최초 명령 전이 무결성](FLOW_INITIAL_COMMAND_UPDATE_INTEGRITY_2026_09_06.md)을 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
