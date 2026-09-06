@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [상담 FLOW 파일 서명 검사 중 접근변경 경쟁](FLOW_CONTENT_CHECK_ACCESS_RACE_2026_09_07.md)                            | 수정 전 R2 2회 재현·검사 후 접근 재검사·R2 전 차단·기존 예약 복구                        |
 | [상담 FLOW 담당 재배정 시점별 경쟁](FLOW_ASSIGNMENT_CHANGE_TIMING_RACE_2026_09_07.md)                                | 동일 표시명 안정 ID 불일치 409·본문/R2 시점 객체와 예약 보존·담당 복구 후 완료           |
 | [상담 FLOW 사건 삭제 시점별 경쟁](FLOW_CASE_DELETION_TIMING_RACE_2026_09_07.md)                                      | 본문·R2 시점 사건 삭제 404 재검사·객체/예약 보존·복구 후 동일 예약 완료                  |
 | [상담 FLOW 본문 처리 중 사건·담당 계정 삭제 경쟁](FLOW_BODY_CASE_MEMBER_DELETION_RACE_2026_09_07.md)                 | 관리자 2단계 삭제·결속 폐기·R2 전 차단·기존 객체와 예약 보존·복구 후 재결속              |
