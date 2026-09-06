@@ -389,6 +389,16 @@ export const consultingFlowsIdentityTriggerSql =
 export const consultingFlowsInsertEnvelopeTriggerSql =
   "CREATE TRIGGER IF NOT EXISTS consulting_flows_insert_envelope_guard BEFORE INSERT ON consulting_flows WHEN typeof(NEW.revision) <> 'integer' OR NEW.revision < 0 OR json_valid(NEW.payload) <> 1 OR COALESCE(json_type(NEW.payload), '') <> 'object' OR COALESCE(json_type(NEW.payload, '$.caseId'), '') <> 'text' OR json_extract(NEW.payload, '$.caseId') IS NOT NEW.case_id OR COALESCE(json_type(NEW.payload, '$.partnerId'), '') <> 'text' OR json_extract(NEW.payload, '$.partnerId') IS NOT NEW.partner_id OR COALESCE(json_type(NEW.payload, '$.revision'), '') <> 'integer' OR json_extract(NEW.payload, '$.revision') IS NOT NEW.revision OR COALESCE(json_type(NEW.payload, '$.updatedAt'), '') <> 'text' OR json_extract(NEW.payload, '$.updatedAt') IS NOT NEW.updated_at BEGIN SELECT RAISE(ABORT, 'consulting flow insert envelope is invalid'); END";
 
+export const consultingFlowsInitialCommandInsertTriggerSql = `
+CREATE TRIGGER IF NOT EXISTS consulting_flows_initial_command_insert_guard
+BEFORE INSERT ON consulting_flows
+WHEN json_valid(NEW.payload) = 1
+  AND COALESCE(json_array_length(NEW.payload, '$.commandIds'), 0) > 0
+BEGIN
+  SELECT RAISE(ABORT, 'consulting flow initial commands must use a guarded update');
+END
+`;
+
 export const consultingFlowsJobsInsertTriggerSql = `
 CREATE TRIGGER IF NOT EXISTS consulting_flows_jobs_insert_guard
 BEFORE INSERT ON consulting_flows
@@ -3550,6 +3560,36 @@ export const FLOW_COMMAND_EFFECT_PATHS = {
   confirm_payment: ['$.payments'],
   start_aftercare: ['$.aftercare'],
 } as const;
+
+export const FLOW_COMMAND_EXACT_EFFECT_TRIGGERS = {
+  import_intake_source: [consultingFlowsImportIntakeSourceEffectTriggerSql],
+  save_source: [consultingFlowsSaveSourceEffectTriggerSql],
+  exclude_source: [consultingFlowsExcludeSourceEffectTriggerSql],
+  set_ai_policy: [consultingFlowsSetAiPolicyJobsTriggerSql],
+  queue_report1: [consultingFlowsQueueReportJobEffectTriggerSql],
+  save_report: [consultingFlowsSaveReportEffectTriggerSql],
+  confirm_analysis: [consultingFlowsConfirmAnalysisEffectTriggerSql],
+  book_meeting: [consultingFlowsBookMeetingEffectTriggerSql],
+  complete_meeting: [consultingFlowsCompleteMeetingEffectTriggerSql],
+  cancel_meeting: [consultingFlowsCancelMeetingEffectTriggerSql],
+  save_recording: [consultingFlowsSaveRecordingEffectTriggerSql],
+  save_transcript: [consultingFlowsSaveTranscriptJobsTriggerSql],
+  retry_job: [consultingFlowsRetryJobEffectTriggerSql],
+  confirm_solutions: [consultingFlowsConfirmSolutionsEffectTriggerSql],
+  request_document: [consultingFlowsRequestDocumentEffectTriggerSql],
+  mark_request_sent: [consultingFlowsMarkRequestSentEffectTriggerSql],
+  receive_document: [consultingFlowsReceiveDocumentEffectTriggerSql],
+  review_document: [consultingFlowsReviewDocumentEffectTriggerSql],
+  record_contract: [
+    consultingFlowsRecordContractEffectTriggerSql,
+    consultingFlowsRecordContractEvidenceTriggerSql,
+  ],
+  confirm_payment: [consultingFlowsConfirmPaymentEffectTriggerSql],
+  start_aftercare: [consultingFlowsStartAftercareEffectTriggerSql],
+} as const satisfies Record<
+  keyof typeof FLOW_COMMAND_EFFECT_PATHS,
+  readonly string[]
+>;
 
 const consultingFlowInitialEffectDefaults: Record<string, string | null> = {
   '$.reports': '[]',

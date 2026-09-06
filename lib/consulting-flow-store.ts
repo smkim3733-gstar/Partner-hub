@@ -16,31 +16,9 @@ import {
   consultingFlowsCommandInsertCardinalityTriggerSql,
   consultingFlowsCommandCardinalityTriggerSql,
   consultingFlowsCommandAiTransitionTriggerSql,
-  consultingFlowsSetAiPolicyJobsTriggerSql,
-  consultingFlowsQueueReportJobEffectTriggerSql,
-  consultingFlowsSaveReportEffectTriggerSql,
-  consultingFlowsConfirmAnalysisEffectTriggerSql,
-  consultingFlowsBookMeetingEffectTriggerSql,
   consultingFlowsCommandInsertReceiptTargetTriggerSql,
   consultingFlowsNewCommandReceiptTargetTriggerSql,
   consultingFlowsCommandReceiptTargetHistoryTriggerSql,
-  consultingFlowsCompleteMeetingEffectTriggerSql,
-  consultingFlowsCancelMeetingEffectTriggerSql,
-  consultingFlowsConfirmSolutionsEffectTriggerSql,
-  consultingFlowsRequestDocumentEffectTriggerSql,
-  consultingFlowsMarkRequestSentEffectTriggerSql,
-  consultingFlowsReceiveDocumentEffectTriggerSql,
-  consultingFlowsReviewDocumentEffectTriggerSql,
-  consultingFlowsRecordContractEffectTriggerSql,
-  consultingFlowsRecordContractEvidenceTriggerSql,
-  consultingFlowsConfirmPaymentEffectTriggerSql,
-  consultingFlowsStartAftercareEffectTriggerSql,
-  consultingFlowsSaveSourceEffectTriggerSql,
-  consultingFlowsImportIntakeSourceEffectTriggerSql,
-  consultingFlowsExcludeSourceEffectTriggerSql,
-  consultingFlowsSaveRecordingEffectTriggerSql,
-  consultingFlowsSaveTranscriptJobsTriggerSql,
-  consultingFlowsRetryJobEffectTriggerSql,
   consultingFlowsCommandHistoryTriggerSql,
   consultingFlowsCommandInsertEvidenceTriggerSql,
   consultingFlowsCommandInsertEffectTriggerSql,
@@ -59,6 +37,7 @@ import {
   consultingFlowsFailureEvidenceTriggerSql,
   consultingFlowsFailureHistoryTriggerSql,
   consultingFlowsIdentityTriggerSql,
+  consultingFlowsInitialCommandInsertTriggerSql,
   consultingFlowsInsertEnvelopeTriggerSql,
   consultingFlowsJobsInsertTriggerSql,
   consultingFlowsJobsTransitionTriggerSql,
@@ -89,6 +68,7 @@ import {
   consultingFlowsSuccessEvidenceTriggerSql,
   consultingFlowsTransitionTriggerSql,
   consultingFlowsTableSql,
+  FLOW_COMMAND_EXACT_EFFECT_TRIGGERS,
   FLOW_COMMAND_EFFECT_PATHS,
   FLOW_COMMAND_STATE_SCOPE_PATHS,
   FLOW_COMMAND_TARGET_RULES,
@@ -169,6 +149,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsTableSql),
         db.prepare(consultingFlowsIdentityTriggerSql),
         db.prepare(consultingFlowsInsertEnvelopeTriggerSql),
+        db.prepare(consultingFlowsInitialCommandInsertTriggerSql),
         db.prepare(consultingFlowsJobsInsertTriggerSql),
         db.prepare(consultingFlowsTransitionTriggerSql),
         db.prepare(consultingFlowsAuditAppendOnlyTriggerSql),
@@ -177,31 +158,12 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandInsertCardinalityTriggerSql),
         db.prepare(consultingFlowsCommandCardinalityTriggerSql),
         db.prepare(consultingFlowsCommandAiTransitionTriggerSql),
-        db.prepare(consultingFlowsSetAiPolicyJobsTriggerSql),
-        db.prepare(consultingFlowsQueueReportJobEffectTriggerSql),
-        db.prepare(consultingFlowsSaveReportEffectTriggerSql),
-        db.prepare(consultingFlowsConfirmAnalysisEffectTriggerSql),
-        db.prepare(consultingFlowsBookMeetingEffectTriggerSql),
+        ...Object.values(FLOW_COMMAND_EXACT_EFFECT_TRIGGERS)
+          .flat()
+          .map((sql) => db.prepare(sql)),
         db.prepare(consultingFlowsCommandInsertReceiptTargetTriggerSql),
         db.prepare(consultingFlowsNewCommandReceiptTargetTriggerSql),
         db.prepare(consultingFlowsCommandReceiptTargetHistoryTriggerSql),
-        db.prepare(consultingFlowsCompleteMeetingEffectTriggerSql),
-        db.prepare(consultingFlowsCancelMeetingEffectTriggerSql),
-        db.prepare(consultingFlowsConfirmSolutionsEffectTriggerSql),
-        db.prepare(consultingFlowsRequestDocumentEffectTriggerSql),
-        db.prepare(consultingFlowsMarkRequestSentEffectTriggerSql),
-        db.prepare(consultingFlowsReceiveDocumentEffectTriggerSql),
-        db.prepare(consultingFlowsReviewDocumentEffectTriggerSql),
-        db.prepare(consultingFlowsRecordContractEffectTriggerSql),
-        db.prepare(consultingFlowsRecordContractEvidenceTriggerSql),
-        db.prepare(consultingFlowsConfirmPaymentEffectTriggerSql),
-        db.prepare(consultingFlowsStartAftercareEffectTriggerSql),
-        db.prepare(consultingFlowsSaveSourceEffectTriggerSql),
-        db.prepare(consultingFlowsImportIntakeSourceEffectTriggerSql),
-        db.prepare(consultingFlowsExcludeSourceEffectTriggerSql),
-        db.prepare(consultingFlowsSaveRecordingEffectTriggerSql),
-        db.prepare(consultingFlowsSaveTranscriptJobsTriggerSql),
-        db.prepare(consultingFlowsRetryJobEffectTriggerSql),
         db.prepare(consultingFlowsJobsTransitionTriggerSql),
         db.prepare(consultingFlowsSuccessEvidenceTriggerSql),
         db.prepare(consultingFlowsFailureHistoryTriggerSql),
@@ -2387,8 +2349,27 @@ export async function commitFlow(
       413,
     );
   const db = await flowDatabase();
+  const initialCommandTransition =
+    before.revision === 0 && after.commandIds.length > before.commandIds.length;
+  const initialFlowWrite = initialCommandTransition
+    ? db
+        .prepare(
+          `INSERT INTO consulting_flows (case_id, partner_id, revision, payload, updated_at)
+          SELECT ?1, ?2, ?3, ?4, ?5 WHERE (?6 = 0 OR (SELECT payload FROM portal_state WHERE id = '${portalStateId}') IS ?7)
+          ON CONFLICT(case_id) DO NOTHING`,
+        )
+        .bind(
+          before.caseId,
+          before.partnerId,
+          before.revision,
+          JSON.stringify(before),
+          before.updatedAt,
+          statePayload === undefined ? 0 : 1,
+          statePayload ?? null,
+        )
+    : undefined;
   const flowWrite =
-    before.revision === 0
+    before.revision === 0 && !initialCommandTransition
       ? db
           .prepare(
             `INSERT INTO consulting_flows (case_id, partner_id, revision, payload, updated_at)
@@ -2418,6 +2399,9 @@ export async function commitFlow(
             statePayload === undefined ? 0 : 1,
             statePayload ?? null,
           );
+  const flowWrites = initialFlowWrite
+    ? [initialFlowWrite, flowWrite]
+    : [flowWrite];
   const previousFileIds = new Set(before.files.map((file) => file.id));
   const newFiles = after.files.filter((file) => !previousFileIds.has(file.id));
   if (
@@ -2439,13 +2423,13 @@ export async function commitFlow(
     return next && next.purpose !== file.purpose ? [[file, next] as const] : [];
   });
   let result: D1Result;
-  if (!newFiles.length && !purposeChanges.length)
+  if (flowWrites.length === 1 && !newFiles.length && !purposeChanges.length)
     result = await flowWrite.run();
   else {
     let results: D1Result[];
     try {
       results = await db.batch([
-        flowWrite,
+        ...flowWrites,
         ...purposeChanges.map(([file, next]) => {
           const [
             id,
@@ -2531,12 +2515,17 @@ export async function commitFlow(
         ]),
       ]);
     } catch {
+      if (!newFiles.length && !purposeChanges.length)
+        throw new FlowError(
+          '진행 변경을 안전하게 저장하지 못했습니다. 새로고침 후 다시 확인해 주세요.',
+          503,
+        );
       throw new FlowError(
         '첨부파일 소유권을 안전하게 저장하지 못했습니다. 새로고침 후 다시 확인해 주세요.',
         503,
       );
     }
-    result = results[0];
+    result = results[flowWrites.length - 1];
   }
   if (result.meta.changes !== 1)
     throw new FlowError(

@@ -601,6 +601,16 @@ const flowStartAftercareEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const [flowInitialCommandInsertTriggerSql] = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0092_consulting_flow_initial_command_update.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -4350,6 +4360,101 @@ try {
         legacyReceiptOriginFlow.updatedAt,
       )
       .run();
+  const guardedInsertCaseId = 'native-flow-initial-command-insert-guard';
+  const guardedInsertFlow = JSON.parse(intactFlowPayload);
+  guardedInsertFlow.caseId = guardedInsertCaseId;
+  await assert.rejects(
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        guardedInsertCaseId,
+        guardedInsertFlow.partnerId,
+        guardedInsertFlow.revision,
+        JSON.stringify(guardedInsertFlow),
+        guardedInsertFlow.updatedAt,
+      )
+      .run(),
+    /initial commands must use a guarded update/,
+  );
+  checks.push(
+    'FLOW native D1 requires initial commands to use guarded updates',
+  );
+  const rollbackCaseId = 'native-flow-initial-command-batch-rollback';
+  const rollbackBaseline = {
+    schemaVersion: 1,
+    caseId: rollbackCaseId,
+    company: '가상 본인기업',
+    partnerId: memberId,
+    partnerName: '가상 런타임파트너',
+    revision: 0,
+    updatedAt: '',
+    reports: [],
+    files: [],
+    analysis: { reportId: '' },
+    meetings: [],
+    recordings: [],
+    requests: [],
+    payments: [],
+    ai: { enabled: false, sourceText: '' },
+    jobs: [],
+    audit: [],
+    commandIds: [],
+  };
+  const invalidRollbackUpdate = {
+    ...structuredClone(rollbackBaseline),
+    revision: 2,
+    updatedAt: evidenceTimes[1],
+  };
+  await assert.rejects(
+    db.batch([
+      db
+        .prepare(
+          `INSERT INTO consulting_flows
+            (case_id, partner_id, revision, payload, updated_at)
+          VALUES (?1, ?2, ?3, ?4, ?5)`,
+        )
+        .bind(
+          rollbackBaseline.caseId,
+          rollbackBaseline.partnerId,
+          rollbackBaseline.revision,
+          JSON.stringify(rollbackBaseline),
+          rollbackBaseline.updatedAt,
+        ),
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          invalidRollbackUpdate.revision,
+          JSON.stringify(invalidRollbackUpdate),
+          invalidRollbackUpdate.updatedAt,
+          rollbackCaseId,
+          rollbackBaseline.revision,
+        ),
+    ]),
+    /transition envelope is invalid/,
+  );
+  assert.equal(
+    await db
+      .prepare('SELECT case_id FROM consulting_flows WHERE case_id = ?1')
+      .bind(rollbackCaseId)
+      .first(),
+    null,
+  );
+  checks.push(
+    'FLOW native D1 rolls back the initial baseline when its guarded update fails',
+  );
+  await db
+    .prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_initial_command_insert_guard',
+    )
+    .run();
   await assert.rejects(
     insertEvidenceFlow(),
     /initial command cardinality is invalid/,
@@ -4407,6 +4512,9 @@ try {
       'DROP TRIGGER IF EXISTS consulting_flows_command_insert_target_guard',
     ),
     db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_initial_command_insert_guard',
+    ),
+    db.prepare(
       'DROP TRIGGER IF EXISTS consulting_flows_audit_insert_cardinality_guard',
     ),
     db.prepare(
@@ -4444,6 +4552,7 @@ try {
       db.prepare(flowCommandCardinalityTriggerSql[0]),
       db.prepare(flowCommandHistoryTriggerSql[1]),
       db.prepare(flowAiJobCreationAuditIdentityTriggerSql[0]),
+      db.prepare(flowInitialCommandInsertTriggerSql),
     ]);
   }
   const backfilledReceiptOriginFlow = structuredClone(legacyReceiptOriginFlow);
@@ -7277,6 +7386,9 @@ try {
     db.prepare(
       'DROP TRIGGER IF EXISTS consulting_flows_command_insert_target_guard',
     ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_initial_command_insert_guard',
+    ),
   ]);
   try {
     await assert.rejects(
@@ -7302,6 +7414,7 @@ try {
       db.prepare(flowNewCommandEvidenceTriggerSql[0]),
       db.prepare(flowCommandSemanticsTriggerSql[0]),
       db.prepare(flowCommandTargetTriggerSql[0]),
+      db.prepare(flowInitialCommandInsertTriggerSql),
     ]);
   }
   assert.deepEqual(

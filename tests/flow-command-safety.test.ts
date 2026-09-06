@@ -1629,22 +1629,7 @@ void test('FLOW native D1 rejects terminal AI evidence on the first root insert'
       .run(),
     /initial audit cardinality is invalid/,
   );
-  await db
-    .prepare(
-      `INSERT INTO consulting_flows
-        (case_id, partner_id, revision, payload, updated_at)
-      VALUES (?1, ?2, ?3, ?4, ?5)`,
-    )
-    .bind(
-      queued.caseId,
-      queued.partnerId,
-      queued.revision,
-      JSON.stringify(queued),
-      queued.updatedAt,
-    )
-    .run();
-  assert.deepEqual(await readFlow(queued.caseId), queued);
-  await deleteConsultingFlowFixture(db, queued.caseId);
+  assert.equal(await readFlow(queued.caseId), null);
 });
 
 void test('FLOW new AI jobs bind creation time, stage source and audit', async () => {
@@ -4805,6 +4790,111 @@ void test('FLOW initial command actions require their declared business-state ef
     /initial command (?:effect|scope) is invalid/,
   );
   assert.equal(await readFlow(initial.caseId), null);
+});
+
+void test('FLOW command-bearing roots cannot be inserted directly', async () => {
+  const caseId = `initial-command-insert-${++sequence}`;
+  await writePortalState({
+    version: 1,
+    consultationNumber: 0,
+    members: [partner],
+    cases: [
+      {
+        id: caseId,
+        company: '가상기업',
+        trainee: partner.name,
+        partnerMemberId: partner.id,
+      },
+    ],
+    tasks: [],
+    timeline: [],
+    schedule: [],
+    companyDocuments: [],
+  });
+  const initial = newConsultingFlow(
+    caseId,
+    '가상기업',
+    partner.id,
+    partner.name,
+  );
+  const commandId = `initial-command-insert-${++sequence}`;
+  const valid = applyFlowCommand(
+    initial,
+    { type: 'save_report', stage: 1, body },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId,
+      now: new Date().toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(valid, commandId);
+  const db = await flowDatabase();
+  try {
+    await assert.rejects(
+      db
+        .prepare(
+          `INSERT INTO consulting_flows
+            (case_id, partner_id, revision, payload, updated_at)
+          VALUES (?1, ?2, ?3, ?4, ?5)`,
+        )
+        .bind(
+          valid.caseId,
+          valid.partnerId,
+          valid.revision,
+          JSON.stringify(valid),
+          valid.updatedAt,
+        )
+        .run(),
+      /initial commands must use a guarded update/,
+    );
+
+    const forged = structuredClone(valid);
+    forged.reports.at(-1)!.createdBy = '위조 작성자';
+    await assert.rejects(
+      commitFlow(initial, forged),
+      (error) => error instanceof FlowError && error.status === 503,
+    );
+    await assert.rejects(
+      db.batch([
+        db
+          .prepare(
+            `INSERT INTO consulting_flows
+              (case_id, partner_id, revision, payload, updated_at)
+            VALUES (?1, ?2, ?3, ?4, ?5)`,
+          )
+          .bind(
+            initial.caseId,
+            initial.partnerId,
+            initial.revision,
+            JSON.stringify(initial),
+            initial.updatedAt,
+          ),
+        db
+          .prepare(
+            `UPDATE consulting_flows
+            SET revision = ?1, payload = ?2, updated_at = ?3
+            WHERE case_id = ?4 AND revision = ?5`,
+          )
+          .bind(
+            forged.revision,
+            JSON.stringify(forged),
+            forged.updatedAt,
+            initial.caseId,
+            initial.revision,
+          ),
+      ]),
+      /save report effect is invalid/,
+    );
+    assert.equal(await readFlow(initial.caseId), null);
+
+    await commitFlow(initial, valid);
+    assert.deepEqual(
+      await readFlow(initial.caseId),
+      JSON.parse(JSON.stringify(valid)),
+    );
+  } finally {
+    await deleteConsultingFlowFixture(db, initial.caseId);
+  }
 });
 
 void test('FLOW commands cannot change state outside their declared scope', async () => {
