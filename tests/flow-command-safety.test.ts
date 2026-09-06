@@ -10611,6 +10611,7 @@ type MultipartBodyStateChange =
   | {
       kind: 'permission';
       permission: 'ownCases' | 'fileUpload';
+      timing?: 'body-read' | 'first-r2-write';
       status: 403;
       error: string;
     }
@@ -10643,7 +10644,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
   await deleteConsultingFlowFixture(await flowDatabase());
   const scenarioKey =
     scenario.kind === 'permission'
-      ? scenario.permission
+      ? `${scenario.permission}-${scenario.timing ?? 'body-read'}`
       : scenario.kind === 'suspended' || scenario.kind === 'discontinued'
         ? `${scenario.kind}-${scenario.timing ?? 'body-read'}`
         : scenario.kind;
@@ -10878,7 +10879,9 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     stateChanged = true;
   };
   const stateChangesDuringFirstR2Write =
-    (scenario.kind === 'suspended' || scenario.kind === 'discontinued') &&
+    (scenario.kind === 'permission' ||
+      scenario.kind === 'suspended' ||
+      scenario.kind === 'discontinued') &&
     scenario.timing === 'first-r2-write';
   Object.defineProperty(stream, 'getReader', {
     value: () => {
@@ -11067,6 +11070,16 @@ void test('partial R2 retry rejects discontinuation during the first object writ
     status: 409,
     error:
       '대표가 진행을 중단한 상태입니다. 진행판에서 다시 연 뒤 이용해 주세요.',
+  });
+});
+
+void test('partial R2 retry rejects upload permission revocation during the first object write and recovers after restoration', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'permission',
+    permission: 'fileUpload',
+    timing: 'first-r2-write',
+    status: 403,
+    error: '자료 업로드 권한이 필요합니다.',
   });
 });
 
