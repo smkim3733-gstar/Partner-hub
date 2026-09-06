@@ -10636,6 +10636,7 @@ type MultipartBodyStateChange =
   | {
       kind: 'display-name-change';
       name: string;
+      timing?: 'body-read' | 'first-r2-write';
       status: 200;
     };
 
@@ -10646,11 +10647,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
   const scenarioKey =
     scenario.kind === 'permission'
       ? `${scenario.permission}-${scenario.timing ?? 'body-read'}`
-      : scenario.kind === 'suspended' ||
-          scenario.kind === 'discontinued' ||
-          scenario.kind === 'email-change'
-        ? `${scenario.kind}-${scenario.timing ?? 'body-read'}`
-        : scenario.kind;
+      : `${scenario.kind}-${scenario.timing ?? 'body-read'}`;
   const stored = await transcriptJobFixture(false, body);
   if (scenario.kind === 'discontinued') {
     const trackedState = structuredClone(
@@ -10885,7 +10882,8 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     (scenario.kind === 'permission' ||
       scenario.kind === 'suspended' ||
       scenario.kind === 'discontinued' ||
-      scenario.kind === 'email-change') &&
+      scenario.kind === 'email-change' ||
+      scenario.kind === 'display-name-change') &&
     scenario.timing === 'first-r2-write';
   Object.defineProperty(stream, 'getReader', {
     value: () => {
@@ -11103,6 +11101,15 @@ void test('partial R2 retry rejects login email changes during the first object 
     timing: 'first-r2-write',
     status: 403,
     error: '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
+  });
+});
+
+void test('partial R2 retry preserves stable identity when the display name changes during the first object write', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'display-name-change',
+    name: '가상 R2 쓰기 중 변경 담당자',
+    timing: 'first-r2-write',
+    status: 200,
   });
 });
 
