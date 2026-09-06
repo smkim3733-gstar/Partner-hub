@@ -44,7 +44,6 @@ export async function GET(request: Request, context: Context) {
   }
 }
 export async function POST(request: Request, context: Context) {
-  let uploadedKeys: string[] = [];
   const fileObjectBindings = new Map<
     string,
     ReturnType<typeof flowFileObjectBinding>
@@ -195,7 +194,6 @@ export async function POST(request: Request, context: Context) {
       const object = await flowBucket().put(upload!.key, imported.bytes, {
         httpMetadata: { contentType: upload!.contentType },
       });
-      uploadedKeys.push(upload!.key);
       fileObjectBindings.set(
         upload!.id,
         flowFileObjectBinding(upload!, object),
@@ -205,7 +203,6 @@ export async function POST(request: Request, context: Context) {
       const object = await flowBucket().put(upload.key, input.file.stream(), {
         httpMetadata: { contentType: upload.contentType },
       });
-      uploadedKeys.push(upload.key);
       fileObjectBindings.set(upload.id, flowFileObjectBinding(upload, object));
     }
     if (reservedAudioUpload && input.audio) {
@@ -216,7 +213,6 @@ export async function POST(request: Request, context: Context) {
           httpMetadata: { contentType: reservedAudioUpload.contentType },
         },
       );
-      uploadedKeys.push(reservedAudioUpload.key);
       fileObjectBindings.set(
         reservedAudioUpload.id,
         flowFileObjectBinding(reservedAudioUpload, object),
@@ -238,26 +234,11 @@ export async function POST(request: Request, context: Context) {
         ? new Set([...reservations.values()].map((file) => file.id))
         : undefined,
     );
-    uploadedKeys = [];
     return privateJsonResponse({ flow: publicFlow(next) });
   } catch (error) {
-    if (uploadedKeys.length) {
-      // A failed/ambiguous DB response must never delete a successfully referenced file.
-      try {
-        const { flow } = await loadFlowAccess(
-          request,
-          (await context.params).caseId,
-        );
-        const referencedKeys = new Set(flow.files.map((file) => file.key));
-        await Promise.allSettled(
-          uploadedKeys
-            .filter((key) => !referencedKeys.has(key))
-            .map((key) => flowBucket().delete(key)),
-        );
-      } catch {
-        /* Its durable pending reservation enables inventory checks and exact retry. */
-      }
-    }
+    // Every uploaded key already has a durable reservation. Do not
+    // delete it here: another exact retry can commit the shared key between a
+    // FLOW re-read and R2 deletion. Inventory and exact retry recover it safely.
     return flowErrorResponse(error);
   }
 }

@@ -4998,7 +4998,7 @@ void test('concurrent first FLOW attachments keep only the committed R2 object',
   assert.deepEqual(await readFlow(caseId), saved);
 });
 
-void test('failed first FLOW attachment commit removes the object but keeps its durable reservation', async () => {
+void test('failed first FLOW attachment commit preserves its reserved object for exact retry', async () => {
   const caseId = `initial-attachment-failure-${++sequence}`;
   await writePortalState({
     version: 1,
@@ -5037,21 +5037,27 @@ void test('failed first FLOW attachment commit removes the object but keeps its 
 
   assert.equal(response.status, 503);
   assert.equal(await readFlow(caseId), null);
-  assert.deepEqual(
-    [...objects.keys()].filter((key) => !previousKeys.has(key)),
-    [],
-  );
+  const reservation = await (
+    await flowDatabase()
+  )
+    .prepare(
+      `SELECT status, original_name, size_bytes, storage_key
+      FROM consulting_flow_upload_requests
+        WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3 AND slot = 'file'`,
+    )
+    .bind(caseId, FLOW_ADMIN_COMMAND_ACTOR_KEY, commandId)
+    .first<{
+      status: string;
+      original_name: string;
+      size_bytes: number;
+      storage_key: string;
+    }>();
+  assert.ok(reservation);
   assert.deepEqual(
     {
-      ...(await (
-        await flowDatabase()
-      )
-        .prepare(
-          `SELECT status, original_name, size_bytes FROM consulting_flow_upload_requests
-        WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3 AND slot = 'file'`,
-        )
-        .bind(caseId, FLOW_ADMIN_COMMAND_ACTOR_KEY, commandId)
-        .first()),
+      status: reservation.status,
+      original_name: reservation.original_name,
+      size_bytes: reservation.size_bytes,
     },
     {
       status: 'pending',
@@ -5059,9 +5065,13 @@ void test('failed first FLOW attachment commit removes the object but keeps its 
       size_bytes: new TextEncoder().encode('SYNTHETIC_FAILED_UPLOAD').length,
     },
   );
+  assert.deepEqual(
+    [...objects.keys()].filter((key) => !previousKeys.has(key)),
+    [reservation.storage_key],
+  );
 });
 
-void test('dual-slot FLOW cleanup isolates R2 deletion failures and preserves exact retry', async () => {
+void test('failed dual-slot FLOW commit preserves both reserved R2 objects for exact retry', async () => {
   const stored = await transcriptJobFixture(false, body);
   const command = {
     type: 'save_recording',
@@ -5087,14 +5097,9 @@ void test('dual-slot FLOW cleanup isolates R2 deletion failures and preserves ex
   const bucket = flowBucket();
   const remove = bucket.delete.bind(bucket);
   const deleteAttempts: string[] = [];
-  let failFirstDelete = true;
   bucket.delete = async (key: string | string[]) => {
     if (Array.isArray(key)) throw new Error('expected one R2 key per cleanup');
     deleteAttempts.push(key);
-    if (failFirstDelete) {
-      failFirstDelete = false;
-      throw new Error('synthetic R2 deletion failure');
-    }
     return remove(key);
   };
   failNextDatabaseBatch('UPDATE consulting_flows');
@@ -5143,15 +5148,14 @@ void test('dual-slot FLOW cleanup isolates R2 deletion failures and preserves ex
       { slot: 'file', status: 'pending' },
     ],
   );
+  assert.deepEqual(deleteAttempts, []);
   assert.deepEqual(
-    [...deleteAttempts].sort((a, b) => a.localeCompare(b)),
+    [...objects.keys()]
+      .filter((key) => !previousKeys.has(key))
+      .sort((a, b) => a.localeCompare(b)),
     pending
       .map(({ storage_key }) => storage_key)
       .sort((a, b) => a.localeCompare(b)),
-  );
-  assert.equal(
-    [...objects.keys()].filter((key) => !previousKeys.has(key)).length,
-    1,
   );
 
   const retryCommandId = `dual-slot-cleanup-retry-${++sequence}`;
@@ -5272,6 +5276,103 @@ void test('concurrent identical FLOW attachments with different command IDs shar
   );
 });
 
+void test('failed FLOW upload cannot delete the object committed by a concurrent retry', async () => {
+  const caseId = `cross-command-cleanup-race-${++sequence}`;
+  await writePortalState({
+    version: 1,
+    consultationNumber: 0,
+    members: [partner],
+    cases: [
+      {
+        id: caseId,
+        company: '가상기업',
+        trainee: partner.name,
+        partnerMemberId: partner.id,
+      },
+    ],
+    tasks: [],
+    timeline: [],
+    schedule: [],
+    companyDocuments: [],
+  });
+  const command = {
+    type: 'save_report',
+    stage: 1,
+    body,
+    fileConsent: true,
+  } as const;
+  const file = new File(
+    ['SYNTHETIC_CONCURRENT_CLEANUP_RACE'],
+    'cleanup-race.txt',
+    { type: 'text/plain' },
+  );
+  const previousKeys = new Set(objects.keys());
+  const bucket = flowBucket();
+  const remove = bucket.delete.bind(bucket);
+  const deleteAttempts: string[] = [];
+  let signalDeleteStarted: (() => void) | undefined;
+  const deleteStarted = new Promise<void>((resolve) => {
+    signalDeleteStarted = resolve;
+  });
+  let releaseDelete: (() => void) | undefined;
+  const deleteReleased = new Promise<void>((resolve) => {
+    releaseDelete = resolve;
+  });
+  bucket.delete = async (key: string | string[]) => {
+    if (Array.isArray(key)) throw new Error('expected one R2 key per cleanup');
+    deleteAttempts.push(key);
+    signalDeleteStarted!();
+    await deleteReleased;
+    return remove(key);
+  };
+  failNextDatabaseBatch('UPDATE consulting_flows');
+  const failedRequest = POST(
+    request(
+      caseId,
+      command,
+      0,
+      `cleanup-race-loser-${++sequence}`,
+      adminEmail,
+      file,
+    ),
+    context(caseId),
+  );
+  let successful: Response;
+  let failed: Response;
+  try {
+    const checkpoint = await Promise.race([
+      deleteStarted.then(() => 'delete' as const),
+      failedRequest.then(() => 'failed' as const),
+    ]);
+    successful = await POST(
+      request(
+        caseId,
+        command,
+        0,
+        `cleanup-race-winner-${++sequence}`,
+        adminEmail,
+        file,
+      ),
+      context(caseId),
+    );
+    if (checkpoint === 'delete') releaseDelete!();
+    failed = await failedRequest;
+  } finally {
+    releaseDelete!();
+    bucket.delete = remove;
+  }
+
+  assert.equal(failed.status, 503);
+  assert.equal(successful.status, 200, await successful.clone().text());
+  assert.deepEqual(deleteAttempts, []);
+  const saved = (await readFlow(caseId))!;
+  assert.equal(saved.files.length, 1);
+  assert.deepEqual(
+    [...objects.keys()].filter((key) => !previousKeys.has(key)),
+    [saved.files[0].key],
+  );
+});
+
 void test('FLOW upload reservations reject an audio slot or dual-slot primary with mismatched file roles', async () => {
   const createdAt = new Date().toISOString();
   const transcriptId = `slot-role-transcript-${++sequence}`;
@@ -5370,7 +5471,7 @@ void test('ambiguous dual-slot FLOW upload resumes both objects under one new co
       injected = true;
       failNextDatabaseBatchThenStatements(
         'UPDATE consulting_flows',
-        2,
+        1,
         'SELECT case_id, partner_id, revision, updated_at, payload FROM consulting_flows',
       );
     }
@@ -5567,7 +5668,7 @@ void test('ambiguous FLOW attachment failure resumes its reserved object under a
       injected = true;
       failNextDatabaseBatchThenStatements(
         'INSERT INTO consulting_flows',
-        2,
+        1,
         'SELECT case_id, partner_id, revision, updated_at, payload FROM consulting_flows',
       );
     }
