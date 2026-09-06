@@ -68,6 +68,11 @@ import {
   MAX_AI_SOURCE_MEGABYTES,
 } from '@/lib/intake-source-policy';
 import { flowCommandRetryKey } from '@/lib/flow-command-receipt';
+import {
+  clearFlowCommandPendingRetry,
+  rememberFlowCommandPendingRetry,
+  restoreFlowCommandPendingRetry,
+} from '@/lib/flow-command-pending-retry';
 
 type Section =
   | 'reports'
@@ -349,6 +354,13 @@ export function ConsultingWorkflow({
   const pending = useRef<{ key: string; id: string } | null>(null);
   const [flowStateRefresh] = useState(() => new ConsultingFlowStateRefresh());
   const endpoint = `/api/consulting-flow/${encodeURIComponent(caseId)}`;
+  function retryStorage() {
+    try {
+      return window.sessionStorage;
+    } catch {
+      return undefined;
+    }
+  }
   function applyFlowState(
     data: Awaited<ReturnType<typeof readConsultingFlowStateResponse>>,
     initial = false,
@@ -428,8 +440,19 @@ export function ConsultingWorkflow({
     let saved = false;
     try {
       const key = await flowCommandRetryKey(command, file, audio);
-      if (pending.current?.key !== key)
-        pending.current = { key, id: crypto.randomUUID() };
+      if (pending.current?.key !== key) {
+        pending.current = ((file || audio) &&
+          restoreFlowCommandPendingRetry(retryStorage(), caseId, key)) || {
+          key,
+          id: crypto.randomUUID(),
+        };
+      }
+      if (file || audio)
+        rememberFlowCommandPendingRetry(
+          retryStorage(),
+          caseId,
+          pending.current,
+        );
       const payload = JSON.stringify({
         command,
         revision: flow.revision,
@@ -451,7 +474,9 @@ export function ConsultingWorkflow({
       try {
         data = await readConsultingFlowMutationResponse(response, {
           unreadableMessage:
-            '저장 완료 응답을 확인하지 못했습니다. 입력 내용을 유지한 채 같은 저장 버튼으로 다시 시도하거나 새로고침으로 최신 진행 상태를 확인해 주세요.',
+            file || audio
+              ? '저장 완료 응답을 확인하지 못했습니다. 그대로 다시 시도하거나, 새로고침 후 동일 파일을 다시 선택해 같은 저장 버튼으로 재시도해 주세요.'
+              : '저장 완료 응답을 확인하지 못했습니다. 입력 내용을 유지한 채 같은 저장 버튼으로 다시 시도하거나 새로고침으로 최신 진행 상태를 확인해 주세요.',
           failedMessage: '저장하지 못했습니다.',
           invalidMessage:
             '저장된 진행 응답 형식을 확인하지 못했습니다. 새로고침으로 최신 진행 상태를 확인해 주세요.',
@@ -465,6 +490,8 @@ export function ConsultingWorkflow({
         throw error;
       }
       setFlow(data.flow);
+      if (file || audio)
+        clearFlowCommandPendingRetry(retryStorage(), caseId, pending.current);
       pending.current = null;
       saved = true;
       setNotice('저장되었습니다. 담당 파트너와 같은 진행 상태를 확인합니다.');
