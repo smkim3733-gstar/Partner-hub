@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `e0a4126e251f8a9699480cb61d2ac8ae48c371bf` (`fix: bind FLOW meeting completion effects`)
-- 최신 기능: 일정 완료를 영수증 대상의 예정 상담 한 건, 서버 완료시각·메모 보존 규칙·행위자 참석 권한과 초회상담 선행조건에 결속
-- 검증: Node 회귀 검사 687개, 관련 FLOW 검사 135개, 집중 검사 93개, 격리 workerd/D1/R2 검사 509개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
+- 최신 기능 커밋: `5e725cdfbdbb0ccb5ed49f0cb89a998be37168d9` (`fix: bind FLOW meeting cancellation effects`)
+- 최신 기능: 일정 취소를 영수증 대상의 예정 상담 한 건, 취소 상태·완료시각 부재·메모 보존 규칙과 행위자 참석 권한에 결속
+- 검증: Node 회귀 검사 688개, 관련 FLOW 검사 136개, 집중 검사 94개, 격리 workerd/D1/R2 검사 510개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 241 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_da7be67facec81918f688fc574f03961`), 소스 `e0a4126e251f8a9699480cb61d2ac8ae48c371bf`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. Sites 안전 게이트가 정확한 공개 대상 버전 승인을 요구하며, 버전 108–240은 버전 241로 대체해 배포하지 않는다.
+- 최신 Sites 저장 버전: 242 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_899a9bd49f608191bdcd60fd26b91a2c`), 소스 `5e725cdfbdbb0ccb5ed49f0cb89a998be37168d9`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. Sites 안전 게이트가 정확한 공개 대상 버전 승인을 요구하며, 버전 108–241은 버전 242로 대체해 배포하지 않는다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -44,7 +44,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW 일정 완료 효과 무결성](FLOW_MEETING_COMPLETION_EFFECT_INTEGRITY_2026_09_06.md)을 확인한다.
+먼저 [상담 FLOW 일정 취소 효과 무결성](FLOW_MEETING_CANCELLATION_EFFECT_INTEGRITY_2026_09_06.md)을 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
@@ -92,4 +92,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 버전 241 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108–240은 버전 241로 대체해 배포하지 않는다. 공개 교체는 정확한 `버전 241 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 `cancel_meeting` 효과 감사를 이어간다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
+Sites 버전 242 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108–241은 버전 242로 대체해 배포하지 않는다. 공개 교체는 정확한 `버전 242 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 `confirm_solutions` 효과 감사를 이어간다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
