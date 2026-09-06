@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `1318f26cd15f5b5addd66224b32c42452caefa78` (`fix: bind FLOW intake source effects`)
-- 최신 기능: 신청자료 불러오기와 기존 파일 보존·원본 검증 메타데이터를 갖춘 새 검토본 한 건의 정확한 효과를 결속
-- 검증: Node 회귀 검사 682개, 격리 workerd/D1/R2 검사 504개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
+- 최신 기능 커밋: `85c454eeda5a0e808a483d8608f8e4c604f3b6cc` (`fix: bind FLOW source exclusion effects`)
+- 최신 기능: 선택 근거파일 한 건의 보관 제외와 나머지 파일 보존을 결속
+- 검증: Node 회귀 검사 683개, 격리 workerd/D1/R2 검사 505개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 236 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_fcc76a34e5ec8191a2cc3fbb3d338da4`), 소스 `1318f26cd15f5b5addd66224b32c42452caefa78`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. Sites 안전 게이트가 정확한 공개 대상 버전 승인을 요구하며, 버전 108–235는 버전 236으로 대체해 배포하지 않는다.
+- 최신 Sites 저장 버전: 237 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_c64fda7c17d08191b79bef8fda765a46`), 소스 `85c454eeda5a0e808a483d8608f8e4c604f3b6cc`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. Sites 안전 게이트가 정확한 공개 대상 버전 승인을 요구하며, 버전 108–236은 버전 237로 대체해 배포하지 않는다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -44,7 +44,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW 신청자료 불러오기 효과 무결성](FLOW_INTAKE_SOURCE_EFFECT_INTEGRITY_2026_09_06.md)을 확인한다.
+먼저 [상담 FLOW 근거자료 제외 효과 무결성](FLOW_SOURCE_EXCLUSION_EFFECT_INTEGRITY_2026_09_06.md)을 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
@@ -92,4 +92,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 버전 236 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108–235는 버전 236으로 대체해 배포하지 않는다. 공개 교체는 Sites 안전 게이트가 요구하는 정확한 `버전 236 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 고우선순위 감사를 이어간다. 다음 감사는 `exclude_source` 명령의 선택 근거파일 한 건만 정확히 보관 제외하도록 결속한다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
+Sites 버전 237 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108–236은 버전 237로 대체해 배포하지 않는다. 공개 교체는 정확한 `버전 237 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 `save_report` 효과 감사를 이어간다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
