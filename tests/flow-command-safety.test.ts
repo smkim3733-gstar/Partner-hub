@@ -2521,6 +2521,35 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
   processing.updatedAt = timestamp(4);
   processing.jobs.at(-1)!.status = 'processing';
   processing.jobs.at(-1)!.startedAt = timestamp(4);
+  const auditedClaim = structuredClone(processing);
+  auditedClaim.audit.push({
+    id: `unexpected-claim-audit-${++sequence}`,
+    at: auditedClaim.updatedAt,
+    actor: '가상 실행기',
+    action: 'system_note',
+    detail: 'AI 작업 청구에 끼워 넣은 여분 감사기록',
+  });
+  await assert.rejects(
+    commitFlow(queued, auditedClaim),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        auditedClaim.revision,
+        JSON.stringify(auditedClaim),
+        auditedClaim.updatedAt,
+        queued.caseId,
+        queued.revision,
+      )
+      .run(),
+    /non-command audit cardinality is invalid/,
+  );
   await commitFlow(queued, processing);
   const changedLease = structuredClone(processing);
   changedLease.revision++;
@@ -2614,7 +2643,7 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
         processing.revision,
       )
       .run(),
-    /job transition audit is invalid/,
+    /(?:job transition audit|non-command audit cardinality) is invalid/,
   );
   const completionAt = timestamp(7);
   const completionAuditId = `${jobId}-${completionAt}`;
@@ -2643,6 +2672,35 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
     action: 'ai_result',
     detail: '1차 정밀진단보고서 자동 저장 · 담당 파트너 공유',
   });
+  const extraCompletionAudit = structuredClone(completed);
+  extraCompletionAudit.audit.push({
+    id: `unexpected-completion-audit-${++sequence}`,
+    at: completionAt,
+    actor: '가상 실행기',
+    action: 'system_note',
+    detail: 'AI 완료 전이에 끼워 넣은 여분 감사기록',
+  });
+  await assert.rejects(
+    commitFlow(processing, extraCompletionAudit),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        extraCompletionAudit.revision,
+        JSON.stringify(extraCompletionAudit),
+        extraCompletionAudit.updatedAt,
+        processing.caseId,
+        processing.revision,
+      )
+      .run(),
+    /non-command audit cardinality is invalid/,
+  );
   const staleCompletion = structuredClone(completed);
   const staleCompletionAt = timestamp(6);
   const staleCompletionAuditId = `${jobId}-${staleCompletionAt}`;

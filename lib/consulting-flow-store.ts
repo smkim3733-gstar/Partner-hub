@@ -50,6 +50,7 @@ import {
   consultingFlowsNonCommandScopeTriggerSql,
   consultingFlowsNonCommandJobTargetTriggerSql,
   consultingFlowsNonCommandJobTransitionTriggerSql,
+  consultingFlowsNonCommandAuditCardinalityTriggerSql,
   consultingFlowsNewCommandEvidenceTriggerSql,
   consultingFlowsNewCommandReceiptIdentityTriggerSql,
   consultingFlowsNewCommandMemberActorTriggerSql,
@@ -165,6 +166,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsNonCommandScopeTriggerSql),
         db.prepare(consultingFlowsNonCommandJobTargetTriggerSql),
         db.prepare(consultingFlowsNonCommandJobTransitionTriggerSql),
+        db.prepare(consultingFlowsNonCommandAuditCardinalityTriggerSql),
         db.prepare(consultingFlowsAiResultReportTriggerSql),
         db.prepare(consultingFlowsAiResultFileTriggerSql),
         db.prepare(consultingFlowsAiResultAuditDetailTriggerSql),
@@ -1092,19 +1094,15 @@ function assertFlowCommitTransition(
         )
       )
         throw storedFlowIntegrityError();
+      const resultTransition =
+        previousJob.status === 'processing' &&
+        ['blocked', 'failed', 'complete'].includes(nextJob.status);
+      if (newAudit.length !== (resultTransition ? 1 : 0))
+        throw storedFlowIntegrityError();
       const completed = changedJobs.some(
         (job) =>
           job.status === 'processing' &&
           nextJobs.get(job.id)?.status === 'complete',
-      );
-      const audited = changedJobs.some(
-        (job) =>
-          (job.status === 'processing' &&
-            ['blocked', 'failed', 'complete'].includes(
-              String(nextJobs.get(job.id)?.status),
-            )) ||
-          (['blocked', 'failed', 'processing'].includes(job.status) &&
-            nextJobs.get(job.id)?.status === 'queued'),
       );
       const allowed = new Set<keyof ConsultingFlow>(['jobs']);
       if (completed) {
@@ -1112,7 +1110,7 @@ function assertFlowCommitTransition(
         allowed.add('files');
         allowed.add('analysis');
       }
-      if (audited) allowed.add('audit');
+      if (resultTransition) allowed.add('audit');
       const withoutTransitionChanges = (flow: ConsultingFlow) => {
         const value = structuredClone(flow) as unknown as Record<
           string,

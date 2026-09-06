@@ -359,6 +359,16 @@ const flowNonCommandJobTransitionTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowNonCommandAuditCardinalityTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0067_consulting_flow_non_command_audit_cardinality.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -388,6 +398,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_non_command_scope_guard',
   'consulting_flows_non_command_job_target_guard',
   'consulting_flows_non_command_job_transition_guard',
+  'consulting_flows_non_command_audit_cardinality_guard',
   'consulting_flows_ai_result_report_guard',
   'consulting_flows_ai_result_file_guard',
   'consulting_flows_ai_result_audit_detail_guard',
@@ -423,6 +434,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowNonCommandScopeTriggerSql[0],
       flowNonCommandJobTargetTriggerSql[0],
       flowNonCommandJobTransitionTriggerSql[0],
+      flowNonCommandAuditCardinalityTriggerSql[0],
       flowAiResultReportTriggerSql[0],
       flowAiResultFileTriggerSql[0],
       flowAiResultAuditDetailTriggerSql[0],
@@ -3833,6 +3845,19 @@ try {
     /job transition timestamp is invalid/,
   );
   checks.push('FLOW native D1 binds AI job claim time to the root update');
+  const auditedClaimEvidenceFlow = structuredClone(processingEvidenceFlow);
+  auditedClaimEvidenceFlow.audit.push({
+    id: 'native-unexpected-claim-audit',
+    at: evidenceTimes[3],
+    actor: '가상 실행기',
+    action: 'system_note',
+    detail: 'AI 작업 청구에 끼워 넣은 여분 감사기록',
+  });
+  await assert.rejects(
+    saveEvidenceTransition(retriedEvidenceFlow, auditedClaimEvidenceFlow),
+    /non-command audit cardinality is invalid/,
+  );
+  checks.push('FLOW native D1 keeps AI job claims free of new audit records');
   await saveEvidenceTransition(retriedEvidenceFlow, processingEvidenceFlow);
   const validCompletionEvidenceFlow = structuredClone(processingEvidenceFlow);
   validCompletionEvidenceFlow.revision++;
@@ -3878,6 +3903,21 @@ try {
     action: 'ai_result',
     detail: '1차 정밀진단보고서 자동 저장 · 담당 파트너 공유',
   });
+  const extraCompletionAudit = structuredClone(validCompletionEvidenceFlow);
+  extraCompletionAudit.audit.push({
+    id: 'native-unexpected-completion-audit',
+    at: evidenceTimes[4],
+    actor: '가상 실행기',
+    action: 'system_note',
+    detail: 'AI 완료 전이에 끼워 넣은 여분 감사기록',
+  });
+  await assert.rejects(
+    saveEvidenceTransition(processingEvidenceFlow, extraCompletionAudit),
+    /non-command audit cardinality is invalid/,
+  );
+  checks.push(
+    'FLOW native D1 binds one exact audit to an AI result transition',
+  );
   const mutatedCompletionReport = structuredClone(validCompletionEvidenceFlow);
   mutatedCompletionReport.reports[0].title = 'AI 완료에 숨긴 기존 보고서 변조';
   await assert.rejects(
@@ -3945,7 +3985,7 @@ try {
       processingEvidenceFlow,
       unauditedFailureEvidenceFlow,
     ),
-    /job transition audit is invalid/,
+    /(?:job transition audit|non-command audit cardinality) is invalid/,
   );
   checks.push('FLOW native D1 requires an audit for an AI job result');
   const failedEvidenceFlow = structuredClone(processingEvidenceFlow);
