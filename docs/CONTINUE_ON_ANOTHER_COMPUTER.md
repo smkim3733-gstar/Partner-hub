@@ -6,16 +6,16 @@
 
 ## 현재 인수인계 지점
 
-- 최신 감사 커밋: `0d57d9e45fe2523dd21de71dda1e29e22d576ad8` (`test: recheck FLOW retry existence`)
-- 최신 확인: 파트너 부분 R2 저장 뒤 사건만 삭제되면 404, 사건·담당 계정이 함께 삭제되면 403으로 R2 전에 차단하고 FLOW·기존 객체·예약 보존
-- 복구 확인: 사건·계정을 원상복구한 정확한 재시도만 같은 명령 ID·파일 ID·R2 키를 이용해 완료
-- 검증: Node 회귀 검사 726개, 격리 workerd/D1/R2 검사 522개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
+- 최신 감사 커밋: `809a6bb4bb030e8f03dcae1d6ed4068f58df52f6` (`test: recheck FLOW retry identity change`)
+- 최신 확인: 파트너 부분 R2 저장 뒤 표시명 변경은 안정 계정 ID 결속을 유지하고, 로그인 이메일 변경은 기존 결속과 이전 이메일 접근을 R2 전에 차단
+- 복구 확인: 같은 안정 ChatGPT 사용자 ID가 새 이메일로 재결속된 정확한 재시도만 같은 명령 ID·파일 ID·R2 키를 이용해 완료
+- 검증: Node 회귀 검사 727개, 격리 workerd/D1/R2 검사 522개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 270 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_25d3e0abebc88191a525acacbf3f2ecb`), 소스 `0d57d9e45fe2523dd21de71dda1e29e22d576ad8`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–269는 더 완전한 후보인 버전 270으로 대체한다.
+- 최신 Sites 저장 버전: 271 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_f7ab6e5631048191ade2f93e8f3d7ea4`), 소스 `809a6bb4bb030e8f03dcae1d6ed4068f58df52f6`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–270은 더 완전한 후보인 버전 271로 대체한다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -45,7 +45,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW 재시도 사건·계정 삭제 무결성](FLOW_RETRY_CASE_ACCOUNT_DELETION_INTEGRITY_2026_09_07.md)을 확인한다.
+먼저 [상담 FLOW 재시도 계정 식별정보 변경 무결성](FLOW_RETRY_IDENTITY_CHANGE_INTEGRITY_2026_09_07.md)을 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)

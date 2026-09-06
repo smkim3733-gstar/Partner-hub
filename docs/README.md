@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [상담 FLOW 재시도 계정 식별정보 변경 무결성](FLOW_RETRY_IDENTITY_CHANGE_INTEGRITY_2026_09_07.md)                     | 부분 R2 실패 뒤 표시명 연속성·이메일 결속 폐기·안정 계정 ID 재결속·예약 재사용           |
 | [상담 FLOW 미완료 첨부 출처·연령 관측 경계](FLOW_PENDING_UPLOAD_AGE_OBSERVABILITY_2026_09_06.md)                     | 기업자료/FLOW 출처 구분, 4단계 경과 표시, 3일 이상 확인과 자동 정리 금지                 |
 | [상담 FLOW 첨부 새로고침 재시도 무결성](FLOW_UPLOAD_REFRESH_RETRY_INTEGRITY_2026_09_06.md)                           | 동일 탭 새로고침 뒤 동일 첨부 요청 ID 복원·원문/파일 비저장·정확 성공 제거               |
 | [상담 FLOW 최초 첨부 동시성·실패 복구](FLOW_INITIAL_ATTACHMENT_CONCURRENCY_RECOVERY_2026_09_06.md)                   | 첫 첨부 명령 동시 충돌의 409 분류·패자 R2 정리·실제 503과 승자 재시도 보존               |
