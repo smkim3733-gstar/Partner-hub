@@ -10607,6 +10607,257 @@ void test('FLOW command denies a partner suspended while the request body is rea
   assert.deepEqual(await readFlow(flow.caseId), flow);
 });
 
+void test('partial R2 retry denies ownCases revoked while multipart body is read before reservation or R2 reuse', async () => {
+  await deleteConsultingFlowFixture(await flowDatabase());
+  const stored = await transcriptJobFixture(false, body);
+  const command = {
+    type: 'save_recording',
+    meetingId: stored.meetings.at(-1)!.id,
+    transcript: `${body} multipart 권한 회수 경쟁`,
+    transcriptReviewed: true,
+    recordingConsent: true,
+    privacyMasked: true,
+    fileConsent: true,
+  } as const;
+  const transcript = new File(
+    ['SYNTHETIC_MULTIPART_PERMISSION_RACE_TRANSCRIPT'],
+    'multipart-permission-race.txt',
+    { type: 'text/plain' },
+  );
+  const audio = new File(
+    [new Uint8Array([0x49, 0x44, 0x33, 4, 0, 12])],
+    'multipart-permission-race.mp3',
+    { type: 'audio/mpeg' },
+  );
+  const commandId = `multipart-own-cases-race-${++sequence}`;
+  const previousKeys = new Set(objects.keys());
+  const bucket = flowBucket();
+  const put = bucket.put.bind(bucket);
+  let putAttempts = 0;
+  bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+    putAttempts++;
+    if (putAttempts === 2) throw new Error('synthetic second R2 write failure');
+    return put(...args);
+  };
+  let failed: Response;
+  try {
+    failed = await POST(
+      request(
+        stored.caseId,
+        command,
+        stored.revision,
+        commandId,
+        partner.email,
+        transcript,
+        audio,
+      ),
+      context(stored.caseId),
+    );
+  } finally {
+    bucket.put = put;
+  }
+  assert.equal(failed.status, 503);
+  assert.deepEqual(await readFlow(stored.caseId), stored);
+
+  const db = await flowDatabase();
+  const memberBinding = () =>
+    db
+      .prepare(
+        `SELECT subject_id
+        FROM portal_chatgpt_identity_bindings
+        WHERE subject_type = 'member' AND subject_id = ?1`,
+      )
+      .bind(partner.id)
+      .first<{ subject_id: string }>();
+  assert.equal((await memberBinding())?.subject_id, partner.id);
+  const reservations = () =>
+    db
+      .prepare(
+        `SELECT slot, file_id, storage_key, status
+        FROM consulting_flow_upload_requests
+        WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3
+        ORDER BY slot`,
+      )
+      .bind(stored.caseId, `member:${partner.id}`, commandId)
+      .all<{
+        slot: string;
+        file_id: string;
+        storage_key: string;
+        status: string;
+      }>();
+  const pending = (await reservations()).results;
+  assert.deepEqual(
+    pending.map(({ slot, status }) => ({ slot, status })),
+    [
+      { slot: 'audio', status: 'pending' },
+      { slot: 'file', status: 'pending' },
+    ],
+  );
+  const transcriptReservation = pending.find(({ slot }) => slot === 'file')!;
+  const storedBeforeDenial = new Uint8Array(
+    objects.get(transcriptReservation.storage_key),
+  ).slice();
+  assert.deepEqual(
+    [...objects.keys()].filter((key) => !previousKeys.has(key)),
+    [transcriptReservation.storage_key],
+  );
+
+  const retryRequest = request(
+    stored.caseId,
+    command,
+    stored.revision,
+    commandId,
+    partner.email,
+    transcript,
+    audio,
+  );
+  const stream = retryRequest.body!;
+  const getReader = stream.getReader.bind(stream);
+  let stateChanged = false;
+  Object.defineProperty(stream, 'getReader', {
+    value: () => {
+      const reader = getReader();
+      const read = reader.read.bind(reader);
+      let once = true;
+      reader.read = async () => {
+        if (once) {
+          once = false;
+          const changedState = structuredClone(await readPortalState()) as {
+            members: Array<{
+              id: string;
+              permissions: Record<string, boolean>;
+            }>;
+          };
+          const changedPartner = changedState.members.find(
+            ({ id }) => id === partner.id,
+          )!;
+          changedPartner.permissions.sharedSchedule = false;
+          changedPartner.permissions.collaborationApply = false;
+          changedPartner.permissions.ownCases = false;
+          const changed = await saveState(
+            new Request('http://localhost/api/state', {
+              method: 'PUT',
+              headers: {
+                origin: 'http://localhost',
+                'content-type': 'application/json',
+                'oai-authenticated-user-id': adminEmail,
+                'oai-authenticated-user-email': adminEmail,
+              },
+              body: JSON.stringify({ state: changedState }),
+            }),
+          );
+          assert.equal(changed.status, 200, await changed.clone().text());
+          stateChanged = true;
+        }
+        return read();
+      };
+      return reader;
+    },
+  });
+  let deniedPutAttempts = 0;
+  bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+    deniedPutAttempts++;
+    return put(...args);
+  };
+  let denied: Response;
+  try {
+    denied = await POST(retryRequest, context(stored.caseId));
+  } finally {
+    bucket.put = put;
+  }
+  assert.equal(stateChanged, true);
+  assert.equal(denied.status, 403);
+  assert.deepEqual(await denied.json(), {
+    error: '담당 파트너만 이 진행을 열 수 있습니다.',
+  });
+  assert.equal(deniedPutAttempts, 0);
+  assert.equal((await memberBinding())?.subject_id, partner.id);
+  assert.deepEqual(await readFlow(stored.caseId), stored);
+  assert.deepEqual(
+    new Uint8Array(objects.get(transcriptReservation.storage_key)),
+    storedBeforeDenial,
+  );
+  assert.deepEqual((await reservations()).results, pending);
+
+  const restoredState = structuredClone(await readPortalState()) as {
+    members: Array<{
+      id: string;
+      permissions: Record<string, boolean>;
+    }>;
+  };
+  restoredState.members.find(
+    ({ id }) => id === partner.id,
+  )!.permissions.ownCases = true;
+  const restored = await saveState(
+    new Request('http://localhost/api/state', {
+      method: 'PUT',
+      headers: {
+        origin: 'http://localhost',
+        'content-type': 'application/json',
+        'oai-authenticated-user-id': adminEmail,
+        'oai-authenticated-user-email': adminEmail,
+      },
+      body: JSON.stringify({ state: restoredState }),
+    }),
+  );
+  assert.equal(restored.status, 200, await restored.clone().text());
+  assert.equal((await memberBinding())?.subject_id, partner.id);
+
+  const retry = await POST(
+    request(
+      stored.caseId,
+      command,
+      stored.revision,
+      commandId,
+      partner.email,
+      transcript,
+      audio,
+    ),
+    context(stored.caseId),
+  );
+  assert.equal(retry.status, 200, await retry.clone().text());
+  const saved = (await readFlow(stored.caseId))!;
+  const recording = saved.recordings.at(-1)!;
+  const reservedBySlot = new Map(
+    pending.map(({ slot, file_id }) => [slot, file_id]),
+  );
+  assert.equal(recording.transcriptFileId, reservedBySlot.get('file'));
+  assert.equal(recording.audioFileId, reservedBySlot.get('audio'));
+  assert.deepEqual(saved.commandIds.slice(-1), [commandId]);
+  assert.equal(
+    saved.commandReceipts?.[commandId]?.actorKey,
+    `member:${partner.id}`,
+  );
+  assert.deepEqual(
+    [...objects.keys()]
+      .filter((key) => !previousKeys.has(key))
+      .sort((a, b) => a.localeCompare(b)),
+    pending
+      .map(({ storage_key }) => storage_key)
+      .sort((a, b) => a.localeCompare(b)),
+  );
+  const completions = (
+    await db
+      .prepare(
+        `SELECT reservation.status, completion.command_id
+        FROM consulting_flow_upload_requests reservation
+        LEFT JOIN consulting_flow_upload_completions completion
+          ON completion.file_id = reservation.file_id
+        WHERE reservation.command_id = ?1
+        ORDER BY reservation.file_id`,
+      )
+      .bind(commandId)
+      .all<{ status: string; command_id: string | null }>()
+  ).results;
+  assert.equal(completions.length, 2);
+  assert.ok(
+    completions.every(
+      ({ status, command_id }) =>
+        status === 'ready' && command_id === commandId,
+    ),
+  );
+});
+
 void test('FLOW commit rejects a suspension immediately before D1 writes', async () => {
   const flow = await fixture(),
     db = await flowDatabase(),
