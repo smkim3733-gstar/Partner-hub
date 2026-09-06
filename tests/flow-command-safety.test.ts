@@ -10618,6 +10618,11 @@ type MultipartBodyStateChange =
       kind: 'discontinued';
       status: 409;
       error: string;
+    }
+  | {
+      kind: 'suspended';
+      status: 403;
+      error: string;
     };
 
 async function assertPartialR2RetryDeniedByMultipartStateChange(
@@ -10768,6 +10773,7 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
           const changedState = structuredClone(await readPortalState()) as {
             members: Array<{
               id: string;
+              status: string;
               permissions: Record<string, boolean>;
             }>;
             cases: Array<{
@@ -10782,6 +10788,9 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
             changedPartner.permissions.sharedSchedule = false;
             changedPartner.permissions.collaborationApply = false;
             changedPartner.permissions[scenario.permission] = false;
+          } else if (scenario.kind === 'suspended') {
+            changedState.members.find(({ id }) => id === partner.id)!.status =
+              '정지';
           } else {
             changedState.cases.find(
               ({ id }) => id === stored.caseId,
@@ -10833,6 +10842,7 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
   const restoredState = structuredClone(await readPortalState()) as {
     members: Array<{
       id: string;
+      status: string;
       permissions: Record<string, boolean>;
     }>;
     cases: Array<{
@@ -10844,6 +10854,8 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
     restoredState.members.find(({ id }) => id === partner.id)!.permissions[
       scenario.permission
     ] = true;
+  else if (scenario.kind === 'suspended')
+    restoredState.members.find(({ id }) => id === partner.id)!.status = '활성';
   else
     restoredState.cases.find(
       ({ id }) => id === stored.caseId,
@@ -10918,7 +10930,7 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
   );
 }
 
-void test('partial R2 retry rechecks multipart permission and lifecycle changes before reservation or R2 reuse', async () => {
+void test('partial R2 retry rechecks multipart permission, account and lifecycle changes before reservation or R2 reuse', async () => {
   for (const scenario of [
     {
       kind: 'permission',
@@ -10931,6 +10943,11 @@ void test('partial R2 retry rechecks multipart permission and lifecycle changes 
       permission: 'fileUpload',
       status: 403,
       error: '자료 업로드 권한이 필요합니다.',
+    },
+    {
+      kind: 'suspended',
+      status: 403,
+      error: '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
     },
     {
       kind: 'discontinued',
