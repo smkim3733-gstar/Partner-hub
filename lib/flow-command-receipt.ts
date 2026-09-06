@@ -144,7 +144,7 @@ export async function flowCommandReceipt(
     ['complete_meeting', 'cancel_meeting'].includes(input.command.type) &&
     typeof input.command.meetingId === 'string'
       ? input.command.meetingId
-      : ['mark_request_sent', 'receive_document'].includes(
+      : ['mark_request_sent', 'receive_document', 'review_document'].includes(
             input.command.type,
           ) && typeof input.command.requestId === 'string'
         ? input.command.requestId

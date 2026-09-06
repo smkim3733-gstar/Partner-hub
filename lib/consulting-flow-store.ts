@@ -30,6 +30,7 @@ import {
   consultingFlowsRequestDocumentEffectTriggerSql,
   consultingFlowsMarkRequestSentEffectTriggerSql,
   consultingFlowsReceiveDocumentEffectTriggerSql,
+  consultingFlowsReviewDocumentEffectTriggerSql,
   consultingFlowsSaveSourceEffectTriggerSql,
   consultingFlowsImportIntakeSourceEffectTriggerSql,
   consultingFlowsExcludeSourceEffectTriggerSql,
@@ -186,6 +187,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsRequestDocumentEffectTriggerSql),
         db.prepare(consultingFlowsMarkRequestSentEffectTriggerSql),
         db.prepare(consultingFlowsReceiveDocumentEffectTriggerSql),
+        db.prepare(consultingFlowsReviewDocumentEffectTriggerSql),
         db.prepare(consultingFlowsSaveSourceEffectTriggerSql),
         db.prepare(consultingFlowsImportIntakeSourceEffectTriggerSql),
         db.prepare(consultingFlowsExcludeSourceEffectTriggerSql),
@@ -1133,6 +1135,7 @@ function assertFlowCommitTransition(
           'cancel_meeting',
           'mark_request_sent',
           'receive_document',
+          'review_document',
         ].includes(receipt.action ?? '')
           ? receipt.targetId === undefined
           : receipt.targetId !== undefined)
@@ -1559,6 +1562,55 @@ function assertFlowCommitTransition(
             receivedFile.sourceReviewedAt !== undefined ||
             receivedFile.sourceReviewedBy !== undefined)) ||
         commandAudit?.detail !== '요청 서류 수령 · 대표 검토 대기'
+      )
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'review_document') {
+      const receipt = afterReceipts[commandId];
+      const previousRequests = before.requests.filter(
+        (request) => request.id === receipt?.targetId,
+      );
+      const reviewedRequests = after.requests.filter(
+        (request) => request.id === receipt?.targetId,
+      );
+      const previousRequest = previousRequests[0];
+      const reviewedRequest = reviewedRequests[0];
+      const receivedFiles = before.files.filter(
+        (file) => file.id === previousRequest?.fileId,
+      );
+      const receivedFile = receivedFiles[0];
+      const commandAudit = newAudit.find((entry) => entry.id === commandId);
+      const expectedRequest = previousRequest &&
+        reviewedRequest && {
+          ...structuredClone(previousRequest),
+          status: reviewedRequest.status,
+          note: reviewedRequest.note.trim(),
+          reviewedAt: after.updatedAt,
+          verifiedAt:
+            reviewedRequest.status === 'verified' ? after.updatedAt : undefined,
+        };
+      if (
+        !receipt?.targetId ||
+        receipt.actorKey !== FLOW_ADMIN_COMMAND_ACTOR_KEY ||
+        before.contract !== undefined ||
+        previousRequests.length !== 1 ||
+        reviewedRequests.length !== 1 ||
+        !previousRequest ||
+        !reviewedRequest ||
+        previousRequest.status === 'requested' ||
+        !previousRequest.fileId ||
+        !previousRequest.receivedAt ||
+        receivedFiles.length !== 1 ||
+        receivedFile?.purpose !== 'requested_document' ||
+        !['verified', 'needs_fix'].includes(reviewedRequest.status) ||
+        (reviewedRequest.status === 'needs_fix' &&
+          reviewedRequest.note.length === 0) ||
+        !sameValue(after.files, before.files) ||
+        !sameValue(reviewedRequest, expectedRequest) ||
+        commandAudit?.detail !==
+          (reviewedRequest.status === 'verified'
+            ? '필수 서류 검토 완료'
+            : '서류 보완 요청')
       )
         throw storedFlowIntegrityError();
     }

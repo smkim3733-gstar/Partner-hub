@@ -3447,6 +3447,272 @@ void test('FLOW document receipts bind the selected request and received file', 
   await commitFlow(received, sameFile);
 });
 
+void test('FLOW document reviews bind the selected received request', async () => {
+  let saved = await fixture();
+  const adminActor = {
+    id: adminEmail,
+    role: 'admin' as const,
+    name: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+  };
+  const adminUser: PortalUser = {
+    id: 'stable-owner-subject',
+    email: adminEmail,
+    displayName: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    role: 'admin',
+    memberId: null,
+    memberName: null,
+    permissions: null,
+  };
+
+  for (const suffix of ['first', 'second']) {
+    const requestCommandId = `review-document-request-${suffix}-${++sequence}`;
+    const requested = applyFlowCommand(
+      saved,
+      {
+        type: 'request_document',
+        title: `가상 ${suffix} 검토 서류`,
+        required: true,
+        channel: suffix === 'first' ? '이메일' : '카카오톡',
+        recipient: '가상 담당자',
+        dueDate: '',
+      },
+      adminActor,
+      {
+        commandId: requestCommandId,
+        now: new Date(Date.parse(saved.updatedAt) + 1).toISOString(),
+      },
+    );
+    addSyntheticCommandReceipt(requested, requestCommandId);
+    await commitFlow(saved, requested);
+    saved = requested;
+
+    const receivedBytes = `synthetic ${suffix} review document`;
+    const receivedAt = new Date(Date.parse(saved.updatedAt) + 1).toISOString();
+    const receivedFileId = `review-document-file-${suffix}-${++sequence}`;
+    const receivedFile: ConsultingFlow['files'][number] = {
+      id: receivedFileId,
+      name: `${suffix}-review-document.pdf`,
+      contentType: 'application/pdf',
+      size: new TextEncoder().encode(receivedBytes).byteLength,
+      key: flowFileStorageKey(receivedFileId),
+      createdAt: receivedAt,
+      purpose: 'requested_document',
+    };
+    const receiveCommandId = `review-document-receive-${suffix}-${++sequence}`;
+    const receiveCommand = {
+      type: 'receive_document',
+      requestId: requested.requests.at(-1)!.id,
+      note: `가상 ${suffix} 수령`,
+      fileConsent: true,
+    } as const;
+    const receiveReceipt = await flowCommandReceipt(adminUser, {
+      command: receiveCommand,
+      file: new File([receivedBytes], receivedFile.name, {
+        type: receivedFile.contentType,
+      }),
+    });
+    const received = applyFlowCommand(saved, receiveCommand, adminActor, {
+      commandId: receiveCommandId,
+      now: receivedAt,
+      upload: receivedFile,
+    });
+    received.commandReceipts = {
+      ...received.commandReceipts,
+      [receiveCommandId]: {
+        ...receiveReceipt,
+        actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+        action: 'receive_document',
+      },
+    };
+    await commitFlow(
+      saved,
+      received,
+      undefined,
+      await storeFlowFileBinding(receivedFile, receivedBytes),
+    );
+    saved = received;
+  }
+
+  const commandId = `review-document-effect-${++sequence}`;
+  const reviewCommand = {
+    type: 'review_document',
+    requestId: saved.requests[0]!.id,
+    approved: true,
+    note: '가상 검토 완료',
+  } as const;
+  const reviewReceipt = await flowCommandReceipt(adminUser, {
+    command: reviewCommand,
+  });
+  assert.equal(reviewReceipt.targetId, saved.requests[0]!.id);
+  const reviewed = applyFlowCommand(saved, reviewCommand, adminActor, {
+    commandId,
+    now: new Date(Date.parse(saved.updatedAt) + 1).toISOString(),
+  });
+  reviewed.commandReceipts = {
+    ...reviewed.commandReceipts,
+    [commandId]: {
+      ...reviewReceipt,
+      actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+      action: 'review_document',
+    },
+  };
+  assert.equal(reviewed.requests[0]!.status, 'verified');
+  assert.equal(reviewed.requests[0]!.reviewedAt, reviewed.updatedAt);
+  assert.equal(reviewed.requests[0]!.verifiedAt, reviewed.updatedAt);
+  assert.equal(reviewed.requests[1]!.status, 'received');
+
+  const rejectsAtBothBoundaries = async (
+    before: ConsultingFlow,
+    candidate: ConsultingFlow,
+    label: string,
+  ) => {
+    await assert.rejects(
+      commitFlow(before, candidate),
+      (error) => error instanceof FlowError && error.status === 503,
+      `application accepted ${label}`,
+    );
+    const db = await flowDatabase();
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          candidate.revision,
+          JSON.stringify(candidate),
+          candidate.updatedAt,
+          before.caseId,
+          before.revision,
+        )
+        .run(),
+      /new command receipt target is invalid|command scope is invalid|command target is invalid|review document effect is invalid/,
+      `D1 accepted ${label}`,
+    );
+  };
+
+  const swappedTarget = structuredClone(reviewed);
+  swappedTarget.requests[0] = structuredClone(saved.requests[0]!);
+  swappedTarget.requests[1] = {
+    ...structuredClone(saved.requests[1]!),
+    status: 'verified',
+    note: reviewCommand.note,
+    reviewedAt: reviewed.updatedAt,
+    verifiedAt: reviewed.updatedAt,
+  };
+  await rejectsAtBothBoundaries(
+    saved,
+    swappedTarget,
+    'review evidence for an unselected request',
+  );
+
+  const forgedReviewTime = structuredClone(reviewed);
+  forgedReviewTime.requests[0]!.reviewedAt = saved.updatedAt;
+  forgedReviewTime.requests[0]!.verifiedAt = saved.updatedAt;
+  await rejectsAtBothBoundaries(
+    saved,
+    forgedReviewTime,
+    'a forged document review time',
+  );
+
+  const missingVerificationTime = structuredClone(reviewed);
+  delete missingVerificationTime.requests[0]!.verifiedAt;
+  await rejectsAtBothBoundaries(
+    saved,
+    missingVerificationTime,
+    'a verified result without matching evidence time',
+  );
+
+  const forgedNote = structuredClone(reviewed);
+  forgedNote.requests[0]!.note = '\u00a0비정규 검토 메모\u00a0';
+  await rejectsAtBothBoundaries(
+    saved,
+    forgedNote,
+    'a non-canonical review note',
+  );
+
+  const forgedAudit = structuredClone(reviewed);
+  forgedAudit.audit.at(-1)!.detail = '다른 검토 결과로 위조';
+  await rejectsAtBothBoundaries(
+    saved,
+    forgedAudit,
+    'forged review audit detail',
+  );
+
+  const forgedPartnerActor = structuredClone(reviewed);
+  forgedPartnerActor.commandReceipts![commandId]!.actorKey =
+    `member:${saved.partnerId}`;
+  forgedPartnerActor.commandReceipts![commandId]!.actor = saved.partnerName;
+  forgedPartnerActor.audit.at(-1)!.actor = saved.partnerName;
+  await rejectsAtBothBoundaries(
+    saved,
+    forgedPartnerActor,
+    'a partner-authored representative review',
+  );
+
+  const extraFile = structuredClone(reviewed);
+  extraFile.files.push({
+    ...structuredClone(reviewed.files[0]!),
+    id: `review-document-extra-${++sequence}`,
+    key: flowFileStorageKey(`review-document-extra-${sequence}`),
+  });
+  await rejectsAtBothBoundaries(
+    saved,
+    extraFile,
+    'an unrelated file with document review',
+  );
+
+  const missingTarget = structuredClone(reviewed);
+  delete missingTarget.commandReceipts![commandId]!.targetId;
+  await rejectsAtBothBoundaries(
+    saved,
+    missingTarget,
+    'a missing review request target',
+  );
+
+  await commitFlow(saved, reviewed);
+  assert.deepEqual(
+    await readFlow(reviewed.caseId),
+    JSON.parse(JSON.stringify(reviewed)),
+  );
+
+  const needsFixCommandId = `review-document-needs-fix-${++sequence}`;
+  const needsFixCommand = {
+    type: 'review_document',
+    requestId: reviewed.requests[0]!.id,
+    approved: false,
+    note: '가상 서류 보완 필요',
+  } as const;
+  const needsFixReceipt = await flowCommandReceipt(adminUser, {
+    command: needsFixCommand,
+  });
+  const needsFix = applyFlowCommand(reviewed, needsFixCommand, adminActor, {
+    commandId: needsFixCommandId,
+    now: new Date(Date.parse(reviewed.updatedAt) + 1).toISOString(),
+  });
+  needsFix.commandReceipts = {
+    ...needsFix.commandReceipts,
+    [needsFixCommandId]: {
+      ...needsFixReceipt,
+      actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+      action: 'review_document',
+    },
+  };
+  assert.equal(needsFix.requests[0]!.status, 'needs_fix');
+  assert.equal(needsFix.requests[0]!.reviewedAt, needsFix.updatedAt);
+  assert.equal(needsFix.requests[0]!.verifiedAt, undefined);
+
+  const emptyCorrectionReason = structuredClone(needsFix);
+  emptyCorrectionReason.requests[0]!.note = '';
+  await rejectsAtBothBoundaries(
+    reviewed,
+    emptyCorrectionReason,
+    'a correction result without a reason',
+  );
+  await commitFlow(reviewed, needsFix);
+});
+
 void test('FLOW source save commands preserve existing source files', async () => {
   const queued = await queuedReportFixture(true);
   const stored = structuredClone(queued);

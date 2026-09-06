@@ -531,6 +531,18 @@ test('document receipt and review times preserve retries and reset only for a ne
     },
     partner,
   );
+  const wrongPurposeReview = structuredClone(s);
+  wrongPurposeReview.requests[0] = {
+    ...wrongPurposeReview.requests[0]!,
+    fileId: unrelatedSource.id,
+    status: 'received',
+    receivedAt: '2026-08-30T11:00:00.000Z',
+  };
+  fails(wrongPurposeReview, {
+    type: 'review_document',
+    requestId,
+    approved: true,
+  });
   const upload = file('requested_document');
   s = applyFlowCommand(s, { type: 'receive_document', requestId }, partner, {
     commandId: 'receipt-time-first',

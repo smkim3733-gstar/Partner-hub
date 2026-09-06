@@ -1182,7 +1182,18 @@ export function applyFlowCommand(
       admin(actor);
       demand(!s.contract, '계약 후 준비서류 변경은 제한됩니다.', 409);
       const request = s.requests.find((r) => r.id === command.requestId);
-      demand(request?.fileId, '실제 첨부파일을 수령한 뒤 검토할 수 있습니다.');
+      const receivedFiles = request?.fileId
+        ? s.files.filter((candidate) => candidate.id === request.fileId)
+        : [];
+      demand(
+        request &&
+          request.status !== 'requested' &&
+          request.fileId &&
+          request.receivedAt &&
+          receivedFiles.length === 1 &&
+          receivedFiles[0]?.purpose === 'requested_document',
+        '실제 수령서류 첨부파일을 받은 뒤 검토할 수 있습니다.',
+      );
       demand(
         typeof command.approved === 'boolean',
         '검토 결과를 선택해 주세요.',

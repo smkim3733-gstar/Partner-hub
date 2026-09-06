@@ -561,6 +561,16 @@ const flowReceiveDocumentEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowReviewDocumentEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0088_consulting_flow_review_document_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -581,6 +591,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_request_document_effect_guard',
   'consulting_flows_mark_request_sent_effect_guard',
   'consulting_flows_receive_document_effect_guard',
+  'consulting_flows_review_document_effect_guard',
   'consulting_flows_save_source_effect_guard',
   'consulting_flows_import_intake_source_effect_guard',
   'consulting_flows_exclude_source_effect_guard',
@@ -643,6 +654,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowRequestDocumentEffectTriggerSql,
       ...flowMarkRequestSentEffectTriggerSql,
       ...flowReceiveDocumentEffectTriggerSql,
+      ...flowReviewDocumentEffectTriggerSql,
       flowSaveSourceEffectTriggerSql[0],
       flowImportIntakeSourceEffectTriggerSql[0],
       flowExcludeSourceEffectTriggerSql[0],
@@ -5528,6 +5540,253 @@ try {
   );
   checks.push(
     'FLOW native D1 binds selected request, requested-document file, review-cycle evidence and canonical audit to document receipt',
+  );
+
+  const secondReceiveDocumentFlow = structuredClone(
+    sameFileReceiveDocumentFlow,
+  );
+  secondReceiveDocumentFlow.revision++;
+  secondReceiveDocumentFlow.updatedAt = evidenceTimes[6];
+  const secondReceiveDocumentCommandId =
+    'native-receive-second-document-for-review';
+  const secondReceiveDocumentFile = {
+    id: 'native-second-received-document-file',
+    name: 'second-received-document.pdf',
+    contentType: 'application/pdf',
+    size: 96,
+    key: 'consulting-flow/native-second-received-document-file',
+    createdAt: evidenceTimes[6],
+    purpose: 'requested_document',
+  };
+  secondReceiveDocumentFlow.files.push(secondReceiveDocumentFile);
+  secondReceiveDocumentFlow.requests[1] = {
+    ...secondReceiveDocumentFlow.requests[1],
+    fileId: secondReceiveDocumentFile.id,
+    status: 'received',
+    receivedAt: evidenceTimes[6],
+    note: '가상 두 번째 수령 메모',
+  };
+  secondReceiveDocumentFlow.audit.push({
+    id: secondReceiveDocumentCommandId,
+    at: evidenceTimes[6],
+    actor: '김성민 대표',
+    action: 'receive_document',
+    detail: '요청 서류 수령 · 대표 검토 대기',
+  });
+  secondReceiveDocumentFlow.commandIds.push(secondReceiveDocumentCommandId);
+  secondReceiveDocumentFlow.commandReceipts[secondReceiveDocumentCommandId] = {
+    actorKey: 'admin:primary',
+    fingerprint: '7'.repeat(64),
+    actor: '김성민 대표',
+    action: 'receive_document',
+    targetId: secondReceiveDocumentFlow.requests[1].id,
+  };
+  await db
+    .prepare(
+      `UPDATE consulting_flows
+      SET revision = ?1, payload = ?2, updated_at = ?3
+      WHERE case_id = ?4 AND revision = ?5`,
+    )
+    .bind(
+      secondReceiveDocumentFlow.revision,
+      JSON.stringify(secondReceiveDocumentFlow),
+      secondReceiveDocumentFlow.updatedAt,
+      requestEffectCaseId,
+      sameFileReceiveDocumentFlow.revision,
+    )
+    .run();
+
+  const validReviewDocumentEffectFlow = structuredClone(
+    secondReceiveDocumentFlow,
+  );
+  validReviewDocumentEffectFlow.revision++;
+  validReviewDocumentEffectFlow.updatedAt = evidenceTimes[7];
+  const reviewDocumentCommandId = 'native-review-document-effect';
+  const reviewDocumentTargetId = validReviewDocumentEffectFlow.requests[0].id;
+  validReviewDocumentEffectFlow.requests[0] = {
+    ...validReviewDocumentEffectFlow.requests[0],
+    status: 'verified',
+    note: '가상 검토 완료',
+    reviewedAt: evidenceTimes[7],
+    verifiedAt: evidenceTimes[7],
+  };
+  validReviewDocumentEffectFlow.audit.push({
+    id: reviewDocumentCommandId,
+    at: evidenceTimes[7],
+    actor: '김성민 대표',
+    action: 'review_document',
+    detail: '필수 서류 검토 완료',
+  });
+  validReviewDocumentEffectFlow.commandIds.push(reviewDocumentCommandId);
+  validReviewDocumentEffectFlow.commandReceipts[reviewDocumentCommandId] = {
+    actorKey: 'admin:primary',
+    fingerprint: '8'.repeat(64),
+    actor: '김성민 대표',
+    action: 'review_document',
+    targetId: reviewDocumentTargetId,
+  };
+  const saveReviewDocumentEffectTransition = (before, after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        requestEffectCaseId,
+        before.revision,
+      )
+      .run();
+  const reviewEffectError =
+    /new command receipt target is invalid|command scope is invalid|review document effect is invalid/;
+
+  const swappedReviewDocumentTargetFlow = structuredClone(
+    validReviewDocumentEffectFlow,
+  );
+  swappedReviewDocumentTargetFlow.requests[0] = structuredClone(
+    secondReceiveDocumentFlow.requests[0],
+  );
+  swappedReviewDocumentTargetFlow.requests[1] = {
+    ...structuredClone(secondReceiveDocumentFlow.requests[1]),
+    status: 'verified',
+    note: '가상 검토 완료',
+    reviewedAt: evidenceTimes[7],
+    verifiedAt: evidenceTimes[7],
+  };
+  await assert.rejects(
+    saveReviewDocumentEffectTransition(
+      secondReceiveDocumentFlow,
+      swappedReviewDocumentTargetFlow,
+    ),
+    reviewEffectError,
+  );
+  const forgedReviewDocumentTimeFlow = structuredClone(
+    validReviewDocumentEffectFlow,
+  );
+  forgedReviewDocumentTimeFlow.requests[0].reviewedAt = evidenceTimes[6];
+  forgedReviewDocumentTimeFlow.requests[0].verifiedAt = evidenceTimes[6];
+  await assert.rejects(
+    saveReviewDocumentEffectTransition(
+      secondReceiveDocumentFlow,
+      forgedReviewDocumentTimeFlow,
+    ),
+    reviewEffectError,
+  );
+  const missingReviewVerificationFlow = structuredClone(
+    validReviewDocumentEffectFlow,
+  );
+  delete missingReviewVerificationFlow.requests[0].verifiedAt;
+  await assert.rejects(
+    saveReviewDocumentEffectTransition(
+      secondReceiveDocumentFlow,
+      missingReviewVerificationFlow,
+    ),
+    reviewEffectError,
+  );
+  const forgedReviewDocumentNoteFlow = structuredClone(
+    validReviewDocumentEffectFlow,
+  );
+  forgedReviewDocumentNoteFlow.requests[0].note =
+    '\u00a0비정규 검토 메모\u00a0';
+  await assert.rejects(
+    saveReviewDocumentEffectTransition(
+      secondReceiveDocumentFlow,
+      forgedReviewDocumentNoteFlow,
+    ),
+    reviewEffectError,
+  );
+  const forgedReviewDocumentActorFlow = structuredClone(
+    validReviewDocumentEffectFlow,
+  );
+  forgedReviewDocumentActorFlow.audit.at(-1).actor =
+    forgedReviewDocumentActorFlow.partnerName;
+  forgedReviewDocumentActorFlow.commandReceipts[reviewDocumentCommandId] = {
+    ...forgedReviewDocumentActorFlow.commandReceipts[reviewDocumentCommandId],
+    actorKey: `member:${forgedReviewDocumentActorFlow.partnerId}`,
+    actor: forgedReviewDocumentActorFlow.partnerName,
+  };
+  await assert.rejects(
+    saveReviewDocumentEffectTransition(
+      secondReceiveDocumentFlow,
+      forgedReviewDocumentActorFlow,
+    ),
+    reviewEffectError,
+  );
+  const forgedReviewDocumentAuditFlow = structuredClone(
+    validReviewDocumentEffectFlow,
+  );
+  forgedReviewDocumentAuditFlow.audit.at(-1).detail = '다른 검토 결과로 위조';
+  await assert.rejects(
+    saveReviewDocumentEffectTransition(
+      secondReceiveDocumentFlow,
+      forgedReviewDocumentAuditFlow,
+    ),
+    reviewEffectError,
+  );
+  const missingReviewDocumentTargetFlow = structuredClone(
+    validReviewDocumentEffectFlow,
+  );
+  delete missingReviewDocumentTargetFlow.commandReceipts[
+    reviewDocumentCommandId
+  ].targetId;
+  await assert.rejects(
+    saveReviewDocumentEffectTransition(
+      secondReceiveDocumentFlow,
+      missingReviewDocumentTargetFlow,
+    ),
+    reviewEffectError,
+  );
+  await saveReviewDocumentEffectTransition(
+    secondReceiveDocumentFlow,
+    validReviewDocumentEffectFlow,
+  );
+
+  const validNeedsFixReviewFlow = structuredClone(
+    validReviewDocumentEffectFlow,
+  );
+  validNeedsFixReviewFlow.revision++;
+  validNeedsFixReviewFlow.updatedAt = evidenceTimes[8];
+  const needsFixReviewCommandId = 'native-review-document-needs-fix-effect';
+  validNeedsFixReviewFlow.requests[0] = {
+    ...validNeedsFixReviewFlow.requests[0],
+    status: 'needs_fix',
+    note: '가상 서류 보완 필요',
+    reviewedAt: evidenceTimes[8],
+  };
+  delete validNeedsFixReviewFlow.requests[0].verifiedAt;
+  validNeedsFixReviewFlow.audit.push({
+    id: needsFixReviewCommandId,
+    at: evidenceTimes[8],
+    actor: '김성민 대표',
+    action: 'review_document',
+    detail: '서류 보완 요청',
+  });
+  validNeedsFixReviewFlow.commandIds.push(needsFixReviewCommandId);
+  validNeedsFixReviewFlow.commandReceipts[needsFixReviewCommandId] = {
+    actorKey: 'admin:primary',
+    fingerprint: '9'.repeat(64),
+    actor: '김성민 대표',
+    action: 'review_document',
+    targetId: reviewDocumentTargetId,
+  };
+  const emptyNeedsFixReviewNoteFlow = structuredClone(validNeedsFixReviewFlow);
+  emptyNeedsFixReviewNoteFlow.requests[0].note = '';
+  await assert.rejects(
+    saveReviewDocumentEffectTransition(
+      validReviewDocumentEffectFlow,
+      emptyNeedsFixReviewNoteFlow,
+    ),
+    reviewEffectError,
+  );
+  await saveReviewDocumentEffectTransition(
+    validReviewDocumentEffectFlow,
+    validNeedsFixReviewFlow,
+  );
+  checks.push(
+    'FLOW native D1 binds representative review result, selected received request, server times, reason and audit',
   );
   await deleteConsultingFlowFixture(db, requestEffectCaseId);
   const validSourceEffectFlow = structuredClone(sourceEffectFlow);
