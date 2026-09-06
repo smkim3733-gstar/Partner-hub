@@ -144,7 +144,10 @@ export async function flowCommandReceipt(
     ['complete_meeting', 'cancel_meeting'].includes(input.command.type) &&
     typeof input.command.meetingId === 'string'
       ? input.command.meetingId
-      : undefined;
+      : input.command.type === 'mark_request_sent' &&
+          typeof input.command.requestId === 'string'
+        ? input.command.requestId
+        : undefined;
   return {
     actorKey:
       user.role === 'admin'

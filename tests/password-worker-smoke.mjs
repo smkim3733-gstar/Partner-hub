@@ -541,6 +541,16 @@ const flowRequestDocumentEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowMarkRequestSentEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0086_consulting_flow_mark_request_sent_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -559,6 +569,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_cancel_meeting_effect_guard',
   'consulting_flows_confirm_solutions_effect_guard',
   'consulting_flows_request_document_effect_guard',
+  'consulting_flows_mark_request_sent_effect_guard',
   'consulting_flows_save_source_effect_guard',
   'consulting_flows_import_intake_source_effect_guard',
   'consulting_flows_exclude_source_effect_guard',
@@ -619,6 +630,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowCancelMeetingEffectTriggerSql,
       ...flowConfirmSolutionsEffectTriggerSql,
       ...flowRequestDocumentEffectTriggerSql,
+      ...flowMarkRequestSentEffectTriggerSql,
       flowSaveSourceEffectTriggerSql[0],
       flowImportIntakeSourceEffectTriggerSql[0],
       flowExcludeSourceEffectTriggerSql[0],
@@ -3948,6 +3960,17 @@ try {
   const requestEffectCaseId = 'native-flow-request-document-effect';
   const requestEffectFlow = structuredClone(retryEffectFlow);
   requestEffectFlow.caseId = requestEffectCaseId;
+  requestEffectFlow.requests.push({
+    id: 'native-request-existing',
+    title: '기존 가상 서류',
+    required: false,
+    channel: '기타',
+    recipient: '가상 담당자',
+    dueDate: '',
+    status: 'requested',
+    note: '',
+    createdAt: evidenceTimes[1],
+  });
   const decisionSourceReportId = decisionEffectFlow.reports
     .filter((report) => report.stage === 1)
     .at(-1).id;
@@ -5233,6 +5256,83 @@ try {
   await saveRequestEffectTransition(validRequestEffectFlow);
   checks.push(
     'FLOW native D1 binds representative and canonical initial evidence to document request registration',
+  );
+  const validMarkRequestSentEffectFlow = structuredClone(
+    validRequestEffectFlow,
+  );
+  validMarkRequestSentEffectFlow.revision++;
+  validMarkRequestSentEffectFlow.updatedAt = evidenceTimes[3];
+  const markRequestSentCommandId = 'native-mark-request-sent-effect';
+  const markRequestSentTargetId = 'native-request-existing';
+  validMarkRequestSentEffectFlow.requests[0].sentAt = evidenceTimes[3];
+  validMarkRequestSentEffectFlow.audit.push({
+    id: markRequestSentCommandId,
+    at: evidenceTimes[3],
+    actor: '김성민 대표',
+    action: 'mark_request_sent',
+    detail: '기타 서류요청 실제 발송 기록',
+  });
+  validMarkRequestSentEffectFlow.commandIds.push(markRequestSentCommandId);
+  validMarkRequestSentEffectFlow.commandReceipts[markRequestSentCommandId] = {
+    actorKey: 'admin:primary',
+    fingerprint: '4'.repeat(64),
+    actor: '김성민 대표',
+    action: 'mark_request_sent',
+    targetId: markRequestSentTargetId,
+  };
+  const saveMarkRequestSentEffectTransition = (after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        requestEffectCaseId,
+        validRequestEffectFlow.revision,
+      )
+      .run();
+  const swappedMarkRequestTargetFlow = structuredClone(
+    validMarkRequestSentEffectFlow,
+  );
+  delete swappedMarkRequestTargetFlow.requests[0].sentAt;
+  swappedMarkRequestTargetFlow.requests[1].sentAt = evidenceTimes[3];
+  await assert.rejects(
+    saveMarkRequestSentEffectTransition(swappedMarkRequestTargetFlow),
+    /mark request sent effect is invalid/,
+  );
+  const forgedMarkRequestTimeFlow = structuredClone(
+    validMarkRequestSentEffectFlow,
+  );
+  forgedMarkRequestTimeFlow.requests[0].sentAt = evidenceTimes[2];
+  await assert.rejects(
+    saveMarkRequestSentEffectTransition(forgedMarkRequestTimeFlow),
+    /mark request sent effect is invalid/,
+  );
+  const forgedMarkRequestAuditFlow = structuredClone(
+    validMarkRequestSentEffectFlow,
+  );
+  forgedMarkRequestAuditFlow.audit.at(-1).detail =
+    '다른 경로로 발송한 것처럼 위조';
+  await assert.rejects(
+    saveMarkRequestSentEffectTransition(forgedMarkRequestAuditFlow),
+    /mark request sent effect is invalid/,
+  );
+  const missingMarkRequestTargetFlow = structuredClone(
+    validMarkRequestSentEffectFlow,
+  );
+  delete missingMarkRequestTargetFlow.commandReceipts[markRequestSentCommandId]
+    .targetId;
+  await assert.rejects(
+    saveMarkRequestSentEffectTransition(missingMarkRequestTargetFlow),
+    /new command receipt target is invalid|mark request sent effect is invalid/,
+  );
+  await saveMarkRequestSentEffectTransition(validMarkRequestSentEffectFlow);
+  checks.push(
+    'FLOW native D1 binds one receipt-selected request and server send evidence to send recording',
   );
   const validSourceEffectFlow = structuredClone(sourceEffectFlow);
   validSourceEffectFlow.revision++;

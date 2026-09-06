@@ -28,6 +28,7 @@ import {
   consultingFlowsCancelMeetingEffectTriggerSql,
   consultingFlowsConfirmSolutionsEffectTriggerSql,
   consultingFlowsRequestDocumentEffectTriggerSql,
+  consultingFlowsMarkRequestSentEffectTriggerSql,
   consultingFlowsSaveSourceEffectTriggerSql,
   consultingFlowsImportIntakeSourceEffectTriggerSql,
   consultingFlowsExcludeSourceEffectTriggerSql,
@@ -182,6 +183,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCancelMeetingEffectTriggerSql),
         db.prepare(consultingFlowsConfirmSolutionsEffectTriggerSql),
         db.prepare(consultingFlowsRequestDocumentEffectTriggerSql),
+        db.prepare(consultingFlowsMarkRequestSentEffectTriggerSql),
         db.prepare(consultingFlowsSaveSourceEffectTriggerSql),
         db.prepare(consultingFlowsImportIntakeSourceEffectTriggerSql),
         db.prepare(consultingFlowsExcludeSourceEffectTriggerSql),
@@ -1124,7 +1126,9 @@ function assertFlowCommitTransition(
         matchingAudit.length !== 1 ||
         receipt.actor !== matchingAudit[0].actor ||
         receipt.action !== matchingAudit[0].action ||
-        (['complete_meeting', 'cancel_meeting'].includes(receipt.action ?? '')
+        (['complete_meeting', 'cancel_meeting', 'mark_request_sent'].includes(
+          receipt.action ?? '',
+        )
           ? receipt.targetId === undefined
           : receipt.targetId !== undefined)
       );
@@ -1451,6 +1455,33 @@ function assertFlowCommitTransition(
         after.requests.length !== before.requests.length + 1 ||
         !request ||
         !sameValue(request, expectedRequest)
+      )
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'mark_request_sent') {
+      const receipt = afterReceipts[commandId];
+      const previousRequests = before.requests.filter(
+        (request) => request.id === receipt?.targetId,
+      );
+      const sentRequests = after.requests.filter(
+        (request) => request.id === receipt?.targetId,
+      );
+      const previousRequest = previousRequests[0];
+      const sentRequest = sentRequests[0];
+      const commandAudit = newAudit.find((entry) => entry.id === commandId);
+      const expectedRequest = previousRequest && {
+        ...structuredClone(previousRequest),
+        sentAt: after.updatedAt,
+      };
+      if (
+        !receipt?.targetId ||
+        previousRequests.length !== 1 ||
+        sentRequests.length !== 1 ||
+        !previousRequest ||
+        !sentRequest ||
+        !sameValue(sentRequest, expectedRequest) ||
+        commandAudit?.detail !==
+          `${previousRequest.channel} 서류요청 실제 발송 기록`
       )
         throw storedFlowIntegrityError();
     }

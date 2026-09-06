@@ -3141,6 +3141,123 @@ void test('FLOW document requests bind representative and canonical initial evid
   await commitFlow(ready, requested);
 });
 
+void test('FLOW request send records bind the selected request and server evidence', async () => {
+  let saved = await fixture();
+  for (const suffix of ['first', 'second']) {
+    const commandId = `request-send-fixture-${suffix}-${++sequence}`;
+    const requested = applyFlowCommand(
+      saved,
+      {
+        type: 'request_document',
+        title: `가상 ${suffix} 서류`,
+        required: true,
+        channel: suffix === 'first' ? '이메일' : '카카오톡',
+        recipient: '가상 담당자',
+        dueDate: '',
+      },
+      { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+      {
+        commandId,
+        now: new Date(Date.parse(saved.updatedAt) + 1).toISOString(),
+      },
+    );
+    addSyntheticCommandReceipt(requested, commandId);
+    await commitFlow(saved, requested);
+    saved = requested;
+  }
+
+  const commandId = `request-send-effect-${++sequence}`;
+  const sendCommand = {
+    type: 'mark_request_sent',
+    requestId: saved.requests[0]!.id,
+    sentConfirmed: true,
+  } as const;
+  const adminUser: PortalUser = {
+    id: 'stable-owner-subject',
+    email: adminEmail,
+    displayName: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    role: 'admin',
+    memberId: null,
+    memberName: null,
+    permissions: null,
+  };
+  const sendReceipt = await flowCommandReceipt(adminUser, {
+    command: sendCommand,
+  });
+  assert.equal(sendReceipt.targetId, saved.requests[0]!.id);
+  const marked = applyFlowCommand(
+    saved,
+    sendCommand,
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId,
+      now: new Date(Date.parse(saved.updatedAt) + 1).toISOString(),
+    },
+  );
+  marked.commandReceipts = {
+    ...marked.commandReceipts,
+    [commandId]: {
+      ...sendReceipt,
+      actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+      action: 'mark_request_sent',
+    },
+  };
+  assert.equal(marked.requests[0]!.sentAt, marked.updatedAt);
+  assert.equal(marked.requests[1]!.sentAt, undefined);
+
+  const rejectsAtBothBoundaries = async (
+    candidate: ConsultingFlow,
+    label: string,
+  ) => {
+    await assert.rejects(
+      commitFlow(saved, candidate),
+      (error) => error instanceof FlowError && error.status === 503,
+      `application accepted ${label}`,
+    );
+    const db = await flowDatabase();
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          candidate.revision,
+          JSON.stringify(candidate),
+          candidate.updatedAt,
+          saved.caseId,
+          saved.revision,
+        )
+        .run(),
+      /new command receipt target is invalid|command target is invalid|mark request sent effect is invalid/,
+      `D1 accepted ${label}`,
+    );
+  };
+
+  const swappedTarget = structuredClone(marked);
+  delete swappedTarget.requests[0]!.sentAt;
+  swappedTarget.requests[1]!.sentAt = swappedTarget.updatedAt;
+  await rejectsAtBothBoundaries(
+    swappedTarget,
+    'send evidence for an unselected request',
+  );
+
+  const forgedTime = structuredClone(marked);
+  forgedTime.requests[0]!.sentAt = saved.updatedAt;
+  await rejectsAtBothBoundaries(forgedTime, 'a forged request send time');
+
+  const forgedAudit = structuredClone(marked);
+  forgedAudit.audit.at(-1)!.detail = '다른 경로로 발송한 것처럼 위조';
+  await rejectsAtBothBoundaries(forgedAudit, 'forged request send detail');
+
+  const missingTarget = structuredClone(marked);
+  delete missingTarget.commandReceipts![commandId]!.targetId;
+  await rejectsAtBothBoundaries(missingTarget, 'a missing request target');
+
+  await commitFlow(saved, marked);
+});
+
 void test('FLOW source save commands preserve existing source files', async () => {
   const queued = await queuedReportFixture(true);
   const stored = structuredClone(queued);
@@ -3770,6 +3887,7 @@ void test('FLOW target updates cannot alter another item or immutable fields', a
     },
   );
   addSyntheticCommandReceipt(forged, commandId);
+  forged.commandReceipts![commandId].targetId = saved.requests[0].id;
   forged.requests[1].title = '명령 대상이 아닌 요청 제목 변조';
   await assert.rejects(
     commitFlow(saved, forged),
