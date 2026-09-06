@@ -1977,6 +1977,140 @@ void test('FLOW retry commands bind one exact target job effect', async () => {
   );
 });
 
+void test('FLOW recording commands bind exact recording and job effects', async () => {
+  const stored = await transcriptJobFixture(false, body);
+  const commandId = `recording-effect-${++sequence}`;
+  const changed = applyFlowCommand(
+    stored,
+    {
+      type: 'save_recording',
+      meetingId: stored.meetings.at(-1)!.id,
+      transcript: `${body} 새 상담 기록`,
+      transcriptReviewed: true,
+      recordingConsent: true,
+      privacyMasked: true,
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId,
+      now: new Date(Date.parse(stored.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(changed, commandId);
+  assert.equal(changed.recordings.at(-1)!.id, `${commandId}-recording`);
+  assert.equal(changed.jobs.at(-1)!.id, `${commandId}-job`);
+  const forged = structuredClone(changed);
+  forged.jobs[0]!.reason = '녹취 등록에 섞은 기존 작업 사유 변조';
+  await assert.rejects(
+    commitFlow(stored, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+        stored.caseId,
+        stored.revision,
+      )
+      .run(),
+    /save recording effect is invalid/,
+  );
+  await commitFlow(stored, changed);
+  assert.deepEqual(
+    await readFlow(stored.caseId),
+    JSON.parse(JSON.stringify(changed)),
+  );
+
+  const fileStored = await transcriptJobFixture(false, body);
+  const fileCommandId = `recording-file-effect-${++sequence}`;
+  const fileAt = new Date(Date.parse(fileStored.updatedAt) + 1).toISOString();
+  const transcriptBytes = 'synthetic transcript attachment';
+  const audioBytes = new Uint8Array([0x49, 0x44, 0x33, 4, 0, 0]);
+  const transcriptFile: ConsultingFlow['files'][number] = {
+    id: `recording-transcript-file-${++sequence}`,
+    name: 'recording.txt',
+    contentType: 'text/plain',
+    size: new TextEncoder().encode(transcriptBytes).byteLength,
+    key: flowFileStorageKey(`recording-transcript-file-${sequence}`),
+    createdAt: fileAt,
+    purpose: 'recording',
+  };
+  const audioFile: ConsultingFlow['files'][number] = {
+    id: `recording-audio-file-${++sequence}`,
+    name: 'recording.mp3',
+    contentType: 'audio/mpeg',
+    size: audioBytes.byteLength,
+    key: flowFileStorageKey(`recording-audio-file-${sequence}`),
+    createdAt: fileAt,
+    purpose: 'recording',
+  };
+  const withFiles = applyFlowCommand(
+    fileStored,
+    {
+      type: 'save_recording',
+      meetingId: fileStored.meetings.at(-1)!.id,
+      transcript: `${body} 첨부 상담 기록`,
+      transcriptReviewed: true,
+      recordingConsent: true,
+      privacyMasked: true,
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId: fileCommandId,
+      now: fileAt,
+      upload: transcriptFile,
+      audioUpload: audioFile,
+    },
+  );
+  addSyntheticCommandReceipt(withFiles, fileCommandId);
+  assert.equal(withFiles.recordings.at(-1)!.fileId, transcriptFile.id);
+  assert.equal(
+    withFiles.recordings.at(-1)!.transcriptFileId,
+    transcriptFile.id,
+  );
+  assert.equal(withFiles.recordings.at(-1)!.audioFileId, audioFile.id);
+  const extraFile: ConsultingFlow['files'][number] = {
+    id: `recording-extra-file-${++sequence}`,
+    name: 'extra.txt',
+    contentType: 'text/plain',
+    size: 5,
+    key: flowFileStorageKey(`recording-extra-file-${sequence}`),
+    createdAt: fileAt,
+    purpose: 'recording',
+  };
+  const forgedFiles = structuredClone(withFiles);
+  forgedFiles.files.push(extraFile);
+  const transcriptBindings = await storeFlowFileBinding(
+    transcriptFile,
+    transcriptBytes,
+  );
+  const audioBindings = await storeFlowFileBinding(audioFile, audioBytes);
+  const extraBindings = await storeFlowFileBinding(extraFile, 'extra');
+  await assert.rejects(
+    commitFlow(
+      fileStored,
+      forgedFiles,
+      undefined,
+      new Map([...transcriptBindings, ...audioBindings, ...extraBindings]),
+    ),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await commitFlow(
+    fileStored,
+    withFiles,
+    undefined,
+    new Map([...transcriptBindings, ...audioBindings]),
+  );
+});
+
 void test('FLOW command receipts originate only with same-revision commands', async () => {
   const initial = await fixture();
   const legacyCommandId = `legacy-command-without-receipt-${++sequence}`;

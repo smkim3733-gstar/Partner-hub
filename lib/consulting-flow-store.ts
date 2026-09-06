@@ -17,6 +17,7 @@ import {
   consultingFlowsCommandCardinalityTriggerSql,
   consultingFlowsCommandAiTransitionTriggerSql,
   consultingFlowsSetAiPolicyJobsTriggerSql,
+  consultingFlowsSaveRecordingEffectTriggerSql,
   consultingFlowsSaveTranscriptJobsTriggerSql,
   consultingFlowsRetryJobEffectTriggerSql,
   consultingFlowsCommandHistoryTriggerSql,
@@ -150,6 +151,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandCardinalityTriggerSql),
         db.prepare(consultingFlowsCommandAiTransitionTriggerSql),
         db.prepare(consultingFlowsSetAiPolicyJobsTriggerSql),
+        db.prepare(consultingFlowsSaveRecordingEffectTriggerSql),
         db.prepare(consultingFlowsSaveTranscriptJobsTriggerSql),
         db.prepare(consultingFlowsRetryJobEffectTriggerSql),
         db.prepare(consultingFlowsJobsTransitionTriggerSql),
@@ -1186,6 +1188,95 @@ function assertFlowCommitTransition(
         return expected;
       });
       if (!sameValue(after.jobs, expectedJobs))
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'save_recording') {
+      const recording = after.recordings.at(-1);
+      if (
+        !recording ||
+        recording.id !== `${commandId}-recording` ||
+        recording.createdAt !== after.updatedAt ||
+        recording.consentAt !== after.updatedAt ||
+        recording.transcript !== recording.transcript.trim() ||
+        !before.meetings.some(
+          (meeting) =>
+            meeting.id === recording.meetingId &&
+            meeting.status === 'completed',
+        ) ||
+        (recording.transcript
+          ? recording.transcriptReviewedAt !== after.updatedAt ||
+            typeof recording.transcriptReviewedBy !== 'string' ||
+            !recording.transcriptReviewedBy.trim()
+          : recording.transcriptReviewedAt !== undefined ||
+            recording.transcriptReviewedBy !== undefined)
+      )
+        throw storedFlowIntegrityError();
+
+      const expectedNewFileIds = [
+        ...(recording.fileId ? [recording.fileId] : []),
+        ...(recording.audioFileId && recording.audioFileId !== recording.fileId
+          ? [recording.audioFileId]
+          : []),
+      ];
+      if (
+        after.files.length !==
+          before.files.length + expectedNewFileIds.length ||
+        before.files.some((file, index) => !sameValue(file, after.files[index]))
+      )
+        throw storedFlowIntegrityError();
+      const newFiles = after.files.slice(before.files.length);
+      if (
+        newFiles.some(
+          (file, index) =>
+            file.id !== expectedNewFileIds[index] ||
+            file.purpose !== 'recording' ||
+            file.createdAt !== after.updatedAt,
+        )
+      )
+        throw storedFlowIntegrityError();
+      const primaryFile = recording.fileId
+        ? newFiles.find((file) => file.id === recording.fileId)
+        : undefined;
+      const primaryIsTranscript =
+        primaryFile !== undefined && /\.(?:docx|txt)$/i.test(primaryFile.name);
+      const primaryIsAudio =
+        primaryFile !== undefined &&
+        /\.(?:mp3|m4a|wav)$/i.test(primaryFile.name);
+      if (
+        recording.transcriptFileId !==
+          (primaryIsTranscript ? recording.fileId : undefined) ||
+        (primaryIsAudio && recording.audioFileId !== recording.fileId) ||
+        (!primaryIsAudio &&
+          recording.audioFileId === recording.fileId &&
+          recording.audioFileId !== undefined)
+      )
+        throw storedFlowIntegrityError();
+      if (recording.audioFileId) {
+        const audioFile = newFiles.find(
+          (file) => file.id === recording.audioFileId,
+        );
+        if (!audioFile || !/\.(?:mp3|m4a|wav)$/i.test(audioFile.name))
+          throw storedFlowIntegrityError();
+      }
+
+      const reason = !recording.transcript
+        ? '전사문 대기: Word·TXT를 첨부하거나 본문을 입력해 주세요. 음성은 보관만 하며 자동전사는 미연결입니다.'
+        : !after.ai.enabled
+          ? '김성민 대표의 외부 AI 자동생성 승인이 필요합니다.'
+          : '';
+      const sourceReportId = after.reports.findLast(
+        (report) => report.stage === 1,
+      )?.id;
+      const expectedJob: ConsultingFlow['jobs'][number] = {
+        id: `${commandId}-job`,
+        stage: 4,
+        sourceRecordingId: recording.id,
+        sourceReportId,
+        status: reason ? 'blocked' : 'queued',
+        reason,
+        createdAt: after.updatedAt,
+      };
+      if (!sameValue(after.jobs, [...before.jobs, expectedJob]))
         throw storedFlowIntegrityError();
     }
     if (action === 'save_transcript') {

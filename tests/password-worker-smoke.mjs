@@ -421,6 +421,16 @@ const flowRetryJobEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowSaveRecordingEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0074_consulting_flow_save_recording_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -428,6 +438,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_command_cardinality_guard',
   'consulting_flows_command_ai_transition_guard',
   'consulting_flows_set_ai_policy_jobs_guard',
+  'consulting_flows_save_recording_effect_guard',
   'consulting_flows_save_transcript_jobs_guard',
   'consulting_flows_retry_job_effect_guard',
   'consulting_flows_jobs_transition_guard',
@@ -476,6 +487,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowCommandCardinalityTriggerSql[1],
       flowCommandAiTransitionTriggerSql[0],
       flowSetAiPolicyJobsTriggerSql[0],
+      flowSaveRecordingEffectTriggerSql[0],
       flowSaveTranscriptJobsTriggerSql[0],
       flowRetryJobEffectTriggerSql[0],
       ...flowAiEvidenceTransitionTriggerSql,
@@ -3780,6 +3792,9 @@ try {
     '가상 상담 전사문을 재시도 무결성 검증 목적으로 확인했습니다.';
   retryEffectFlow.recordings[0].transcriptReviewedAt = evidenceTimes[1];
   retryEffectFlow.recordings[0].transcriptReviewedBy = 'native-synthetic-owner';
+  const recordingEffectCaseId = 'native-flow-save-recording-effect';
+  const recordingEffectFlow = structuredClone(transcriptEffectFlow);
+  recordingEffectFlow.caseId = recordingEffectCaseId;
   const insertEvidenceFlow = () =>
     db
       .prepare(
@@ -3823,6 +3838,21 @@ try {
         retryEffectFlow.revision,
         JSON.stringify(retryEffectFlow),
         retryEffectFlow.updatedAt,
+      )
+      .run();
+  const insertRecordingEffectFlow = () =>
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        recordingEffectCaseId,
+        recordingEffectFlow.partnerId,
+        recordingEffectFlow.revision,
+        JSON.stringify(recordingEffectFlow),
+        recordingEffectFlow.updatedAt,
       )
       .run();
   const receiptOriginCaseId = 'native-flow-command-receipt-origin';
@@ -3925,6 +3955,7 @@ try {
     await insertLegacyReceiptOriginFlow();
     await insertTranscriptEffectFlow();
     await insertRetryEffectFlow();
+    await insertRecordingEffectFlow();
   } finally {
     await db.batch([
       db.prepare(flowAiEvidenceInsertTriggerSql),
@@ -4160,6 +4191,84 @@ try {
   );
   await saveRetryEffectTransition(validRetryEffectFlow);
   checks.push('FLOW native D1 binds retry commands to one exact target job');
+  const validRecordingEffectFlow = structuredClone(recordingEffectFlow);
+  validRecordingEffectFlow.revision++;
+  validRecordingEffectFlow.updatedAt = evidenceTimes[2];
+  validRecordingEffectFlow.recordings.push({
+    id: 'native-save-recording-effect-recording',
+    meetingId: recordingEffectFlow.meetings[0].id,
+    transcript:
+      '가상 상담 전사문을 녹취 등록 효과 무결성 검증 목적으로 확인했습니다.',
+    transcriptReviewedAt: evidenceTimes[2],
+    transcriptReviewedBy: 'native-synthetic-owner',
+    consentAt: evidenceTimes[2],
+    createdAt: evidenceTimes[2],
+  });
+  validRecordingEffectFlow.jobs.push({
+    id: 'native-save-recording-effect-job',
+    stage: 4,
+    sourceRecordingId: 'native-save-recording-effect-recording',
+    sourceReportId: recordingEffectFlow.reports
+      .filter((report) => report.stage === 1)
+      .at(-1).id,
+    status: 'queued',
+    reason: '',
+    createdAt: evidenceTimes[2],
+  });
+  validRecordingEffectFlow.audit.push({
+    id: 'native-save-recording-effect',
+    at: evidenceTimes[2],
+    actor: '김성민 대표',
+    action: 'save_recording',
+    detail: '확인한 상담 전사문 저장 · 4차 심화보고서 생성 요청',
+  });
+  validRecordingEffectFlow.commandIds.push('native-save-recording-effect');
+  validRecordingEffectFlow.commandReceipts['native-save-recording-effect'] = {
+    actorKey: 'admin:primary',
+    fingerprint: '5'.repeat(64),
+    actor: '김성민 대표',
+    action: 'save_recording',
+  };
+  const saveRecordingEffectTransition = (after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        recordingEffectCaseId,
+        recordingEffectFlow.revision,
+      )
+      .run();
+  const forgedRecordingEffectFlow = structuredClone(validRecordingEffectFlow);
+  forgedRecordingEffectFlow.jobs[0].reason =
+    '녹취 등록에 섞은 독립 작업 사유 변조';
+  await assert.rejects(
+    saveRecordingEffectTransition(forgedRecordingEffectFlow),
+    /save recording effect is invalid/,
+  );
+  const forgedRecordingFileFlow = structuredClone(validRecordingEffectFlow);
+  forgedRecordingFileFlow.files.push({
+    id: 'native-save-recording-unreferenced-file',
+    name: 'unreferenced.txt',
+    contentType: 'text/plain',
+    size: 10,
+    key: 'consulting-flow/native-save-recording-unreferenced-file',
+    createdAt: evidenceTimes[2],
+    purpose: 'recording',
+  });
+  await assert.rejects(
+    saveRecordingEffectTransition(forgedRecordingFileFlow),
+    /save recording effect is invalid/,
+  );
+  await saveRecordingEffectTransition(validRecordingEffectFlow);
+  checks.push(
+    'FLOW native D1 binds recording, job and file effects to one command',
+  );
   const commandedClaimEvidenceFlow = structuredClone(processingEvidenceFlow);
   commandedClaimEvidenceFlow.ai.approvedAt = evidenceTimes[3];
   commandedClaimEvidenceFlow.ai.approvedBy = 'native-synthetic-owner';
