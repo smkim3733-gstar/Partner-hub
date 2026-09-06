@@ -46,6 +46,7 @@ import {
   consultingFlowFileMetadataBackfillSql,
   consultingFlowFileOwnersBackfillSql,
   consultingFlowsCommandInsertScopeTriggerSql,
+  consultingFlowsSetAiPolicyJobsTriggerSql,
 } from '../db/schema';
 import { deleteFlowFileLedgerFixture } from './flow-file-ledger-fixture';
 import {
@@ -1601,7 +1602,9 @@ void test('FLOW separates user commands from internal AI transitions', async () 
   );
   addSyntheticCommandReceipt(commandOnly, commandId);
   const commandedClaim = structuredClone(commandOnly);
-  const claimed = commandedClaim.jobs.find((job) => job.status === 'queued');
+  const claimed = commandedClaim.jobs.find(
+    (job) => job.id !== `${commandId}-job` && job.status === 'queued',
+  );
   assert.ok(claimed);
   claimed.status = 'processing';
   claimed.startedAt = at;
@@ -1610,6 +1613,59 @@ void test('FLOW separates user commands from internal AI transitions', async () 
     (error) => error instanceof FlowError && error.status === 503,
   );
   const db = await flowDatabase();
+  await db
+    .prepare('DROP TRIGGER IF EXISTS consulting_flows_set_ai_policy_jobs_guard')
+    .run();
+  try {
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          commandedClaim.revision,
+          JSON.stringify(commandedClaim),
+          commandedClaim.updatedAt,
+          queued.caseId,
+          queued.revision,
+        )
+        .run(),
+      /command AI transition is invalid/,
+    );
+  } finally {
+    await db.prepare(consultingFlowsSetAiPolicyJobsTriggerSql).run();
+  }
+  await commitFlow(queued, commandOnly);
+  assert.deepEqual(
+    await readFlow(queued.caseId),
+    JSON.parse(JSON.stringify(commandOnly)),
+  );
+});
+
+void test('FLOW AI policy commands bind exact existing job effects', async () => {
+  const db = await flowDatabase();
+  const queued = await queuedReportFixture(false);
+  const disableId = `policy-disable-jobs-${++sequence}`;
+  const disableAt = new Date(Date.parse(queued.updatedAt) + 1).toISOString();
+  const disabled = applyFlowCommand(
+    queued,
+    { type: 'set_ai_policy', enabled: false },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    { commandId: disableId, now: disableAt },
+  );
+  addSyntheticCommandReceipt(disabled, disableId);
+  const forgedDisable = structuredClone(disabled);
+  const forgedBlocked = forgedDisable.jobs.find(
+    (job) => job.status === 'blocked',
+  );
+  assert.ok(forgedBlocked);
+  forgedBlocked.reason = '위조된 정책 보류 사유';
+  await assert.rejects(
+    commitFlow(queued, forgedDisable),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
   await assert.rejects(
     db
       .prepare(
@@ -1618,19 +1674,65 @@ void test('FLOW separates user commands from internal AI transitions', async () 
         WHERE case_id = ?4 AND revision = ?5`,
       )
       .bind(
-        commandedClaim.revision,
-        JSON.stringify(commandedClaim),
-        commandedClaim.updatedAt,
+        forgedDisable.revision,
+        JSON.stringify(forgedDisable),
+        forgedDisable.updatedAt,
         queued.caseId,
         queued.revision,
       )
       .run(),
-    /command AI transition is invalid/,
+    /set AI policy jobs are invalid/,
   );
-  await commitFlow(queued, commandOnly);
+  await commitFlow(queued, disabled);
+
+  const secondQueued = await queuedReportFixture(false);
+  const enableId = `policy-enable-jobs-${++sequence}`;
+  const enableAt = new Date(
+    Date.parse(secondQueued.updatedAt) + 1,
+  ).toISOString();
+  const enabled = applyFlowCommand(
+    secondQueued,
+    {
+      type: 'set_ai_policy',
+      enabled: true,
+      thirdPartyConsent: true,
+      privacyMasked: true,
+      costConsent: true,
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    { commandId: enableId, now: enableAt },
+  );
+  addSyntheticCommandReceipt(enabled, enableId);
+  const forgedEnable = structuredClone(enabled);
+  const forgedQueued = forgedEnable.jobs.find((job) => job.status === 'queued');
+  assert.ok(forgedQueued);
+  forgedQueued.status = 'blocked';
+  forgedQueued.reason = '대표가 자동생성을 중지했습니다.';
+  await assert.rejects(
+    commitFlow(secondQueued, forgedEnable),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forgedEnable.revision,
+        JSON.stringify(forgedEnable),
+        forgedEnable.updatedAt,
+        secondQueued.caseId,
+        secondQueued.revision,
+      )
+      .run(),
+    /set AI policy jobs are invalid/,
+  );
+  await commitFlow(secondQueued, enabled);
   assert.deepEqual(
-    await readFlow(queued.caseId),
-    JSON.parse(JSON.stringify(commandOnly)),
+    await readFlow(secondQueued.caseId),
+    JSON.parse(JSON.stringify(enabled)),
   );
 });
 

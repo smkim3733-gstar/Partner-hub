@@ -395,12 +395,23 @@ const flowCommandAiTransitionTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowSetAiPolicyJobsTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0071_consulting_flow_set_ai_policy_jobs.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
   'consulting_flows_audit_cardinality_guard',
   'consulting_flows_command_cardinality_guard',
   'consulting_flows_command_ai_transition_guard',
+  'consulting_flows_set_ai_policy_jobs_guard',
   'consulting_flows_jobs_transition_guard',
   'consulting_flows_success_evidence_guard',
   'consulting_flows_failure_history_guard',
@@ -446,6 +457,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowAuditCardinalityTriggerSql[1],
       flowCommandCardinalityTriggerSql[1],
       flowCommandAiTransitionTriggerSql[0],
+      flowSetAiPolicyJobsTriggerSql[0],
       ...flowAiEvidenceTransitionTriggerSql,
       ...flowAiJobLifecycleTriggerSql,
       ...flowAiJobTransitionTimestampTriggerSql,
@@ -3907,6 +3919,33 @@ try {
     /(?:non-command )?audit cardinality is invalid/,
   );
   checks.push('FLOW native D1 keeps AI job claims free of new audit records');
+  const forgedPolicyJobsFlow = structuredClone(retriedEvidenceFlow);
+  forgedPolicyJobsFlow.revision++;
+  forgedPolicyJobsFlow.updatedAt = evidenceTimes[3];
+  forgedPolicyJobsFlow.ai.enabled = false;
+  forgedPolicyJobsFlow.ai.approvedAt = evidenceTimes[3];
+  forgedPolicyJobsFlow.ai.approvedBy = 'native-synthetic-owner';
+  forgedPolicyJobsFlow.jobs[1].status = 'blocked';
+  forgedPolicyJobsFlow.jobs[1].reason = '위조된 정책 보류 사유';
+  forgedPolicyJobsFlow.audit.push({
+    id: 'native-forged-policy-jobs',
+    at: evidenceTimes[3],
+    actor: '김성민 대표',
+    action: 'set_ai_policy',
+    detail: '이 기업의 Claude 자동생성 중지',
+  });
+  forgedPolicyJobsFlow.commandIds.push('native-forged-policy-jobs');
+  forgedPolicyJobsFlow.commandReceipts['native-forged-policy-jobs'] = {
+    actorKey: 'admin:primary',
+    fingerprint: '8'.repeat(64),
+    actor: '김성민 대표',
+    action: 'set_ai_policy',
+  };
+  await assert.rejects(
+    saveEvidenceTransition(retriedEvidenceFlow, forgedPolicyJobsFlow),
+    /set AI policy jobs are invalid/,
+  );
+  checks.push('FLOW native D1 binds AI policy to exact queued-job blocking');
   const commandedClaimEvidenceFlow = structuredClone(processingEvidenceFlow);
   commandedClaimEvidenceFlow.ai.approvedAt = evidenceTimes[3];
   commandedClaimEvidenceFlow.ai.approvedBy = 'native-synthetic-owner';
@@ -3915,7 +3954,7 @@ try {
     at: evidenceTimes[3],
     actor: '김성민 대표',
     action: 'set_ai_policy',
-    detail: '사용자 명령에 AI 작업 청구를 혼합한 손상 fixture',
+    detail: '이 기업의 Claude 자동생성 허용 / 자료 처리·비용 확인',
   });
   commandedClaimEvidenceFlow.commandIds.push('native-commanded-ai-claim');
   commandedClaimEvidenceFlow.commandReceipts['native-commanded-ai-claim'] = {
@@ -3924,10 +3963,17 @@ try {
     actor: '김성민 대표',
     action: 'set_ai_policy',
   };
-  await assert.rejects(
-    saveEvidenceTransition(retriedEvidenceFlow, commandedClaimEvidenceFlow),
-    /command AI transition is invalid/,
+  await db.exec(
+    'DROP TRIGGER IF EXISTS consulting_flows_set_ai_policy_jobs_guard',
   );
+  try {
+    await assert.rejects(
+      saveEvidenceTransition(retriedEvidenceFlow, commandedClaimEvidenceFlow),
+      /command AI transition is invalid/,
+    );
+  } finally {
+    await db.prepare(flowSetAiPolicyJobsTriggerSql[0]).run();
+  }
   checks.push('FLOW native D1 separates commands from internal AI claims');
   await saveEvidenceTransition(retriedEvidenceFlow, processingEvidenceFlow);
   const validCompletionEvidenceFlow = structuredClone(processingEvidenceFlow);

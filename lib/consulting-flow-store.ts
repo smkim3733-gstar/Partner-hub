@@ -16,6 +16,7 @@ import {
   consultingFlowsCommandInsertCardinalityTriggerSql,
   consultingFlowsCommandCardinalityTriggerSql,
   consultingFlowsCommandAiTransitionTriggerSql,
+  consultingFlowsSetAiPolicyJobsTriggerSql,
   consultingFlowsCommandHistoryTriggerSql,
   consultingFlowsCommandInsertEvidenceTriggerSql,
   consultingFlowsCommandInsertEffectTriggerSql,
@@ -146,6 +147,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandInsertCardinalityTriggerSql),
         db.prepare(consultingFlowsCommandCardinalityTriggerSql),
         db.prepare(consultingFlowsCommandAiTransitionTriggerSql),
+        db.prepare(consultingFlowsSetAiPolicyJobsTriggerSql),
         db.prepare(consultingFlowsJobsTransitionTriggerSql),
         db.prepare(consultingFlowsSuccessEvidenceTriggerSql),
         db.prepare(consultingFlowsFailureHistoryTriggerSql),
@@ -1170,6 +1172,18 @@ function assertFlowCommitTransition(
   if (newCommandIds.length === 1) {
     const commandId = newCommandIds[0];
     const action = afterReceipts[commandId]?.action;
+    if (action === 'set_ai_policy') {
+      const expectedJobs = before.jobs.map((job) => {
+        const expected = structuredClone(job);
+        if (!after.ai.enabled && job.status === 'queued') {
+          expected.status = 'blocked';
+          expected.reason = '대표가 자동생성을 중지했습니다.';
+        }
+        return expected;
+      });
+      if (!sameValue(after.jobs, expectedJobs))
+        throw storedFlowIntegrityError();
+    }
     const rules =
       FLOW_COMMAND_TARGET_RULES[
         action as keyof typeof FLOW_COMMAND_TARGET_RULES
