@@ -10611,8 +10611,8 @@ type MultipartBodyStateChange =
   | {
       kind: 'permission';
       permission: 'ownCases' | 'fileUpload';
-      timing?: 'body-read' | 'first-r2-write';
-      status: 403;
+      timing?: 'body-read' | 'first-r2-write' | 'd1-write';
+      status: 403 | 503;
       error: string;
     }
   | {
@@ -10885,6 +10885,8 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       scenario.kind === 'email-change' ||
       scenario.kind === 'display-name-change') &&
     scenario.timing === 'first-r2-write';
+  const stateChangesDuringD1Write =
+    scenario.kind === 'permission' && scenario.timing === 'd1-write';
   Object.defineProperty(stream, 'getReader', {
     value: () => {
       const reader = getReader();
@@ -10893,7 +10895,8 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       reader.read = async () => {
         if (once) {
           once = false;
-          if (!stateChangesDuringFirstR2Write) await changeState();
+          if (!stateChangesDuringFirstR2Write && !stateChangesDuringD1Write)
+            await changeState();
         }
         return read();
       };
@@ -10901,11 +10904,28 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     },
   });
   let retryPutAttempts = 0;
+  const batch = db.batch.bind(db);
+  let d1WriteAttempts = 0;
   bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
     retryPutAttempts++;
     const object = await put(...args);
     if (retryPutAttempts === 1 && stateChangesDuringFirstR2Write)
       await changeState();
+    if (retryPutAttempts === 2 && stateChangesDuringD1Write)
+      db.batch = async <T = unknown>(statements: D1PreparedStatement[]) => {
+        if (
+          !statements.some((statement) =>
+            (statement as unknown as { sql: string }).sql.startsWith(
+              'UPDATE consulting_flows SET',
+            ),
+          )
+        )
+          return batch<T>(statements);
+        d1WriteAttempts++;
+        db.batch = batch;
+        await changeState();
+        return batch<T>(statements);
+      };
     return object;
   };
   let result: Response;
@@ -10913,6 +10933,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     result = await POST(retryRequest, context(stored.caseId));
   } finally {
     bucket.put = put;
+    db.batch = batch;
   }
   assert.equal(stateChanged, true);
   if (scenario.kind === 'display-name-change') {
@@ -10928,7 +10949,11 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
   } else {
     assert.equal(result.status, scenario.status);
     assert.deepEqual(await result.json(), { error: scenario.error });
-    assert.equal(retryPutAttempts, stateChangesDuringFirstR2Write ? 2 : 0);
+    assert.equal(
+      retryPutAttempts,
+      stateChangesDuringFirstR2Write || stateChangesDuringD1Write ? 2 : 0,
+    );
+    assert.equal(d1WriteAttempts, stateChangesDuringD1Write ? 1 : 0);
     if (scenario.kind === 'email-change')
       assert.equal(await memberBinding(), null);
     else assert.equal((await memberBinding())?.subject_id, partner.id);
@@ -10937,7 +10962,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       new Uint8Array(objects.get(transcriptReservation.storage_key)),
       storedBeforeStateChange,
     );
-    if (stateChangesDuringFirstR2Write) {
+    if (stateChangesDuringFirstR2Write || stateChangesDuringD1Write) {
       const audioReservation = pending.find(({ slot }) => slot === 'audio')!;
       assert.deepEqual(
         [...objects.keys()]
@@ -11110,6 +11135,17 @@ void test('partial R2 retry preserves stable identity when the display name chan
     name: '가상 R2 쓰기 중 변경 담당자',
     timing: 'first-r2-write',
     status: 200,
+  });
+});
+
+void test('partial R2 retry rejects upload permission revocation immediately before the D1 FLOW write and recovers both objects', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'permission',
+    permission: 'fileUpload',
+    timing: 'd1-write',
+    status: 503,
+    error:
+      '첨부파일 소유권을 안전하게 저장하지 못했습니다. 새로고침 후 다시 확인해 주세요.',
   });
 });
 
