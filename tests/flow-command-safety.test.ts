@@ -677,22 +677,24 @@ void test('FLOW commit requires exactly one revision and a valid stored timestam
   assert.equal(await readFlow(initial.caseId), null);
 });
 
-void test('FLOW commit preserves existing AI evidence, failure history, jobs and audit records', async () => {
+void test('FLOW commit preserves AI history and changes exactly one internal job target', async () => {
   const initial = await fixture();
   const timestamp = (offset: number) =>
     new Date(Date.parse(initial.updatedAt) + offset).toISOString();
   const queuedAt = timestamp(1);
-  const startedAt = timestamp(2);
-  const historyAt = timestamp(3);
-  const retryAt = timestamp(4);
-  const restartedAt = timestamp(5);
-  const failureAt = timestamp(6);
-  const nextAt = timestamp(7);
+  const successStartedAt = timestamp(2);
+  const failureStartedAt = timestamp(3);
+  const successAt = timestamp(4);
+  const historyAt = timestamp(5);
+  const retryAt = timestamp(6);
+  const restartedAt = timestamp(7);
+  const failureAt = timestamp(8);
+  const nextAt = timestamp(9);
   const successCreationAuditId = `immutable-success-creation-${++sequence}`;
   const failureCreationAuditId = `immutable-failure-creation-${++sequence}`;
   const successJobId = `${successCreationAuditId}-job`;
   const failureJobId = `${failureCreationAuditId}-job`;
-  const successAuditId = `${successJobId}-${historyAt}`;
+  const successAuditId = `${successJobId}-${successAt}`;
   const failureAuditId = `${failureJobId}-${failureAt}`;
   const historyAuditId = `${failureJobId}-${historyAt}`;
   const queued = structuredClone(initial);
@@ -734,14 +736,24 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
   addSyntheticCommandReceipt(queued, successCreationAuditId);
   addSyntheticCommandReceipt(queued, failureCreationAuditId);
   await commitFlow(initial, queued);
-  const processing = structuredClone(queued);
+  const successProcessing = structuredClone(queued);
+  successProcessing.revision++;
+  successProcessing.updatedAt = successStartedAt;
+  const claimedSuccessJob = successProcessing.jobs.find(
+    (job) => job.id === successJobId,
+  )!;
+  claimedSuccessJob.status = 'processing';
+  claimedSuccessJob.startedAt = successStartedAt;
+  await commitFlow(queued, successProcessing);
+  const processing = structuredClone(successProcessing);
   processing.revision++;
-  processing.updatedAt = startedAt;
-  for (const job of processing.jobs.slice(-2)) {
-    job.status = 'processing';
-    job.startedAt = startedAt;
-  }
-  await commitFlow(queued, processing);
+  processing.updatedAt = failureStartedAt;
+  const claimedFailureJob = processing.jobs.find(
+    (job) => job.id === failureJobId,
+  )!;
+  claimedFailureJob.status = 'processing';
+  claimedFailureJob.startedAt = failureStartedAt;
+  await commitFlow(successProcessing, processing);
   const collapsedRetry = structuredClone(processing);
   collapsedRetry.revision++;
   collapsedRetry.updatedAt = historyAt;
@@ -776,15 +788,15 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
         processing.revision,
       )
       .run(),
-    /(?:job transition audit|non-command scope) is invalid/,
+    /(?:job transition audit|non-command scope|non-command job target) is invalid/,
   );
-  const firstResult = structuredClone(processing);
-  firstResult.revision++;
-  firstResult.updatedAt = historyAt;
-  const successJob = firstResult.jobs.find((job) => job.id === successJobId)!;
+  const successful = structuredClone(processing);
+  successful.revision++;
+  successful.updatedAt = successAt;
+  const successJob = successful.jobs.find((job) => job.id === successJobId)!;
   successJob.status = 'complete';
-  successJob.completedAt = historyAt;
-  addSyntheticAiReport(firstResult, successJob, historyAt);
+  successJob.completedAt = successAt;
+  addSyntheticAiReport(successful, successJob, successAt);
   successJob.evidence = {
     auditId: successAuditId,
     instructionVersion: 'synthetic-flow-instruction-v1',
@@ -794,8 +806,19 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
     providerMessageId: 'msg_immutable_success',
     inputTokens: 10,
     outputTokens: 20,
-    observedAt: historyAt,
+    observedAt: successAt,
   };
+  successful.audit.push({
+    id: successAuditId,
+    at: successAt,
+    actor: '보고서 자동생성',
+    action: 'ai_result',
+    detail: '1차 정밀진단보고서 자동 저장 · 담당 파트너 공유',
+  });
+  await commitFlow(processing, successful);
+  const firstResult = structuredClone(successful);
+  firstResult.revision++;
+  firstResult.updatedAt = historyAt;
   const failedJob = firstResult.jobs.find((job) => job.id === failureJobId)!;
   failedJob.status = 'failed';
   failedJob.reason = '과거 가상 공급자 오류';
@@ -807,23 +830,14 @@ void test('FLOW commit preserves existing AI evidence, failure history, jobs and
     observedAt: historyAt,
     providerRequestId: 'req_immutable_history',
   };
-  firstResult.audit.push(
-    {
-      id: historyAuditId,
-      at: historyAt,
-      actor: '보고서 자동생성',
-      action: 'ai_result',
-      detail: '1차 정밀진단보고서 실패 · 과거 가상 공급자 오류',
-    },
-    {
-      id: successAuditId,
-      at: historyAt,
-      actor: '보고서 자동생성',
-      action: 'ai_result',
-      detail: '1차 정밀진단보고서 자동 저장 · 담당 파트너 공유',
-    },
-  );
-  await commitFlow(processing, firstResult);
+  firstResult.audit.push({
+    id: historyAuditId,
+    at: historyAt,
+    actor: '보고서 자동생성',
+    action: 'ai_result',
+    detail: '1차 정밀진단보고서 실패 · 과거 가상 공급자 오류',
+  });
+  await commitFlow(successful, firstResult);
   const retry = structuredClone(firstResult);
   retry.revision++;
   retry.updatedAt = retryAt;
@@ -1280,7 +1294,7 @@ void test('FLOW new AI job ID binds to one exact creation audit ID', async () =>
         initial.revision,
       )
       .run(),
-    /(?:job creation command identity|command receipt origin) is invalid/,
+    /(?:job creation command identity|command receipt origin|non-command job target) is invalid/,
   );
   assert.deepEqual(await readFlow(initial.caseId), initial);
   await commitFlow(initial, valid);

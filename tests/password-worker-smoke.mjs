@@ -339,6 +339,16 @@ const flowAiResultAuditDetailTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowNonCommandJobTargetTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0065_consulting_flow_non_command_job_target.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -366,6 +376,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_command_scope_guard',
   'consulting_flows_command_target_guard',
   'consulting_flows_non_command_scope_guard',
+  'consulting_flows_non_command_job_target_guard',
   'consulting_flows_ai_result_report_guard',
   'consulting_flows_ai_result_file_guard',
   'consulting_flows_ai_result_audit_detail_guard',
@@ -399,6 +410,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowCommandScopeTriggerSql[1],
       flowCommandTargetTriggerSql[1],
       flowNonCommandScopeTriggerSql[0],
+      flowNonCommandJobTargetTriggerSql[0],
       flowAiResultReportTriggerSql[0],
       flowAiResultFileTriggerSql[0],
       flowAiResultAuditDetailTriggerSql[0],
@@ -4274,7 +4286,7 @@ try {
     },
     {
       name: 'FLOW native D1 preserves existing jobs',
-      pattern: /job transition is invalid/,
+      pattern: /(?:job transition|non-command job target) is invalid/,
       apply(flow) {
         flow.jobs.shift();
       },
@@ -4282,7 +4294,7 @@ try {
     {
       name: 'FLOW native D1 rejects an unaudited new AI job',
       pattern:
-        /(?:job creation origin|job creation audit identity|job creation command identity) is invalid/,
+        /(?:job creation origin|job creation audit identity|job creation command identity|non-command job target) is invalid/,
       apply(flow) {
         flow.jobs.push({
           id: 'native-unaudited-new-job',
@@ -4317,7 +4329,8 @@ try {
     },
     {
       name: 'FLOW native D1 binds each new AI job to its command ID',
-      pattern: /job creation command identity is invalid/,
+      pattern:
+        /(?:job creation command identity|non-command job target) is invalid/,
       apply(flow) {
         flow.jobs.push({
           id: 'native-commandless-creation-job',
@@ -4337,7 +4350,8 @@ try {
     },
     {
       name: 'FLOW native D1 rejects an invented terminal AI job',
-      pattern: /(?:job transition|job creation origin) is invalid/,
+      pattern:
+        /(?:job transition|job creation origin|non-command job target) is invalid/,
       apply(flow) {
         const job = structuredClone(flow.jobs[0]);
         job.id = 'native-invented-terminal-job';
@@ -4398,6 +4412,37 @@ try {
       ).payload,
     ),
     failedEvidenceFlow,
+  );
+  const multiQueuedEvidenceFlow = structuredClone(failedEvidenceFlow);
+  for (const job of multiQueuedEvidenceFlow.jobs) {
+    job.status = 'queued';
+    job.reason = '';
+    delete job.startedAt;
+    delete job.completedAt;
+    delete job.reportId;
+    delete job.evidence;
+    delete job.failureEvidence;
+  }
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    [JSON.stringify(multiQueuedEvidenceFlow), evidenceCaseId],
+  );
+  const multiClaimEvidenceFlow = structuredClone(multiQueuedEvidenceFlow);
+  multiClaimEvidenceFlow.revision++;
+  multiClaimEvidenceFlow.updatedAt = new Date(
+    Date.parse(multiQueuedEvidenceFlow.updatedAt) + 1,
+  ).toISOString();
+  for (const job of multiClaimEvidenceFlow.jobs) {
+    job.status = 'processing';
+    job.startedAt = multiClaimEvidenceFlow.updatedAt;
+  }
+  await assert.rejects(
+    saveEvidenceTransition(multiQueuedEvidenceFlow, multiClaimEvidenceFlow),
+    /non-command job target is invalid/,
+  );
+  checks.push(
+    'FLOW native D1 limits each internal update to one AI job target',
   );
   await deleteConsultingFlowFixture(db, evidenceCaseId);
   await assert.rejects(

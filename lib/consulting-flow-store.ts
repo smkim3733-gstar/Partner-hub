@@ -48,6 +48,7 @@ import {
   consultingFlowsAiResultReportTriggerSql,
   consultingFlowsAiResultFileTriggerSql,
   consultingFlowsNonCommandScopeTriggerSql,
+  consultingFlowsNonCommandJobTargetTriggerSql,
   consultingFlowsNewCommandEvidenceTriggerSql,
   consultingFlowsNewCommandReceiptIdentityTriggerSql,
   consultingFlowsNewCommandMemberActorTriggerSql,
@@ -161,6 +162,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandInsertTargetTriggerSql),
         db.prepare(consultingFlowsCommandTargetTriggerSql),
         db.prepare(consultingFlowsNonCommandScopeTriggerSql),
+        db.prepare(consultingFlowsNonCommandJobTargetTriggerSql),
         db.prepare(consultingFlowsAiResultReportTriggerSql),
         db.prepare(consultingFlowsAiResultFileTriggerSql),
         db.prepare(consultingFlowsAiResultAuditDetailTriggerSql),
@@ -1066,11 +1068,17 @@ function assertFlowCommitTransition(
   )
     throw storedFlowIntegrityError();
   if (newCommandIds.length === 0 && before.revision > 0) {
-    const nextJobs = new Map(after.jobs.map((job) => [job.id, job]));
     const changedJobs = before.jobs.filter(
-      (job) => !sameValue(job, nextJobs.get(job.id)),
+      (job, index) => !sameValue(job, after.jobs[index]),
     );
-    if (changedJobs.length > 0) {
+    if (!sameValue(before.jobs, after.jobs)) {
+      if (
+        after.jobs.length !== before.jobs.length ||
+        before.jobs.some((job, index) => after.jobs[index]?.id !== job.id) ||
+        changedJobs.length !== 1
+      )
+        throw storedFlowIntegrityError();
+      const nextJobs = new Map(after.jobs.map((job) => [job.id, job]));
       const completed = changedJobs.some(
         (job) =>
           job.status === 'processing' &&
