@@ -1583,6 +1583,57 @@ void test('FLOW permits at most one new user command per revision', async () => 
   assert.deepEqual(await readFlow(stored.caseId), stored);
 });
 
+void test('FLOW separates user commands from internal AI transitions', async () => {
+  const queued = await queuedReportFixture(false);
+  const commandId = `commanded-ai-claim-${++sequence}`;
+  const at = new Date(Date.parse(queued.updatedAt) + 1).toISOString();
+  const commandOnly = applyFlowCommand(
+    queued,
+    {
+      type: 'set_ai_policy',
+      enabled: true,
+      thirdPartyConsent: true,
+      privacyMasked: true,
+      costConsent: true,
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    { commandId, now: at },
+  );
+  addSyntheticCommandReceipt(commandOnly, commandId);
+  const commandedClaim = structuredClone(commandOnly);
+  const claimed = commandedClaim.jobs.find((job) => job.status === 'queued');
+  assert.ok(claimed);
+  claimed.status = 'processing';
+  claimed.startedAt = at;
+  await assert.rejects(
+    commitFlow(queued, commandedClaim),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        commandedClaim.revision,
+        JSON.stringify(commandedClaim),
+        commandedClaim.updatedAt,
+        queued.caseId,
+        queued.revision,
+      )
+      .run(),
+    /command AI transition is invalid/,
+  );
+  await commitFlow(queued, commandOnly);
+  assert.deepEqual(
+    await readFlow(queued.caseId),
+    JSON.parse(JSON.stringify(commandOnly)),
+  );
+});
+
 void test('FLOW command receipts originate only with same-revision commands', async () => {
   const initial = await fixture();
   const legacyCommandId = `legacy-command-without-receipt-${++sequence}`;

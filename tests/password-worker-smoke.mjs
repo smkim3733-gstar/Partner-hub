@@ -385,11 +385,22 @@ const flowCommandCardinalityTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowCommandAiTransitionTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0070_consulting_flow_command_ai_transition.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
   'consulting_flows_audit_cardinality_guard',
   'consulting_flows_command_cardinality_guard',
+  'consulting_flows_command_ai_transition_guard',
   'consulting_flows_jobs_transition_guard',
   'consulting_flows_success_evidence_guard',
   'consulting_flows_failure_history_guard',
@@ -434,6 +445,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       consultingFlowsTransitionTriggerSql,
       flowAuditCardinalityTriggerSql[1],
       flowCommandCardinalityTriggerSql[1],
+      flowCommandAiTransitionTriggerSql[0],
       ...flowAiEvidenceTransitionTriggerSql,
       ...flowAiJobLifecycleTriggerSql,
       ...flowAiJobTransitionTimestampTriggerSql,
@@ -3895,6 +3907,28 @@ try {
     /(?:non-command )?audit cardinality is invalid/,
   );
   checks.push('FLOW native D1 keeps AI job claims free of new audit records');
+  const commandedClaimEvidenceFlow = structuredClone(processingEvidenceFlow);
+  commandedClaimEvidenceFlow.ai.approvedAt = evidenceTimes[3];
+  commandedClaimEvidenceFlow.ai.approvedBy = 'native-synthetic-owner';
+  commandedClaimEvidenceFlow.audit.push({
+    id: 'native-commanded-ai-claim',
+    at: evidenceTimes[3],
+    actor: '김성민 대표',
+    action: 'set_ai_policy',
+    detail: '사용자 명령에 AI 작업 청구를 혼합한 손상 fixture',
+  });
+  commandedClaimEvidenceFlow.commandIds.push('native-commanded-ai-claim');
+  commandedClaimEvidenceFlow.commandReceipts['native-commanded-ai-claim'] = {
+    actorKey: 'admin:primary',
+    fingerprint: '9'.repeat(64),
+    actor: '김성민 대표',
+    action: 'set_ai_policy',
+  };
+  await assert.rejects(
+    saveEvidenceTransition(retriedEvidenceFlow, commandedClaimEvidenceFlow),
+    /command AI transition is invalid/,
+  );
+  checks.push('FLOW native D1 separates commands from internal AI claims');
   await saveEvidenceTransition(retriedEvidenceFlow, processingEvidenceFlow);
   const validCompletionEvidenceFlow = structuredClone(processingEvidenceFlow);
   validCompletionEvidenceFlow.revision++;
