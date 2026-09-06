@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `b69001ee1f26302ab277b071b529eea8d1fb922e` (`fix: bind FLOW AI result audit details`)
-- 최신 기능: AI 결과 감사문구와 작업 단계·완료/실패/보류 상태·사유 결속
-- 검증: Node 회귀 검사 673개, 격리 workerd/D1/R2 검사 489개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
+- 최신 기능 커밋: `7291d37911ff8c66781aa3616e77fdd908febfe3` (`fix: bind FLOW internal job targets`)
+- 최신 기능: 새 명령 없는 내부 AI 갱신의 단일 기존 작업 대상 결속
+- 검증: Node 회귀 검사 673개, 격리 workerd/D1/R2 검사 490개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 223 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_cfb1f3db2a84819197b4baf8d11c97e4`), 소스 `b69001ee1f26302ab277b071b529eea8d1fb922e`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. Sites 안전 게이트가 정확한 공개 대상 버전 승인을 요구하며, 버전 108–222는 버전 223으로 대체해 배포하지 않는다.
+- 최신 Sites 저장 버전: 224 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_364f8f41c4b481918801469a0b22170b`), 소스 `7291d37911ff8c66781aa3616e77fdd908febfe3`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. Sites 안전 게이트가 정확한 공개 대상 버전 승인을 요구하며, 버전 108–223은 버전 224로 대체해 배포하지 않는다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -44,7 +44,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW AI 결과 감사문구 무결성](FLOW_AI_RESULT_AUDIT_DETAIL_INTEGRITY_2026_09_06.md)을 확인한다.
+먼저 [상담 FLOW AI 작업 대상 무결성](FLOW_AI_JOB_TARGET_INTEGRITY_2026_09_06.md)을 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
