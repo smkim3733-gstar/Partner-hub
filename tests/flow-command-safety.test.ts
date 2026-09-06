@@ -1065,7 +1065,7 @@ void test('FLOW native D1 rejects terminal AI evidence on the first root insert'
           inserted.updatedAt,
         )
         .run(),
-      /initial job(?: origin)? is invalid/,
+      /(?:initial job(?: origin)?|initial audit cardinality) is invalid/,
     );
   } finally {
     await db.prepare(consultingFlowsCommandInsertScopeTriggerSql).run();
@@ -1138,6 +1138,31 @@ void test('FLOW native D1 rejects terminal AI evidence on the first root insert'
       .run(),
     /(?:(?:initial job audit identity|initial command evidence) is|initial command semantics are) invalid/,
   );
+  const extraQueuedAudit = structuredClone(queued);
+  extraQueuedAudit.audit.push({
+    id: `native-insert-unbound-audit-${++sequence}`,
+    at: extraQueuedAudit.updatedAt,
+    actor: '가상 실행기',
+    action: 'system_note',
+    detail: '최초 명령에 결속되지 않은 여분 감사기록',
+  });
+  await assert.rejects(
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        extraQueuedAudit.caseId,
+        extraQueuedAudit.partnerId,
+        extraQueuedAudit.revision,
+        JSON.stringify(extraQueuedAudit),
+        extraQueuedAudit.updatedAt,
+      )
+      .run(),
+    /initial audit cardinality is invalid/,
+  );
   await db
     .prepare(
       `INSERT INTO consulting_flows
@@ -1190,6 +1215,15 @@ void test('FLOW new AI jobs bind creation time, stage source and audit', async (
     (flow: ConsultingFlow) => {
       flow.audit.pop();
     },
+    (flow: ConsultingFlow) => {
+      flow.audit.push({
+        id: `unbound-command-audit-${++sequence}`,
+        at: flow.updatedAt,
+        actor: '가상 실행기',
+        action: 'system_note',
+        detail: '사용자 명령에 결속되지 않은 여분 감사기록',
+      });
+    },
   ];
   const db = await flowDatabase();
   for (const mutate of invalid) {
@@ -1214,7 +1248,7 @@ void test('FLOW new AI jobs bind creation time, stage source and audit', async (
           initial.revision,
         )
         .run(),
-      /(?:(?:job creation (?:origin|audit identity)|new command evidence) is|command semantics are) invalid/,
+      /(?:(?:job creation (?:origin|audit identity)|new command evidence|audit cardinality) is|command semantics are) invalid/,
     );
     assert.deepEqual(await readFlow(initial.caseId), initial);
   }
@@ -1413,10 +1447,43 @@ void test('FLOW new command IDs require one audit and immutable receipt', async 
           initial.revision,
         )
         .run(),
-      /(?:new command evidence is|command semantics are) invalid/,
+      /(?:(?:new command evidence|audit cardinality) is|command semantics are) invalid/,
     );
     assert.deepEqual(await readFlow(initial.caseId), initial);
   }
+  const auditOnly = structuredClone(initial);
+  auditOnly.revision++;
+  auditOnly.updatedAt = new Date(
+    Date.parse(initial.updatedAt) + 1,
+  ).toISOString();
+  auditOnly.audit.push({
+    id: `unbound-audit-only-${++sequence}`,
+    at: auditOnly.updatedAt,
+    actor: '가상 실행기',
+    action: 'system_note',
+    detail: '명령이나 AI 결과가 없는 여분 감사기록',
+  });
+  await assert.rejects(
+    commitFlow(initial, auditOnly),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        auditOnly.revision,
+        JSON.stringify(auditOnly),
+        auditOnly.updatedAt,
+        initial.caseId,
+        initial.revision,
+      )
+      .run(),
+    /audit cardinality is invalid/,
+  );
   await commitFlow(initial, valid);
   assert.deepEqual(
     await readFlow(valid.caseId),
@@ -2548,7 +2615,7 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
         queued.revision,
       )
       .run(),
-    /non-command audit cardinality is invalid/,
+    /(?:non-command )?audit cardinality is invalid/,
   );
   await commitFlow(queued, processing);
   const changedLease = structuredClone(processing);
@@ -2617,7 +2684,7 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
         processing.revision,
       )
       .run(),
-    /non-command job transition is invalid/,
+    /(?:non-command job transition|audit cardinality) is invalid/,
   );
   const unauditedFailure = structuredClone(processing);
   unauditedFailure.revision++;
@@ -2643,7 +2710,7 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
         processing.revision,
       )
       .run(),
-    /(?:job transition audit|non-command audit cardinality) is invalid/,
+    /(?:job transition audit|(?:non-command )?audit cardinality) is invalid/,
   );
   const completionAt = timestamp(7);
   const completionAuditId = `${jobId}-${completionAt}`;
@@ -2699,7 +2766,7 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
         processing.revision,
       )
       .run(),
-    /non-command audit cardinality is invalid/,
+    /(?:non-command )?audit cardinality is invalid/,
   );
   const staleCompletion = structuredClone(completed);
   const staleCompletionAt = timestamp(6);

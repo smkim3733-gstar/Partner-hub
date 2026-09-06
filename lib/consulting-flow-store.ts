@@ -11,6 +11,8 @@ import {
   consultingFlowFileOwnersCaseIndexSql,
   consultingFlowFileOwnersTableSql,
   consultingFlowsAuditAppendOnlyTriggerSql,
+  consultingFlowsAuditInsertCardinalityTriggerSql,
+  consultingFlowsAuditCardinalityTriggerSql,
   consultingFlowsCommandHistoryTriggerSql,
   consultingFlowsCommandInsertEvidenceTriggerSql,
   consultingFlowsCommandInsertEffectTriggerSql,
@@ -136,6 +138,8 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsJobsInsertTriggerSql),
         db.prepare(consultingFlowsTransitionTriggerSql),
         db.prepare(consultingFlowsAuditAppendOnlyTriggerSql),
+        db.prepare(consultingFlowsAuditInsertCardinalityTriggerSql),
+        db.prepare(consultingFlowsAuditCardinalityTriggerSql),
         db.prepare(consultingFlowsJobsTransitionTriggerSql),
         db.prepare(consultingFlowsSuccessEvidenceTriggerSql),
         db.prepare(consultingFlowsFailureHistoryTriggerSql),
@@ -1070,6 +1074,16 @@ function assertFlowCommitTransition(
       );
     })
   )
+    throw storedFlowIntegrityError();
+  const resultTransitionCount = before.jobs.filter((job) => {
+    const next = after.jobs.find((candidate) => candidate.id === job.id);
+    return (
+      job.status === 'processing' &&
+      next !== undefined &&
+      ['blocked', 'failed', 'complete'].includes(next.status)
+    );
+  }).length;
+  if (newAudit.length !== newCommandIds.length + resultTransitionCount)
     throw storedFlowIntegrityError();
   if (newCommandIds.length === 0 && before.revision > 0) {
     const changedJobs = before.jobs.filter(

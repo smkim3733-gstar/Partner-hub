@@ -369,9 +369,16 @@ const flowNonCommandAuditCardinalityTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowAuditCardinalityTriggerSql = migrationStatements(
+  await readFile(
+    path.join(project, 'drizzle', '0068_consulting_flow_audit_cardinality.sql'),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
+  'consulting_flows_audit_cardinality_guard',
   'consulting_flows_jobs_transition_guard',
   'consulting_flows_success_evidence_guard',
   'consulting_flows_failure_history_guard',
@@ -414,6 +421,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
   await db.batch(
     [
       consultingFlowsTransitionTriggerSql,
+      flowAuditCardinalityTriggerSql[1],
       ...flowAiEvidenceTransitionTriggerSql,
       ...flowAiJobLifecycleTriggerSql,
       ...flowAiJobTransitionTimestampTriggerSql,
@@ -3724,7 +3732,7 @@ try {
         ]);
       }
     })(),
-    /initial job(?: origin)? is invalid/,
+    /(?:initial job(?: origin)?|initial audit cardinality) is invalid/,
   );
   checks.push('FLOW native D1 rejects terminal AI evidence on root insert');
   await db.batch([
@@ -3744,6 +3752,9 @@ try {
     db.prepare(
       'DROP TRIGGER IF EXISTS consulting_flows_command_insert_target_guard',
     ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_audit_insert_cardinality_guard',
+    ),
   ]);
   try {
     await insertEvidenceFlow();
@@ -3756,6 +3767,7 @@ try {
       db.prepare(flowCommandSemanticsTriggerSql[0]),
       db.prepare(flowCommandScopeTriggerSql[0]),
       db.prepare(flowCommandTargetTriggerSql[0]),
+      db.prepare(flowAuditCardinalityTriggerSql[0]),
     ]);
   }
   const backfilledReceiptOriginFlow = structuredClone(legacyReceiptOriginFlow);
@@ -3822,7 +3834,7 @@ try {
   });
   await assert.rejects(
     saveEvidenceTransition(evidenceFlow, retriedEvidenceFlow),
-    /non-command job transition is invalid/,
+    /(?:non-command job transition|audit cardinality) is invalid/,
   );
   checks.push('FLOW native D1 rejects a retry without a user command');
   retriedEvidenceFlow.commandIds.push('native-immutable-retry');
@@ -3855,7 +3867,7 @@ try {
   });
   await assert.rejects(
     saveEvidenceTransition(retriedEvidenceFlow, auditedClaimEvidenceFlow),
-    /non-command audit cardinality is invalid/,
+    /(?:non-command )?audit cardinality is invalid/,
   );
   checks.push('FLOW native D1 keeps AI job claims free of new audit records');
   await saveEvidenceTransition(retriedEvidenceFlow, processingEvidenceFlow);
@@ -3913,7 +3925,7 @@ try {
   });
   await assert.rejects(
     saveEvidenceTransition(processingEvidenceFlow, extraCompletionAudit),
-    /non-command audit cardinality is invalid/,
+    /(?:non-command )?audit cardinality is invalid/,
   );
   checks.push(
     'FLOW native D1 binds one exact audit to an AI result transition',
@@ -3985,7 +3997,7 @@ try {
       processingEvidenceFlow,
       unauditedFailureEvidenceFlow,
     ),
-    /(?:job transition audit|non-command audit cardinality) is invalid/,
+    /(?:job transition audit|(?:non-command )?audit cardinality) is invalid/,
   );
   checks.push('FLOW native D1 requires an audit for an AI job result');
   const failedEvidenceFlow = structuredClone(processingEvidenceFlow);
@@ -4063,6 +4075,19 @@ try {
       },
     },
     {
+      name: 'FLOW native D1 rejects audit records without an origin',
+      pattern: /audit cardinality is invalid/,
+      apply(flow) {
+        flow.audit.push({
+          id: 'native-unbound-audit-record',
+          at: flow.updatedAt,
+          actor: '가상 실행기',
+          action: 'system_note',
+          detail: '명령이나 AI 결과가 없는 여분 감사기록',
+        });
+      },
+    },
+    {
       name: 'FLOW native D1 preserves existing command IDs',
       pattern: /command history is immutable/,
       apply(flow) {
@@ -4091,7 +4116,7 @@ try {
     {
       name: 'FLOW native D1 requires a receipt for each new command ID',
       pattern:
-        /(?:new command evidence|command semantics|command effect) (?:is|are) invalid/,
+        /(?:new command evidence|command semantics|command effect|audit cardinality) (?:is|are) invalid/,
       apply(flow) {
         const commandId = 'native-command-without-receipt';
         flow.commandIds.push(commandId);
@@ -4107,7 +4132,7 @@ try {
     {
       name: 'FLOW native D1 requires an audit for each new command ID',
       pattern:
-        /(?:new command evidence|command semantics|command effect) (?:is|are) invalid/,
+        /(?:new command evidence|command semantics|command effect|audit cardinality) (?:is|are) invalid/,
       apply(flow) {
         flow.ai.approvedAt = flow.updatedAt;
         const commandId = 'native-command-without-audit';
@@ -4395,7 +4420,7 @@ try {
     {
       name: 'FLOW native D1 binds each new AI job to its command ID',
       pattern:
-        /(?:job creation command identity|non-command job target) is invalid/,
+        /(?:job creation command identity|non-command job target|audit cardinality) is invalid/,
       apply(flow) {
         flow.jobs.push({
           id: 'native-commandless-creation-job',
@@ -4416,7 +4441,7 @@ try {
     {
       name: 'FLOW native D1 rejects an invented terminal AI job',
       pattern:
-        /(?:job transition|job creation origin|non-command job target) is invalid/,
+        /(?:job transition|job creation origin|non-command job target|audit cardinality) is invalid/,
       apply(flow) {
         const job = structuredClone(flow.jobs[0]);
         job.id = 'native-invented-terminal-job';
