@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [상담 FLOW 감사기록 원본·개수 무결성](FLOW_AUDIT_ORIGIN_CARDINALITY_INTEGRITY_2026_09_06.md)                         | 새 감사기록을 사용자 명령 또는 AI 처리 결과 전이에 정확히 결속                           |
 | [상담 FLOW 내부 AI 감사기록 개수 무결성](FLOW_AI_INTERNAL_AUDIT_CARDINALITY_INTEGRITY_2026_09_06.md)                 | 작업 청구·대기 보류의 감사 0건과 처리 결과 전이의 정확히 1건 결속                        |
 | [상담 FLOW 비명령 AI 상태 전이 무결성](FLOW_AI_INTERNAL_TRANSITION_INTEGRITY_2026_09_06.md)                          | 자동 처리 허용 전이 제한과 사용자 재시도의 명령 ID·감사·영수증 결속                      |
 | [상담 FLOW AI 작업 대상 무결성](FLOW_AI_JOB_TARGET_INTEGRITY_2026_09_06.md)                                          | 비명령 내부 AI 갱신의 작업 배열 순서 보존과 단일 기존 작업 대상 결속                     |
