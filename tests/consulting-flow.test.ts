@@ -520,6 +520,17 @@ test('document receipt and review times preserve retries and reset only for a ne
     required: true,
   });
   const requestId = s.requests[0].id;
+  const unrelatedSource = file('source');
+  s.files.push(unrelatedSource);
+  fails(
+    s,
+    {
+      type: 'receive_document',
+      requestId,
+      fileId: unrelatedSource.id,
+    },
+    partner,
+  );
   const upload = file('requested_document');
   s = applyFlowCommand(s, { type: 'receive_document', requestId }, partner, {
     commandId: 'receipt-time-first',

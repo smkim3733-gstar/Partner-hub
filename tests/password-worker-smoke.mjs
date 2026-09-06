@@ -551,6 +551,16 @@ const flowMarkRequestSentEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowReceiveDocumentEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0087_consulting_flow_receive_document_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -570,6 +580,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_confirm_solutions_effect_guard',
   'consulting_flows_request_document_effect_guard',
   'consulting_flows_mark_request_sent_effect_guard',
+  'consulting_flows_receive_document_effect_guard',
   'consulting_flows_save_source_effect_guard',
   'consulting_flows_import_intake_source_effect_guard',
   'consulting_flows_exclude_source_effect_guard',
@@ -631,6 +642,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowConfirmSolutionsEffectTriggerSql,
       ...flowRequestDocumentEffectTriggerSql,
       ...flowMarkRequestSentEffectTriggerSql,
+      ...flowReceiveDocumentEffectTriggerSql,
       flowSaveSourceEffectTriggerSql[0],
       flowImportIntakeSourceEffectTriggerSql[0],
       flowExcludeSourceEffectTriggerSql[0],
@@ -5334,6 +5346,190 @@ try {
   checks.push(
     'FLOW native D1 binds one receipt-selected request and server send evidence to send recording',
   );
+  const validReceiveDocumentEffectFlow = structuredClone(
+    validMarkRequestSentEffectFlow,
+  );
+  validReceiveDocumentEffectFlow.revision++;
+  validReceiveDocumentEffectFlow.updatedAt = evidenceTimes[4];
+  const receiveDocumentCommandId = 'native-receive-document-effect';
+  const receiveDocumentTargetId = 'native-request-existing';
+  const receiveDocumentFile = {
+    id: 'native-received-document-file',
+    name: 'received-document.pdf',
+    contentType: 'application/pdf',
+    size: 128,
+    key: 'consulting-flow/native-received-document-file',
+    createdAt: evidenceTimes[4],
+    purpose: 'requested_document',
+  };
+  validReceiveDocumentEffectFlow.files.push(receiveDocumentFile);
+  validReceiveDocumentEffectFlow.requests[0] = {
+    ...validReceiveDocumentEffectFlow.requests[0],
+    fileId: receiveDocumentFile.id,
+    status: 'received',
+    receivedAt: evidenceTimes[4],
+    note: '가상 수령 메모',
+  };
+  validReceiveDocumentEffectFlow.audit.push({
+    id: receiveDocumentCommandId,
+    at: evidenceTimes[4],
+    actor: validReceiveDocumentEffectFlow.partnerName,
+    action: 'receive_document',
+    detail: '요청 서류 수령 · 대표 검토 대기',
+  });
+  validReceiveDocumentEffectFlow.commandIds.push(receiveDocumentCommandId);
+  validReceiveDocumentEffectFlow.commandReceipts[receiveDocumentCommandId] = {
+    actorKey: `member:${validReceiveDocumentEffectFlow.partnerId}`,
+    fingerprint: '5'.repeat(64),
+    actor: validReceiveDocumentEffectFlow.partnerName,
+    action: 'receive_document',
+    targetId: receiveDocumentTargetId,
+  };
+  const saveReceiveDocumentEffectTransition = (after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        requestEffectCaseId,
+        validMarkRequestSentEffectFlow.revision,
+      )
+      .run();
+  const swappedReceiveDocumentTargetFlow = structuredClone(
+    validReceiveDocumentEffectFlow,
+  );
+  swappedReceiveDocumentTargetFlow.requests[0] = structuredClone(
+    validMarkRequestSentEffectFlow.requests[0],
+  );
+  swappedReceiveDocumentTargetFlow.requests[1] = {
+    ...structuredClone(validMarkRequestSentEffectFlow.requests[1]),
+    fileId: receiveDocumentFile.id,
+    status: 'received',
+    receivedAt: evidenceTimes[4],
+    note: '가상 수령 메모',
+  };
+  await assert.rejects(
+    saveReceiveDocumentEffectTransition(swappedReceiveDocumentTargetFlow),
+    /receive document effect is invalid/,
+  );
+  const forgedReceiveDocumentTimeFlow = structuredClone(
+    validReceiveDocumentEffectFlow,
+  );
+  forgedReceiveDocumentTimeFlow.requests[0].receivedAt = evidenceTimes[3];
+  await assert.rejects(
+    saveReceiveDocumentEffectTransition(forgedReceiveDocumentTimeFlow),
+    /receive document effect is invalid/,
+  );
+  const forgedReceiveDocumentReviewFlow = structuredClone(
+    validReceiveDocumentEffectFlow,
+  );
+  forgedReceiveDocumentReviewFlow.requests[0].reviewedAt = evidenceTimes[4];
+  await assert.rejects(
+    saveReceiveDocumentEffectTransition(forgedReceiveDocumentReviewFlow),
+    /receive document effect is invalid/,
+  );
+  const forgedReceiveDocumentPurposeFlow = structuredClone(
+    validReceiveDocumentEffectFlow,
+  );
+  forgedReceiveDocumentPurposeFlow.files.at(-1).purpose = 'source';
+  await assert.rejects(
+    saveReceiveDocumentEffectTransition(forgedReceiveDocumentPurposeFlow),
+    /receive document effect is invalid/,
+  );
+  const extraReceiveDocumentFileFlow = structuredClone(
+    validReceiveDocumentEffectFlow,
+  );
+  extraReceiveDocumentFileFlow.files.push({
+    ...receiveDocumentFile,
+    id: 'native-received-document-file-extra',
+    key: 'consulting-flow/native-received-document-file-extra',
+  });
+  await assert.rejects(
+    saveReceiveDocumentEffectTransition(extraReceiveDocumentFileFlow),
+    /receive document effect is invalid/,
+  );
+  const forgedReceiveDocumentNoteFlow = structuredClone(
+    validReceiveDocumentEffectFlow,
+  );
+  forgedReceiveDocumentNoteFlow.requests[0].note =
+    '\u00a0비정규 수령 메모\u00a0';
+  await assert.rejects(
+    saveReceiveDocumentEffectTransition(forgedReceiveDocumentNoteFlow),
+    /receive document effect is invalid/,
+  );
+  const forgedReceiveDocumentAuditFlow = structuredClone(
+    validReceiveDocumentEffectFlow,
+  );
+  forgedReceiveDocumentAuditFlow.audit.at(-1).detail =
+    '다른 서류를 수령한 것처럼 위조';
+  await assert.rejects(
+    saveReceiveDocumentEffectTransition(forgedReceiveDocumentAuditFlow),
+    /receive document effect is invalid/,
+  );
+  const missingReceiveDocumentTargetFlow = structuredClone(
+    validReceiveDocumentEffectFlow,
+  );
+  delete missingReceiveDocumentTargetFlow.commandReceipts[
+    receiveDocumentCommandId
+  ].targetId;
+  await assert.rejects(
+    saveReceiveDocumentEffectTransition(missingReceiveDocumentTargetFlow),
+    /new command receipt target is invalid|receive document effect is invalid/,
+  );
+  await saveReceiveDocumentEffectTransition(validReceiveDocumentEffectFlow);
+
+  const sameFileReceiveDocumentFlow = structuredClone(
+    validReceiveDocumentEffectFlow,
+  );
+  sameFileReceiveDocumentFlow.revision++;
+  sameFileReceiveDocumentFlow.updatedAt = evidenceTimes[5];
+  sameFileReceiveDocumentFlow.requests[0].note = '가상 수령 메모 갱신';
+  const sameFileReceiveDocumentCommandId =
+    'native-receive-document-same-file-effect';
+  sameFileReceiveDocumentFlow.audit.push({
+    id: sameFileReceiveDocumentCommandId,
+    at: evidenceTimes[5],
+    actor: sameFileReceiveDocumentFlow.partnerName,
+    action: 'receive_document',
+    detail: '요청 서류 수령 · 대표 검토 대기',
+  });
+  sameFileReceiveDocumentFlow.commandIds.push(sameFileReceiveDocumentCommandId);
+  sameFileReceiveDocumentFlow.commandReceipts[
+    sameFileReceiveDocumentCommandId
+  ] = {
+    actorKey: `member:${sameFileReceiveDocumentFlow.partnerId}`,
+    fingerprint: '6'.repeat(64),
+    actor: sameFileReceiveDocumentFlow.partnerName,
+    action: 'receive_document',
+    targetId: receiveDocumentTargetId,
+  };
+  await db
+    .prepare(
+      `UPDATE consulting_flows
+      SET revision = ?1, payload = ?2, updated_at = ?3
+      WHERE case_id = ?4 AND revision = ?5`,
+    )
+    .bind(
+      sameFileReceiveDocumentFlow.revision,
+      JSON.stringify(sameFileReceiveDocumentFlow),
+      sameFileReceiveDocumentFlow.updatedAt,
+      requestEffectCaseId,
+      validReceiveDocumentEffectFlow.revision,
+    )
+    .run();
+  assert.equal(
+    sameFileReceiveDocumentFlow.requests[0].receivedAt,
+    evidenceTimes[4],
+  );
+  checks.push(
+    'FLOW native D1 binds selected request, requested-document file, review-cycle evidence and canonical audit to document receipt',
+  );
+  await deleteConsultingFlowFixture(db, requestEffectCaseId);
   const validSourceEffectFlow = structuredClone(sourceEffectFlow);
   validSourceEffectFlow.revision++;
   validSourceEffectFlow.updatedAt = evidenceTimes[2];

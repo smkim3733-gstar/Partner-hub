@@ -3258,6 +3258,195 @@ void test('FLOW request send records bind the selected request and server eviden
   await commitFlow(saved, marked);
 });
 
+void test('FLOW document receipts bind the selected request and received file', async () => {
+  let saved = await fixture();
+  for (const suffix of ['first', 'second']) {
+    const commandId = `receive-document-fixture-${suffix}-${++sequence}`;
+    const requested = applyFlowCommand(
+      saved,
+      {
+        type: 'request_document',
+        title: `가상 ${suffix} 수령 서류`,
+        required: true,
+        channel: suffix === 'first' ? '이메일' : '카카오톡',
+        recipient: '가상 담당자',
+        dueDate: '',
+      },
+      { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+      {
+        commandId,
+        now: new Date(Date.parse(saved.updatedAt) + 1).toISOString(),
+      },
+    );
+    addSyntheticCommandReceipt(requested, commandId);
+    await commitFlow(saved, requested);
+    saved = requested;
+  }
+
+  const receivedBytes = 'synthetic received document';
+  const receivedAt = new Date(Date.parse(saved.updatedAt) + 1).toISOString();
+  const receivedFileId = `receive-document-file-${++sequence}`;
+  const receivedFile: ConsultingFlow['files'][number] = {
+    id: receivedFileId,
+    name: 'received-document.pdf',
+    contentType: 'application/pdf',
+    size: new TextEncoder().encode(receivedBytes).byteLength,
+    key: flowFileStorageKey(receivedFileId),
+    createdAt: receivedAt,
+    purpose: 'requested_document',
+  };
+  const commandId = `receive-document-effect-${++sequence}`;
+  const receiveCommand = {
+    type: 'receive_document',
+    requestId: saved.requests[0]!.id,
+    note: '가상 수령 메모',
+    fileConsent: true,
+  } as const;
+  const partnerUser: PortalUser = {
+    id: 'stable-partner-subject',
+    email: partner.email,
+    displayName: partner.name,
+    role: 'trainee',
+    memberId: partner.id,
+    memberName: partner.name,
+    permissions: {
+      ...partner.permissions,
+      sharedSchedule: true,
+      collaborationApply: true,
+    },
+  };
+  const receiveReceipt = await flowCommandReceipt(partnerUser, {
+    command: receiveCommand,
+    file: new File([receivedBytes], receivedFile.name, {
+      type: receivedFile.contentType,
+    }),
+  });
+  assert.equal(receiveReceipt.targetId, saved.requests[0]!.id);
+  const received = applyFlowCommand(
+    saved,
+    receiveCommand,
+    { id: partner.id, role: 'partner', name: partner.name },
+    { commandId, now: receivedAt, upload: receivedFile },
+  );
+  received.commandReceipts = {
+    ...received.commandReceipts,
+    [commandId]: {
+      ...receiveReceipt,
+      actor: partner.name,
+      action: 'receive_document',
+    },
+  };
+  const fileBindings = await storeFlowFileBinding(receivedFile, receivedBytes);
+  const rejectsAtBothBoundaries = async (
+    candidate: ConsultingFlow,
+    label: string,
+  ) => {
+    await assert.rejects(
+      commitFlow(saved, candidate, undefined, fileBindings),
+      (error) => error instanceof FlowError && error.status === 503,
+      `application accepted ${label}`,
+    );
+    const db = await flowDatabase();
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          candidate.revision,
+          JSON.stringify(candidate),
+          candidate.updatedAt,
+          saved.caseId,
+          saved.revision,
+        )
+        .run(),
+      /new command receipt target is invalid|command target is invalid|receive document effect is invalid/,
+      `D1 accepted ${label}`,
+    );
+  };
+
+  const swappedTarget = structuredClone(received);
+  swappedTarget.requests[0] = structuredClone(saved.requests[0]!);
+  swappedTarget.requests[1] = {
+    ...structuredClone(saved.requests[1]!),
+    fileId: receivedFile.id,
+    status: 'received',
+    receivedAt: received.updatedAt,
+    note: receiveCommand.note,
+  };
+  await rejectsAtBothBoundaries(
+    swappedTarget,
+    'receipt evidence for an unselected request',
+  );
+
+  const forgedTime = structuredClone(received);
+  forgedTime.requests[0]!.receivedAt = saved.updatedAt;
+  await rejectsAtBothBoundaries(forgedTime, 'a forged document receipt time');
+
+  const forgedPurpose = structuredClone(received);
+  forgedPurpose.files.at(-1)!.purpose = 'source';
+  await rejectsAtBothBoundaries(forgedPurpose, 'a non-requested-document file');
+
+  const extraFile = structuredClone(received);
+  extraFile.files.push({
+    ...structuredClone(receivedFile),
+    id: `${receivedFile.id}-extra`,
+    key: flowFileStorageKey(`${receivedFile.id}-extra`),
+  });
+  await rejectsAtBothBoundaries(extraFile, 'an unrelated extra file');
+
+  const forgedNote = structuredClone(received);
+  forgedNote.requests[0]!.note = '\u00a0위조된 공백 메모\u00a0';
+  await rejectsAtBothBoundaries(forgedNote, 'a non-canonical receipt note');
+
+  const forgedAudit = structuredClone(received);
+  forgedAudit.audit.at(-1)!.detail = '다른 서류를 수령한 것처럼 위조';
+  await rejectsAtBothBoundaries(forgedAudit, 'forged receipt audit detail');
+
+  const missingTarget = structuredClone(received);
+  delete missingTarget.commandReceipts![commandId]!.targetId;
+  await rejectsAtBothBoundaries(missingTarget, 'a missing request target');
+
+  await commitFlow(saved, received, undefined, fileBindings);
+  assert.deepEqual(
+    await readFlow(saved.caseId),
+    JSON.parse(JSON.stringify(received)),
+  );
+
+  const sameFileCommandId = `receive-document-same-file-${++sequence}`;
+  const sameFileCommand = {
+    type: 'receive_document',
+    requestId: received.requests[0]!.id,
+    fileId: receivedFile.id,
+    note: '가상 수령 메모 갱신',
+  } as const;
+  const sameFileReceipt = await flowCommandReceipt(partnerUser, {
+    command: sameFileCommand,
+  });
+  const sameFile = applyFlowCommand(
+    received,
+    sameFileCommand,
+    { id: partner.id, role: 'partner', name: partner.name },
+    {
+      commandId: sameFileCommandId,
+      now: new Date(Date.parse(received.updatedAt) + 1).toISOString(),
+    },
+  );
+  sameFile.commandReceipts = {
+    ...sameFile.commandReceipts,
+    [sameFileCommandId]: {
+      ...sameFileReceipt,
+      actor: partner.name,
+      action: 'receive_document',
+    },
+  };
+  assert.equal(sameFile.requests[0]!.receivedAt, received.updatedAt);
+  assert.equal(sameFile.requests[0]!.note, sameFileCommand.note);
+  await commitFlow(received, sameFile);
+});
+
 void test('FLOW source save commands preserve existing source files', async () => {
   const queued = await queuedReportFixture(true);
   const stored = structuredClone(queued);

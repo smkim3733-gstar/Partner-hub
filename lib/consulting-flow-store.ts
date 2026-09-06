@@ -29,6 +29,7 @@ import {
   consultingFlowsConfirmSolutionsEffectTriggerSql,
   consultingFlowsRequestDocumentEffectTriggerSql,
   consultingFlowsMarkRequestSentEffectTriggerSql,
+  consultingFlowsReceiveDocumentEffectTriggerSql,
   consultingFlowsSaveSourceEffectTriggerSql,
   consultingFlowsImportIntakeSourceEffectTriggerSql,
   consultingFlowsExcludeSourceEffectTriggerSql,
@@ -184,6 +185,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsConfirmSolutionsEffectTriggerSql),
         db.prepare(consultingFlowsRequestDocumentEffectTriggerSql),
         db.prepare(consultingFlowsMarkRequestSentEffectTriggerSql),
+        db.prepare(consultingFlowsReceiveDocumentEffectTriggerSql),
         db.prepare(consultingFlowsSaveSourceEffectTriggerSql),
         db.prepare(consultingFlowsImportIntakeSourceEffectTriggerSql),
         db.prepare(consultingFlowsExcludeSourceEffectTriggerSql),
@@ -1126,9 +1128,12 @@ function assertFlowCommitTransition(
         matchingAudit.length !== 1 ||
         receipt.actor !== matchingAudit[0].actor ||
         receipt.action !== matchingAudit[0].action ||
-        (['complete_meeting', 'cancel_meeting', 'mark_request_sent'].includes(
-          receipt.action ?? '',
-        )
+        ([
+          'complete_meeting',
+          'cancel_meeting',
+          'mark_request_sent',
+          'receive_document',
+        ].includes(receipt.action ?? '')
           ? receipt.targetId === undefined
           : receipt.targetId !== undefined)
       );
@@ -1482,6 +1487,78 @@ function assertFlowCommitTransition(
         !sameValue(sentRequest, expectedRequest) ||
         commandAudit?.detail !==
           `${previousRequest.channel} 서류요청 실제 발송 기록`
+      )
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'receive_document') {
+      const receipt = afterReceipts[commandId];
+      const previousRequests = before.requests.filter(
+        (request) => request.id === receipt?.targetId,
+      );
+      const receivedRequests = after.requests.filter(
+        (request) => request.id === receipt?.targetId,
+      );
+      const previousRequest = previousRequests[0];
+      const receivedRequest = receivedRequests[0];
+      const commandAudit = newAudit.find((entry) => entry.id === commandId);
+      const receivedFiles = after.files.filter(
+        (file) => file.id === receivedRequest?.fileId,
+      );
+      const receivedFile = receivedFiles[0];
+      const previousFiles = before.files.filter(
+        (file) => file.id === receivedRequest?.fileId,
+      );
+      const startsReviewCycle = Boolean(
+        previousRequest &&
+        receivedRequest &&
+        (previousRequest.fileId !== receivedRequest.fileId ||
+          previousRequest.status !== 'received'),
+      );
+      const expectedRequest = previousRequest &&
+        receivedRequest && {
+          ...structuredClone(previousRequest),
+          fileId: receivedRequest.fileId,
+          status: 'received' as const,
+          receivedAt: startsReviewCycle
+            ? after.updatedAt
+            : previousRequest.receivedAt,
+          reviewedAt: startsReviewCycle
+            ? undefined
+            : previousRequest.reviewedAt,
+          verifiedAt: startsReviewCycle
+            ? undefined
+            : previousRequest.verifiedAt,
+          note: receivedRequest.note.trim(),
+        };
+      const appendsFile = previousFiles.length === 0;
+      if (
+        !receipt?.targetId ||
+        before.contract !== undefined ||
+        ![FLOW_ADMIN_COMMAND_ACTOR_KEY, `member:${before.partnerId}`].includes(
+          receipt.actorKey,
+        ) ||
+        previousRequests.length !== 1 ||
+        receivedRequests.length !== 1 ||
+        !previousRequest ||
+        !receivedRequest ||
+        !sameValue(receivedRequest, expectedRequest) ||
+        !receivedRequest.fileId ||
+        receivedFiles.length !== 1 ||
+        !receivedFile ||
+        receivedFile.purpose !== 'requested_document' ||
+        previousFiles.length > 1 ||
+        after.files.length !== before.files.length + (appendsFile ? 1 : 0) ||
+        before.files.some(
+          (file, index) => !sameValue(file, after.files[index]),
+        ) ||
+        (appendsFile &&
+          (after.files.at(-1)?.id !== receivedFile.id ||
+            receivedFile.createdAt !== after.updatedAt ||
+            receivedFile.intakeFileId !== undefined ||
+            receivedFile.intakeSourceHash !== undefined ||
+            receivedFile.sourceReviewedAt !== undefined ||
+            receivedFile.sourceReviewedBy !== undefined)) ||
+        commandAudit?.detail !== '요청 서류 수령 · 대표 검토 대기'
       )
         throw storedFlowIntegrityError();
     }

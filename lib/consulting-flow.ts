@@ -1161,6 +1161,10 @@ export function applyFlowCommand(
       demand(request, '서류요청을 선택해 주세요.');
       demand(!s.contract, '계약 후 준비서류 변경은 제한됩니다.', 409);
       const receivedFile = file();
+      demand(
+        receivedFile.purpose === 'requested_document',
+        '수령서류로 등록한 첨부파일을 선택해 주세요.',
+      );
       const startsReviewCycle =
         request.fileId !== receivedFile.id || request.status !== 'received';
       request.fileId = receivedFile.id;
