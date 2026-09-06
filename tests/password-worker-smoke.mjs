@@ -481,6 +481,16 @@ const flowSaveReportEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowConfirmAnalysisEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0080_consulting_flow_confirm_analysis_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -490,6 +500,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_set_ai_policy_jobs_guard',
   'consulting_flows_queue_report_job_effect_guard',
   'consulting_flows_save_report_effect_guard',
+  'consulting_flows_confirm_analysis_effect_guard',
   'consulting_flows_save_source_effect_guard',
   'consulting_flows_import_intake_source_effect_guard',
   'consulting_flows_exclude_source_effect_guard',
@@ -544,6 +555,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowSetAiPolicyJobsTriggerSql[0],
       flowQueueReportJobEffectTriggerSql[0],
       flowSaveReportEffectTriggerSql[0],
+      flowConfirmAnalysisEffectTriggerSql[0],
       flowSaveSourceEffectTriggerSql[0],
       flowImportIntakeSourceEffectTriggerSql[0],
       flowExcludeSourceEffectTriggerSql[0],
@@ -4521,6 +4533,63 @@ try {
   checks.push(
     'FLOW native D1 binds one manual report and first-analysis pointer effect',
   );
+  const validAnalysisEffectFlow = structuredClone(validReportEffectFlow);
+  validAnalysisEffectFlow.revision++;
+  validAnalysisEffectFlow.updatedAt = evidenceTimes[3];
+  validAnalysisEffectFlow.analysis.partnerAt = evidenceTimes[3];
+  const analysisEffectCommandId = 'native-confirm-analysis-effect';
+  validAnalysisEffectFlow.audit.push({
+    id: analysisEffectCommandId,
+    at: evidenceTimes[3],
+    actor: validAnalysisEffectFlow.partnerName,
+    action: 'confirm_analysis',
+    detail: '담당 파트너 1차 분석 완료',
+  });
+  validAnalysisEffectFlow.commandIds.push(analysisEffectCommandId);
+  validAnalysisEffectFlow.commandReceipts[analysisEffectCommandId] = {
+    actorKey: `member:${validAnalysisEffectFlow.partnerId}`,
+    fingerprint: '8'.repeat(64),
+    actor: validAnalysisEffectFlow.partnerName,
+    action: 'confirm_analysis',
+  };
+  const saveAnalysisEffectTransition = (after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        reportEffectCaseId,
+        validReportEffectFlow.revision,
+      )
+      .run();
+  const forgedAnalysisActorFlow = structuredClone(validAnalysisEffectFlow);
+  forgedAnalysisActorFlow.analysis.adminAt = evidenceTimes[3];
+  await assert.rejects(
+    saveAnalysisEffectTransition(forgedAnalysisActorFlow),
+    /confirm analysis effect is invalid/,
+  );
+  const forgedAnalysisTimestampFlow = structuredClone(validAnalysisEffectFlow);
+  forgedAnalysisTimestampFlow.analysis.partnerAt = evidenceTimes[2];
+  await assert.rejects(
+    saveAnalysisEffectTransition(forgedAnalysisTimestampFlow),
+    /confirm analysis effect is invalid/,
+  );
+  const forgedAnalysisReportFlow = structuredClone(validAnalysisEffectFlow);
+  forgedAnalysisReportFlow.analysis.reportId =
+    reportEffectFlow.reports.at(-1).id;
+  await assert.rejects(
+    saveAnalysisEffectTransition(forgedAnalysisReportFlow),
+    /confirm analysis effect is invalid/,
+  );
+  await saveAnalysisEffectTransition(validAnalysisEffectFlow);
+  checks.push(
+    'FLOW native D1 binds latest report and one actor timestamp to analysis confirmation',
+  );
   const validSourceEffectFlow = structuredClone(sourceEffectFlow);
   validSourceEffectFlow.revision++;
   validSourceEffectFlow.updatedAt = evidenceTimes[2];
@@ -5142,7 +5211,8 @@ try {
     },
     {
       name: 'FLOW native D1 binds member commands to the assigned partner ID',
-      pattern: /new member command actor is invalid/,
+      pattern:
+        /(?:new member command actor|confirm analysis effect) is invalid/,
       apply(flow) {
         flow.analysis.partnerAt = flow.updatedAt;
         const commandId = 'native-member-command-wrong-account';
@@ -5164,7 +5234,8 @@ try {
     },
     {
       name: 'FLOW native D1 binds member command display to the assigned partner',
-      pattern: /new member command actor is invalid/,
+      pattern:
+        /(?:new member command actor|confirm analysis effect) is invalid/,
       apply(flow) {
         flow.analysis.partnerAt = flow.updatedAt;
         const commandId = 'native-member-command-wrong-display';

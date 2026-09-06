@@ -2285,6 +2285,139 @@ void test('FLOW manual report saves bind one report, optional file, and analysis
   );
 });
 
+void test('FLOW analysis confirmations bind the latest report and one actor timestamp', async () => {
+  const initial = await fixture();
+  const reportCommandId = `confirm-analysis-report-${++sequence}`;
+  const stored = applyFlowCommand(
+    initial,
+    { type: 'save_report', stage: 1, body },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId: reportCommandId,
+      now: new Date(Date.parse(initial.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(stored, reportCommandId);
+  await commitFlow(initial, stored);
+  const commandId = `confirm-analysis-effect-${++sequence}`;
+  const now = new Date(Date.parse(stored.updatedAt) + 1).toISOString();
+  const changed = applyFlowCommand(
+    stored,
+    { type: 'confirm_analysis', reportId: stored.analysis.reportId },
+    { id: partner.id, role: 'partner', name: partner.name },
+    { commandId, now },
+  );
+  changed.commandReceipts = {
+    ...changed.commandReceipts,
+    [commandId]: {
+      actorKey: `member:${partner.id}`,
+      fingerprint: 'b'.repeat(64),
+      actor: partner.name,
+      action: 'confirm_analysis',
+    },
+  };
+  assert.deepEqual(changed.analysis, {
+    reportId: stored.analysis.reportId,
+    partnerAt: now,
+  });
+
+  const corruptions: Array<{
+    name: string;
+    apply: (flow: ConsultingFlow) => void;
+  }> = [
+    {
+      name: 'other actor timestamp',
+      apply(flow) {
+        flow.analysis.adminAt = now;
+      },
+    },
+    {
+      name: 'forged actor timestamp',
+      apply(flow) {
+        flow.analysis.partnerAt = stored.updatedAt;
+      },
+    },
+    {
+      name: 'stale report pointer',
+      apply(flow) {
+        flow.analysis.reportId = initial.reports.at(-1)!.id;
+      },
+    },
+  ];
+  const db = await flowDatabase();
+  for (const corruption of corruptions) {
+    const forged = structuredClone(changed);
+    corruption.apply(forged);
+    await assert.rejects(
+      commitFlow(stored, forged),
+      (error) => error instanceof FlowError && error.status === 503,
+      `application accepted ${corruption.name}`,
+    );
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          forged.revision,
+          JSON.stringify(forged),
+          forged.updatedAt,
+          stored.caseId,
+          stored.revision,
+        )
+        .run(),
+      /confirm analysis effect is invalid/,
+      `D1 accepted ${corruption.name}`,
+    );
+  }
+  await commitFlow(stored, changed);
+  assert.deepEqual(
+    await readFlow(stored.caseId),
+    JSON.parse(JSON.stringify(changed)),
+  );
+
+  const adminCommandId = `confirm-analysis-admin-${++sequence}`;
+  const adminAt = new Date(Date.parse(changed.updatedAt) + 1).toISOString();
+  const adminChanged = applyFlowCommand(
+    changed,
+    { type: 'confirm_analysis', reportId: changed.analysis.reportId },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    { commandId: adminCommandId, now: adminAt },
+  );
+  addSyntheticCommandReceipt(adminChanged, adminCommandId);
+  assert.deepEqual(adminChanged.analysis, {
+    reportId: changed.analysis.reportId,
+    partnerAt: now,
+    adminAt,
+  });
+  const forgedAdmin = structuredClone(adminChanged);
+  forgedAdmin.analysis.partnerAt = stored.updatedAt;
+  await assert.rejects(
+    commitFlow(changed, forgedAdmin),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forgedAdmin.revision,
+        JSON.stringify(forgedAdmin),
+        forgedAdmin.updatedAt,
+        changed.caseId,
+        changed.revision,
+      )
+      .run(),
+    /confirm analysis effect is invalid/,
+  );
+  await commitFlow(changed, adminChanged);
+});
+
 void test('FLOW source save commands preserve existing source files', async () => {
   const queued = await queuedReportFixture(true);
   const stored = structuredClone(queued);

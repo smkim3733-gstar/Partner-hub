@@ -19,6 +19,7 @@ import {
   consultingFlowsSetAiPolicyJobsTriggerSql,
   consultingFlowsQueueReportJobEffectTriggerSql,
   consultingFlowsSaveReportEffectTriggerSql,
+  consultingFlowsConfirmAnalysisEffectTriggerSql,
   consultingFlowsSaveSourceEffectTriggerSql,
   consultingFlowsImportIntakeSourceEffectTriggerSql,
   consultingFlowsExcludeSourceEffectTriggerSql,
@@ -159,6 +160,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsSetAiPolicyJobsTriggerSql),
         db.prepare(consultingFlowsQueueReportJobEffectTriggerSql),
         db.prepare(consultingFlowsSaveReportEffectTriggerSql),
+        db.prepare(consultingFlowsConfirmAnalysisEffectTriggerSql),
         db.prepare(consultingFlowsSaveSourceEffectTriggerSql),
         db.prepare(consultingFlowsImportIntakeSourceEffectTriggerSql),
         db.prepare(consultingFlowsExcludeSourceEffectTriggerSql),
@@ -1266,6 +1268,22 @@ function assertFlowCommitTransition(
           report.stage === 1 ? { reportId: report.id } : before.analysis,
         )
       )
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'confirm_analysis') {
+      const report = latestReport(before, 1);
+      if (!report) throw storedFlowIntegrityError();
+      const expectedAnalysis =
+        before.analysis.reportId === report.id
+          ? structuredClone(before.analysis)
+          : { reportId: report.id };
+      const actorKey = afterReceipts[commandId]?.actorKey;
+      if (actorKey === FLOW_ADMIN_COMMAND_ACTOR_KEY)
+        expectedAnalysis.adminAt = after.updatedAt;
+      else if (actorKey === `member:${before.partnerId}`)
+        expectedAnalysis.partnerAt = after.updatedAt;
+      else throw storedFlowIntegrityError();
+      if (!sameValue(after.analysis, expectedAnalysis))
         throw storedFlowIntegrityError();
     }
     if (action === 'save_source') {
