@@ -18,6 +18,7 @@ import {
   consultingFlowsCommandAiTransitionTriggerSql,
   consultingFlowsSetAiPolicyJobsTriggerSql,
   consultingFlowsQueueReportJobEffectTriggerSql,
+  consultingFlowsSaveReportEffectTriggerSql,
   consultingFlowsSaveSourceEffectTriggerSql,
   consultingFlowsImportIntakeSourceEffectTriggerSql,
   consultingFlowsExcludeSourceEffectTriggerSql,
@@ -80,6 +81,7 @@ import {
 import {
   flowAiResultAuditDetail,
   FlowError,
+  documentsKey,
   latestRecording,
   latestReport,
   newConsultingFlow,
@@ -156,6 +158,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandAiTransitionTriggerSql),
         db.prepare(consultingFlowsSetAiPolicyJobsTriggerSql),
         db.prepare(consultingFlowsQueueReportJobEffectTriggerSql),
+        db.prepare(consultingFlowsSaveReportEffectTriggerSql),
         db.prepare(consultingFlowsSaveSourceEffectTriggerSql),
         db.prepare(consultingFlowsImportIntakeSourceEffectTriggerSql),
         db.prepare(consultingFlowsExcludeSourceEffectTriggerSql),
@@ -1210,6 +1213,59 @@ function assertFlowCommitTransition(
         createdAt: after.updatedAt,
       };
       if (!sameValue(after.jobs, [...before.jobs, expectedJob]))
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'save_report') {
+      const report = after.reports.at(-1);
+      if (!report) throw storedFlowIntegrityError();
+      const newFiles = after.files.slice(before.files.length);
+      const attachedFile = newFiles[0];
+      const expectedReport: ConsultingFlow['reports'][number] = {
+        id: `${commandId}-report`,
+        stage: report.stage,
+        version:
+          before.reports.filter((existing) => existing.stage === report.stage)
+            .length + 1,
+        title: reportLabels[report.stage],
+        body: report.body.trim(),
+        fileId: report.fileId,
+        sourceReportId:
+          report.stage > 1 ? latestReport(before, 1)?.id : undefined,
+        sourceRecordingId:
+          report.stage === 4 ? latestRecording(before)?.id : undefined,
+        decisionId: report.stage >= 5 ? before.decision?.id : undefined,
+        documentsKey: report.stage >= 5 ? documentsKey(before) : undefined,
+        createdAt: after.updatedAt,
+        createdBy: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+        origin: 'manual',
+      };
+      if (
+        after.reports.length !== before.reports.length + 1 ||
+        before.reports.some(
+          (existing, index) => !sameValue(existing, after.reports[index]),
+        ) ||
+        !sameValue(report, expectedReport) ||
+        ![before.files.length, before.files.length + 1].includes(
+          after.files.length,
+        ) ||
+        before.files.some(
+          (existing, index) => !sameValue(existing, after.files[index]),
+        ) ||
+        (attachedFile
+          ? report.fileId !== attachedFile.id ||
+            attachedFile.purpose !== 'report' ||
+            attachedFile.createdAt !== after.updatedAt ||
+            attachedFile.intakeFileId !== undefined ||
+            attachedFile.intakeSourceHash !== undefined ||
+            attachedFile.sourceReviewedAt !== undefined ||
+            attachedFile.sourceReviewedBy !== undefined
+          : report.fileId !== undefined &&
+            !before.files.some((file) => file.id === report.fileId)) ||
+        !sameValue(
+          after.analysis,
+          report.stage === 1 ? { reportId: report.id } : before.analysis,
+        )
+      )
         throw storedFlowIntegrityError();
     }
     if (action === 'save_source') {

@@ -2185,6 +2185,106 @@ void test('FLOW report queue commands bind one exact new job effect', async () =
   );
 });
 
+void test('FLOW manual report saves bind one report, optional file, and analysis pointer', async () => {
+  const stored = await fixture();
+  const commandId = `save-report-effect-${++sequence}`;
+  const now = new Date(Date.parse(stored.updatedAt) + 1).toISOString();
+  const reportBytes = 'synthetic manual report attachment';
+  const reportFile: ConsultingFlow['files'][number] = {
+    id: `save-report-file-${++sequence}`,
+    name: 'manual-report.txt',
+    contentType: 'text/plain',
+    size: new TextEncoder().encode(reportBytes).byteLength,
+    key: flowFileStorageKey(`save-report-file-${sequence}`),
+    createdAt: now,
+    purpose: 'report',
+  };
+  const changed = applyFlowCommand(
+    stored,
+    { type: 'save_report', stage: 1, body, fileConsent: true },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    { commandId, now, upload: reportFile },
+  );
+  addSyntheticCommandReceipt(changed, commandId);
+  assert.equal(changed.reports.at(-1)!.id, `${commandId}-report`);
+  assert.deepEqual(changed.analysis, {
+    reportId: `${commandId}-report`,
+  });
+
+  const extraBytes = 'synthetic hidden report attachment';
+  const extraFile: ConsultingFlow['files'][number] = {
+    id: `save-report-extra-${++sequence}`,
+    name: 'hidden-report.txt',
+    contentType: 'text/plain',
+    size: new TextEncoder().encode(extraBytes).byteLength,
+    key: flowFileStorageKey(`save-report-extra-${sequence}`),
+    createdAt: now,
+    purpose: 'report',
+  };
+  const reportBindings = await storeFlowFileBinding(reportFile, reportBytes);
+  const extraBindings = await storeFlowFileBinding(extraFile, extraBytes);
+  const corruptions: Array<{
+    name: string;
+    apply: (flow: ConsultingFlow) => void;
+    bindings: Map<string, ReturnType<typeof flowFileObjectBinding>>;
+  }> = [
+    {
+      name: 'system report title',
+      apply(flow) {
+        flow.reports.at(-1)!.title = '명령에 섞은 위조 보고서 제목';
+      },
+      bindings: reportBindings,
+    },
+    {
+      name: 'unreferenced extra file',
+      apply(flow) {
+        flow.files.push(extraFile);
+      },
+      bindings: new Map([...reportBindings, ...extraBindings]),
+    },
+    {
+      name: 'stale first-analysis pointer',
+      apply(flow) {
+        flow.analysis = { reportId: stored.reports.at(-1)!.id };
+      },
+      bindings: reportBindings,
+    },
+  ];
+  const db = await flowDatabase();
+  for (const corruption of corruptions) {
+    const forged = structuredClone(changed);
+    corruption.apply(forged);
+    await assert.rejects(
+      commitFlow(stored, forged, undefined, corruption.bindings),
+      (error) => error instanceof FlowError && error.status === 503,
+      `application accepted ${corruption.name}`,
+    );
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          forged.revision,
+          JSON.stringify(forged),
+          forged.updatedAt,
+          stored.caseId,
+          stored.revision,
+        )
+        .run(),
+      /save report effect is invalid/,
+      `D1 accepted ${corruption.name}`,
+    );
+  }
+  await commitFlow(stored, changed, undefined, reportBindings);
+  assert.deepEqual(
+    await readFlow(stored.caseId),
+    JSON.parse(JSON.stringify(changed)),
+  );
+});
+
 void test('FLOW source save commands preserve existing source files', async () => {
   const queued = await queuedReportFixture(true);
   const stored = structuredClone(queued);

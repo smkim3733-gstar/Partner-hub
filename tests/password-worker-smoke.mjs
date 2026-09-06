@@ -471,6 +471,16 @@ const flowExcludeSourceEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowSaveReportEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0079_consulting_flow_save_report_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -479,6 +489,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_command_ai_transition_guard',
   'consulting_flows_set_ai_policy_jobs_guard',
   'consulting_flows_queue_report_job_effect_guard',
+  'consulting_flows_save_report_effect_guard',
   'consulting_flows_save_source_effect_guard',
   'consulting_flows_import_intake_source_effect_guard',
   'consulting_flows_exclude_source_effect_guard',
@@ -532,6 +543,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowCommandAiTransitionTriggerSql[0],
       flowSetAiPolicyJobsTriggerSql[0],
       flowQueueReportJobEffectTriggerSql[0],
+      flowSaveReportEffectTriggerSql[0],
       flowSaveSourceEffectTriggerSql[0],
       flowImportIntakeSourceEffectTriggerSql[0],
       flowExcludeSourceEffectTriggerSql[0],
@@ -3852,6 +3864,9 @@ try {
   const intakeEffectCaseId = 'native-flow-import-intake-source-effect';
   const intakeEffectFlow = structuredClone(retryEffectFlow);
   intakeEffectFlow.caseId = intakeEffectCaseId;
+  const reportEffectCaseId = 'native-flow-save-report-effect';
+  const reportEffectFlow = structuredClone(retryEffectFlow);
+  reportEffectFlow.caseId = reportEffectCaseId;
   const insertEvidenceFlow = () =>
     db
       .prepare(
@@ -3955,6 +3970,21 @@ try {
         intakeEffectFlow.revision,
         JSON.stringify(intakeEffectFlow),
         intakeEffectFlow.updatedAt,
+      )
+      .run();
+  const insertReportEffectFlow = () =>
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        reportEffectCaseId,
+        reportEffectFlow.partnerId,
+        reportEffectFlow.revision,
+        JSON.stringify(reportEffectFlow),
+        reportEffectFlow.updatedAt,
       )
       .run();
   const receiptOriginCaseId = 'native-flow-command-receipt-origin';
@@ -4061,6 +4091,7 @@ try {
     await insertQueueEffectFlow();
     await insertSourceEffectFlow();
     await insertIntakeEffectFlow();
+    await insertReportEffectFlow();
   } finally {
     await db.batch([
       db.prepare(flowAiEvidenceInsertTriggerSql),
@@ -4422,6 +4453,74 @@ try {
   );
   await saveQueueEffectTransition(validQueueEffectFlow);
   checks.push('FLOW native D1 binds one exact report queue job effect');
+  const validReportEffectFlow = structuredClone(reportEffectFlow);
+  validReportEffectFlow.revision++;
+  validReportEffectFlow.updatedAt = evidenceTimes[2];
+  const reportEffectCommandId = 'native-save-report-effect';
+  const reportEffectId = `${reportEffectCommandId}-report`;
+  validReportEffectFlow.reports.push({
+    id: reportEffectId,
+    stage: 1,
+    version:
+      reportEffectFlow.reports.filter((report) => report.stage === 1).length +
+      1,
+    title: '1차 정밀진단보고서',
+    body: '격리 D1에서 수동 보고서 효과를 확인하는 가상 본문입니다. 실제 기업자료나 외부 처리를 사용하지 않습니다. '
+      .repeat(3)
+      .trim(),
+    createdAt: evidenceTimes[2],
+    createdBy: '김성민 대표',
+    origin: 'manual',
+  });
+  validReportEffectFlow.analysis = { reportId: reportEffectId };
+  validReportEffectFlow.audit.push({
+    id: reportEffectCommandId,
+    at: evidenceTimes[2],
+    actor: '김성민 대표',
+    action: 'save_report',
+    detail: '1차 정밀진단보고서 V2 저장 · 담당 파트너 공유',
+  });
+  validReportEffectFlow.commandIds.push(reportEffectCommandId);
+  validReportEffectFlow.commandReceipts[reportEffectCommandId] = {
+    actorKey: 'admin:primary',
+    fingerprint: '0'.repeat(64),
+    actor: '김성민 대표',
+    action: 'save_report',
+  };
+  const saveReportEffectTransition = (after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        reportEffectCaseId,
+        reportEffectFlow.revision,
+      )
+      .run();
+  const forgedReportEffectFlow = structuredClone(validReportEffectFlow);
+  forgedReportEffectFlow.reports.at(-1).title =
+    '수동 저장에 섞은 위조 보고서 제목';
+  await assert.rejects(
+    saveReportEffectTransition(forgedReportEffectFlow),
+    /save report effect is invalid/,
+  );
+  const forgedReportAnalysisFlow = structuredClone(validReportEffectFlow);
+  forgedReportAnalysisFlow.analysis = structuredClone(
+    reportEffectFlow.analysis,
+  );
+  await assert.rejects(
+    saveReportEffectTransition(forgedReportAnalysisFlow),
+    /save report effect is invalid/,
+  );
+  await saveReportEffectTransition(validReportEffectFlow);
+  checks.push(
+    'FLOW native D1 binds one manual report and first-analysis pointer effect',
+  );
   const validSourceEffectFlow = structuredClone(sourceEffectFlow);
   validSourceEffectFlow.revision++;
   validSourceEffectFlow.updatedAt = evidenceTimes[2];
@@ -4901,7 +5000,8 @@ try {
     },
     {
       name: 'FLOW native D1 binds new command receipt semantics to its audit',
-      pattern: /command (?:semantics are|effect is|target is) invalid/,
+      pattern:
+        /(?:command (?:semantics are|effect is|target is)|save report effect is) invalid/,
       apply(flow) {
         const commandId = 'native-command-semantic-mismatch';
         flow.commandIds.push(commandId);
@@ -4966,7 +5066,7 @@ try {
     },
     {
       name: 'FLOW native D1 binds append commands to one command target',
-      pattern: /command target is invalid/,
+      pattern: /(?:command target|save report effect) is invalid/,
       apply(flow) {
         const commandId = 'native-command-extra-report-target';
         const report = structuredClone(flow.reports[0]);
