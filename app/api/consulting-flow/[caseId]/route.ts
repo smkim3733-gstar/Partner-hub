@@ -138,6 +138,17 @@ export async function POST(request: Request, context: Context) {
       const contentProblem = await uploadFileContentProblem(file);
       if (contentProblem) throw new FlowError(contentProblem, 400);
     }
+    if (input.file || input.audio) {
+      // File inspection can decompress or read several megabytes. Recheck after
+      // that asynchronous work so revoked access cannot start a new R2 write.
+      const contentCheckedAccess = await recheckFlowAccess(
+        request,
+        flow,
+        user,
+        true,
+      );
+      assertFlowLifecycleActive(contentCheckedAccess.state, flow.caseId);
+    }
     const imported =
       input.command.type === 'import_intake_source'
         ? await prepareIntakeImport(flow, user, input.command, now)

@@ -10654,7 +10654,7 @@ type MultipartBodyStateChange =
     }
   | {
       kind: 'case-and-member-deletion';
-      timing?: 'body-read' | 'first-r2-write' | 'd1-write';
+      timing?: 'body-read' | 'content-check' | 'first-r2-write' | 'd1-write';
       status: 403 | 503;
       error: string;
     };
@@ -10965,6 +10965,9 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       scenario.kind === 'case-deletion' ||
       scenario.kind === 'case-and-member-deletion') &&
     scenario.timing === 'd1-write';
+  const stateChangesDuringContentCheck =
+    scenario.kind === 'case-and-member-deletion' &&
+    scenario.timing === 'content-check';
   Object.defineProperty(stream, 'getReader', {
     value: () => {
       const reader = getReader();
@@ -10973,7 +10976,11 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       reader.read = async () => {
         if (once) {
           once = false;
-          if (!stateChangesDuringFirstR2Write && !stateChangesDuringD1Write)
+          if (
+            !stateChangesDuringContentCheck &&
+            !stateChangesDuringFirstR2Write &&
+            !stateChangesDuringD1Write
+          )
             await changeState();
         }
         return read();
@@ -10982,6 +10989,11 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     },
   });
   let retryPutAttempts = 0;
+  let retryFileArrayBufferCalls = 0;
+  const fileArrayBuffer = Reflect.get(
+    File.prototype,
+    'arrayBuffer',
+  ) as File['arrayBuffer'];
   const batch = db.batch.bind(db);
   let d1WriteAttempts = 0;
   bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
@@ -11007,13 +11019,25 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     return object;
   };
   let result: Response;
+  if (stateChangesDuringContentCheck)
+    File.prototype.arrayBuffer = async function () {
+      retryFileArrayBufferCalls++;
+      const bytes = await fileArrayBuffer.call(this);
+      if (retryFileArrayBufferCalls === 3) await changeState();
+      return bytes;
+    };
   try {
     result = await POST(retryRequest, context(stored.caseId));
   } finally {
+    File.prototype.arrayBuffer = fileArrayBuffer;
     bucket.put = put;
     db.batch = batch;
   }
   assert.equal(stateChanged, true);
+  assert.equal(
+    retryFileArrayBufferCalls,
+    stateChangesDuringContentCheck ? 3 : 0,
+  );
   if (scenario.kind === 'display-name-change' && !stateChangesDuringD1Write) {
     assert.equal(retryPutAttempts, 2);
     await assertCompleted(result);
@@ -11439,6 +11463,15 @@ void test('partial R2 retry rejects case and assigned member deletion while read
   await assertPartialR2RetryHandlesMultipartStateChange({
     kind: 'case-and-member-deletion',
     timing: 'body-read',
+    status: 403,
+    error: '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
+  });
+});
+
+void test('partial R2 retry rejects case and assigned member deletion during file content inspection before any R2 write and rebinds after restoration', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'case-and-member-deletion',
+    timing: 'content-check',
     status: 403,
     error: '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
   });
