@@ -10607,29 +10607,32 @@ void test('FLOW command denies a partner suspended while the request body is rea
   assert.deepEqual(await readFlow(flow.caseId), flow);
 });
 
-void test('partial R2 retry denies ownCases revoked while multipart body is read before reservation or R2 reuse', async () => {
+async function assertPartialR2RetryDeniedByMultipartPermissionRevocation(
+  permission: 'ownCases' | 'fileUpload',
+  error: string,
+) {
   await deleteConsultingFlowFixture(await flowDatabase());
   const stored = await transcriptJobFixture(false, body);
   const command = {
     type: 'save_recording',
     meetingId: stored.meetings.at(-1)!.id,
-    transcript: `${body} multipart 권한 회수 경쟁`,
+    transcript: `${body} multipart 권한 회수 경쟁 ${permission}`,
     transcriptReviewed: true,
     recordingConsent: true,
     privacyMasked: true,
     fileConsent: true,
   } as const;
   const transcript = new File(
-    ['SYNTHETIC_MULTIPART_PERMISSION_RACE_TRANSCRIPT'],
-    'multipart-permission-race.txt',
+    [`SYNTHETIC_MULTIPART_PERMISSION_RACE_TRANSCRIPT_${permission}`],
+    `multipart-permission-race-${permission}.txt`,
     { type: 'text/plain' },
   );
   const audio = new File(
     [new Uint8Array([0x49, 0x44, 0x33, 4, 0, 12])],
-    'multipart-permission-race.mp3',
+    `multipart-permission-race-${permission}.mp3`,
     { type: 'audio/mpeg' },
   );
-  const commandId = `multipart-own-cases-race-${++sequence}`;
+  const commandId = `multipart-${permission}-race-${++sequence}`;
   const previousKeys = new Set(objects.keys());
   const bucket = flowBucket();
   const put = bucket.put.bind(bucket);
@@ -10733,7 +10736,7 @@ void test('partial R2 retry denies ownCases revoked while multipart body is read
           )!;
           changedPartner.permissions.sharedSchedule = false;
           changedPartner.permissions.collaborationApply = false;
-          changedPartner.permissions.ownCases = false;
+          changedPartner.permissions[permission] = false;
           const changed = await saveState(
             new Request('http://localhost/api/state', {
               method: 'PUT',
@@ -10767,9 +10770,7 @@ void test('partial R2 retry denies ownCases revoked while multipart body is read
   }
   assert.equal(stateChanged, true);
   assert.equal(denied.status, 403);
-  assert.deepEqual(await denied.json(), {
-    error: '담당 파트너만 이 진행을 열 수 있습니다.',
-  });
+  assert.deepEqual(await denied.json(), { error });
   assert.equal(deniedPutAttempts, 0);
   assert.equal((await memberBinding())?.subject_id, partner.id);
   assert.deepEqual(await readFlow(stored.caseId), stored);
@@ -10785,9 +10786,9 @@ void test('partial R2 retry denies ownCases revoked while multipart body is read
       permissions: Record<string, boolean>;
     }>;
   };
-  restoredState.members.find(
-    ({ id }) => id === partner.id,
-  )!.permissions.ownCases = true;
+  restoredState.members.find(({ id }) => id === partner.id)!.permissions[
+    permission
+  ] = true;
   const restored = await saveState(
     new Request('http://localhost/api/state', {
       method: 'PUT',
@@ -10856,6 +10857,23 @@ void test('partial R2 retry denies ownCases revoked while multipart body is read
         status === 'ready' && command_id === commandId,
     ),
   );
+}
+
+void test('partial R2 retry rechecks multipart permission revocation before reservation or R2 reuse', async () => {
+  for (const scenario of [
+    {
+      permission: 'ownCases',
+      error: '담당 파트너만 이 진행을 열 수 있습니다.',
+    },
+    {
+      permission: 'fileUpload',
+      error: '자료 업로드 권한이 필요합니다.',
+    },
+  ] as const)
+    await assertPartialR2RetryDeniedByMultipartPermissionRevocation(
+      scenario.permission,
+      scenario.error,
+    );
 });
 
 void test('FLOW commit rejects a suspension immediately before D1 writes', async () => {
