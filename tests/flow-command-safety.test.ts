@@ -10621,6 +10621,7 @@ type MultipartBodyStateChange =
     }
   | {
       kind: 'suspended';
+      timing?: 'body-read' | 'first-r2-write';
       status: 403;
       error: string;
     }
@@ -10640,7 +10641,11 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
 ) {
   await deleteConsultingFlowFixture(await flowDatabase());
   const scenarioKey =
-    scenario.kind === 'permission' ? scenario.permission : scenario.kind;
+    scenario.kind === 'permission'
+      ? scenario.permission
+      : scenario.kind === 'suspended'
+        ? `${scenario.kind}-${scenario.timing ?? 'body-read'}`
+        : scenario.kind;
   const stored = await transcriptJobFixture(false, body);
   if (scenario.kind === 'discontinued') {
     const trackedState = structuredClone(
@@ -10822,6 +10827,55 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
   const stream = retryRequest.body!;
   const getReader = stream.getReader.bind(stream);
   let stateChanged = false;
+  const changeState = async () => {
+    const changedState = structuredClone(await readPortalState()) as {
+      members: Array<{
+        id: string;
+        email: string;
+        name: string;
+        status: string;
+        permissions: Record<string, boolean>;
+      }>;
+      cases: Array<{
+        id: string;
+        pipelineLifecycleStatus?: string;
+      }>;
+    };
+    if (scenario.kind === 'permission') {
+      const changedPartner = changedState.members.find(
+        ({ id }) => id === partner.id,
+      )!;
+      changedPartner.permissions.sharedSchedule = false;
+      changedPartner.permissions.collaborationApply = false;
+      changedPartner.permissions[scenario.permission] = false;
+    } else if (scenario.kind === 'suspended') {
+      changedState.members.find(({ id }) => id === partner.id)!.status = '정지';
+    } else if (scenario.kind === 'email-change') {
+      changedState.members.find(({ id }) => id === partner.id)!.email =
+        `multipart-email-race-${sequence}@example.invalid`;
+    } else if (scenario.kind === 'display-name-change') {
+      changedState.members.find(({ id }) => id === partner.id)!.name =
+        scenario.name;
+    } else {
+      changedState.cases.find(
+        ({ id }) => id === stored.caseId,
+      )!.pipelineLifecycleStatus = 'discontinued';
+    }
+    const changed = await saveState(
+      new Request('http://localhost/api/state', {
+        method: 'PUT',
+        headers: {
+          origin: 'http://localhost',
+          'content-type': 'application/json',
+          'oai-authenticated-user-id': adminEmail,
+          'oai-authenticated-user-email': adminEmail,
+        },
+        body: JSON.stringify({ state: changedState }),
+      }),
+    );
+    assert.equal(changed.status, 200, await changed.clone().text());
+    stateChanged = true;
+  };
   Object.defineProperty(stream, 'getReader', {
     value: () => {
       const reader = getReader();
@@ -10830,54 +10884,11 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       reader.read = async () => {
         if (once) {
           once = false;
-          const changedState = structuredClone(await readPortalState()) as {
-            members: Array<{
-              id: string;
-              email: string;
-              name: string;
-              status: string;
-              permissions: Record<string, boolean>;
-            }>;
-            cases: Array<{
-              id: string;
-              pipelineLifecycleStatus?: string;
-            }>;
-          };
-          if (scenario.kind === 'permission') {
-            const changedPartner = changedState.members.find(
-              ({ id }) => id === partner.id,
-            )!;
-            changedPartner.permissions.sharedSchedule = false;
-            changedPartner.permissions.collaborationApply = false;
-            changedPartner.permissions[scenario.permission] = false;
-          } else if (scenario.kind === 'suspended') {
-            changedState.members.find(({ id }) => id === partner.id)!.status =
-              '정지';
-          } else if (scenario.kind === 'email-change') {
-            changedState.members.find(({ id }) => id === partner.id)!.email =
-              `multipart-email-race-${sequence}@example.invalid`;
-          } else if (scenario.kind === 'display-name-change') {
-            changedState.members.find(({ id }) => id === partner.id)!.name =
-              scenario.name;
-          } else {
-            changedState.cases.find(
-              ({ id }) => id === stored.caseId,
-            )!.pipelineLifecycleStatus = 'discontinued';
-          }
-          const changed = await saveState(
-            new Request('http://localhost/api/state', {
-              method: 'PUT',
-              headers: {
-                origin: 'http://localhost',
-                'content-type': 'application/json',
-                'oai-authenticated-user-id': adminEmail,
-                'oai-authenticated-user-email': adminEmail,
-              },
-              body: JSON.stringify({ state: changedState }),
-            }),
-          );
-          assert.equal(changed.status, 200, await changed.clone().text());
-          stateChanged = true;
+          if (
+            scenario.kind !== 'suspended' ||
+            scenario.timing !== 'first-r2-write'
+          )
+            await changeState();
         }
         return read();
       };
@@ -10887,7 +10898,14 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
   let retryPutAttempts = 0;
   bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
     retryPutAttempts++;
-    return put(...args);
+    const object = await put(...args);
+    if (
+      retryPutAttempts === 1 &&
+      scenario.kind === 'suspended' &&
+      scenario.timing === 'first-r2-write'
+    )
+      await changeState();
+    return object;
   };
   let result: Response;
   try {
@@ -10896,6 +10914,8 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     bucket.put = put;
   }
   assert.equal(stateChanged, true);
+  const suspendedDuringFirstR2Write =
+    scenario.kind === 'suspended' && scenario.timing === 'first-r2-write';
   if (scenario.kind === 'display-name-change') {
     assert.equal(retryPutAttempts, 2);
     await assertCompleted(result);
@@ -10909,7 +10929,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
   } else {
     assert.equal(result.status, scenario.status);
     assert.deepEqual(await result.json(), { error: scenario.error });
-    assert.equal(retryPutAttempts, 0);
+    assert.equal(retryPutAttempts, suspendedDuringFirstR2Write ? 2 : 0);
     if (scenario.kind === 'email-change')
       assert.equal(await memberBinding(), null);
     else assert.equal((await memberBinding())?.subject_id, partner.id);
@@ -10918,6 +10938,21 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       new Uint8Array(objects.get(transcriptReservation.storage_key)),
       storedBeforeStateChange,
     );
+    if (suspendedDuringFirstR2Write) {
+      const audioReservation = pending.find(({ slot }) => slot === 'audio')!;
+      assert.deepEqual(
+        [...objects.keys()]
+          .filter((key) => !previousKeys.has(key))
+          .sort((a, b) => a.localeCompare(b)),
+        pending
+          .map(({ storage_key }) => storage_key)
+          .sort((a, b) => a.localeCompare(b)),
+      );
+      assert.deepEqual(
+        new Uint8Array(objects.get(audioReservation.storage_key)),
+        new Uint8Array([0x49, 0x44, 0x33, 4, 0, 12]),
+      );
+    }
     assert.deepEqual((await reservations()).results, pending);
   }
 
@@ -11020,6 +11055,15 @@ void test('partial R2 retry preserves profile continuity while rechecking multip
     },
   ] as const)
     await assertPartialR2RetryHandlesMultipartStateChange(scenario);
+});
+
+void test('partial R2 retry rejects suspension during the first object write and recovers both objects', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'suspended',
+    timing: 'first-r2-write',
+    status: 403,
+    error: '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
+  });
 });
 
 void test('FLOW commit rejects a suspension immediately before D1 writes', async () => {
