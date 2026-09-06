@@ -10636,8 +10636,9 @@ type MultipartBodyStateChange =
   | {
       kind: 'display-name-change';
       name: string;
-      timing?: 'body-read' | 'first-r2-write';
-      status: 200;
+      timing?: 'body-read' | 'first-r2-write' | 'd1-write';
+      status: 200 | 503;
+      error?: string;
     };
 
 async function assertPartialR2RetryHandlesMultipartStateChange(
@@ -10889,7 +10890,8 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     (scenario.kind === 'permission' ||
       scenario.kind === 'suspended' ||
       scenario.kind === 'discontinued' ||
-      scenario.kind === 'email-change') &&
+      scenario.kind === 'email-change' ||
+      scenario.kind === 'display-name-change') &&
     scenario.timing === 'd1-write';
   Object.defineProperty(stream, 'getReader', {
     value: () => {
@@ -10940,7 +10942,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     db.batch = batch;
   }
   assert.equal(stateChanged, true);
-  if (scenario.kind === 'display-name-change') {
+  if (scenario.kind === 'display-name-change' && !stateChangesDuringD1Write) {
     assert.equal(retryPutAttempts, 2);
     await assertCompleted(result);
     const currentState = (await readPortalState()) as {
@@ -10961,6 +10963,15 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     if (scenario.kind === 'email-change')
       assert.equal(await memberBinding(), null);
     else assert.equal((await memberBinding())?.subject_id, partner.id);
+    if (scenario.kind === 'display-name-change') {
+      const currentState = (await readPortalState()) as {
+        members: Array<{ id: string; name: string }>;
+      };
+      assert.equal(
+        currentState.members.find(({ id }) => id === partner.id)?.name,
+        scenario.name,
+      );
+    }
     assert.deepEqual(await readFlow(stored.caseId), stored);
     assert.deepEqual(
       new Uint8Array(objects.get(transcriptReservation.storage_key)),
@@ -11029,7 +11040,8 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
   if (scenario.kind === 'email-change')
     assert.equal(await memberBinding(), null);
   else assert.equal((await memberBinding())?.subject_id, partner.id);
-  if (scenario.kind === 'display-name-change') return;
+  if (scenario.kind === 'display-name-change' && !stateChangesDuringD1Write)
+    return;
 
   const retry = await POST(
     request(
@@ -11187,6 +11199,17 @@ void test('partial R2 retry rejects discontinuation immediately before the D1 FL
 void test('partial R2 retry rejects login email changes immediately before the D1 FLOW write and recovers after identity restoration', async () => {
   await assertPartialR2RetryHandlesMultipartStateChange({
     kind: 'email-change',
+    timing: 'd1-write',
+    status: 503,
+    error:
+      '첨부파일 소유권을 안전하게 저장하지 못했습니다. 새로고침 후 다시 확인해 주세요.',
+  });
+});
+
+void test('partial R2 retry rejects a stale commit after a display name change immediately before the D1 FLOW write and recovers after restoration', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'display-name-change',
+    name: '가상 D1 직전 변경 담당자',
     timing: 'd1-write',
     status: 503,
     error:
