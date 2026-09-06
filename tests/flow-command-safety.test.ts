@@ -10623,8 +10623,8 @@ type MultipartBodyStateChange =
     }
   | {
       kind: 'suspended';
-      timing?: 'body-read' | 'first-r2-write';
-      status: 403;
+      timing?: 'body-read' | 'first-r2-write' | 'd1-write';
+      status: 403 | 503;
       error: string;
     }
   | {
@@ -10886,7 +10886,8 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       scenario.kind === 'display-name-change') &&
     scenario.timing === 'first-r2-write';
   const stateChangesDuringD1Write =
-    scenario.kind === 'permission' && scenario.timing === 'd1-write';
+    (scenario.kind === 'permission' || scenario.kind === 'suspended') &&
+    scenario.timing === 'd1-write';
   Object.defineProperty(stream, 'getReader', {
     value: () => {
       const reader = getReader();
@@ -11153,6 +11154,16 @@ void test('partial R2 retry rejects case permission revocation immediately befor
   await assertPartialR2RetryHandlesMultipartStateChange({
     kind: 'permission',
     permission: 'ownCases',
+    timing: 'd1-write',
+    status: 503,
+    error:
+      '첨부파일 소유권을 안전하게 저장하지 못했습니다. 새로고침 후 다시 확인해 주세요.',
+  });
+});
+
+void test('partial R2 retry rejects suspension immediately before the D1 FLOW write and recovers after reactivation', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'suspended',
     timing: 'd1-write',
     status: 503,
     error:
