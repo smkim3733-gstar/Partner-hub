@@ -10654,8 +10654,8 @@ type MultipartBodyStateChange =
     }
   | {
       kind: 'case-and-member-deletion';
-      timing: 'd1-write';
-      status: 503;
+      timing: 'first-r2-write' | 'd1-write';
+      status: 403 | 503;
       error: string;
     };
 
@@ -11385,6 +11385,15 @@ void test('partial R2 retry rejects a stale commit after case and assigned membe
     status: 503,
     error:
       '첨부파일 소유권을 안전하게 저장하지 못했습니다. 새로고침 후 다시 확인해 주세요.',
+  });
+});
+
+void test('partial R2 retry rejects case and assigned member deletion during the first object write and rebinds after restoration', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'case-and-member-deletion',
+    timing: 'first-r2-write',
+    status: 403,
+    error: '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
   });
 });
 
