@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `82c3931fef68380cb69440e67e6f23650ba91f4f` (`fix: resume FLOW upload after refresh`)
-- 최신 기능: FLOW 첨부의 불확실 저장 뒤 같은 탭을 새로고침해도 동일 상담·명령·파일의 요청 ID를 복원해 기존 D1 예약과 R2 키로 재시도
-- 검증: Node 회귀 검사 708개, 격리 workerd/D1/R2 검사 521개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
+- 최신 기능 커밋: `c160ab6998ef0c4ed8f6a9a769a594121a440841` (`feat: age pending FLOW uploads`)
+- 최신 기능: 대표 인벤토리에서 기업자료 업로드와 상담 FLOW 예약을 구분하고 미완료 경과 4단계와 3일 이상 담당자 확인 안내 표시
+- 검증: Node 회귀 검사 709개, 격리 workerd/D1/R2 검사 521개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 254 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_563fb73cb974819181e204a36cbcd115`), 소스 `82c3931fef68380cb69440e67e6f23650ba91f4f`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. Sites 안전 게이트가 정확한 공개 대상 버전 승인을 요구하며, 버전 108–253은 버전 254로 대체해 배포하지 않는다.
+- 최신 Sites 저장 버전: 255 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_8846ed8e1f1c81919c8b8395204005f7`), 소스 `c160ab6998ef0c4ed8f6a9a769a594121a440841`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. Sites 안전 게이트가 정확한 공개 대상 버전 승인을 요구하며, 버전 108–254는 버전 255로 대체해 배포하지 않는다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -44,7 +44,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW 첨부 새로고침 재시도 무결성](FLOW_UPLOAD_REFRESH_RETRY_INTEGRITY_2026_09_06.md)을 확인한다.
+먼저 [상담 FLOW 미완료 첨부 출처·연령 관측 경계](FLOW_PENDING_UPLOAD_AGE_OBSERVABILITY_2026_09_06.md)를 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
