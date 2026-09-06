@@ -5551,6 +5551,163 @@ void test('same command ID retry resumes both reservations after the second R2 w
   );
 });
 
+void test('same command ID rejects changed attachment bytes after a partial R2 write without overwriting the object', async () => {
+  const stored = await transcriptJobFixture(false, body);
+  const command = {
+    type: 'save_recording',
+    meetingId: stored.meetings.at(-1)!.id,
+    transcript: `${body} 동일 명령 첨부 변경 차단`,
+    transcriptReviewed: true,
+    recordingConsent: true,
+    privacyMasked: true,
+    fileConsent: true,
+  } as const;
+  const originalTranscript = new File(
+    ['SYNTHETIC_TRANSCRIPT_CONTENT_A'],
+    'same-command-mismatch-transcript.txt',
+    { type: 'text/plain' },
+  );
+  const changedTranscript = new File(
+    ['SYNTHETIC_TRANSCRIPT_CONTENT_B'],
+    'same-command-mismatch-transcript.txt',
+    { type: 'text/plain' },
+  );
+  assert.equal(originalTranscript.size, changedTranscript.size);
+  const audio = new File(
+    [new Uint8Array([0x49, 0x44, 0x33, 4, 0, 6])],
+    'same-command-mismatch-audio.mp3',
+    { type: 'audio/mpeg' },
+  );
+  const commandId = `dual-slot-same-command-mismatch-${++sequence}`;
+  const previousKeys = new Set(objects.keys());
+  const bucket = flowBucket();
+  const put = bucket.put.bind(bucket);
+  let putAttempts = 0;
+  bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+    putAttempts++;
+    if (putAttempts === 2) throw new Error('synthetic second R2 write failure');
+    return put(...args);
+  };
+  let failed: Response;
+  try {
+    failed = await POST(
+      request(
+        stored.caseId,
+        command,
+        stored.revision,
+        commandId,
+        adminEmail,
+        originalTranscript,
+        audio,
+      ),
+      context(stored.caseId),
+    );
+  } finally {
+    bucket.put = put;
+  }
+  assert.equal(failed.status, 503);
+  assert.deepEqual(await readFlow(stored.caseId), stored);
+
+  const db = await flowDatabase();
+  const pending = (
+    await db
+      .prepare(
+        `SELECT slot, file_id, storage_key, status
+        FROM consulting_flow_upload_requests
+        WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3
+        ORDER BY slot`,
+      )
+      .bind(stored.caseId, FLOW_ADMIN_COMMAND_ACTOR_KEY, commandId)
+      .all<{
+        slot: string;
+        file_id: string;
+        storage_key: string;
+        status: string;
+      }>()
+  ).results;
+  assert.equal(pending.length, 2);
+  const transcriptReservation = pending.find(({ slot }) => slot === 'file')!;
+  const storedBeforeMismatch = new Uint8Array(
+    objects.get(transcriptReservation.storage_key),
+  ).slice();
+  assert.deepEqual(
+    [...objects.keys()].filter((key) => !previousKeys.has(key)),
+    [transcriptReservation.storage_key],
+  );
+
+  let mismatchPutAttempts = 0;
+  bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+    mismatchPutAttempts++;
+    return put(...args);
+  };
+  let mismatch: Response;
+  try {
+    mismatch = await POST(
+      request(
+        stored.caseId,
+        command,
+        stored.revision,
+        commandId,
+        adminEmail,
+        changedTranscript,
+        audio,
+      ),
+      context(stored.caseId),
+    );
+  } finally {
+    bucket.put = put;
+  }
+  assert.equal(mismatch.status, 409);
+  assert.deepEqual(await mismatch.json(), {
+    error:
+      '동일 요청의 내용 또는 첨부가 변경되었습니다. 저장 결과를 확인해 주세요.',
+  });
+  assert.equal(mismatchPutAttempts, 0);
+  assert.deepEqual(
+    new Uint8Array(objects.get(transcriptReservation.storage_key)),
+    storedBeforeMismatch,
+  );
+  assert.deepEqual(await readFlow(stored.caseId), stored);
+  assert.deepEqual(
+    (
+      await db
+        .prepare(
+          `SELECT slot, status FROM consulting_flow_upload_requests
+          WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3
+          ORDER BY slot`,
+        )
+        .bind(stored.caseId, FLOW_ADMIN_COMMAND_ACTOR_KEY, commandId)
+        .all<{ slot: string; status: string }>()
+    ).results.map(({ slot, status }) => ({ slot, status })),
+    [
+      { slot: 'audio', status: 'pending' },
+      { slot: 'file', status: 'pending' },
+    ],
+  );
+
+  const retry = await POST(
+    request(
+      stored.caseId,
+      command,
+      stored.revision,
+      commandId,
+      adminEmail,
+      originalTranscript,
+      audio,
+    ),
+    context(stored.caseId),
+  );
+  assert.equal(retry.status, 200, await retry.clone().text());
+  const saved = (await readFlow(stored.caseId))!;
+  const recording = saved.recordings.at(-1)!;
+  const reservedBySlot = new Map(
+    pending.map(({ slot, file_id }) => [slot, file_id]),
+  );
+  assert.equal(recording.transcriptFileId, reservedBySlot.get('file'));
+  assert.equal(recording.audioFileId, reservedBySlot.get('audio'));
+  assert.deepEqual(saved.commandIds.slice(-1), [commandId]);
+});
+
 void test('second dual-slot R2 write success with a lost response preserves both objects and resumes both reservations', async () => {
   const stored = await transcriptJobFixture(false, body);
   const command = {
