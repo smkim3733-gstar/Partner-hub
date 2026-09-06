@@ -7,8 +7,9 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [상담 FLOW 최초 첨부 동시성·실패 복구](FLOW_INITIAL_ATTACHMENT_CONCURRENCY_RECOVERY_2026_09_06.md)                   | 첫 첨부 명령 동시 충돌의 409 분류·패자 R2 정리·실제 503과 승자 재시도 보존               |
 | [상담 FLOW 최초 명령 전이 무결성](FLOW_INITIAL_COMMAND_UPDATE_INTEGRITY_2026_09_06.md)                               | 첫 명령의 revision 0→1 원자 갱신·직접 삽입 차단·21개 효과 방어 완결성                    |
-| [상담 FLOW 사후관리 효과 무결성](FLOW_AFTERCARE_EFFECT_INTEGRITY_2026_09_06.md)                                      | 수행 시작·대표 신원·사후관리 정규형·서버시각·감사문구의 앱·D1 결속                      |
+| [상담 FLOW 사후관리 효과 무결성](FLOW_AFTERCARE_EFFECT_INTEGRITY_2026_09_06.md)                                      | 수행 시작·대표 신원·사후관리 정규형·서버시각·감사문구의 앱·D1 결속                       |
 | [상담 FLOW 입금 확인 효과 무결성](FLOW_PAYMENT_CONFIRMATION_EFFECT_INTEGRITY_2026_09_06.md)                          | 입금 한 건·대표 신원·서버시각·최초 수행 시작시각·감사문구의 앱·D1 결속                   |
 | [상담 FLOW 계약 체결 기록 효과 무결성](FLOW_CONTRACT_RECORD_EFFECT_INTEGRITY_2026_09_06.md)                          | 선택 계약상담·최신 계약서·새 서명본·기록자·서버시각의 앱·D1 결속                         |
 | [상담 FLOW 서류 검토 효과 무결성](FLOW_DOCUMENT_REVIEW_EFFECT_INTEGRITY_2026_09_06.md)                               | 영수증 선택 요청·요청서류 파일·대표 검토 결과·서버시각의 앱·D1 결속                      |
