@@ -1,4 +1,5 @@
 import {
+  inventorySources,
   inventoryStates,
   type InventoryFilter,
   type InventoryItem,
@@ -52,6 +53,8 @@ function parseItem(value: unknown): InventoryItem | null {
     !item ||
     !boundedText(item.id, 120) ||
     !/^[A-Za-z0-9_-]{1,120}$/.test(item.id as string) ||
+    typeof item.source !== 'string' ||
+    !Object.hasOwn(inventorySources, item.source) ||
     !nullableText(item.fileName, 500) ||
     !nullableText(item.company, 500) ||
     !nullableText(item.title, 500) ||
@@ -71,6 +74,7 @@ function parseItem(value: unknown): InventoryItem | null {
 
   return {
     id: item.id as string,
+    source: item.source as InventoryItem['source'],
     fileName: item.fileName as string | null,
     company: item.company as string | null,
     title: item.title as string | null,

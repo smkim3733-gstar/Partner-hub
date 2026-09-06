@@ -301,9 +301,11 @@ void test('actual document and intake references distinguish linked files from s
     true,
   );
   const pending = all.items.find((f) => f.id === 'pending-record')!;
+  assert.equal(pending.source, 'company');
   assert.equal(pending.fileName, null);
   assert.match(pending.uploader, /inventory@example.invalid/);
   const flowPending = all.items.find((f) => f.id === 'flow-reserved')!;
+  assert.equal(flowPending.source, 'flow');
   assert.equal(flowPending.company, '예약 가상기업');
   assert.equal(flowPending.assignedTrainee, member.name);
   assert.equal(flowPending.partnerMemberId, member.id);
@@ -557,6 +559,7 @@ void test('pending FLOW reservations expose safe inventory metadata and exact-si
   assert.deepEqual(pending.items, [
     {
       id: 'pending-flow-presence',
+      source: 'flow',
       fileName: 'pending-flow-presence.txt',
       company: 'FLOW 예약기업',
       title: '상담 FLOW 미완료 첨부',

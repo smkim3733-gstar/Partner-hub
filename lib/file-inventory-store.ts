@@ -31,6 +31,7 @@ import { privateJsonResponse } from './private-response';
 
 const pageSize = 25;
 type Row = {
+  source_type: InventoryItem['source'];
   id: string;
   original_name: string | null;
   company: string | null;
@@ -123,7 +124,7 @@ export async function listFileInventory(
       FROM consulting_flows c, json_each(c.payload, '$.files') f
       WHERE json_extract(f.value, '$.intakeFileId') IS NOT NULL),
     candidates AS (
-      SELECT f.id, f.original_name, f.company, f.title, f.category, f.size_bytes,
+      SELECT 'company' AS source_type, f.id, f.original_name, f.company, f.title, f.category, f.size_bytes,
         f.created_at, f.assigned_trainee, a.partner_member_id, f.uploaded_by_email,
         u.owner_key, c.case_id, u.status AS upload_status, 1 AS has_metadata,
         CASE WHEN integrity.file_id IS NOT NULL
@@ -144,13 +145,13 @@ export async function listFileInventory(
       LEFT JOIN company_file_object_integrity integrity ON integrity.file_id = f.id
       LEFT JOIN company_file_storage_keys object_key ON object_key.file_id = f.id
       UNION ALL
-      SELECT u.file_id, NULL, NULL, NULL, NULL, NULL, u.created_at, NULL, NULL, NULL,
+      SELECT 'company', u.file_id, NULL, NULL, NULL, NULL, NULL, u.created_at, NULL, NULL, NULL,
         u.owner_key, NULL, u.status, 0, 0
       FROM company_file_upload_requests u
       WHERE NOT EXISTS (SELECT 1 FROM company_file_objects f WHERE f.id = u.file_id)
         AND (u.status <> 'deleted' OR u.file_id IN (SELECT id FROM document_refs) OR u.file_id IN (SELECT id FROM flow_refs))
       UNION ALL
-      SELECT u.file_id, u.original_name, NULL, '상담 FLOW 미완료 첨부',
+      SELECT 'flow', u.file_id, u.original_name, NULL, '상담 FLOW 미완료 첨부',
         u.purpose, u.size_bytes, u.created_at, NULL, NULL, NULL, u.actor_key,
         u.case_id, u.status, 0, 0
       FROM consulting_flow_upload_requests u
@@ -212,6 +213,7 @@ export async function listFileInventory(
       : undefined;
     return {
       id: row.id,
+      source: row.source_type,
       fileName: row.original_name,
       company: row.company ?? linkedCase?.company ?? null,
       title: row.title,

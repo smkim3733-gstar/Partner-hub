@@ -5,9 +5,14 @@ import {
   readFileInventoryPageResponse,
   readFileInventoryPresenceResponse,
 } from '../lib/file-inventory-response';
+import {
+  inventoryPendingAge,
+  inventoryPendingAgeLabels,
+} from '../lib/file-inventory';
 
 const item = {
   id: 'inventory-file-1',
+  source: 'company',
   fileName: '가상자료.txt',
   company: '가상기업',
   title: '가상 자료',
@@ -58,6 +63,7 @@ void test('inventory page rejects wrong filters, duplicate IDs and malformed pag
     { ...page, items: [item, item] },
     { ...page, nextCursor: '../private' },
     { ...page, items: [{ ...item, sizeBytes: -1 }] },
+    { ...page, items: [{ ...item, source: 'private-ledger' }] },
     { ...page, items: [{ ...item, createdAt: 'not-a-date' }] },
     {
       ...page,
@@ -71,6 +77,36 @@ void test('inventory page rejects wrong filters, duplicate IDs and malformed pag
       readFileInventoryPageResponse(Response.json(changed), 'unlinked'),
       /응답 형식이 올바르지 않습니다/,
     );
+});
+
+void test('pending age uses fixed non-overlapping operational buckets', () => {
+  const checkedAt = '2026-09-06T12:00:00.000Z';
+  assert.equal(
+    inventoryPendingAge('2026-09-06T08:00:00.001Z', checkedAt),
+    'under4Hours',
+  );
+  assert.equal(
+    inventoryPendingAge('2026-09-06T08:00:00.000Z', checkedAt),
+    'fourTo24Hours',
+  );
+  assert.equal(
+    inventoryPendingAge('2026-09-05T12:00:00.000Z', checkedAt),
+    'oneTo3Days',
+  );
+  assert.equal(
+    inventoryPendingAge('2026-09-03T12:00:00.000Z', checkedAt),
+    'threeDaysOrMore',
+  );
+  assert.equal(
+    inventoryPendingAge('2026-09-06T12:00:00.001Z', checkedAt),
+    null,
+  );
+  assert.deepEqual(Object.values(inventoryPendingAgeLabels), [
+    '4시간 미만',
+    '4~24시간',
+    '1~3일',
+    '3일 이상',
+  ]);
 });
 
 void test('presence response must match requested ID and size relationships', async () => {

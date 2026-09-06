@@ -12,6 +12,9 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import {
+  inventoryPendingAge,
+  inventoryPendingAgeLabels,
+  inventorySources,
   inventoryStates,
   inventoryNotes,
   type InventoryFilter,
@@ -182,6 +185,10 @@ export function AdminFileInventory(controls: RecoveryControls) {
                   <div className="grid gap-3 lg:grid-cols-2">
                     {page.items.map((item) => {
                       const presence = checks[item.id];
+                      const pendingAge =
+                        item.status === 'pending'
+                          ? inventoryPendingAge(item.createdAt, page.checkedAt)
+                          : null;
                       return (
                         <article
                           key={item.id}
@@ -205,10 +212,34 @@ export function AdminFileInventory(controls: RecoveryControls) {
                           <dl className="grid gap-2 text-xs">
                             <div>
                               <dt className="text-muted-foreground">
+                                기록 출처
+                              </dt>
+                              <dd>{inventorySources[item.source]}</dd>
+                            </div>
+                            <div>
+                              <dt className="text-muted-foreground">
                                 업로드 계정
                               </dt>
                               <dd className="break-words">{item.uploader}</dd>
                             </div>
+                            {item.status === 'pending' && (
+                              <div>
+                                <dt className="text-muted-foreground">
+                                  미완료 경과
+                                </dt>
+                                <dd
+                                  className={
+                                    pendingAge === 'threeDaysOrMore'
+                                      ? 'font-bold text-red-700'
+                                      : undefined
+                                  }
+                                >
+                                  {pendingAge
+                                    ? inventoryPendingAgeLabels[pendingAge]
+                                    : '경과 확인 필요'}
+                                </dd>
+                              </div>
+                            )}
                             <div>
                               <dt className="text-muted-foreground">
                                 보관 기록
@@ -236,6 +267,15 @@ export function AdminFileInventory(controls: RecoveryControls) {
                           <p className="text-xs leading-5 text-muted-foreground">
                             {inventoryNotes[item.status]}
                           </p>
+                          {item.status === 'pending' &&
+                            item.source === 'flow' && (
+                              <p className="rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-950">
+                                {pendingAge === 'threeDaysOrMore'
+                                  ? '3일 이상 미완료입니다. 담당 파트너에게 저장 완료 여부와 동일 파일 보유 여부를 확인한 뒤 해당 상담 화면에서 재시도하세요.'
+                                  : '해당 상담 화면에서 동일 명령·동일 파일로 재시도하세요. 새로고침했다면 동일 파일을 다시 선택해야 합니다.'}{' '}
+                                이 화면에서는 자동 연결·삭제하지 않습니다.
+                              </p>
+                            )}
                           {(item.documentLinked || item.flowLinked) && (
                             <p className="text-xs font-medium">
                               직접 참조:{' '}
