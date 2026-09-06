@@ -10607,32 +10607,72 @@ void test('FLOW command denies a partner suspended while the request body is rea
   assert.deepEqual(await readFlow(flow.caseId), flow);
 });
 
-async function assertPartialR2RetryDeniedByMultipartPermissionRevocation(
-  permission: 'ownCases' | 'fileUpload',
-  error: string,
+type MultipartBodyStateChange =
+  | {
+      kind: 'permission';
+      permission: 'ownCases' | 'fileUpload';
+      status: 403;
+      error: string;
+    }
+  | {
+      kind: 'discontinued';
+      status: 409;
+      error: string;
+    };
+
+async function assertPartialR2RetryDeniedByMultipartStateChange(
+  scenario: MultipartBodyStateChange,
 ) {
   await deleteConsultingFlowFixture(await flowDatabase());
+  const scenarioKey =
+    scenario.kind === 'permission' ? scenario.permission : scenario.kind;
   const stored = await transcriptJobFixture(false, body);
+  if (scenario.kind === 'discontinued') {
+    const trackedState = structuredClone(
+      await stateWithConsultingFlows(await readPortalState()),
+    ) as {
+      cases: Array<{
+        id: string;
+        stage: string;
+        flowManaged?: boolean;
+        pipelineLifecycleVersion?: number;
+        pipelineLifecycleStatus?: string;
+        pipelineHighestStage?: string;
+        pipelineStageSource?: string;
+        pipelineReopenCount?: number;
+      }>;
+    };
+    const trackedCase = trackedState.cases.find(
+      ({ id }) => id === stored.caseId,
+    )!;
+    trackedCase.pipelineLifecycleVersion = 1;
+    trackedCase.pipelineLifecycleStatus = 'active';
+    trackedCase.pipelineHighestStage = trackedCase.stage;
+    trackedCase.pipelineStageSource =
+      trackedCase.flowManaged === true ? 'flow_verified' : 'manual_reported';
+    trackedCase.pipelineReopenCount = 0;
+    await writePortalState(trackedState);
+  }
   const command = {
     type: 'save_recording',
     meetingId: stored.meetings.at(-1)!.id,
-    transcript: `${body} multipart 권한 회수 경쟁 ${permission}`,
+    transcript: `${body} multipart 상태 변경 경쟁 ${scenarioKey}`,
     transcriptReviewed: true,
     recordingConsent: true,
     privacyMasked: true,
     fileConsent: true,
   } as const;
   const transcript = new File(
-    [`SYNTHETIC_MULTIPART_PERMISSION_RACE_TRANSCRIPT_${permission}`],
-    `multipart-permission-race-${permission}.txt`,
+    [`SYNTHETIC_MULTIPART_STATE_RACE_TRANSCRIPT_${scenarioKey}`],
+    `multipart-state-race-${scenarioKey}.txt`,
     { type: 'text/plain' },
   );
   const audio = new File(
     [new Uint8Array([0x49, 0x44, 0x33, 4, 0, 12])],
-    `multipart-permission-race-${permission}.mp3`,
+    `multipart-state-race-${scenarioKey}.mp3`,
     { type: 'audio/mpeg' },
   );
-  const commandId = `multipart-${permission}-race-${++sequence}`;
+  const commandId = `multipart-${scenarioKey}-race-${++sequence}`;
   const previousKeys = new Set(objects.keys());
   const bucket = flowBucket();
   const put = bucket.put.bind(bucket);
@@ -10730,13 +10770,23 @@ async function assertPartialR2RetryDeniedByMultipartPermissionRevocation(
               id: string;
               permissions: Record<string, boolean>;
             }>;
+            cases: Array<{
+              id: string;
+              pipelineLifecycleStatus?: string;
+            }>;
           };
-          const changedPartner = changedState.members.find(
-            ({ id }) => id === partner.id,
-          )!;
-          changedPartner.permissions.sharedSchedule = false;
-          changedPartner.permissions.collaborationApply = false;
-          changedPartner.permissions[permission] = false;
+          if (scenario.kind === 'permission') {
+            const changedPartner = changedState.members.find(
+              ({ id }) => id === partner.id,
+            )!;
+            changedPartner.permissions.sharedSchedule = false;
+            changedPartner.permissions.collaborationApply = false;
+            changedPartner.permissions[scenario.permission] = false;
+          } else {
+            changedState.cases.find(
+              ({ id }) => id === stored.caseId,
+            )!.pipelineLifecycleStatus = 'discontinued';
+          }
           const changed = await saveState(
             new Request('http://localhost/api/state', {
               method: 'PUT',
@@ -10769,8 +10819,8 @@ async function assertPartialR2RetryDeniedByMultipartPermissionRevocation(
     bucket.put = put;
   }
   assert.equal(stateChanged, true);
-  assert.equal(denied.status, 403);
-  assert.deepEqual(await denied.json(), { error });
+  assert.equal(denied.status, scenario.status);
+  assert.deepEqual(await denied.json(), { error: scenario.error });
   assert.equal(deniedPutAttempts, 0);
   assert.equal((await memberBinding())?.subject_id, partner.id);
   assert.deepEqual(await readFlow(stored.caseId), stored);
@@ -10785,10 +10835,19 @@ async function assertPartialR2RetryDeniedByMultipartPermissionRevocation(
       id: string;
       permissions: Record<string, boolean>;
     }>;
+    cases: Array<{
+      id: string;
+      pipelineLifecycleStatus?: string;
+    }>;
   };
-  restoredState.members.find(({ id }) => id === partner.id)!.permissions[
-    permission
-  ] = true;
+  if (scenario.kind === 'permission')
+    restoredState.members.find(({ id }) => id === partner.id)!.permissions[
+      scenario.permission
+    ] = true;
+  else
+    restoredState.cases.find(
+      ({ id }) => id === stored.caseId,
+    )!.pipelineLifecycleStatus = 'active';
   const restored = await saveState(
     new Request('http://localhost/api/state', {
       method: 'PUT',
@@ -10859,21 +10918,28 @@ async function assertPartialR2RetryDeniedByMultipartPermissionRevocation(
   );
 }
 
-void test('partial R2 retry rechecks multipart permission revocation before reservation or R2 reuse', async () => {
+void test('partial R2 retry rechecks multipart permission and lifecycle changes before reservation or R2 reuse', async () => {
   for (const scenario of [
     {
+      kind: 'permission',
       permission: 'ownCases',
+      status: 403,
       error: '담당 파트너만 이 진행을 열 수 있습니다.',
     },
     {
+      kind: 'permission',
       permission: 'fileUpload',
+      status: 403,
       error: '자료 업로드 권한이 필요합니다.',
     },
+    {
+      kind: 'discontinued',
+      status: 409,
+      error:
+        '대표가 진행을 중단한 상태입니다. 진행판에서 다시 연 뒤 이용해 주세요.',
+    },
   ] as const)
-    await assertPartialR2RetryDeniedByMultipartPermissionRevocation(
-      scenario.permission,
-      scenario.error,
-    );
+    await assertPartialR2RetryDeniedByMultipartStateChange(scenario);
 });
 
 void test('FLOW commit rejects a suspension immediately before D1 writes', async () => {
