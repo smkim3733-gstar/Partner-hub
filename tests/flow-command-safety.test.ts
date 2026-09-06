@@ -3713,6 +3713,309 @@ void test('FLOW document reviews bind the selected received request', async () =
   await commitFlow(reviewed, needsFix);
 });
 
+void test('FLOW contract records bind the selected eligible meeting and signed copy', async () => {
+  let saved = await fixture();
+  const adminActor = {
+    id: adminEmail,
+    role: 'admin' as const,
+    name: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+  };
+  const partnerActor = {
+    id: partner.id,
+    role: 'partner' as const,
+    name: partner.name,
+  };
+  const commitCommand = async (
+    command: { type: string; [key: string]: unknown },
+    actor = adminActor as typeof adminActor | typeof partnerActor,
+    upload?: ConsultingFlow['files'][number],
+    bytes?: string,
+  ) => {
+    const commandId = `contract-preparation-${++sequence}`;
+    const now = new Date(Date.parse(saved.updatedAt) + 1_000).toISOString();
+    const next = applyFlowCommand(saved, command, actor, {
+      commandId,
+      now,
+      upload,
+    });
+    const audit = next.audit.at(-1)!;
+    next.commandReceipts = {
+      ...next.commandReceipts,
+      [commandId]: {
+        actorKey:
+          actor.role === 'admin'
+            ? FLOW_ADMIN_COMMAND_ACTOR_KEY
+            : `member:${partner.id}`,
+        fingerprint: 'a'.repeat(64),
+        actor: audit.actor,
+        action: audit.action,
+        ...(['complete_meeting', 'cancel_meeting'].includes(command.type) &&
+        typeof command.meetingId === 'string'
+          ? { targetId: command.meetingId }
+          : {}),
+      },
+    };
+    await commitFlow(
+      saved,
+      next,
+      undefined,
+      upload && bytes ? await storeFlowFileBinding(upload, bytes) : undefined,
+    );
+    saved = next;
+  };
+
+  await commitCommand({
+    type: 'confirm_analysis',
+    reportId: saved.reports.at(-1)!.id,
+  });
+  await commitCommand(
+    { type: 'confirm_analysis', reportId: saved.reports.at(-1)!.id },
+    partnerActor,
+  );
+  const firstMeetingStartsAt = new Date(
+    Date.parse(saved.updatedAt) - 3_600_000,
+  ).toISOString();
+  const firstMeetingEndsAt = new Date(
+    Date.parse(saved.updatedAt) - 3_000_000,
+  ).toISOString();
+  await commitCommand({
+    type: 'book_meeting',
+    kind: 'first',
+    attendance: 'both',
+    startsAt: firstMeetingStartsAt,
+    endsAt: firstMeetingEndsAt,
+    location: '가상 초회상담',
+  });
+  const firstMeetingId = saved.meetings.at(-1)!.id;
+  await commitCommand({ type: 'save_report', stage: 2, body });
+  const presentationBytes = 'synthetic contract preparation presentation';
+  const presentationFile: ConsultingFlow['files'][number] = {
+    id: `contract-preparation-report-${++sequence}`,
+    name: 'contract-preparation.pdf',
+    contentType: 'application/pdf',
+    size: new TextEncoder().encode(presentationBytes).byteLength,
+    key: flowFileStorageKey(`contract-preparation-report-${sequence}`),
+    createdAt: new Date(Date.parse(saved.updatedAt) + 1_000).toISOString(),
+    purpose: 'report',
+  };
+  await commitCommand(
+    { type: 'save_report', stage: 3, body },
+    adminActor,
+    presentationFile,
+    presentationBytes,
+  );
+  await commitCommand({
+    type: 'complete_meeting',
+    meetingId: firstMeetingId,
+    note: '가상 초회상담 완료',
+  });
+  await commitCommand({
+    type: 'save_recording',
+    meetingId: firstMeetingId,
+    transcript: body,
+    transcriptReviewed: true,
+    recordingConsent: true,
+    privacyMasked: true,
+  });
+  await commitCommand({ type: 'save_report', stage: 4, body });
+  await commitCommand({
+    type: 'confirm_solutions',
+    reportId: saved.reports.at(-1)!.id,
+    solutions: ['가상 정책자금 사전진단'],
+    documentsNeeded: false,
+    reviewConfirmed: true,
+    note: '기존 제출 자료로 계약 준비 가능',
+  });
+  await commitCommand({ type: 'save_report', stage: 5, body });
+  await commitCommand({ type: 'save_report', stage: 6, body });
+  const olderContractReportId = saved.reports.at(-1)!.id;
+  await commitCommand({
+    type: 'save_report',
+    stage: 6,
+    body: `${body} 최신본`,
+  });
+
+  const firstContractStartsAt = new Date(
+    Date.parse(saved.updatedAt) - 2_400_000,
+  ).toISOString();
+  const firstContractEndsAt = new Date(
+    Date.parse(saved.updatedAt) - 1_800_000,
+  ).toISOString();
+  await commitCommand({
+    type: 'book_meeting',
+    kind: 'contract',
+    attendance: 'both',
+    startsAt: firstContractStartsAt,
+    endsAt: firstContractEndsAt,
+    location: '가상 첫 계약상담',
+  });
+  const selectedMeetingId = saved.meetings.at(-1)!.id;
+  const secondContractStartsAt = new Date(
+    Date.parse(saved.updatedAt) - 1_200_000,
+  ).toISOString();
+  const secondContractEndsAt = new Date(
+    Date.parse(saved.updatedAt) - 600_000,
+  ).toISOString();
+  await commitCommand({
+    type: 'book_meeting',
+    kind: 'contract',
+    attendance: 'both',
+    startsAt: secondContractStartsAt,
+    endsAt: secondContractEndsAt,
+    location: '가상 두 번째 계약상담',
+  });
+  const unselectedMeetingId = saved.meetings.at(-1)!.id;
+
+  const commandId = `record-contract-effect-${++sequence}`;
+  const signedBytes = 'synthetic signed contract';
+  const signedAt = new Date(Date.parse(saved.updatedAt) + 9 * 3_600_000)
+    .toISOString()
+    .slice(0, 10);
+  const contractCommand = {
+    type: 'record_contract',
+    meetingId: selectedMeetingId,
+    signedAt,
+    expectedDepositWon: 1_000_000,
+    signedConfirmed: true,
+    fileConsent: true,
+  } as const;
+  const adminUser: PortalUser = {
+    id: 'stable-owner-subject',
+    email: adminEmail,
+    displayName: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    role: 'admin',
+    memberId: null,
+    memberName: null,
+    permissions: null,
+  };
+  const signedFile: ConsultingFlow['files'][number] = {
+    id: `record-contract-file-${++sequence}`,
+    name: 'signed-contract.pdf',
+    contentType: 'application/pdf',
+    size: new TextEncoder().encode(signedBytes).byteLength,
+    key: flowFileStorageKey(`record-contract-file-${sequence}`),
+    createdAt: new Date(Date.parse(saved.updatedAt) + 1_000).toISOString(),
+    purpose: 'signed_contract',
+  };
+  const receipt = await flowCommandReceipt(adminUser, {
+    command: contractCommand,
+    file: new File([signedBytes], signedFile.name, {
+      type: signedFile.contentType,
+    }),
+  });
+  assert.equal(receipt.targetId, selectedMeetingId);
+  const recorded = applyFlowCommand(saved, contractCommand, adminActor, {
+    commandId,
+    now: signedFile.createdAt,
+    upload: signedFile,
+  });
+  recorded.commandReceipts = {
+    ...recorded.commandReceipts,
+    [commandId]: {
+      ...receipt,
+      actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+      action: 'record_contract',
+    },
+  };
+  const signedBinding = await storeFlowFileBinding(signedFile, signedBytes);
+  const rejectsAtBothBoundaries = async (
+    candidate: ConsultingFlow,
+    label: string,
+  ) => {
+    await assert.rejects(
+      commitFlow(saved, candidate, undefined, signedBinding),
+      (error) => error instanceof FlowError && error.status === 503,
+      `application accepted ${label}`,
+    );
+    const db = await flowDatabase();
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          candidate.revision,
+          JSON.stringify(candidate),
+          candidate.updatedAt,
+          saved.caseId,
+          saved.revision,
+        )
+        .run(),
+      /new command receipt target is invalid|command scope is invalid|command target is invalid|record contract effect is invalid/,
+      `D1 accepted ${label}`,
+    );
+  };
+
+  const swappedMeeting = structuredClone(recorded);
+  swappedMeeting.meetings = saved.meetings.map((meeting) =>
+    meeting.id === unselectedMeetingId
+      ? {
+          ...structuredClone(meeting),
+          status: 'completed' as const,
+          completedAt: recorded.updatedAt,
+        }
+      : structuredClone(meeting),
+  );
+  swappedMeeting.contract!.meetingId = unselectedMeetingId;
+  await rejectsAtBothBoundaries(
+    swappedMeeting,
+    'contract evidence for an unselected meeting',
+  );
+
+  const staleReport = structuredClone(recorded);
+  staleReport.contract!.reportId = olderContractReportId;
+  await rejectsAtBothBoundaries(staleReport, 'a stale contract report');
+
+  const forgedRecorder = structuredClone(recorded);
+  forgedRecorder.contract!.recordedBy = partner.name;
+  await rejectsAtBothBoundaries(forgedRecorder, 'a forged contract recorder');
+
+  const futureSignature = structuredClone(recorded);
+  futureSignature.contract!.signedAt = new Date(
+    Date.parse(`${signedAt}T00:00:00.000Z`) + 86_400_000,
+  )
+    .toISOString()
+    .slice(0, 10);
+  await rejectsAtBothBoundaries(futureSignature, 'a future signature date');
+
+  const forgedCompletionTime = structuredClone(recorded);
+  forgedCompletionTime.meetings.find(
+    (meeting) => meeting.id === selectedMeetingId,
+  )!.completedAt = saved.updatedAt;
+  await rejectsAtBothBoundaries(
+    forgedCompletionTime,
+    'a forged contract meeting completion time',
+  );
+
+  const forgedFileTime = structuredClone(recorded);
+  forgedFileTime.files.at(-1)!.createdAt = saved.updatedAt;
+  await rejectsAtBothBoundaries(forgedFileTime, 'a forged signed-file time');
+
+  const extraFile = structuredClone(recorded);
+  extraFile.files.push({
+    ...structuredClone(signedFile),
+    id: `record-contract-extra-${++sequence}`,
+    key: flowFileStorageKey(`record-contract-extra-${sequence}`),
+  });
+  await rejectsAtBothBoundaries(extraFile, 'an unrelated extra contract file');
+
+  const forgedAudit = structuredClone(recorded);
+  forgedAudit.audit.at(-1)!.detail = '다른 계약을 체결한 것처럼 위조';
+  await rejectsAtBothBoundaries(forgedAudit, 'forged contract audit detail');
+
+  const missingTarget = structuredClone(recorded);
+  delete missingTarget.commandReceipts![commandId]!.targetId;
+  await rejectsAtBothBoundaries(missingTarget, 'a missing contract target');
+
+  await commitFlow(saved, recorded, undefined, signedBinding);
+  assert.deepEqual(
+    await readFlow(recorded.caseId),
+    JSON.parse(JSON.stringify(recorded)),
+  );
+});
+
 void test('FLOW source save commands preserve existing source files', async () => {
   const queued = await queuedReportFixture(true);
   const stored = structuredClone(queued);

@@ -629,6 +629,16 @@ test('only actual signed copy and eligible attendee can record signature; all at
       ),
     FlowError,
   );
+  const existingSignedCopy = file('signed_contract');
+  s.files.push(existingSignedCopy);
+  fails(s, {
+    type: 'record_contract',
+    meetingId: s.meetings.at(-1)!.id,
+    signedAt: '2026-08-30',
+    signedConfirmed: true,
+    expectedDepositWon: 100,
+    fileId: existingSignedCopy.id,
+  });
 });
 test('no deposit or aftercare bypass; invalid/negative/future payments rejected; contract locks evidence', () => {
   fails(prepared(), {

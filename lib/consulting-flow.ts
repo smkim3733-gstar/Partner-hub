@@ -1233,13 +1233,13 @@ export function applyFlowCommand(
         '미래 계약일을 기록할 수 없습니다.',
       );
       demand(
-        file().purpose === 'signed_contract',
+        upload?.purpose === 'signed_contract',
         '서명한 계약서 파일을 새로 첨부해 주세요.',
       );
       s.contract = {
         meetingId: meeting.id,
         reportId: latestReport(s, 6)!.id,
-        signedFileId: file().id,
+        signedFileId: upload.id,
         signedAt,
         expectedDepositWon: won(command, 'expectedDepositWon'),
         recordedBy: actor.name,

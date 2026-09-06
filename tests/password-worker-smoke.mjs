@@ -571,6 +571,16 @@ const flowReviewDocumentEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowRecordContractEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0089_consulting_flow_record_contract_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -592,6 +602,8 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_mark_request_sent_effect_guard',
   'consulting_flows_receive_document_effect_guard',
   'consulting_flows_review_document_effect_guard',
+  'consulting_flows_record_contract_effect_guard',
+  'consulting_flows_record_contract_evidence_guard',
   'consulting_flows_save_source_effect_guard',
   'consulting_flows_import_intake_source_effect_guard',
   'consulting_flows_exclude_source_effect_guard',
@@ -655,6 +667,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowMarkRequestSentEffectTriggerSql,
       ...flowReceiveDocumentEffectTriggerSql,
       ...flowReviewDocumentEffectTriggerSql,
+      ...flowRecordContractEffectTriggerSql,
       flowSaveSourceEffectTriggerSql[0],
       flowImportIntakeSourceEffectTriggerSql[0],
       flowExcludeSourceEffectTriggerSql[0],
@@ -3822,7 +3835,7 @@ try {
     .first();
   const intactFlowPayload = intactFlowRow.payload;
   const evidenceCaseId = 'native-flow-ai-evidence-transition';
-  const evidenceTimes = Array.from({ length: 9 }, (_, index) =>
+  const evidenceTimes = Array.from({ length: 12 }, (_, index) =>
     new Date(Date.parse('2026-09-06T12:00:00.000Z') + index).toISOString(),
   );
   const evidenceFlow = JSON.parse(intactFlowPayload);
@@ -4029,6 +4042,99 @@ try {
       origin: 'manual',
     },
   );
+  const contractEffectCaseId = 'native-flow-record-contract-effect';
+  const contractEffectFlow = structuredClone(retryEffectFlow);
+  contractEffectFlow.caseId = contractEffectCaseId;
+  delete contractEffectFlow.contract;
+  contractEffectFlow.payments = [];
+  contractEffectFlow.requests = [];
+  const contractSourceReportId = contractEffectFlow.reports
+    .filter((report) => report.stage === 1)
+    .at(-1).id;
+  const contractSourceRecordingId = contractEffectFlow.recordings.at(-1).id;
+  const contractDeepReportId = 'native-contract-deep-report';
+  contractEffectFlow.reports.push({
+    id: contractDeepReportId,
+    stage: 4,
+    version: 1,
+    title: '4차 심화보고서',
+    body: decisionReportBody,
+    sourceReportId: contractSourceReportId,
+    sourceRecordingId: contractSourceRecordingId,
+    createdAt: evidenceTimes[1],
+    createdBy: '김성민 대표',
+    origin: 'manual',
+  });
+  contractEffectFlow.decision = {
+    id: 'native-contract-decision',
+    reportId: contractDeepReportId,
+    solutions: ['가상 계약 무결성 검증'],
+    note: '추가 서류 없음',
+    documentsNeeded: false,
+    at: evidenceTimes[1],
+  };
+  contractEffectFlow.reports.push(
+    {
+      id: 'native-contract-estimate',
+      stage: 5,
+      version: 1,
+      title: '5차 견적서',
+      body: decisionReportBody,
+      decisionId: contractEffectFlow.decision.id,
+      documentsKey: '[]',
+      createdAt: evidenceTimes[1],
+      createdBy: '김성민 대표',
+      origin: 'manual',
+    },
+    {
+      id: 'native-contract-agreement-old',
+      stage: 6,
+      version: 1,
+      title: '6차 경영자문용역계약서',
+      body: decisionReportBody,
+      decisionId: contractEffectFlow.decision.id,
+      documentsKey: '[]',
+      createdAt: evidenceTimes[1],
+      createdBy: '김성민 대표',
+      origin: 'manual',
+    },
+    {
+      id: 'native-contract-agreement-latest',
+      stage: 6,
+      version: 2,
+      title: '6차 경영자문용역계약서',
+      body: decisionReportBody,
+      decisionId: contractEffectFlow.decision.id,
+      documentsKey: '[]',
+      createdAt: evidenceTimes[1],
+      createdBy: '김성민 대표',
+      origin: 'manual',
+    },
+  );
+  contractEffectFlow.meetings.push(
+    {
+      id: 'native-contract-meeting-selected',
+      kind: 'contract',
+      startsAt: '2026-09-06T10:00:00.000Z',
+      endsAt: '2026-09-06T10:30:00.000Z',
+      attendance: 'both',
+      location: '가상 계약상담실 1',
+      status: 'scheduled',
+      note: '',
+      createdBy: 'admin:primary',
+    },
+    {
+      id: 'native-contract-meeting-unselected',
+      kind: 'contract',
+      startsAt: '2026-09-06T11:00:00.000Z',
+      endsAt: '2026-09-06T11:30:00.000Z',
+      attendance: 'both',
+      location: '가상 계약상담실 2',
+      status: 'scheduled',
+      note: '',
+      createdBy: 'admin:primary',
+    },
+  );
   const insertEvidenceFlow = () =>
     db
       .prepare(
@@ -4179,6 +4285,21 @@ try {
         requestEffectFlow.updatedAt,
       )
       .run();
+  const insertContractEffectFlow = () =>
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        contractEffectCaseId,
+        contractEffectFlow.partnerId,
+        contractEffectFlow.revision,
+        JSON.stringify(contractEffectFlow),
+        contractEffectFlow.updatedAt,
+      )
+      .run();
   const receiptOriginCaseId = 'native-flow-command-receipt-origin';
   const legacyReceiptOriginFlow = structuredClone(evidenceFlow);
   legacyReceiptOriginFlow.caseId = receiptOriginCaseId;
@@ -4286,6 +4407,7 @@ try {
     await insertReportEffectFlow();
     await insertDecisionEffectFlow();
     await insertRequestEffectFlow();
+    await insertContractEffectFlow();
   } finally {
     await db.batch([
       db.prepare(flowAiEvidenceInsertTriggerSql),
@@ -5789,6 +5911,162 @@ try {
     'FLOW native D1 binds representative review result, selected received request, server times, reason and audit',
   );
   await deleteConsultingFlowFixture(db, requestEffectCaseId);
+
+  const validRecordContractEffectFlow = structuredClone(contractEffectFlow);
+  validRecordContractEffectFlow.revision++;
+  validRecordContractEffectFlow.updatedAt = evidenceTimes[9];
+  const recordContractCommandId = 'native-record-contract-effect';
+  const selectedContractMeetingId = 'native-contract-meeting-selected';
+  const unselectedContractMeetingId = 'native-contract-meeting-unselected';
+  const selectedContractMeeting = validRecordContractEffectFlow.meetings.find(
+    (meeting) => meeting.id === selectedContractMeetingId,
+  );
+  selectedContractMeeting.status = 'completed';
+  selectedContractMeeting.completedAt = evidenceTimes[9];
+  const signedContractFile = {
+    id: 'native-record-contract-signed-file',
+    name: 'signed-contract.pdf',
+    contentType: 'application/pdf',
+    size: 128,
+    key: 'flow/native-record-contract-signed-file.pdf',
+    createdAt: evidenceTimes[9],
+    purpose: 'signed_contract',
+  };
+  validRecordContractEffectFlow.files.push(signedContractFile);
+  validRecordContractEffectFlow.contract = {
+    meetingId: selectedContractMeetingId,
+    reportId: 'native-contract-agreement-latest',
+    signedFileId: signedContractFile.id,
+    signedAt: '2026-09-06',
+    expectedDepositWon: 1_000_000,
+    recordedBy: '김성민 대표',
+  };
+  validRecordContractEffectFlow.audit.push({
+    id: recordContractCommandId,
+    at: evidenceTimes[9],
+    actor: '김성민 대표',
+    action: 'record_contract',
+    detail: '서명본과 약정 계약금 등록 · 입금 확인 대기',
+  });
+  validRecordContractEffectFlow.commandIds.push(recordContractCommandId);
+  validRecordContractEffectFlow.commandReceipts[recordContractCommandId] = {
+    actorKey: 'admin:primary',
+    fingerprint: 'a'.repeat(64),
+    actor: '김성민 대표',
+    action: 'record_contract',
+    targetId: selectedContractMeetingId,
+  };
+  const saveRecordContractEffectTransition = (after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        contractEffectCaseId,
+        contractEffectFlow.revision,
+      )
+      .run();
+  const recordContractEffectError =
+    /new command receipt target is invalid|command scope is invalid|command target is invalid|record contract effect is invalid/;
+
+  const swappedContractMeetingFlow = structuredClone(
+    validRecordContractEffectFlow,
+  );
+  swappedContractMeetingFlow.meetings = contractEffectFlow.meetings.map(
+    (meeting) =>
+      meeting.id === unselectedContractMeetingId
+        ? {
+            ...structuredClone(meeting),
+            status: 'completed',
+            completedAt: evidenceTimes[9],
+          }
+        : structuredClone(meeting),
+  );
+  swappedContractMeetingFlow.contract.meetingId = unselectedContractMeetingId;
+  await assert.rejects(
+    saveRecordContractEffectTransition(swappedContractMeetingFlow),
+    recordContractEffectError,
+  );
+  const staleContractReportFlow = structuredClone(
+    validRecordContractEffectFlow,
+  );
+  staleContractReportFlow.contract.reportId = 'native-contract-agreement-old';
+  await assert.rejects(
+    saveRecordContractEffectTransition(staleContractReportFlow),
+    recordContractEffectError,
+  );
+  const forgedContractRecorderFlow = structuredClone(
+    validRecordContractEffectFlow,
+  );
+  forgedContractRecorderFlow.contract.recordedBy =
+    forgedContractRecorderFlow.partnerName;
+  await assert.rejects(
+    saveRecordContractEffectTransition(forgedContractRecorderFlow),
+    recordContractEffectError,
+  );
+  const futureContractDateFlow = structuredClone(validRecordContractEffectFlow);
+  futureContractDateFlow.contract.signedAt = '2026-09-07';
+  await assert.rejects(
+    saveRecordContractEffectTransition(futureContractDateFlow),
+    recordContractEffectError,
+  );
+  const forgedContractMeetingTimeFlow = structuredClone(
+    validRecordContractEffectFlow,
+  );
+  forgedContractMeetingTimeFlow.meetings.find(
+    (meeting) => meeting.id === selectedContractMeetingId,
+  ).completedAt = evidenceTimes[8];
+  await assert.rejects(
+    saveRecordContractEffectTransition(forgedContractMeetingTimeFlow),
+    recordContractEffectError,
+  );
+  const forgedSignedFileTimeFlow = structuredClone(
+    validRecordContractEffectFlow,
+  );
+  forgedSignedFileTimeFlow.files.at(-1).createdAt = evidenceTimes[8];
+  await assert.rejects(
+    saveRecordContractEffectTransition(forgedSignedFileTimeFlow),
+    recordContractEffectError,
+  );
+  const extraContractFileFlow = structuredClone(validRecordContractEffectFlow);
+  extraContractFileFlow.files.push({
+    ...signedContractFile,
+    id: 'native-record-contract-extra-file',
+    key: 'flow/native-record-contract-extra-file.pdf',
+  });
+  await assert.rejects(
+    saveRecordContractEffectTransition(extraContractFileFlow),
+    recordContractEffectError,
+  );
+  const forgedRecordContractAuditFlow = structuredClone(
+    validRecordContractEffectFlow,
+  );
+  forgedRecordContractAuditFlow.audit.at(-1).detail = '위조된 계약 감사기록';
+  await assert.rejects(
+    saveRecordContractEffectTransition(forgedRecordContractAuditFlow),
+    recordContractEffectError,
+  );
+  const missingRecordContractTargetFlow = structuredClone(
+    validRecordContractEffectFlow,
+  );
+  delete missingRecordContractTargetFlow.commandReceipts[
+    recordContractCommandId
+  ].targetId;
+  await assert.rejects(
+    saveRecordContractEffectTransition(missingRecordContractTargetFlow),
+    recordContractEffectError,
+  );
+  await saveRecordContractEffectTransition(validRecordContractEffectFlow);
+  checks.push(
+    'FLOW native D1 binds selected eligible contract meeting, latest stage-6 report, signed copy, recorder, server times and audit',
+  );
+  await deleteConsultingFlowFixture(db, contractEffectCaseId);
+
   const validSourceEffectFlow = structuredClone(sourceEffectFlow);
   validSourceEffectFlow.revision++;
   validSourceEffectFlow.updatedAt = evidenceTimes[2];

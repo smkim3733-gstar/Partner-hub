@@ -31,6 +31,8 @@ import {
   consultingFlowsMarkRequestSentEffectTriggerSql,
   consultingFlowsReceiveDocumentEffectTriggerSql,
   consultingFlowsReviewDocumentEffectTriggerSql,
+  consultingFlowsRecordContractEffectTriggerSql,
+  consultingFlowsRecordContractEvidenceTriggerSql,
   consultingFlowsSaveSourceEffectTriggerSql,
   consultingFlowsImportIntakeSourceEffectTriggerSql,
   consultingFlowsExcludeSourceEffectTriggerSql,
@@ -188,6 +190,8 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsMarkRequestSentEffectTriggerSql),
         db.prepare(consultingFlowsReceiveDocumentEffectTriggerSql),
         db.prepare(consultingFlowsReviewDocumentEffectTriggerSql),
+        db.prepare(consultingFlowsRecordContractEffectTriggerSql),
+        db.prepare(consultingFlowsRecordContractEvidenceTriggerSql),
         db.prepare(consultingFlowsSaveSourceEffectTriggerSql),
         db.prepare(consultingFlowsImportIntakeSourceEffectTriggerSql),
         db.prepare(consultingFlowsExcludeSourceEffectTriggerSql),
@@ -1136,6 +1140,7 @@ function assertFlowCommitTransition(
           'mark_request_sent',
           'receive_document',
           'review_document',
+          'record_contract',
         ].includes(receipt.action ?? '')
           ? receipt.targetId === undefined
           : receipt.targetId !== undefined)
@@ -1611,6 +1616,101 @@ function assertFlowCommitTransition(
           (reviewedRequest.status === 'verified'
             ? '필수 서류 검토 완료'
             : '서류 보완 요청')
+      )
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'record_contract') {
+      const receipt = afterReceipts[commandId];
+      const previousMeetings = before.meetings.filter(
+        (meeting) => meeting.id === receipt?.targetId,
+      );
+      const currentMeetings = after.meetings.filter(
+        (meeting) => meeting.id === receipt?.targetId,
+      );
+      const previousMeeting = previousMeetings[0];
+      const currentMeeting = currentMeetings[0];
+      const contract = after.contract;
+      const report = latestReport(before, 6);
+      const signedFile = after.files.at(-1);
+      const commandAudit = newAudit.find((entry) => entry.id === commandId);
+      const expectedRecorder =
+        receipt?.actorKey === FLOW_ADMIN_COMMAND_ACTOR_KEY
+          ? FLOW_ADMIN_COMMAND_ACTOR_NAME
+          : receipt?.actorKey === `member:${before.partnerId}`
+            ? before.partnerName
+            : undefined;
+      const expectedMeeting = previousMeeting
+        ? previousMeeting.status === 'scheduled'
+          ? {
+              ...structuredClone(previousMeeting),
+              status: 'completed' as const,
+              completedAt: after.updatedAt,
+            }
+          : structuredClone(previousMeeting)
+        : undefined;
+      const signedAt = contract?.signedAt;
+      const parsedSignedAt =
+        typeof signedAt === 'string'
+          ? Date.parse(`${signedAt}T00:00:00.000Z`)
+          : Number.NaN;
+      const currentKoreanDate = new Date(
+        Date.parse(after.updatedAt) + 9 * 3_600_000,
+      )
+        .toISOString()
+        .slice(0, 10);
+      const expectedContract =
+        contract && report && signedFile && expectedRecorder
+          ? {
+              meetingId: receipt?.targetId,
+              reportId: report.id,
+              signedFileId: signedFile.id,
+              signedAt: contract.signedAt,
+              expectedDepositWon: contract.expectedDepositWon,
+              recordedBy: expectedRecorder,
+            }
+          : undefined;
+      if (
+        !receipt?.targetId ||
+        before.contract !== undefined ||
+        !signingPreparationDone(before) ||
+        previousMeetings.length !== 1 ||
+        currentMeetings.length !== 1 ||
+        !previousMeeting ||
+        !currentMeeting ||
+        previousMeeting.kind !== 'contract' ||
+        !['scheduled', 'completed'].includes(previousMeeting.status) ||
+        previousMeeting.startsAt > after.updatedAt ||
+        (receipt.actorKey === `member:${before.partnerId}` &&
+          !['both', 'partner'].includes(previousMeeting.attendance)) ||
+        !expectedRecorder ||
+        !sameValue(currentMeeting, expectedMeeting) ||
+        after.meetings.length !== before.meetings.length ||
+        before.meetings.some(
+          (meeting, index) =>
+            meeting.id !== receipt.targetId &&
+            !sameValue(meeting, after.meetings[index]),
+        ) ||
+        !contract ||
+        !sameValue(contract, expectedContract) ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(signedAt ?? '') ||
+        !Number.isFinite(parsedSignedAt) ||
+        new Date(parsedSignedAt).toISOString().slice(0, 10) !== signedAt ||
+        signedAt > currentKoreanDate ||
+        !Number.isSafeInteger(contract.expectedDepositWon) ||
+        contract.expectedDepositWon < 1 ||
+        contract.expectedDepositWon > 1_000_000_000_000 ||
+        after.files.length !== before.files.length + 1 ||
+        before.files.some(
+          (file, index) => !sameValue(file, after.files[index]),
+        ) ||
+        !signedFile ||
+        signedFile.purpose !== 'signed_contract' ||
+        signedFile.createdAt !== after.updatedAt ||
+        signedFile.intakeFileId !== undefined ||
+        signedFile.intakeSourceHash !== undefined ||
+        signedFile.sourceReviewedAt !== undefined ||
+        signedFile.sourceReviewedBy !== undefined ||
+        commandAudit?.detail !== '서명본과 약정 계약금 등록 · 입금 확인 대기'
       )
         throw storedFlowIntegrityError();
     }
