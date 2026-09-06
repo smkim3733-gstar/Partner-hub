@@ -18,6 +18,7 @@ import {
   consultingFlowsCommandAiTransitionTriggerSql,
   consultingFlowsSetAiPolicyJobsTriggerSql,
   consultingFlowsSaveTranscriptJobsTriggerSql,
+  consultingFlowsRetryJobEffectTriggerSql,
   consultingFlowsCommandHistoryTriggerSql,
   consultingFlowsCommandInsertEvidenceTriggerSql,
   consultingFlowsCommandInsertEffectTriggerSql,
@@ -150,6 +151,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandAiTransitionTriggerSql),
         db.prepare(consultingFlowsSetAiPolicyJobsTriggerSql),
         db.prepare(consultingFlowsSaveTranscriptJobsTriggerSql),
+        db.prepare(consultingFlowsRetryJobEffectTriggerSql),
         db.prepare(consultingFlowsJobsTransitionTriggerSql),
         db.prepare(consultingFlowsSuccessEvidenceTriggerSql),
         db.prepare(consultingFlowsFailureHistoryTriggerSql),
@@ -1211,6 +1213,32 @@ function assertFlowCommitTransition(
         expected.startedAt = undefined;
         return expected;
       });
+      if (!sameValue(after.jobs, expectedJobs))
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'retry_job') {
+      const candidates = before.jobs.flatMap((job, index) => {
+        if (!['blocked', 'failed', 'processing'].includes(job.status))
+          return [];
+        const expected = structuredClone(job);
+        expected.status = 'queued';
+        expected.reason = '';
+        expected.startedAt = undefined;
+        if (expected.failureEvidence)
+          expected.failureEvidenceHistory = [
+            ...(expected.failureEvidenceHistory ?? []),
+            expected.failureEvidence,
+          ];
+        expected.failureEvidence = undefined;
+        return sameValue(after.jobs[index], expected)
+          ? [{ index, expected }]
+          : [];
+      });
+      if (candidates.length !== 1) throw storedFlowIntegrityError();
+      const [{ index: targetIndex, expected: retriedJob }] = candidates;
+      const expectedJobs = before.jobs.map((job, index) =>
+        index === targetIndex ? retriedJob : structuredClone(job),
+      );
       if (!sameValue(after.jobs, expectedJobs))
         throw storedFlowIntegrityError();
     }

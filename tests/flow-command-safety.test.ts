@@ -188,7 +188,7 @@ async function queuedReportFixture(withSourceFile: boolean) {
   return queued;
 }
 
-async function transcriptJobFixture(failed = false) {
+async function transcriptJobFixture(failed = false, transcript = '') {
   const stored = await fixture();
   const prepared = structuredClone(stored);
   const at = stored.updatedAt;
@@ -218,7 +218,10 @@ async function transcriptJobFixture(failed = false) {
   prepared.recordings.push({
     id: recordingId,
     meetingId,
-    transcript: '',
+    transcript,
+    ...(transcript
+      ? { transcriptReviewedAt: at, transcriptReviewedBy: adminEmail }
+      : {}),
     consentAt: at,
     createdAt: at,
   });
@@ -1917,6 +1920,61 @@ void test('FLOW transcript commands bind the exact target job effect', async () 
     failureEvidence,
   ]);
   await commitFlow(failedStored, corrected);
+});
+
+void test('FLOW retry commands bind one exact target job effect', async () => {
+  const stored = await transcriptJobFixture(true, body);
+  const commandId = `retry-job-effect-${++sequence}`;
+  const changed = applyFlowCommand(
+    stored,
+    {
+      type: 'retry_job',
+      jobId: stored.jobs.at(-1)!.id,
+      costConsent: true,
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId,
+      now: new Date(Date.parse(stored.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(changed, commandId);
+  const failureEvidence = stored.jobs.at(-1)!.failureEvidence!;
+  assert.equal(changed.jobs.at(-1)!.status, 'queued');
+  assert.equal(changed.jobs.at(-1)!.failureEvidence, undefined);
+  assert.deepEqual(changed.jobs.at(-1)!.failureEvidenceHistory, [
+    ...stored.jobs.at(-1)!.failureEvidenceHistory!,
+    failureEvidence,
+  ]);
+  const forged = structuredClone(changed);
+  forged.jobs.at(-2)!.reason = '재시도 명령에 섞은 독립 작업 사유 변조';
+  await assert.rejects(
+    commitFlow(stored, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+        stored.caseId,
+        stored.revision,
+      )
+      .run(),
+    /retry job effect is invalid/,
+  );
+  await commitFlow(stored, changed);
+  assert.deepEqual(
+    await readFlow(stored.caseId),
+    JSON.parse(JSON.stringify(changed)),
+  );
 });
 
 void test('FLOW command receipts originate only with same-revision commands', async () => {

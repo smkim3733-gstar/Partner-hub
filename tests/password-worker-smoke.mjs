@@ -415,6 +415,12 @@ const flowSaveTranscriptJobsTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowRetryJobEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(project, 'drizzle', '0073_consulting_flow_retry_job_effect.sql'),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -423,6 +429,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_command_ai_transition_guard',
   'consulting_flows_set_ai_policy_jobs_guard',
   'consulting_flows_save_transcript_jobs_guard',
+  'consulting_flows_retry_job_effect_guard',
   'consulting_flows_jobs_transition_guard',
   'consulting_flows_success_evidence_guard',
   'consulting_flows_failure_history_guard',
@@ -470,6 +477,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowCommandAiTransitionTriggerSql[0],
       flowSetAiPolicyJobsTriggerSql[0],
       flowSaveTranscriptJobsTriggerSql[0],
+      flowRetryJobEffectTriggerSql[0],
       ...flowAiEvidenceTransitionTriggerSql,
       ...flowAiJobLifecycleTriggerSql,
       ...flowAiJobTransitionTimestampTriggerSql,
@@ -3765,6 +3773,13 @@ try {
       createdAt: evidenceTimes[1],
     },
   ];
+  const retryEffectCaseId = 'native-flow-retry-job-effect';
+  const retryEffectFlow = structuredClone(transcriptEffectFlow);
+  retryEffectFlow.caseId = retryEffectCaseId;
+  retryEffectFlow.recordings[0].transcript =
+    '가상 상담 전사문을 재시도 무결성 검증 목적으로 확인했습니다.';
+  retryEffectFlow.recordings[0].transcriptReviewedAt = evidenceTimes[1];
+  retryEffectFlow.recordings[0].transcriptReviewedBy = 'native-synthetic-owner';
   const insertEvidenceFlow = () =>
     db
       .prepare(
@@ -3793,6 +3808,21 @@ try {
         transcriptEffectFlow.revision,
         JSON.stringify(transcriptEffectFlow),
         transcriptEffectFlow.updatedAt,
+      )
+      .run();
+  const insertRetryEffectFlow = () =>
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+          VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        retryEffectCaseId,
+        retryEffectFlow.partnerId,
+        retryEffectFlow.revision,
+        JSON.stringify(retryEffectFlow),
+        retryEffectFlow.updatedAt,
       )
       .run();
   const receiptOriginCaseId = 'native-flow-command-receipt-origin';
@@ -3894,6 +3924,7 @@ try {
     await insertEvidenceFlow();
     await insertLegacyReceiptOriginFlow();
     await insertTranscriptEffectFlow();
+    await insertRetryEffectFlow();
   } finally {
     await db.batch([
       db.prepare(flowAiEvidenceInsertTriggerSql),
@@ -4086,6 +4117,49 @@ try {
   checks.push(
     'FLOW native D1 binds transcript updates to one exact target job',
   );
+  const validRetryEffectFlow = structuredClone(retryEffectFlow);
+  validRetryEffectFlow.revision++;
+  validRetryEffectFlow.updatedAt = evidenceTimes[2];
+  validRetryEffectFlow.jobs[1].status = 'queued';
+  validRetryEffectFlow.jobs[1].reason = '';
+  validRetryEffectFlow.audit.push({
+    id: 'native-retry-job-effect',
+    at: evidenceTimes[2],
+    actor: '김성민 대표',
+    action: 'retry_job',
+    detail: '대표 확인 후 AI 생성 재시도',
+  });
+  validRetryEffectFlow.commandIds.push('native-retry-job-effect');
+  validRetryEffectFlow.commandReceipts['native-retry-job-effect'] = {
+    actorKey: 'admin:primary',
+    fingerprint: '6'.repeat(64),
+    actor: '김성민 대표',
+    action: 'retry_job',
+  };
+  const forgedRetryEffectFlow = structuredClone(validRetryEffectFlow);
+  forgedRetryEffectFlow.jobs[0].reason =
+    '재시도 명령에 섞은 독립 작업 사유 변조';
+  const saveRetryEffectTransition = (after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        retryEffectCaseId,
+        retryEffectFlow.revision,
+      )
+      .run();
+  await assert.rejects(
+    saveRetryEffectTransition(forgedRetryEffectFlow),
+    /retry job effect is invalid/,
+  );
+  await saveRetryEffectTransition(validRetryEffectFlow);
+  checks.push('FLOW native D1 binds retry commands to one exact target job');
   const commandedClaimEvidenceFlow = structuredClone(processingEvidenceFlow);
   commandedClaimEvidenceFlow.ai.approvedAt = evidenceTimes[3];
   commandedClaimEvidenceFlow.ai.approvedBy = 'native-synthetic-owner';
