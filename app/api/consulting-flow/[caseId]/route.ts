@@ -248,10 +248,12 @@ export async function POST(request: Request, context: Context) {
           request,
           (await context.params).caseId,
         );
-        for (const key of uploadedKeys) {
-          if (!flow.files.some((f) => f.key === key))
-            await flowBucket().delete(key);
-        }
+        const referencedKeys = new Set(flow.files.map((file) => file.key));
+        await Promise.allSettled(
+          uploadedKeys
+            .filter((key) => !referencedKeys.has(key))
+            .map((key) => flowBucket().delete(key)),
+        );
       } catch {
         /* Its durable pending reservation enables inventory checks and exact retry. */
       }

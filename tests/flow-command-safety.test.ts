@@ -5061,6 +5061,131 @@ void test('failed first FLOW attachment commit removes the object but keeps its 
   );
 });
 
+void test('dual-slot FLOW cleanup isolates R2 deletion failures and preserves exact retry', async () => {
+  const stored = await transcriptJobFixture(false, body);
+  const command = {
+    type: 'save_recording',
+    meetingId: stored.meetings.at(-1)!.id,
+    transcript: `${body} 2슬롯 정리 실패 복구`,
+    transcriptReviewed: true,
+    recordingConsent: true,
+    privacyMasked: true,
+    fileConsent: true,
+  } as const;
+  const transcript = new File(
+    ['SYNTHETIC_CLEANUP_TRANSCRIPT'],
+    'cleanup-transcript.txt',
+    { type: 'text/plain' },
+  );
+  const audio = new File(
+    [new Uint8Array([0x49, 0x44, 0x33, 4, 0, 1])],
+    'cleanup-audio.mp3',
+    { type: 'audio/mpeg' },
+  );
+  const firstCommandId = `dual-slot-cleanup-${++sequence}`;
+  const previousKeys = new Set(objects.keys());
+  const bucket = flowBucket();
+  const remove = bucket.delete.bind(bucket);
+  const deleteAttempts: string[] = [];
+  let failFirstDelete = true;
+  bucket.delete = async (key: string | string[]) => {
+    if (Array.isArray(key)) throw new Error('expected one R2 key per cleanup');
+    deleteAttempts.push(key);
+    if (failFirstDelete) {
+      failFirstDelete = false;
+      throw new Error('synthetic R2 deletion failure');
+    }
+    return remove(key);
+  };
+  failNextDatabaseBatch('UPDATE consulting_flows');
+  let failed: Response;
+  try {
+    failed = await POST(
+      request(
+        stored.caseId,
+        command,
+        stored.revision,
+        firstCommandId,
+        adminEmail,
+        transcript,
+        audio,
+      ),
+      context(stored.caseId),
+    );
+  } finally {
+    bucket.delete = remove;
+  }
+  assert.equal(failed.status, 503);
+  assert.deepEqual(await readFlow(stored.caseId), stored);
+
+  const db = await flowDatabase();
+  const pending = (
+    await db
+      .prepare(
+        `SELECT slot, file_id, storage_key, status
+        FROM consulting_flow_upload_requests
+        WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3
+        ORDER BY slot`,
+      )
+      .bind(stored.caseId, FLOW_ADMIN_COMMAND_ACTOR_KEY, firstCommandId)
+      .all<{
+        slot: string;
+        file_id: string;
+        storage_key: string;
+        status: string;
+      }>()
+  ).results;
+  assert.equal(pending.length, 2);
+  assert.deepEqual(
+    pending.map(({ slot, status }) => ({ slot, status })),
+    [
+      { slot: 'audio', status: 'pending' },
+      { slot: 'file', status: 'pending' },
+    ],
+  );
+  assert.deepEqual(
+    [...deleteAttempts].sort((a, b) => a.localeCompare(b)),
+    pending
+      .map(({ storage_key }) => storage_key)
+      .sort((a, b) => a.localeCompare(b)),
+  );
+  assert.equal(
+    [...objects.keys()].filter((key) => !previousKeys.has(key)).length,
+    1,
+  );
+
+  const retryCommandId = `dual-slot-cleanup-retry-${++sequence}`;
+  const retry = await POST(
+    request(
+      stored.caseId,
+      command,
+      stored.revision,
+      retryCommandId,
+      adminEmail,
+      transcript,
+      audio,
+    ),
+    context(stored.caseId),
+  );
+  assert.equal(retry.status, 200, await retry.clone().text());
+  const saved = (await readFlow(stored.caseId))!;
+  const recording = saved.recordings.at(-1)!;
+  const reservedBySlot = new Map(
+    pending.map(({ slot, file_id }) => [slot, file_id]),
+  );
+  assert.equal(recording.transcriptFileId, reservedBySlot.get('file'));
+  assert.equal(recording.audioFileId, reservedBySlot.get('audio'));
+  assert.deepEqual(saved.commandIds.slice(-1), [retryCommandId]);
+  assert.deepEqual(
+    [...objects.keys()]
+      .filter((key) => !previousKeys.has(key))
+      .sort((a, b) => a.localeCompare(b)),
+    pending
+      .map(({ storage_key }) => storage_key)
+      .sort((a, b) => a.localeCompare(b)),
+  );
+});
+
 void test('concurrent identical FLOW attachments with different command IDs share one pending reservation', async () => {
   const caseId = `cross-command-attachment-race-${++sequence}`;
   await writePortalState({
