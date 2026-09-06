@@ -5057,7 +5057,93 @@ void test('failed first FLOW attachment commit removes the object but keeps its 
   );
 });
 
-void test('ambiguous FLOW attachment failure stays discoverable and exact retry reuses its reserved object', async () => {
+void test('concurrent identical FLOW attachments with different command IDs share one pending reservation', async () => {
+  const caseId = `cross-command-attachment-race-${++sequence}`;
+  await writePortalState({
+    version: 1,
+    consultationNumber: 0,
+    members: [partner],
+    cases: [
+      {
+        id: caseId,
+        company: '가상기업',
+        trainee: partner.name,
+        partnerMemberId: partner.id,
+      },
+    ],
+    tasks: [],
+    timeline: [],
+    schedule: [],
+    companyDocuments: [],
+  });
+  const command = {
+    type: 'save_report',
+    stage: 1,
+    body,
+    fileConsent: true,
+  } as const;
+  const commandIds = [
+    `cross-command-attachment-a-${++sequence}`,
+    `cross-command-attachment-b-${++sequence}`,
+  ];
+  const previousKeys = new Set(objects.keys());
+  const responses = await Promise.all(
+    commandIds.map((commandId) =>
+      POST(
+        request(
+          caseId,
+          command,
+          0,
+          commandId,
+          adminEmail,
+          new File(['SYNTHETIC_SHARED_UPLOAD'], 'shared.txt', {
+            type: 'text/plain',
+          }),
+        ),
+        context(caseId),
+      ),
+    ),
+  );
+  assert.deepEqual(
+    responses.map((response) => response.status).sort((a, b) => a - b),
+    [200, 409],
+  );
+  const saved = (await readFlow(caseId))!;
+  assert.equal(saved.files.length, 1);
+  assert.equal(saved.commandIds.length, 1);
+  assert.ok(commandIds.includes(saved.commandIds[0]));
+  const reservation = await (
+    await flowDatabase()
+  )
+    .prepare(
+      `SELECT COUNT(*) AS total, MIN(reservation.file_id) AS file_id,
+        MIN(completion.command_id) AS completed_command_id
+      FROM consulting_flow_upload_requests reservation
+      LEFT JOIN consulting_flow_upload_completions completion
+        ON completion.file_id = reservation.file_id
+      WHERE reservation.case_id = ?1`,
+    )
+    .bind(caseId)
+    .first<{
+      total: number;
+      file_id: string;
+      completed_command_id: string;
+    }>();
+  assert.deepEqual(
+    { ...reservation },
+    {
+      total: 1,
+      file_id: saved.files[0].id,
+      completed_command_id: saved.commandIds[0],
+    },
+  );
+  assert.deepEqual(
+    [...objects.keys()].filter((key) => !previousKeys.has(key)),
+    [saved.files[0].key],
+  );
+});
+
+void test('ambiguous FLOW attachment failure resumes its reserved object under a new command ID', async () => {
   const caseId = `ambiguous-attachment-${++sequence}`;
   await writePortalState({
     version: 1,
@@ -5139,11 +5225,12 @@ void test('ambiguous FLOW attachment failure stays discoverable and exact retry 
       )
       .bind(reservation.file_id)
       .run(),
-    /reservation is not committed/,
+    /reservation is not committed|completion is missing/,
   );
 
+  const retryCommandId = `ambiguous-attachment-retry-${++sequence}`;
   const retry = await POST(
-    request(caseId, command, 0, commandId, adminEmail, file),
+    request(caseId, command, 0, retryCommandId, adminEmail, file),
     context(caseId),
   );
   assert.equal(retry.status, 200, await retry.clone().text());
@@ -5151,6 +5238,8 @@ void test('ambiguous FLOW attachment failure stays discoverable and exact retry 
   assert.equal(saved.files.length, 1);
   assert.equal(saved.files[0].id, reservation.file_id);
   assert.equal(saved.files[0].key, reservation.storage_key);
+  assert.deepEqual(saved.commandIds, [retryCommandId]);
+  assert.equal(saved.commandReceipts?.[retryCommandId]?.fingerprint.length, 64);
   assert.deepEqual(
     [...objects.keys()].filter((key) => !previousKeys.has(key)),
     [reservation.storage_key],
@@ -5159,12 +5248,45 @@ void test('ambiguous FLOW attachment failure stays discoverable and exact retry 
     (
       await db
         .prepare(
-          'SELECT status FROM consulting_flow_upload_requests WHERE file_id = ?1',
+          `SELECT reservation.status, completion.command_id
+          FROM consulting_flow_upload_requests reservation
+          LEFT JOIN consulting_flow_upload_completions completion
+            ON completion.file_id = reservation.file_id
+          WHERE reservation.file_id = ?1`,
         )
         .bind(reservation.file_id)
-        .first<{ status: string }>()
+        .first<{ status: string; command_id: string | null }>()
     )?.status,
     'ready',
+  );
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT command_id FROM consulting_flow_upload_completions WHERE file_id = ?1',
+        )
+        .bind(reservation.file_id)
+        .first<{ command_id: string }>()
+    )?.command_id,
+    retryCommandId,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE consulting_flow_upload_completions SET command_id = 'another-command' WHERE file_id = ?1",
+      )
+      .bind(reservation.file_id)
+      .run(),
+    /completion is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'DELETE FROM consulting_flow_upload_completions WHERE file_id = ?1',
+      )
+      .bind(reservation.file_id)
+      .run(),
+    /completion is durable/,
   );
   await assert.rejects(
     db

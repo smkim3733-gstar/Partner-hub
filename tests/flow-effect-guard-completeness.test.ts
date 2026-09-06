@@ -6,10 +6,16 @@ import { fileURLToPath } from 'node:url';
 import {
   FLOW_COMMAND_EFFECT_PATHS,
   FLOW_COMMAND_EXACT_EFFECT_TRIGGERS,
+  consultingFlowUploadCompletionsInsertTriggerSql,
+  consultingFlowUploadCompletionsNoDeleteTriggerSql,
+  consultingFlowUploadCompletionsNoUpdateTriggerSql,
+  consultingFlowUploadCompletionsTableSql,
+  consultingFlowUploadRequestsCompletionTriggerSql,
   consultingFlowUploadRequestsFingerprintTriggerSql,
   consultingFlowUploadRequestsInsertEnvelopeTriggerSql,
   consultingFlowUploadRequestsLifecycleTriggerSql,
   consultingFlowUploadRequestsNoDeleteTriggerSql,
+  consultingFlowUploadRequestsPendingFingerprintIndexSql,
   consultingFlowUploadRequestsPendingIndexSql,
   consultingFlowUploadRequestsReadyTriggerSql,
   consultingFlowUploadRequestsTableSql,
@@ -121,4 +127,31 @@ void test('FLOW upload reservation runtime schema exactly exists in its additive
       'reservation statement is absent or drifted',
     );
   }
+});
+
+void test('FLOW upload reservation cross-device resume schema exactly exists in its additive migration', async () => {
+  const migration = await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0094_consulting_flow_upload_reservation_resume.sql',
+    ),
+    'utf8',
+  );
+  const normalizedMigration = migration.replace(/\s+/g, ' ').trim();
+  for (const sql of [
+    consultingFlowUploadRequestsPendingFingerprintIndexSql,
+    consultingFlowUploadCompletionsTableSql,
+    consultingFlowUploadCompletionsInsertTriggerSql,
+    consultingFlowUploadCompletionsNoUpdateTriggerSql,
+    consultingFlowUploadCompletionsNoDeleteTriggerSql,
+    consultingFlowUploadRequestsCompletionTriggerSql,
+  ]) {
+    const normalized = sql.replace(/\s+/g, ' ').trim().replace(/;$/, '');
+    assert.ok(
+      normalizedMigration.includes(`${normalized};`),
+      'reservation resume statement is absent or drifted',
+    );
+  }
+  assert.match(normalizedMigration, /PRAGMA optimize;/);
 });

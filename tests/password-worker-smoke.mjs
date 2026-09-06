@@ -3776,15 +3776,23 @@ try {
   assert.equal(privateMimeHead.httpMetadata.contentType, 'text/plain');
   const nativeFlowReservation = await db
     .prepare(
-      `SELECT status, fingerprint, file_id, storage_key, original_name,
-        content_type, size_bytes, purpose
-      FROM consulting_flow_upload_requests
-      WHERE case_id = ?1 AND actor_key = 'admin:primary'
-        AND command_id = ?2 AND slot = 'file'`,
+      `SELECT reservation.status, reservation.fingerprint,
+        reservation.file_id, reservation.storage_key,
+        reservation.original_name, completion.command_id AS completed_command_id,
+        reservation.content_type, reservation.size_bytes, reservation.purpose
+      FROM consulting_flow_upload_requests reservation
+      LEFT JOIN consulting_flow_upload_completions completion
+        ON completion.file_id = reservation.file_id
+      WHERE reservation.case_id = ?1 AND reservation.actor_key = 'admin:primary'
+        AND reservation.command_id = ?2 AND reservation.slot = 'file'`,
     )
     .bind('runtime-own', mimeCommand.commandId)
     .first();
   assert.equal(nativeFlowReservation.status, 'ready');
+  assert.equal(
+    nativeFlowReservation.completed_command_id,
+    mimeCommand.commandId,
+  );
   assert.match(nativeFlowReservation.fingerprint, /^[0-9a-f]{64}$/);
   assert.equal(nativeFlowReservation.file_id, privateMimeFile.id);
   assert.equal(nativeFlowReservation.storage_key, privateMimeFile.key);

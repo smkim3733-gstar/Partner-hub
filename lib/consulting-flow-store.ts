@@ -5,10 +5,16 @@ import {
   consultingFlowFileObjectIntegrityTableSql,
   consultingFlowFileObjectIntegrityNoDeleteTriggerSql,
   consultingFlowFileObjectIntegrityNoUpdateTriggerSql,
+  consultingFlowUploadCompletionsInsertTriggerSql,
+  consultingFlowUploadCompletionsNoDeleteTriggerSql,
+  consultingFlowUploadCompletionsNoUpdateTriggerSql,
+  consultingFlowUploadCompletionsTableSql,
+  consultingFlowUploadRequestsCompletionTriggerSql,
   consultingFlowUploadRequestsFingerprintTriggerSql,
   consultingFlowUploadRequestsInsertEnvelopeTriggerSql,
   consultingFlowUploadRequestsLifecycleTriggerSql,
   consultingFlowUploadRequestsNoDeleteTriggerSql,
+  consultingFlowUploadRequestsPendingFingerprintIndexSql,
   consultingFlowUploadRequestsPendingIndexSql,
   consultingFlowUploadRequestsReadyTriggerSql,
   consultingFlowUploadRequestsTableSql,
@@ -229,11 +235,17 @@ export async function flowDatabase() {
         db.prepare(consultingFlowFileObjectIntegrityNoDeleteTriggerSql),
         db.prepare(consultingFlowUploadRequestsTableSql),
         db.prepare(consultingFlowUploadRequestsPendingIndexSql),
+        db.prepare(consultingFlowUploadRequestsPendingFingerprintIndexSql),
         db.prepare(consultingFlowUploadRequestsInsertEnvelopeTriggerSql),
         db.prepare(consultingFlowUploadRequestsFingerprintTriggerSql),
         db.prepare(consultingFlowUploadRequestsLifecycleTriggerSql),
         db.prepare(consultingFlowUploadRequestsReadyTriggerSql),
         db.prepare(consultingFlowUploadRequestsNoDeleteTriggerSql),
+        db.prepare(consultingFlowUploadCompletionsTableSql),
+        db.prepare(consultingFlowUploadCompletionsInsertTriggerSql),
+        db.prepare(consultingFlowUploadCompletionsNoUpdateTriggerSql),
+        db.prepare(consultingFlowUploadCompletionsNoDeleteTriggerSql),
+        db.prepare(consultingFlowUploadRequestsCompletionTriggerSql),
       ])
       .then(() => undefined);
     flowDatabaseInitialization = initialization.catch((error) => {
@@ -267,6 +279,7 @@ type StoredFlowFileObjectIntegrityRow = {
   r2_content_type: string;
 };
 type StoredFlowUploadRequestRow = {
+  command_id: string;
   slot: string;
   fingerprint: string;
   file_id: string;
@@ -771,7 +784,7 @@ async function readFlowUploadReservationRows(
 ) {
   return (
     await db
-      .prepare(`SELECT slot, fingerprint, file_id, storage_key, original_name,
+      .prepare(`SELECT command_id, slot, fingerprint, file_id, storage_key, original_name,
         content_type, size_bytes, purpose, intake_file_id, intake_source_hash,
         source_reviewed_at, source_reviewed_by, created_at, status
       FROM consulting_flow_upload_requests
@@ -782,8 +795,130 @@ async function readFlowUploadReservationRows(
   ).results;
 }
 
-/** Reserves stable R2 keys before upload. An uncertain D1 result can then be
- * inspected by administrators and an exact retry overwrites the same key. */
+async function readPendingFlowUploadReservationRowsByFingerprint(
+  db: D1Database,
+  caseId: string,
+  actorKey: string,
+  fingerprint: string,
+) {
+  return (
+    await db
+      .prepare(`SELECT command_id, slot, fingerprint, file_id, storage_key, original_name,
+        content_type, size_bytes, purpose, intake_file_id, intake_source_hash,
+        source_reviewed_at, source_reviewed_by, created_at, status
+      FROM consulting_flow_upload_requests
+      WHERE case_id = ?1 AND actor_key = ?2 AND fingerprint = ?3
+        AND status = 'pending'
+      ORDER BY command_id, slot`)
+      .bind(caseId, actorKey, fingerprint)
+      .all<StoredFlowUploadRequestRow>()
+  ).results;
+}
+
+function validateFlowUploadReservationRows(
+  input: {
+    fingerprint: string;
+    uploads: readonly FlowUploadReservation[];
+  },
+  rows: readonly StoredFlowUploadRequestRow[],
+) {
+  const candidates = new Map(
+    input.uploads.map((item) => [item.slot, item.file]),
+  );
+  if (
+    rows.length !== candidates.size ||
+    new Set(rows.map((row) => row.command_id)).size !== 1
+  )
+    throw new FlowError(
+      '동일 첨부의 보관 예약 구성이 일치하지 않습니다. 저장 결과를 확인해 주세요.',
+      409,
+    );
+  const reserved = new Map<FlowUploadReservationSlot, FlowFile>();
+  for (const row of rows) {
+    const slot = row.slot as FlowUploadReservationSlot;
+    const candidate = candidates.get(slot);
+    const hasIntake = candidate?.intakeFileId !== undefined;
+    if (
+      !candidate ||
+      row.fingerprint !== input.fingerprint ||
+      row.status !== 'pending' ||
+      !storedFlowFileKeyMatches(row.file_id, row.storage_key) ||
+      !validFlowTimestamp(row.created_at) ||
+      new Date(row.created_at).toISOString() !== row.created_at ||
+      row.original_name !== candidate.name ||
+      row.content_type !== candidate.contentType ||
+      row.size_bytes !== candidate.size ||
+      row.purpose !== candidate.purpose ||
+      row.intake_file_id !== (candidate.intakeFileId ?? null) ||
+      row.intake_source_hash !== (candidate.intakeSourceHash ?? null) ||
+      row.source_reviewed_by !== (candidate.sourceReviewedBy ?? null) ||
+      hasIntake !== (row.source_reviewed_at !== null)
+    )
+      throw new FlowError(
+        '동일 요청의 내용 또는 첨부가 변경되었습니다. 저장 결과를 확인해 주세요.',
+        409,
+      );
+    const file: FlowFile = {
+      id: row.file_id,
+      key: row.storage_key,
+      name: row.original_name,
+      contentType: row.content_type,
+      size: row.size_bytes,
+      purpose: row.purpose,
+      // Reservation age stays durable for inventory. A retry creates its FLOW
+      // transition at the current command time while reusing only ID and R2 key.
+      createdAt: candidate.createdAt,
+      ...(row.intake_file_id
+        ? {
+            intakeFileId: row.intake_file_id,
+            intakeSourceHash: row.intake_source_hash!,
+            sourceReviewedAt: row.source_reviewed_at!,
+            sourceReviewedBy: row.source_reviewed_by!,
+          }
+        : {}),
+    };
+    if (!validFlowUploadReservationCandidate(file))
+      throw new FlowError(
+        '저장된 첨부파일 보관 예약의 무결성을 확인할 수 없습니다.',
+        503,
+      );
+    reserved.set(slot, file);
+  }
+  return reserved;
+}
+
+async function readReusableFlowUploadReservation(
+  db: D1Database,
+  input: {
+    caseId: string;
+    actorKey: string;
+    commandId: string;
+    fingerprint: string;
+    uploads: readonly FlowUploadReservation[];
+  },
+) {
+  const exactRows = await readFlowUploadReservationRows(
+    db,
+    input.caseId,
+    input.actorKey,
+    input.commandId,
+  );
+  if (exactRows.length)
+    return validateFlowUploadReservationRows(input, exactRows);
+  const fingerprintRows =
+    await readPendingFlowUploadReservationRowsByFingerprint(
+      db,
+      input.caseId,
+      input.actorKey,
+      input.fingerprint,
+    );
+  if (!fingerprintRows.length) return undefined;
+  return validateFlowUploadReservationRows(input, fingerprintRows);
+}
+
+/** Reserves stable R2 keys before upload. An uncertain D1 result stays
+ * inspectable and an exact actor/case/fingerprint retry reuses the same key,
+ * even when another browser creates a new command ID. */
 export async function reserveFlowUploads(input: {
   caseId: string;
   actorKey: string;
@@ -813,6 +948,16 @@ export async function reserveFlowUploads(input: {
       503,
     );
   const db = await flowDatabase();
+  try {
+    const existing = await readReusableFlowUploadReservation(db, input);
+    if (existing) return existing;
+  } catch (error) {
+    if (error instanceof FlowError) throw error;
+    throw new FlowError(
+      '첨부파일 보관 예약을 확인하지 못했습니다. 새로고침 후 다시 시도해 주세요.',
+      503,
+    );
+  }
   try {
     await db.batch(
       input.uploads.map(({ slot, file }) =>
@@ -847,98 +992,30 @@ export async function reserveFlowUploads(input: {
     );
   } catch {
     try {
-      const rows = await readFlowUploadReservationRows(
-        db,
-        input.caseId,
-        input.actorKey,
-        input.commandId,
-      );
-      if (rows.some((row) => row.fingerprint !== input.fingerprint))
-        throw new FlowError(
-          '같은 요청 번호의 내용 또는 첨부가 변경되었습니다. 저장 결과를 확인해 주세요.',
-          409,
-        );
+      const recovered = await readReusableFlowUploadReservation(db, input);
+      if (recovered) return recovered;
     } catch (error) {
-      if (error instanceof FlowError && error.status === 409) throw error;
+      if (error instanceof FlowError) throw error;
     }
     throw new FlowError(
       '첨부파일 보관 예약을 저장하지 못했습니다. 새로고침 후 다시 시도해 주세요.',
       503,
     );
   }
-  let rows: StoredFlowUploadRequestRow[];
+  let reserved: Map<FlowUploadReservationSlot, FlowFile> | undefined;
   try {
-    rows = await readFlowUploadReservationRows(
-      db,
-      input.caseId,
-      input.actorKey,
-      input.commandId,
-    );
+    reserved = await readReusableFlowUploadReservation(db, input);
   } catch {
     throw new FlowError(
       '첨부파일 보관 예약을 확인하지 못했습니다. 새로고침 후 다시 시도해 주세요.',
       503,
     );
   }
-  const candidates = new Map(
-    input.uploads.map((item) => [item.slot, item.file]),
-  );
-  if (rows.length !== candidates.size)
+  if (!reserved)
     throw new FlowError(
-      '같은 요청 번호의 첨부 구성이 변경되었습니다. 저장 결과를 확인해 주세요.',
-      409,
+      '첨부파일 보관 예약을 확인하지 못했습니다. 새로고침 후 다시 시도해 주세요.',
+      503,
     );
-  const reserved = new Map<FlowUploadReservationSlot, FlowFile>();
-  for (const row of rows) {
-    const slot = row.slot as FlowUploadReservationSlot;
-    const candidate = candidates.get(slot);
-    const hasIntake = candidate?.intakeFileId !== undefined;
-    if (
-      !candidate ||
-      row.fingerprint !== input.fingerprint ||
-      row.status !== 'pending' ||
-      !storedFlowFileKeyMatches(row.file_id, row.storage_key) ||
-      !validFlowTimestamp(row.created_at) ||
-      new Date(row.created_at).toISOString() !== row.created_at ||
-      row.original_name !== candidate.name ||
-      row.content_type !== candidate.contentType ||
-      row.size_bytes !== candidate.size ||
-      row.purpose !== candidate.purpose ||
-      row.intake_file_id !== (candidate.intakeFileId ?? null) ||
-      row.intake_source_hash !== (candidate.intakeSourceHash ?? null) ||
-      row.source_reviewed_by !== (candidate.sourceReviewedBy ?? null) ||
-      hasIntake !== (row.source_reviewed_at !== null)
-    )
-      throw new FlowError(
-        '같은 요청 번호의 내용 또는 첨부가 변경되었습니다. 저장 결과를 확인해 주세요.',
-        409,
-      );
-    const file: FlowFile = {
-      id: row.file_id,
-      key: row.storage_key,
-      name: row.original_name,
-      contentType: row.content_type,
-      size: row.size_bytes,
-      purpose: row.purpose,
-      // Reservation age stays durable for inventory. A retry creates its FLOW
-      // transition at the current command time while reusing only ID and R2 key.
-      createdAt: candidate.createdAt,
-      ...(row.intake_file_id
-        ? {
-            intakeFileId: row.intake_file_id,
-            intakeSourceHash: row.intake_source_hash!,
-            sourceReviewedAt: row.source_reviewed_at!,
-            sourceReviewedBy: row.source_reviewed_by!,
-          }
-        : {}),
-    };
-    if (!validFlowUploadReservationCandidate(file))
-      throw new FlowError(
-        '저장된 첨부파일 보관 예약의 무결성을 확인할 수 없습니다.',
-        503,
-      );
-    reserved.set(slot, file);
-  }
   return reserved;
 }
 
@@ -2661,15 +2738,23 @@ export async function commitFlow(
     : [flowWrite];
   const previousFileIds = new Set(before.files.map((file) => file.id));
   const newFiles = after.files.filter((file) => !previousFileIds.has(file.id));
+  const previousCommandIds = new Set(before.commandIds);
+  const newCommandIds = after.commandIds.filter(
+    (commandId) => !previousCommandIds.has(commandId),
+  );
   if (
     reservedFileIds &&
     (reservedFileIds.size !== newFiles.length ||
-      newFiles.some((file) => !reservedFileIds.has(file.id)))
+      newFiles.some((file) => !reservedFileIds.has(file.id)) ||
+      (reservedFileIds.size > 0 && newCommandIds.length !== 1))
   )
     throw new FlowError(
       '첨부파일 보관 예약과 저장 대상을 확인할 수 없습니다.',
       503,
     );
+  const completedUploadCommandId = reservedFileIds?.size
+    ? newCommandIds[0]
+    : undefined;
   if (
     (newFiles.length > 0 &&
       (fileObjectBindings?.size !== newFiles.length ||
@@ -2778,12 +2863,22 @@ export async function commitFlow(
               payload,
               fileObjectBindings!.get(file.id)!.etag,
             ),
-          db
-            .prepare(
-              `UPDATE consulting_flow_upload_requests SET status = 'ready'
-              WHERE file_id = ?1 AND status = 'pending'`,
-            )
-            .bind(file.id),
+          ...(reservedFileIds?.has(file.id)
+            ? [
+                db
+                  .prepare(
+                    `INSERT INTO consulting_flow_upload_completions
+                      (file_id, command_id) VALUES (?1, ?2)`,
+                  )
+                  .bind(file.id, completedUploadCommandId!),
+                db
+                  .prepare(
+                    `UPDATE consulting_flow_upload_requests SET status = 'ready'
+                    WHERE file_id = ?1 AND status = 'pending'`,
+                  )
+                  .bind(file.id),
+              ]
+            : []),
         ]),
       ]);
     } catch {
@@ -2822,12 +2917,18 @@ export async function commitFlow(
       for (const fileId of reservedFileIds) {
         const reservation = await db
           .prepare(
-            `SELECT status FROM consulting_flow_upload_requests
-            WHERE file_id = ?1`,
+            `SELECT reservation.status, completion.command_id
+            FROM consulting_flow_upload_requests reservation
+            LEFT JOIN consulting_flow_upload_completions completion
+              ON completion.file_id = reservation.file_id
+            WHERE reservation.file_id = ?1`,
           )
           .bind(fileId)
-          .first<{ status: string }>();
-        if (reservation?.status !== 'ready')
+          .first<{ status: string; command_id: string | null }>();
+        if (
+          reservation?.status !== 'ready' ||
+          reservation.command_id !== completedUploadCommandId
+        )
           throw new FlowError(
             '첨부파일 보관 완료 상태를 확인하지 못했습니다. 새로고침 후 다시 확인해 주세요.',
             503,
