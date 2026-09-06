@@ -49,6 +49,7 @@ import {
   consultingFlowsAiResultFileTriggerSql,
   consultingFlowsNonCommandScopeTriggerSql,
   consultingFlowsNonCommandJobTargetTriggerSql,
+  consultingFlowsNonCommandJobTransitionTriggerSql,
   consultingFlowsNewCommandEvidenceTriggerSql,
   consultingFlowsNewCommandReceiptIdentityTriggerSql,
   consultingFlowsNewCommandMemberActorTriggerSql,
@@ -163,6 +164,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandTargetTriggerSql),
         db.prepare(consultingFlowsNonCommandScopeTriggerSql),
         db.prepare(consultingFlowsNonCommandJobTargetTriggerSql),
+        db.prepare(consultingFlowsNonCommandJobTransitionTriggerSql),
         db.prepare(consultingFlowsAiResultReportTriggerSql),
         db.prepare(consultingFlowsAiResultFileTriggerSql),
         db.prepare(consultingFlowsAiResultAuditDetailTriggerSql),
@@ -1079,6 +1081,17 @@ function assertFlowCommitTransition(
       )
         throw storedFlowIntegrityError();
       const nextJobs = new Map(after.jobs.map((job) => [job.id, job]));
+      const previousJob = changedJobs[0]!;
+      const nextJob = nextJobs.get(previousJob.id)!;
+      if (
+        !(
+          (previousJob.status === 'queued' &&
+            ['processing', 'blocked'].includes(nextJob.status)) ||
+          (previousJob.status === 'processing' &&
+            ['blocked', 'failed', 'complete'].includes(nextJob.status))
+        )
+      )
+        throw storedFlowIntegrityError();
       const completed = changedJobs.some(
         (job) =>
           job.status === 'processing' &&

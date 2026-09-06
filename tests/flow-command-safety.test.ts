@@ -2444,7 +2444,8 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
       },
     },
     {
-      pattern: /job (?:status|lifecycle) transition is invalid/,
+      pattern:
+        /(?:job (?:status|lifecycle)|non-command job) transition is invalid/,
       apply(flow) {
         const job = flow.jobs.at(-1)!;
         job.status = 'complete';
@@ -2554,7 +2555,40 @@ void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => 
         processing.revision,
       )
       .run(),
-    /job transition audit is invalid/,
+    /(?:job transition audit|non-command job transition) is invalid/,
+  );
+  const commandlessRetry = structuredClone(processing);
+  commandlessRetry.revision++;
+  commandlessRetry.updatedAt = timestamp(6);
+  commandlessRetry.jobs.at(-1)!.status = 'queued';
+  commandlessRetry.jobs.at(-1)!.startedAt = undefined;
+  commandlessRetry.audit.push({
+    id: `commandless-retry-${++sequence}`,
+    at: commandlessRetry.updatedAt,
+    actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    action: 'retry_job',
+    detail: '명령 원장 없이 만든 가상 재시도',
+  });
+  await assert.rejects(
+    commitFlow(processing, commandlessRetry),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        commandlessRetry.revision,
+        JSON.stringify(commandlessRetry),
+        commandlessRetry.updatedAt,
+        processing.caseId,
+        processing.revision,
+      )
+      .run(),
+    /non-command job transition is invalid/,
   );
   const unauditedFailure = structuredClone(processing);
   unauditedFailure.revision++;

@@ -349,6 +349,16 @@ const flowNonCommandJobTargetTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowNonCommandJobTransitionTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0066_consulting_flow_non_command_job_transition.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -377,6 +387,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_command_target_guard',
   'consulting_flows_non_command_scope_guard',
   'consulting_flows_non_command_job_target_guard',
+  'consulting_flows_non_command_job_transition_guard',
   'consulting_flows_ai_result_report_guard',
   'consulting_flows_ai_result_file_guard',
   'consulting_flows_ai_result_audit_detail_guard',
@@ -411,6 +422,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowCommandTargetTriggerSql[1],
       flowNonCommandScopeTriggerSql[0],
       flowNonCommandJobTargetTriggerSql[0],
+      flowNonCommandJobTransitionTriggerSql[0],
       flowAiResultReportTriggerSql[0],
       flowAiResultFileTriggerSql[0],
       flowAiResultAuditDetailTriggerSql[0],
@@ -3786,16 +3798,28 @@ try {
   const unauditedRetryEvidenceFlow = structuredClone(retriedEvidenceFlow);
   await assert.rejects(
     saveEvidenceTransition(evidenceFlow, unauditedRetryEvidenceFlow),
-    /job transition audit is invalid/,
+    /(?:job transition audit|non-command job transition) is invalid/,
   );
   checks.push('FLOW native D1 requires an audit for explicit AI job retry');
   retriedEvidenceFlow.audit.push({
     id: 'native-immutable-retry',
     at: evidenceTimes[2],
-    actor: '가상 대표',
+    actor: '김성민 대표',
     action: 'retry_job',
     detail: '대표 확인 후 AI 생성 재시도',
   });
+  await assert.rejects(
+    saveEvidenceTransition(evidenceFlow, retriedEvidenceFlow),
+    /non-command job transition is invalid/,
+  );
+  checks.push('FLOW native D1 rejects a retry without a user command');
+  retriedEvidenceFlow.commandIds.push('native-immutable-retry');
+  retriedEvidenceFlow.commandReceipts['native-immutable-retry'] = {
+    actorKey: 'admin:primary',
+    fingerprint: 'a'.repeat(64),
+    actor: '김성민 대표',
+    action: 'retry_job',
+  };
   await saveEvidenceTransition(evidenceFlow, retriedEvidenceFlow);
   const processingEvidenceFlow = structuredClone(retriedEvidenceFlow);
   processingEvidenceFlow.revision++;
@@ -3978,7 +4002,8 @@ try {
     },
     {
       name: 'FLOW native D1 rejects a terminal AI job status reversal',
-      pattern: /job (?:status|lifecycle) transition is invalid/,
+      pattern:
+        /(?:job (?:status|lifecycle)|non-command job) transition is invalid/,
       apply(flow) {
         flow.jobs[0].status = 'queued';
       },
