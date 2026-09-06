@@ -27,6 +27,7 @@ import {
   consultingFlowsCompleteMeetingEffectTriggerSql,
   consultingFlowsCancelMeetingEffectTriggerSql,
   consultingFlowsConfirmSolutionsEffectTriggerSql,
+  consultingFlowsRequestDocumentEffectTriggerSql,
   consultingFlowsSaveSourceEffectTriggerSql,
   consultingFlowsImportIntakeSourceEffectTriggerSql,
   consultingFlowsExcludeSourceEffectTriggerSql,
@@ -180,6 +181,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCompleteMeetingEffectTriggerSql),
         db.prepare(consultingFlowsCancelMeetingEffectTriggerSql),
         db.prepare(consultingFlowsConfirmSolutionsEffectTriggerSql),
+        db.prepare(consultingFlowsRequestDocumentEffectTriggerSql),
         db.prepare(consultingFlowsSaveSourceEffectTriggerSql),
         db.prepare(consultingFlowsImportIntakeSourceEffectTriggerSql),
         db.prepare(consultingFlowsExcludeSourceEffectTriggerSql),
@@ -1427,6 +1429,28 @@ function assertFlowCommitTransition(
         ) ||
         decision.note !== decision.note.trim() ||
         decision.at !== after.updatedAt
+      )
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'request_document') {
+      const request = after.requests.at(-1);
+      const expectedRequest = request && {
+        id: `${commandId}-request`,
+        title: request.title.trim(),
+        required: request.required,
+        channel: request.channel,
+        recipient: request.recipient.trim(),
+        dueDate: request.dueDate,
+        status: 'requested',
+        note: '',
+        createdAt: after.updatedAt,
+      };
+      if (
+        before.contract !== undefined ||
+        afterReceipts[commandId]?.actorKey !== FLOW_ADMIN_COMMAND_ACTOR_KEY ||
+        after.requests.length !== before.requests.length + 1 ||
+        !request ||
+        !sameValue(request, expectedRequest)
       )
         throw storedFlowIntegrityError();
     }

@@ -3045,6 +3045,102 @@ void test('FLOW solution confirmation binds the latest deep report and server de
   await commitFlow(ready, confirmed);
 });
 
+void test('FLOW document requests bind representative and canonical initial evidence', async () => {
+  const ready = await fixture();
+  const commandId = `request-document-effect-${++sequence}`;
+  const requested = applyFlowCommand(
+    ready,
+    {
+      type: 'request_document',
+      title: ' 사업자등록증 ',
+      required: true,
+      channel: '이메일',
+      recipient: ' partner@example.invalid ',
+      dueDate: '2026-09-30',
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId,
+      now: new Date(Date.parse(ready.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(requested, commandId);
+  assert.deepEqual(requested.requests.at(-1), {
+    id: `${commandId}-request`,
+    title: '사업자등록증',
+    required: true,
+    channel: '이메일',
+    recipient: 'partner@example.invalid',
+    dueDate: '2026-09-30',
+    status: 'requested',
+    note: '',
+    createdAt: requested.updatedAt,
+  });
+
+  const rejectsAtBothBoundaries = async (
+    candidate: ConsultingFlow,
+    label: string,
+  ) => {
+    await assert.rejects(
+      commitFlow(ready, candidate),
+      (error) => error instanceof FlowError && error.status === 503,
+      `application accepted ${label}`,
+    );
+    const db = await flowDatabase();
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          candidate.revision,
+          JSON.stringify(candidate),
+          candidate.updatedAt,
+          ready.caseId,
+          ready.revision,
+        )
+        .run(),
+      /request document effect is invalid/,
+      `D1 accepted ${label}`,
+    );
+  };
+
+  const forgedActor = structuredClone(requested);
+  forgedActor.commandReceipts![commandId] = {
+    ...forgedActor.commandReceipts![commandId],
+    actorKey: `member:${partner.id}`,
+    actor: partner.name,
+  };
+  forgedActor.audit.at(-1)!.actor = partner.name;
+  await rejectsAtBothBoundaries(
+    forgedActor,
+    'document request registration by a member',
+  );
+
+  const forgedEvidence = structuredClone(requested);
+  forgedEvidence.requests.at(-1)!.note = '이미 연락하고 보완한 것처럼 위조';
+  forgedEvidence.requests.at(-1)!.createdAt = ready.updatedAt;
+  await rejectsAtBothBoundaries(
+    forgedEvidence,
+    'forged document request initial evidence',
+  );
+
+  const forgedSentEvidence = structuredClone(requested);
+  forgedSentEvidence.requests.at(-1)!.sentAt = requested.updatedAt;
+  await rejectsAtBothBoundaries(
+    forgedSentEvidence,
+    'invented document request send evidence',
+  );
+
+  const forgedDueDate = structuredClone(requested);
+  forgedDueDate.requests.at(-1)!.dueDate = '2026-02-30';
+  await rejectsAtBothBoundaries(forgedDueDate, 'an impossible due date');
+
+  await commitFlow(ready, requested);
+});
+
 void test('FLOW source save commands preserve existing source files', async () => {
   const queued = await queuedReportFixture(true);
   const stored = structuredClone(queued);

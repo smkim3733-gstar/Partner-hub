@@ -531,6 +531,16 @@ const flowConfirmSolutionsEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowRequestDocumentEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0085_consulting_flow_request_document_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -548,6 +558,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_complete_meeting_effect_guard',
   'consulting_flows_cancel_meeting_effect_guard',
   'consulting_flows_confirm_solutions_effect_guard',
+  'consulting_flows_request_document_effect_guard',
   'consulting_flows_save_source_effect_guard',
   'consulting_flows_import_intake_source_effect_guard',
   'consulting_flows_exclude_source_effect_guard',
@@ -607,6 +618,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowCompleteMeetingEffectTriggerSql,
       ...flowCancelMeetingEffectTriggerSql,
       ...flowConfirmSolutionsEffectTriggerSql,
+      ...flowRequestDocumentEffectTriggerSql,
       flowSaveSourceEffectTriggerSql[0],
       flowImportIntakeSourceEffectTriggerSql[0],
       flowExcludeSourceEffectTriggerSql[0],
@@ -3933,6 +3945,9 @@ try {
   const decisionEffectCaseId = 'native-flow-confirm-solutions-effect';
   const decisionEffectFlow = structuredClone(retryEffectFlow);
   decisionEffectFlow.caseId = decisionEffectCaseId;
+  const requestEffectCaseId = 'native-flow-request-document-effect';
+  const requestEffectFlow = structuredClone(retryEffectFlow);
+  requestEffectFlow.caseId = requestEffectCaseId;
   const decisionSourceReportId = decisionEffectFlow.reports
     .filter((report) => report.stage === 1)
     .at(-1).id;
@@ -4102,6 +4117,21 @@ try {
         decisionEffectFlow.updatedAt,
       )
       .run();
+  const insertRequestEffectFlow = () =>
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        requestEffectCaseId,
+        requestEffectFlow.partnerId,
+        requestEffectFlow.revision,
+        JSON.stringify(requestEffectFlow),
+        requestEffectFlow.updatedAt,
+      )
+      .run();
   const receiptOriginCaseId = 'native-flow-command-receipt-origin';
   const legacyReceiptOriginFlow = structuredClone(evidenceFlow);
   legacyReceiptOriginFlow.caseId = receiptOriginCaseId;
@@ -4208,6 +4238,7 @@ try {
     await insertIntakeEffectFlow();
     await insertReportEffectFlow();
     await insertDecisionEffectFlow();
+    await insertRequestEffectFlow();
   } finally {
     await db.batch([
       db.prepare(flowAiEvidenceInsertTriggerSql),
@@ -5123,6 +5154,85 @@ try {
   await saveDecisionEffectTransition(validDecisionEffectFlow);
   checks.push(
     'FLOW native D1 binds latest deep report, representative and canonical decision evidence to solution confirmation',
+  );
+  const validRequestEffectFlow = structuredClone(requestEffectFlow);
+  validRequestEffectFlow.revision++;
+  validRequestEffectFlow.updatedAt = evidenceTimes[2];
+  const requestEffectCommandId = 'native-request-document-effect';
+  validRequestEffectFlow.requests.push({
+    id: `${requestEffectCommandId}-request`,
+    title: '사업자등록증',
+    required: true,
+    channel: '이메일',
+    recipient: 'partner@example.invalid',
+    dueDate: '2026-09-30',
+    status: 'requested',
+    note: '',
+    createdAt: evidenceTimes[2],
+  });
+  validRequestEffectFlow.audit.push({
+    id: requestEffectCommandId,
+    at: evidenceTimes[2],
+    actor: '김성민 대표',
+    action: 'request_document',
+    detail: '추가 서류 요청 등록 · 실제 발송 전',
+  });
+  validRequestEffectFlow.commandIds.push(requestEffectCommandId);
+  validRequestEffectFlow.commandReceipts[requestEffectCommandId] = {
+    actorKey: 'admin:primary',
+    fingerprint: '3'.repeat(64),
+    actor: '김성민 대표',
+    action: 'request_document',
+  };
+  const saveRequestEffectTransition = (after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        requestEffectCaseId,
+        requestEffectFlow.revision,
+      )
+      .run();
+  const forgedRequestActorFlow = structuredClone(validRequestEffectFlow);
+  forgedRequestActorFlow.audit.at(-1).actor = requestEffectFlow.partnerName;
+  forgedRequestActorFlow.commandReceipts[requestEffectCommandId] = {
+    ...forgedRequestActorFlow.commandReceipts[requestEffectCommandId],
+    actorKey: `member:${requestEffectFlow.partnerId}`,
+    actor: requestEffectFlow.partnerName,
+  };
+  await assert.rejects(
+    saveRequestEffectTransition(forgedRequestActorFlow),
+    /request document effect is invalid/,
+  );
+  const forgedRequestEvidenceFlow = structuredClone(validRequestEffectFlow);
+  forgedRequestEvidenceFlow.requests.at(-1).note =
+    '이미 연락하고 보완한 것처럼 위조';
+  forgedRequestEvidenceFlow.requests.at(-1).createdAt = evidenceTimes[1];
+  await assert.rejects(
+    saveRequestEffectTransition(forgedRequestEvidenceFlow),
+    /request document effect is invalid/,
+  );
+  const forgedRequestSentFlow = structuredClone(validRequestEffectFlow);
+  forgedRequestSentFlow.requests.at(-1).sentAt = evidenceTimes[2];
+  await assert.rejects(
+    saveRequestEffectTransition(forgedRequestSentFlow),
+    /request document effect is invalid/,
+  );
+  const forgedRequestDueDateFlow = structuredClone(validRequestEffectFlow);
+  forgedRequestDueDateFlow.requests.at(-1).dueDate = '2026-02-30';
+  await assert.rejects(
+    saveRequestEffectTransition(forgedRequestDueDateFlow),
+    /request document effect is invalid/,
+  );
+  await saveRequestEffectTransition(validRequestEffectFlow);
+  checks.push(
+    'FLOW native D1 binds representative and canonical initial evidence to document request registration',
   );
   const validSourceEffectFlow = structuredClone(sourceEffectFlow);
   validSourceEffectFlow.revision++;
