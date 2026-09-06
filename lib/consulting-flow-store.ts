@@ -17,6 +17,7 @@ import {
   consultingFlowsCommandCardinalityTriggerSql,
   consultingFlowsCommandAiTransitionTriggerSql,
   consultingFlowsSetAiPolicyJobsTriggerSql,
+  consultingFlowsSaveTranscriptJobsTriggerSql,
   consultingFlowsCommandHistoryTriggerSql,
   consultingFlowsCommandInsertEvidenceTriggerSql,
   consultingFlowsCommandInsertEffectTriggerSql,
@@ -148,6 +149,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandCardinalityTriggerSql),
         db.prepare(consultingFlowsCommandAiTransitionTriggerSql),
         db.prepare(consultingFlowsSetAiPolicyJobsTriggerSql),
+        db.prepare(consultingFlowsSaveTranscriptJobsTriggerSql),
         db.prepare(consultingFlowsJobsTransitionTriggerSql),
         db.prepare(consultingFlowsSuccessEvidenceTriggerSql),
         db.prepare(consultingFlowsFailureHistoryTriggerSql),
@@ -1179,6 +1181,34 @@ function assertFlowCommitTransition(
           expected.status = 'blocked';
           expected.reason = '대표가 자동생성을 중지했습니다.';
         }
+        return expected;
+      });
+      if (!sameValue(after.jobs, expectedJobs))
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'save_transcript') {
+      const recordingId = after.recordings.at(-1)?.id;
+      const targetIndex = before.jobs.findLastIndex(
+        (job) => job.sourceRecordingId === recordingId,
+      );
+      const expectedJobs = before.jobs.map((job, index) => {
+        const expected = structuredClone(job);
+        if (
+          index !== targetIndex ||
+          (job.status === 'failed' && !after.ai.enabled)
+        )
+          return expected;
+        if (expected.failureEvidence)
+          expected.failureEvidenceHistory = [
+            ...(expected.failureEvidenceHistory ?? []),
+            expected.failureEvidence,
+          ];
+        expected.failureEvidence = undefined;
+        expected.status = after.ai.enabled ? 'queued' : 'blocked';
+        expected.reason = after.ai.enabled
+          ? ''
+          : '대표의 AI 자동생성 승인이 필요합니다.';
+        expected.startedAt = undefined;
         return expected;
       });
       if (!sameValue(after.jobs, expectedJobs))

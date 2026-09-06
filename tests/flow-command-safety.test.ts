@@ -188,6 +188,108 @@ async function queuedReportFixture(withSourceFile: boolean) {
   return queued;
 }
 
+async function transcriptJobFixture(failed = false) {
+  const stored = await fixture();
+  const prepared = structuredClone(stored);
+  const at = stored.updatedAt;
+  const startsAt = new Date(Date.parse(at) - 120_000).toISOString();
+  const endsAt = new Date(Date.parse(at) - 60_000).toISOString();
+  const meetingId = `transcript-meeting-${++sequence}`;
+  const recordingId = `transcript-recording-${++sequence}`;
+  const targetJobId = `transcript-target-job-${++sequence}`;
+  prepared.ai = {
+    ...prepared.ai,
+    enabled: true,
+    approvedAt: at,
+    approvedBy: adminEmail,
+  };
+  prepared.meetings.push({
+    id: meetingId,
+    kind: 'first',
+    startsAt,
+    endsAt,
+    attendance: 'both',
+    location: '가상 상담실',
+    status: 'completed',
+    note: '',
+    createdBy: adminEmail,
+    completedAt: at,
+  });
+  prepared.recordings.push({
+    id: recordingId,
+    meetingId,
+    transcript: '',
+    consentAt: at,
+    createdAt: at,
+  });
+  const targetJob: ConsultingFlow['jobs'][number] = {
+    id: targetJobId,
+    stage: 4,
+    sourceRecordingId: recordingId,
+    sourceReportId: prepared.reports.at(-1)!.id,
+    status: failed ? 'failed' : 'blocked',
+    reason: failed ? '가상 공급자 오류' : '보조 음성의 전사문이 필요합니다.',
+    createdAt: failed ? startsAt : at,
+    ...(failed
+      ? {
+          startedAt: endsAt,
+          failureEvidence: {
+            auditId: `${targetJobId}-${at}`,
+            instructionVersion: 'synthetic-flow-instruction-v1',
+            requestedModel: 'claude-synthetic-model',
+            httpStatus: 429,
+            observedAt: at,
+            providerRequestId: 'req_transcript_job_failure',
+          },
+          failureEvidenceHistory: [
+            {
+              auditId: `${targetJobId}-${endsAt}`,
+              instructionVersion: 'synthetic-flow-instruction-v1',
+              requestedModel: 'claude-synthetic-model',
+              httpStatus: 503,
+              observedAt: endsAt,
+              providerRequestId: 'req_transcript_job_history',
+            },
+          ],
+        }
+      : {}),
+  };
+  prepared.jobs.push(
+    {
+      id: `transcript-unrelated-job-${++sequence}`,
+      stage: 1,
+      status: 'blocked',
+      reason: '기존 독립 작업 보류',
+      createdAt: at,
+    },
+    targetJob,
+  );
+  if (failed)
+    prepared.audit.push(
+      {
+        id: `${targetJobId}-${endsAt}`,
+        at: endsAt,
+        actor: '보고서 자동생성',
+        action: 'ai_result',
+        detail: '4차 심화분석보고서 실패 · 과거 가상 공급자 오류',
+      },
+      {
+        id: `${targetJobId}-${at}`,
+        at,
+        actor: '보고서 자동생성',
+        action: 'ai_result',
+        detail: '4차 심화분석보고서 실패 · 가상 공급자 오류',
+      },
+    );
+  const db = await flowDatabase();
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    [JSON.stringify(prepared), prepared.caseId],
+  );
+  return (await readFlow(prepared.caseId))!;
+}
+
 void test('FLOW stops a queued model request when the caller is suspended during source preparation', async () => {
   const queued = await queuedReportFixture(true);
   const bucket = flowBucket(),
@@ -1734,6 +1836,87 @@ void test('FLOW AI policy commands bind exact existing job effects', async () =>
     await readFlow(secondQueued.caseId),
     JSON.parse(JSON.stringify(enabled)),
   );
+});
+
+void test('FLOW transcript commands bind the exact target job effect', async () => {
+  const stored = await transcriptJobFixture();
+  const commandId = `transcript-job-effect-${++sequence}`;
+  const at = new Date(Date.parse(stored.updatedAt) + 1).toISOString();
+  const changed = applyFlowCommand(
+    stored,
+    {
+      type: 'save_transcript',
+      recordingId: stored.recordings.at(-1)!.id,
+      transcript: `${body} 확인된 보완 전사문`,
+      transcriptReviewed: true,
+      recordingConsent: true,
+      privacyMasked: true,
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    { commandId, now: at },
+  );
+  addSyntheticCommandReceipt(changed, commandId);
+  const target = changed.jobs.at(-1)!;
+  assert.equal(target.status, 'queued');
+  assert.equal(target.reason, '');
+  const forged = structuredClone(changed);
+  forged.jobs.at(-2)!.reason = '전사문 명령에 섞은 독립 작업 사유 변조';
+  await assert.rejects(
+    commitFlow(stored, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+        stored.caseId,
+        stored.revision,
+      )
+      .run(),
+    /save transcript jobs are invalid/,
+  );
+  await commitFlow(stored, changed);
+  assert.deepEqual(
+    await readFlow(stored.caseId),
+    JSON.parse(JSON.stringify(changed)),
+  );
+
+  const failedStored = await transcriptJobFixture(true);
+  const failureEvidence = failedStored.jobs.at(-1)!.failureEvidence!;
+  const failureHistory = failedStored.jobs.at(-1)!.failureEvidenceHistory!;
+  const retryId = `transcript-failure-retry-${++sequence}`;
+  const corrected = applyFlowCommand(
+    failedStored,
+    {
+      type: 'save_transcript',
+      recordingId: failedStored.recordings.at(-1)!.id,
+      transcript: `${body} 실패 후 확인된 보완 전사문`,
+      transcriptReviewed: true,
+      recordingConsent: true,
+      privacyMasked: true,
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId: retryId,
+      now: new Date(Date.parse(failedStored.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(corrected, retryId);
+  assert.equal(corrected.jobs.at(-1)!.status, 'queued');
+  assert.equal(corrected.jobs.at(-1)!.failureEvidence, undefined);
+  assert.deepEqual(corrected.jobs.at(-1)!.failureEvidenceHistory, [
+    ...failureHistory,
+    failureEvidence,
+  ]);
+  await commitFlow(failedStored, corrected);
 });
 
 void test('FLOW command receipts originate only with same-revision commands', async () => {

@@ -405,6 +405,16 @@ const flowSetAiPolicyJobsTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowSaveTranscriptJobsTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0072_consulting_flow_save_transcript_jobs.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -412,6 +422,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_command_cardinality_guard',
   'consulting_flows_command_ai_transition_guard',
   'consulting_flows_set_ai_policy_jobs_guard',
+  'consulting_flows_save_transcript_jobs_guard',
   'consulting_flows_jobs_transition_guard',
   'consulting_flows_success_evidence_guard',
   'consulting_flows_failure_history_guard',
@@ -458,6 +469,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowCommandCardinalityTriggerSql[1],
       flowCommandAiTransitionTriggerSql[0],
       flowSetAiPolicyJobsTriggerSql[0],
+      flowSaveTranscriptJobsTriggerSql[0],
       ...flowAiEvidenceTransitionTriggerSql,
       ...flowAiJobLifecycleTriggerSql,
       ...flowAiJobTransitionTimestampTriggerSql,
@@ -3700,6 +3712,59 @@ try {
       detail: '1차 정밀진단보고서 실패 · 가상 공급자 오류',
     },
   ];
+  const transcriptEffectCaseId = 'native-flow-transcript-job-effect';
+  const transcriptEffectFlow = structuredClone(evidenceFlow);
+  transcriptEffectFlow.caseId = transcriptEffectCaseId;
+  transcriptEffectFlow.audit = [];
+  transcriptEffectFlow.commandIds = [];
+  transcriptEffectFlow.commandReceipts = {};
+  transcriptEffectFlow.ai = {
+    ...transcriptEffectFlow.ai,
+    enabled: true,
+    approvedAt: evidenceTimes[1],
+    approvedBy: 'native-synthetic-owner',
+  };
+  transcriptEffectFlow.meetings = [
+    {
+      id: 'native-transcript-meeting',
+      kind: 'first',
+      startsAt: evidenceTimes[0],
+      endsAt: evidenceTimes[1],
+      attendance: 'both',
+      location: '가상 상담실',
+      status: 'completed',
+      note: '',
+      createdBy: 'native-synthetic-owner',
+      completedAt: evidenceTimes[1],
+    },
+  ];
+  transcriptEffectFlow.recordings = [
+    {
+      id: 'native-transcript-recording',
+      meetingId: 'native-transcript-meeting',
+      transcript: '',
+      consentAt: evidenceTimes[1],
+      createdAt: evidenceTimes[1],
+    },
+  ];
+  transcriptEffectFlow.jobs = [
+    {
+      id: 'native-transcript-unrelated-job',
+      stage: 1,
+      status: 'blocked',
+      reason: '기존 독립 작업 보류',
+      createdAt: evidenceTimes[1],
+    },
+    {
+      id: 'native-transcript-target-job',
+      stage: 4,
+      sourceRecordingId: 'native-transcript-recording',
+      sourceReportId: transcriptEffectFlow.reports[0].id,
+      status: 'blocked',
+      reason: '보조 음성의 전사문이 필요합니다.',
+      createdAt: evidenceTimes[1],
+    },
+  ];
   const insertEvidenceFlow = () =>
     db
       .prepare(
@@ -3713,6 +3778,21 @@ try {
         evidenceFlow.revision,
         JSON.stringify(evidenceFlow),
         evidenceFlow.updatedAt,
+      )
+      .run();
+  const insertTranscriptEffectFlow = () =>
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+          VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        transcriptEffectCaseId,
+        transcriptEffectFlow.partnerId,
+        transcriptEffectFlow.revision,
+        JSON.stringify(transcriptEffectFlow),
+        transcriptEffectFlow.updatedAt,
       )
       .run();
   const receiptOriginCaseId = 'native-flow-command-receipt-origin';
@@ -3803,10 +3883,17 @@ try {
     db.prepare(
       'DROP TRIGGER IF EXISTS consulting_flows_command_insert_cardinality_guard',
     ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_job_insert_command_guard',
+    ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_job_insert_audit_identity_guard',
+    ),
   ]);
   try {
     await insertEvidenceFlow();
     await insertLegacyReceiptOriginFlow();
+    await insertTranscriptEffectFlow();
   } finally {
     await db.batch([
       db.prepare(flowAiEvidenceInsertTriggerSql),
@@ -3817,6 +3904,8 @@ try {
       db.prepare(flowCommandTargetTriggerSql[0]),
       db.prepare(flowAuditCardinalityTriggerSql[0]),
       db.prepare(flowCommandCardinalityTriggerSql[0]),
+      db.prepare(flowCommandHistoryTriggerSql[1]),
+      db.prepare(flowAiJobCreationAuditIdentityTriggerSql[0]),
     ]);
   }
   const backfilledReceiptOriginFlow = structuredClone(legacyReceiptOriginFlow);
@@ -3946,6 +4035,57 @@ try {
     /set AI policy jobs are invalid/,
   );
   checks.push('FLOW native D1 binds AI policy to exact queued-job blocking');
+  const validTranscriptEffectFlow = structuredClone(transcriptEffectFlow);
+  validTranscriptEffectFlow.revision++;
+  validTranscriptEffectFlow.updatedAt = evidenceTimes[2];
+  validTranscriptEffectFlow.recordings[0].transcript =
+    '가상 상담 전사문을 내부 무결성 검증 목적으로만 보완했습니다.';
+  validTranscriptEffectFlow.recordings[0].transcriptReviewedAt =
+    evidenceTimes[2];
+  validTranscriptEffectFlow.recordings[0].transcriptReviewedBy =
+    'native-synthetic-owner';
+  validTranscriptEffectFlow.jobs[1].status = 'queued';
+  validTranscriptEffectFlow.jobs[1].reason = '';
+  validTranscriptEffectFlow.audit.push({
+    id: 'native-transcript-job-effect',
+    at: evidenceTimes[2],
+    actor: '김성민 대표',
+    action: 'save_transcript',
+    detail: '전사문 보완 · 4차 생성 준비',
+  });
+  validTranscriptEffectFlow.commandIds.push('native-transcript-job-effect');
+  validTranscriptEffectFlow.commandReceipts['native-transcript-job-effect'] = {
+    actorKey: 'admin:primary',
+    fingerprint: '7'.repeat(64),
+    actor: '김성민 대표',
+    action: 'save_transcript',
+  };
+  const forgedTranscriptEffectFlow = structuredClone(validTranscriptEffectFlow);
+  forgedTranscriptEffectFlow.jobs[0].reason =
+    '전사문 명령에 섞은 독립 작업 사유 변조';
+  const saveTranscriptEffectTransition = (after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        transcriptEffectCaseId,
+        transcriptEffectFlow.revision,
+      )
+      .run();
+  await assert.rejects(
+    saveTranscriptEffectTransition(forgedTranscriptEffectFlow),
+    /save transcript jobs are invalid/,
+  );
+  await saveTranscriptEffectTransition(validTranscriptEffectFlow);
+  checks.push(
+    'FLOW native D1 binds transcript updates to one exact target job',
+  );
   const commandedClaimEvidenceFlow = structuredClone(processingEvidenceFlow);
   commandedClaimEvidenceFlow.ai.approvedAt = evidenceTimes[3];
   commandedClaimEvidenceFlow.ai.approvedBy = 'native-synthetic-owner';
