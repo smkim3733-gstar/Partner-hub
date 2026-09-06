@@ -5551,7 +5551,7 @@ void test('same command ID retry resumes both reservations after the second R2 w
   );
 });
 
-void test('same command ID rejects changed attachment bytes after a partial R2 write without overwriting the object', async () => {
+void test('same command ID rejects changed command or attachment fingerprints after a partial R2 write', async () => {
   const stored = await transcriptJobFixture(false, body);
   const command = {
     type: 'save_recording',
@@ -5663,6 +5663,60 @@ void test('same command ID rejects changed attachment bytes after a partial R2 w
       '동일 요청의 내용 또는 첨부가 변경되었습니다. 저장 결과를 확인해 주세요.',
   });
   assert.equal(mismatchPutAttempts, 0);
+  assert.deepEqual(
+    new Uint8Array(objects.get(transcriptReservation.storage_key)),
+    storedBeforeMismatch,
+  );
+  assert.deepEqual(await readFlow(stored.caseId), stored);
+  assert.deepEqual(
+    (
+      await db
+        .prepare(
+          `SELECT slot, status FROM consulting_flow_upload_requests
+          WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3
+          ORDER BY slot`,
+        )
+        .bind(stored.caseId, FLOW_ADMIN_COMMAND_ACTOR_KEY, commandId)
+        .all<{ slot: string; status: string }>()
+    ).results.map(({ slot, status }) => ({ slot, status })),
+    [
+      { slot: 'audio', status: 'pending' },
+      { slot: 'file', status: 'pending' },
+    ],
+  );
+
+  const changedCommand = {
+    ...command,
+    transcript: `${command.transcript} 변경`,
+  };
+  let commandMismatchPutAttempts = 0;
+  bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+    commandMismatchPutAttempts++;
+    return put(...args);
+  };
+  let commandMismatch: Response;
+  try {
+    commandMismatch = await POST(
+      request(
+        stored.caseId,
+        changedCommand,
+        stored.revision,
+        commandId,
+        adminEmail,
+        originalTranscript,
+        audio,
+      ),
+      context(stored.caseId),
+    );
+  } finally {
+    bucket.put = put;
+  }
+  assert.equal(commandMismatch.status, 409);
+  assert.deepEqual(await commandMismatch.json(), {
+    error:
+      '동일 요청의 내용 또는 첨부가 변경되었습니다. 저장 결과를 확인해 주세요.',
+  });
+  assert.equal(commandMismatchPutAttempts, 0);
   assert.deepEqual(
     new Uint8Array(objects.get(transcriptReservation.storage_key)),
     storedBeforeMismatch,
