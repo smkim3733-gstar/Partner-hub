@@ -5306,6 +5306,108 @@ void test('second dual-slot R2 write failure preserves the first object and resu
   );
 });
 
+void test('R2 write success with a lost response preserves one object and resumes its reservation', async () => {
+  const caseId = `ambiguous-r2-write-${++sequence}`;
+  await writePortalState({
+    version: 1,
+    consultationNumber: 0,
+    members: [partner],
+    cases: [
+      {
+        id: caseId,
+        company: '가상기업',
+        trainee: partner.name,
+        partnerMemberId: partner.id,
+      },
+    ],
+    tasks: [],
+    timeline: [],
+    schedule: [],
+    companyDocuments: [],
+  });
+  await flowDatabase();
+  const command = {
+    type: 'save_report',
+    stage: 1,
+    body,
+    fileConsent: true,
+  } as const;
+  const file = new File(['SYNTHETIC_AMBIGUOUS_R2_WRITE'], 'ambiguous-r2.txt', {
+    type: 'text/plain',
+  });
+  const firstCommandId = `ambiguous-r2-write-${++sequence}`;
+  const previousKeys = new Set(objects.keys());
+  const bucket = flowBucket();
+  const put = bucket.put.bind(bucket);
+  let injected = false;
+  bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+    const object = await put(...args);
+    if (!injected) {
+      injected = true;
+      throw new Error('synthetic lost R2 response after storage');
+    }
+    return object;
+  };
+  let failed: Response;
+  try {
+    failed = await POST(
+      request(caseId, command, 0, firstCommandId, adminEmail, file),
+      context(caseId),
+    );
+  } finally {
+    bucket.put = put;
+  }
+  assert.equal(failed.status, 503);
+  assert.deepEqual(await failed.json(), {
+    error:
+      '첨부파일을 보안 저장소에 기록하지 못했습니다. 같은 자료로 다시 시도해 주세요.',
+  });
+  assert.equal(await readFlow(caseId), null);
+
+  const db = await flowDatabase();
+  const reservation = await db
+    .prepare(
+      `SELECT status, file_id, storage_key FROM consulting_flow_upload_requests
+      WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3 AND slot = 'file'`,
+    )
+    .bind(caseId, FLOW_ADMIN_COMMAND_ACTOR_KEY, firstCommandId)
+    .first<{ status: string; file_id: string; storage_key: string }>();
+  assert.ok(reservation);
+  assert.equal(reservation.status, 'pending');
+  assert.deepEqual(
+    [...objects.keys()].filter((key) => !previousKeys.has(key)),
+    [reservation.storage_key],
+  );
+
+  const retryCommandId = `ambiguous-r2-write-retry-${++sequence}`;
+  const retry = await POST(
+    request(caseId, command, 0, retryCommandId, adminEmail, file),
+    context(caseId),
+  );
+  assert.equal(retry.status, 200, await retry.clone().text());
+  const saved = (await readFlow(caseId))!;
+  assert.equal(saved.files.length, 1);
+  assert.equal(saved.files[0].id, reservation.file_id);
+  assert.equal(saved.files[0].key, reservation.storage_key);
+  assert.deepEqual(saved.commandIds, [retryCommandId]);
+  assert.deepEqual(
+    [...objects.keys()].filter((key) => !previousKeys.has(key)),
+    [reservation.storage_key],
+  );
+  const completion = await db
+    .prepare(
+      `SELECT reservation.status, completion.command_id
+      FROM consulting_flow_upload_requests reservation
+      LEFT JOIN consulting_flow_upload_completions completion
+        ON completion.file_id = reservation.file_id
+      WHERE reservation.file_id = ?1`,
+    )
+    .bind(reservation.file_id)
+    .first<{ status: string; command_id: string | null }>();
+  assert.equal(completion?.status, 'ready');
+  assert.equal(completion?.command_id, retryCommandId);
+});
+
 void test('concurrent identical FLOW attachments with different command IDs share one pending reservation', async () => {
   const caseId = `cross-command-attachment-race-${++sequence}`;
   await writePortalState({
