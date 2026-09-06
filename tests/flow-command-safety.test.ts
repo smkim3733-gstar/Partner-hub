@@ -10623,6 +10623,11 @@ type MultipartBodyStateChange =
       kind: 'suspended';
       status: 403;
       error: string;
+    }
+  | {
+      kind: 'email-change';
+      status: 403;
+      error: string;
     };
 
 async function assertPartialR2RetryDeniedByMultipartStateChange(
@@ -10773,6 +10778,7 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
           const changedState = structuredClone(await readPortalState()) as {
             members: Array<{
               id: string;
+              email: string;
               status: string;
               permissions: Record<string, boolean>;
             }>;
@@ -10791,6 +10797,9 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
           } else if (scenario.kind === 'suspended') {
             changedState.members.find(({ id }) => id === partner.id)!.status =
               '정지';
+          } else if (scenario.kind === 'email-change') {
+            changedState.members.find(({ id }) => id === partner.id)!.email =
+              `multipart-email-race-${sequence}@example.invalid`;
           } else {
             changedState.cases.find(
               ({ id }) => id === stored.caseId,
@@ -10831,7 +10840,9 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
   assert.equal(denied.status, scenario.status);
   assert.deepEqual(await denied.json(), { error: scenario.error });
   assert.equal(deniedPutAttempts, 0);
-  assert.equal((await memberBinding())?.subject_id, partner.id);
+  if (scenario.kind === 'email-change')
+    assert.equal(await memberBinding(), null);
+  else assert.equal((await memberBinding())?.subject_id, partner.id);
   assert.deepEqual(await readFlow(stored.caseId), stored);
   assert.deepEqual(
     new Uint8Array(objects.get(transcriptReservation.storage_key)),
@@ -10842,6 +10853,7 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
   const restoredState = structuredClone(await readPortalState()) as {
     members: Array<{
       id: string;
+      email: string;
       status: string;
       permissions: Record<string, boolean>;
     }>;
@@ -10856,6 +10868,9 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
     ] = true;
   else if (scenario.kind === 'suspended')
     restoredState.members.find(({ id }) => id === partner.id)!.status = '활성';
+  else if (scenario.kind === 'email-change')
+    restoredState.members.find(({ id }) => id === partner.id)!.email =
+      partner.email;
   else
     restoredState.cases.find(
       ({ id }) => id === stored.caseId,
@@ -10873,7 +10888,9 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
     }),
   );
   assert.equal(restored.status, 200, await restored.clone().text());
-  assert.equal((await memberBinding())?.subject_id, partner.id);
+  if (scenario.kind === 'email-change')
+    assert.equal(await memberBinding(), null);
+  else assert.equal((await memberBinding())?.subject_id, partner.id);
 
   const retry = await POST(
     request(
@@ -10888,6 +10905,7 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
     context(stored.caseId),
   );
   assert.equal(retry.status, 200, await retry.clone().text());
+  assert.equal((await memberBinding())?.subject_id, partner.id);
   const saved = (await readFlow(stored.caseId))!;
   const recording = saved.recordings.at(-1)!;
   const reservedBySlot = new Map(
@@ -10930,7 +10948,7 @@ async function assertPartialR2RetryDeniedByMultipartStateChange(
   );
 }
 
-void test('partial R2 retry rechecks multipart permission, account and lifecycle changes before reservation or R2 reuse', async () => {
+void test('partial R2 retry rechecks multipart permission, account, identity and lifecycle changes before reservation or R2 reuse', async () => {
   for (const scenario of [
     {
       kind: 'permission',
@@ -10946,6 +10964,11 @@ void test('partial R2 retry rechecks multipart permission, account and lifecycle
     },
     {
       kind: 'suspended',
+      status: 403,
+      error: '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
+    },
+    {
+      kind: 'email-change',
       status: 403,
       error: '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
     },
