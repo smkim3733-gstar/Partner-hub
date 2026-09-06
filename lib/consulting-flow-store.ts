@@ -25,6 +25,7 @@ import {
   consultingFlowsNewCommandReceiptTargetTriggerSql,
   consultingFlowsCommandReceiptTargetHistoryTriggerSql,
   consultingFlowsCompleteMeetingEffectTriggerSql,
+  consultingFlowsCancelMeetingEffectTriggerSql,
   consultingFlowsSaveSourceEffectTriggerSql,
   consultingFlowsImportIntakeSourceEffectTriggerSql,
   consultingFlowsExcludeSourceEffectTriggerSql,
@@ -175,6 +176,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsNewCommandReceiptTargetTriggerSql),
         db.prepare(consultingFlowsCommandReceiptTargetHistoryTriggerSql),
         db.prepare(consultingFlowsCompleteMeetingEffectTriggerSql),
+        db.prepare(consultingFlowsCancelMeetingEffectTriggerSql),
         db.prepare(consultingFlowsSaveSourceEffectTriggerSql),
         db.prepare(consultingFlowsImportIntakeSourceEffectTriggerSql),
         db.prepare(consultingFlowsExcludeSourceEffectTriggerSql),
@@ -1117,7 +1119,7 @@ function assertFlowCommitTransition(
         matchingAudit.length !== 1 ||
         receipt.actor !== matchingAudit[0].actor ||
         receipt.action !== matchingAudit[0].action ||
-        (receipt.action === 'complete_meeting'
+        (['complete_meeting', 'cancel_meeting'].includes(receipt.action ?? '')
           ? receipt.targetId === undefined
           : receipt.targetId !== undefined)
       );
@@ -1357,6 +1359,8 @@ function assertFlowCommitTransition(
         completed.completedAt !== after.updatedAt ||
         completed.startsAt > after.updatedAt ||
         (completed.note === '' && previous.note !== '') ||
+        (completed.note !== previous.note &&
+          completed.note !== completed.note.trim()) ||
         (receipt.actorKey === `member:${before.partnerId}` &&
           !['both', 'partner'].includes(previous.attendance)) ||
         ![FLOW_ADMIN_COMMAND_ACTOR_KEY, `member:${before.partnerId}`].includes(
@@ -1370,6 +1374,32 @@ function assertFlowCommitTransition(
                 job.stage === 1 &&
                 ['queued', 'processing'].includes(job.status),
             )))
+      )
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'cancel_meeting') {
+      const receipt = afterReceipts[commandId];
+      const previous = before.meetings.find(
+        (meeting) => meeting.id === receipt?.targetId,
+      );
+      const cancelled = after.meetings.find(
+        (meeting) => meeting.id === receipt?.targetId,
+      );
+      if (
+        !previous ||
+        !cancelled ||
+        previous.status !== 'scheduled' ||
+        previous.completedAt !== undefined ||
+        cancelled.status !== 'cancelled' ||
+        cancelled.completedAt !== undefined ||
+        (cancelled.note === '' && previous.note !== '') ||
+        (cancelled.note !== previous.note &&
+          cancelled.note !== cancelled.note.trim()) ||
+        (receipt.actorKey === `member:${before.partnerId}` &&
+          !['both', 'partner'].includes(previous.attendance)) ||
+        ![FLOW_ADMIN_COMMAND_ACTOR_KEY, `member:${before.partnerId}`].includes(
+          receipt.actorKey,
+        )
       )
         throw storedFlowIntegrityError();
     }

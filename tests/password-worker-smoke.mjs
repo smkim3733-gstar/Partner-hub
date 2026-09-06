@@ -511,6 +511,16 @@ const flowCompleteMeetingEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowCancelMeetingEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0083_consulting_flow_cancel_meeting_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -526,6 +536,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_new_command_receipt_target_guard',
   'consulting_flows_command_receipt_target_history_guard',
   'consulting_flows_complete_meeting_effect_guard',
+  'consulting_flows_cancel_meeting_effect_guard',
   'consulting_flows_save_source_effect_guard',
   'consulting_flows_import_intake_source_effect_guard',
   'consulting_flows_exclude_source_effect_guard',
@@ -583,6 +594,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowConfirmAnalysisEffectTriggerSql[0],
       flowBookMeetingEffectTriggerSql[0],
       ...flowCompleteMeetingEffectTriggerSql,
+      ...flowCancelMeetingEffectTriggerSql,
       flowSaveSourceEffectTriggerSql[0],
       flowImportIntakeSourceEffectTriggerSql[0],
       flowExcludeSourceEffectTriggerSql[0],
@@ -3750,7 +3762,7 @@ try {
     .first();
   const intactFlowPayload = intactFlowRow.payload;
   const evidenceCaseId = 'native-flow-ai-evidence-transition';
-  const evidenceTimes = Array.from({ length: 7 }, (_, index) =>
+  const evidenceTimes = Array.from({ length: 9 }, (_, index) =>
     new Date(Date.parse('2026-09-06T12:00:00.000Z') + index).toISOString(),
   );
   const evidenceFlow = JSON.parse(intactFlowPayload);
@@ -4813,6 +4825,159 @@ try {
   );
   checks.push(
     'FLOW native D1 binds one scheduled target, attendee, completion evidence and immutable target history',
+  );
+  const validCancellationBookingFlow = structuredClone(
+    validCompletionEffectFlow,
+  );
+  validCancellationBookingFlow.revision++;
+  validCancellationBookingFlow.updatedAt = evidenceTimes[6];
+  const cancellationBookingCommandId = 'native-cancel-meeting-booking';
+  validCancellationBookingFlow.meetings.push({
+    id: `${cancellationBookingCommandId}-meeting`,
+    kind: 'followup',
+    startsAt: '2026-10-03T01:00:00.000Z',
+    endsAt: '2026-10-03T02:00:00.000Z',
+    attendance: 'partner',
+    location: '가상 취소 검증 상담실',
+    status: 'scheduled',
+    note: '최초 예약 메모',
+    createdBy: validCancellationBookingFlow.partnerId,
+  });
+  validCancellationBookingFlow.audit.push({
+    id: cancellationBookingCommandId,
+    at: evidenceTimes[6],
+    actor: validCancellationBookingFlow.partnerName,
+    action: 'book_meeting',
+    detail: '추가 상담 예약 · 파트너 단독',
+  });
+  validCancellationBookingFlow.commandIds.push(cancellationBookingCommandId);
+  validCancellationBookingFlow.commandReceipts[cancellationBookingCommandId] = {
+    actorKey: `member:${validCancellationBookingFlow.partnerId}`,
+    fingerprint: 'e'.repeat(64),
+    actor: validCancellationBookingFlow.partnerName,
+    action: 'book_meeting',
+  };
+  const saveCancellationBookingTransition = (after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        reportEffectCaseId,
+        validCompletionEffectFlow.revision,
+      )
+      .run();
+  await saveCancellationBookingTransition(validCancellationBookingFlow);
+
+  const validCancellationEffectFlow = structuredClone(
+    validCancellationBookingFlow,
+  );
+  validCancellationEffectFlow.revision++;
+  validCancellationEffectFlow.updatedAt = evidenceTimes[7];
+  const cancellationEffectCommandId = 'native-cancel-meeting-effect';
+  const cancellationTarget = validCancellationEffectFlow.meetings.at(-1);
+  cancellationTarget.status = 'cancelled';
+  cancellationTarget.note = '가상 일정 취소 확인';
+  validCancellationEffectFlow.audit.push({
+    id: cancellationEffectCommandId,
+    at: evidenceTimes[7],
+    actor: validCancellationEffectFlow.partnerName,
+    action: 'cancel_meeting',
+    detail: '상담 일정 취소',
+  });
+  validCancellationEffectFlow.commandIds.push(cancellationEffectCommandId);
+  validCancellationEffectFlow.commandReceipts[cancellationEffectCommandId] = {
+    actorKey: `member:${validCancellationEffectFlow.partnerId}`,
+    fingerprint: 'f'.repeat(64),
+    actor: validCancellationEffectFlow.partnerName,
+    action: 'cancel_meeting',
+    targetId: cancellationTarget.id,
+  };
+  const saveCancellationEffectTransition = (after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        reportEffectCaseId,
+        validCancellationBookingFlow.revision,
+      )
+      .run();
+  const forgedCancellationTargetFlow = structuredClone(
+    validCancellationEffectFlow,
+  );
+  forgedCancellationTargetFlow.commandReceipts[
+    cancellationEffectCommandId
+  ].targetId = forgedCancellationTargetFlow.meetings[0].id;
+  await assert.rejects(
+    saveCancellationEffectTransition(forgedCancellationTargetFlow),
+    /command target is invalid|cancel meeting effect is invalid/,
+  );
+  const missingCancellationTargetFlow = structuredClone(
+    validCancellationEffectFlow,
+  );
+  delete missingCancellationTargetFlow.commandReceipts[
+    cancellationEffectCommandId
+  ].targetId;
+  await assert.rejects(
+    saveCancellationEffectTransition(missingCancellationTargetFlow),
+    /new command receipt target is invalid|cancel meeting effect is invalid/,
+  );
+  await saveCancellationEffectTransition(validCancellationEffectFlow);
+
+  const forgedRepeatCancellationFlow = structuredClone(
+    validCancellationEffectFlow,
+  );
+  forgedRepeatCancellationFlow.revision++;
+  forgedRepeatCancellationFlow.updatedAt = evidenceTimes[8];
+  forgedRepeatCancellationFlow.meetings.at(-1).note =
+    '이미 취소된 일정 재취소 위조';
+  const repeatedCancellationCommandId = 'native-cancel-meeting-repeat';
+  forgedRepeatCancellationFlow.audit.push({
+    id: repeatedCancellationCommandId,
+    at: evidenceTimes[8],
+    actor: forgedRepeatCancellationFlow.partnerName,
+    action: 'cancel_meeting',
+    detail: '상담 일정 취소',
+  });
+  forgedRepeatCancellationFlow.commandIds.push(repeatedCancellationCommandId);
+  forgedRepeatCancellationFlow.commandReceipts[repeatedCancellationCommandId] =
+    {
+      actorKey: `member:${forgedRepeatCancellationFlow.partnerId}`,
+      fingerprint: '1'.repeat(64),
+      actor: forgedRepeatCancellationFlow.partnerName,
+      action: 'cancel_meeting',
+      targetId: forgedRepeatCancellationFlow.meetings.at(-1).id,
+    };
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forgedRepeatCancellationFlow.revision,
+        JSON.stringify(forgedRepeatCancellationFlow),
+        forgedRepeatCancellationFlow.updatedAt,
+        reportEffectCaseId,
+        validCancellationEffectFlow.revision,
+      )
+      .run(),
+    /command target is invalid|cancel meeting effect is invalid/,
+  );
+  checks.push(
+    'FLOW native D1 binds one scheduled target, attendee and preserved completion evidence to cancellation',
   );
   const validSourceEffectFlow = structuredClone(sourceEffectFlow);
   validSourceEffectFlow.revision++;

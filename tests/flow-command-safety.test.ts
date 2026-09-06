@@ -2697,6 +2697,228 @@ void test('FLOW meeting completion requires a scheduled receipt-bound target', a
   await commitFlow(secondBooked, completed);
 });
 
+void test('FLOW meeting cancellation requires a scheduled receipt-bound target', async () => {
+  const stored = await transcriptJobFixture();
+  const firstBookingCommandId = `cancel-meeting-booking-a-${++sequence}`;
+  const firstBooked = applyFlowCommand(
+    stored,
+    {
+      type: 'book_meeting',
+      kind: 'followup',
+      attendance: 'partner',
+      startsAt: '2026-10-02T01:00:00.000Z',
+      endsAt: '2026-10-02T02:00:00.000Z',
+      location: '가상 취소 검증 상담실',
+      note: '최초 예약 메모',
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId: firstBookingCommandId,
+      now: new Date(Date.parse(stored.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(firstBooked, firstBookingCommandId);
+  await commitFlow(stored, firstBooked);
+
+  const secondBookingCommandId = `cancel-meeting-booking-b-${++sequence}`;
+  const secondBooked = applyFlowCommand(
+    firstBooked,
+    {
+      type: 'book_meeting',
+      kind: 'followup',
+      attendance: 'admin',
+      startsAt: '2026-10-02T03:00:00.000Z',
+      endsAt: '2026-10-02T04:00:00.000Z',
+      location: '가상 취소 검증 상담실 B',
+      note: '',
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId: secondBookingCommandId,
+      now: new Date(Date.parse(stored.updatedAt) + 2).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(secondBooked, secondBookingCommandId);
+  await commitFlow(firstBooked, secondBooked);
+
+  const cancellationCommandId = `cancel-meeting-valid-${++sequence}`;
+  const cancellationTarget = secondBooked.meetings.find(
+    (meeting) => meeting.id === `${firstBookingCommandId}-meeting`,
+  )!;
+  const cancellationCommand = {
+    type: 'cancel_meeting',
+    meetingId: cancellationTarget.id,
+    note: '가상 일정 취소 확인',
+  } as const;
+  const adminUser: PortalUser = {
+    id: 'stable-owner-subject',
+    email: adminEmail,
+    displayName: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    role: 'admin',
+    memberId: null,
+    memberName: null,
+    permissions: null,
+  };
+  const cancellationReceipt = await flowCommandReceipt(adminUser, {
+    command: cancellationCommand,
+  });
+  assert.equal(cancellationReceipt.targetId, cancellationTarget.id);
+  const cancelled = applyFlowCommand(
+    secondBooked,
+    cancellationCommand,
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId: cancellationCommandId,
+      now: new Date(Date.parse(stored.updatedAt) + 3).toISOString(),
+    },
+  );
+  cancelled.commandReceipts = {
+    ...cancelled.commandReceipts,
+    [cancellationCommandId]: {
+      ...cancellationReceipt,
+      actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+      action: 'cancel_meeting',
+    },
+  };
+  const db = await flowDatabase();
+
+  const swappedTarget = structuredClone(cancelled);
+  const restoredTarget = swappedTarget.meetings.find(
+    (meeting) => meeting.id === cancellationTarget.id,
+  )!;
+  const forgedTarget = swappedTarget.meetings.find(
+    (meeting) => meeting.id === `${secondBookingCommandId}-meeting`,
+  )!;
+  restoredTarget.status = 'scheduled';
+  restoredTarget.note = '최초 예약 메모';
+  forgedTarget.status = 'cancelled';
+  forgedTarget.note = cancellationCommand.note;
+  await assert.rejects(
+    commitFlow(secondBooked, swappedTarget),
+    (error) => error instanceof FlowError && error.status === 503,
+    'application accepted a meeting cancellation target swap',
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        swappedTarget.revision,
+        JSON.stringify(swappedTarget),
+        swappedTarget.updatedAt,
+        secondBooked.caseId,
+        secondBooked.revision,
+      )
+      .run(),
+    /cancel meeting effect is invalid/,
+    'D1 accepted a meeting cancellation target swap',
+  );
+
+  const forgedAttendee = structuredClone(swappedTarget);
+  forgedAttendee.commandReceipts![cancellationCommandId] = {
+    ...forgedAttendee.commandReceipts![cancellationCommandId],
+    actorKey: `member:${partner.id}`,
+    actor: partner.name,
+    targetId: forgedTarget.id,
+  };
+  forgedAttendee.audit.at(-1)!.actor = partner.name;
+  await assert.rejects(
+    commitFlow(secondBooked, forgedAttendee),
+    (error) => error instanceof FlowError && error.status === 503,
+    'application accepted cancellation by a non-attendee',
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forgedAttendee.revision,
+        JSON.stringify(forgedAttendee),
+        forgedAttendee.updatedAt,
+        secondBooked.caseId,
+        secondBooked.revision,
+      )
+      .run(),
+    /cancel meeting effect is invalid/,
+    'D1 accepted cancellation by a non-attendee',
+  );
+
+  const missingTarget = structuredClone(cancelled);
+  delete missingTarget.commandReceipts![cancellationCommandId].targetId;
+  await assert.rejects(
+    commitFlow(secondBooked, missingTarget),
+    (error) => error instanceof FlowError && error.status === 503,
+    'application accepted cancellation without a receipt target',
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        missingTarget.revision,
+        JSON.stringify(missingTarget),
+        missingTarget.updatedAt,
+        secondBooked.caseId,
+        secondBooked.revision,
+      )
+      .run(),
+    /new command receipt target is invalid|cancel meeting effect is invalid/,
+    'D1 accepted cancellation without a receipt target',
+  );
+  await commitFlow(secondBooked, cancelled);
+
+  const repeatedCommandId = `cancel-meeting-repeat-${++sequence}`;
+  const repeated = structuredClone(cancelled);
+  repeated.revision++;
+  repeated.updatedAt = new Date(
+    Date.parse(cancelled.updatedAt) + 1,
+  ).toISOString();
+  repeated.meetings.at(-1)!.note = '이미 취소된 일정을 다시 취소한 위조 기록';
+  repeated.audit.push({
+    id: repeatedCommandId,
+    at: repeated.updatedAt,
+    actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    action: 'cancel_meeting',
+    detail: '상담 일정 취소',
+  });
+  repeated.commandIds.push(repeatedCommandId);
+  addSyntheticCommandReceipt(repeated, repeatedCommandId);
+  repeated.commandReceipts![repeatedCommandId].targetId = cancellationTarget.id;
+
+  await assert.rejects(
+    commitFlow(cancelled, repeated),
+    (error) => error instanceof FlowError && error.status === 503,
+    'application accepted repeat cancellation of a cancelled meeting',
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        repeated.revision,
+        JSON.stringify(repeated),
+        repeated.updatedAt,
+        cancelled.caseId,
+        cancelled.revision,
+      )
+      .run(),
+    /command target is invalid|cancel meeting effect is invalid/,
+    'D1 accepted repeat cancellation of a cancelled meeting',
+  );
+});
+
 void test('FLOW source save commands preserve existing source files', async () => {
   const queued = await queuedReportFixture(true);
   const stored = structuredClone(queued);
