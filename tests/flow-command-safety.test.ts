@@ -11149,6 +11149,17 @@ void test('partial R2 retry rejects upload permission revocation immediately bef
   });
 });
 
+void test('partial R2 retry rejects case permission revocation immediately before the D1 FLOW write and recovers both objects', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'permission',
+    permission: 'ownCases',
+    timing: 'd1-write',
+    status: 503,
+    error:
+      '첨부파일 소유권을 안전하게 저장하지 못했습니다. 새로고침 후 다시 확인해 주세요.',
+  });
+});
+
 void test('FLOW commit rejects a suspension immediately before D1 writes', async () => {
   const flow = await fixture(),
     db = await flowDatabase(),
