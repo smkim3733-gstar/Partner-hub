@@ -5190,6 +5190,122 @@ void test('failed dual-slot FLOW commit preserves both reserved R2 objects for e
   );
 });
 
+void test('second dual-slot R2 write failure preserves the first object and resumes both reservations', async () => {
+  const stored = await transcriptJobFixture(false, body);
+  const command = {
+    type: 'save_recording',
+    meetingId: stored.meetings.at(-1)!.id,
+    transcript: `${body} 2슬롯 부분 저장 복구`,
+    transcriptReviewed: true,
+    recordingConsent: true,
+    privacyMasked: true,
+    fileConsent: true,
+  } as const;
+  const transcript = new File(
+    ['SYNTHETIC_PARTIAL_WRITE_TRANSCRIPT'],
+    'partial-write-transcript.txt',
+    { type: 'text/plain' },
+  );
+  const audio = new File(
+    [new Uint8Array([0x49, 0x44, 0x33, 4, 0, 2])],
+    'partial-write-audio.mp3',
+    { type: 'audio/mpeg' },
+  );
+  const firstCommandId = `dual-slot-partial-write-${++sequence}`;
+  const previousKeys = new Set(objects.keys());
+  const bucket = flowBucket();
+  const put = bucket.put.bind(bucket);
+  let putAttempts = 0;
+  bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+    putAttempts++;
+    if (putAttempts === 2) throw new Error('synthetic second R2 write failure');
+    return put(...args);
+  };
+  let failed: Response;
+  try {
+    failed = await POST(
+      request(
+        stored.caseId,
+        command,
+        stored.revision,
+        firstCommandId,
+        adminEmail,
+        transcript,
+        audio,
+      ),
+      context(stored.caseId),
+    );
+  } finally {
+    bucket.put = put;
+  }
+  assert.equal(failed.status, 503);
+  assert.deepEqual(await failed.json(), {
+    error:
+      '첨부파일을 보안 저장소에 기록하지 못했습니다. 같은 자료로 다시 시도해 주세요.',
+  });
+  assert.deepEqual(await readFlow(stored.caseId), stored);
+
+  const db = await flowDatabase();
+  const pending = (
+    await db
+      .prepare(
+        `SELECT slot, file_id, storage_key, status
+        FROM consulting_flow_upload_requests
+        WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3
+        ORDER BY slot`,
+      )
+      .bind(stored.caseId, FLOW_ADMIN_COMMAND_ACTOR_KEY, firstCommandId)
+      .all<{
+        slot: string;
+        file_id: string;
+        storage_key: string;
+        status: string;
+      }>()
+  ).results;
+  assert.deepEqual(
+    pending.map(({ slot, status }) => ({ slot, status })),
+    [
+      { slot: 'audio', status: 'pending' },
+      { slot: 'file', status: 'pending' },
+    ],
+  );
+  assert.deepEqual(
+    [...objects.keys()].filter((key) => !previousKeys.has(key)),
+    [pending.find(({ slot }) => slot === 'file')!.storage_key],
+  );
+
+  const retryCommandId = `dual-slot-partial-write-retry-${++sequence}`;
+  const retry = await POST(
+    request(
+      stored.caseId,
+      command,
+      stored.revision,
+      retryCommandId,
+      adminEmail,
+      transcript,
+      audio,
+    ),
+    context(stored.caseId),
+  );
+  assert.equal(retry.status, 200, await retry.clone().text());
+  const saved = (await readFlow(stored.caseId))!;
+  const recording = saved.recordings.at(-1)!;
+  const reservedBySlot = new Map(
+    pending.map(({ slot, file_id }) => [slot, file_id]),
+  );
+  assert.equal(recording.transcriptFileId, reservedBySlot.get('file'));
+  assert.equal(recording.audioFileId, reservedBySlot.get('audio'));
+  assert.deepEqual(saved.commandIds.slice(-1), [retryCommandId]);
+  assert.deepEqual(
+    [...objects.keys()]
+      .filter((key) => !previousKeys.has(key))
+      .sort((a, b) => a.localeCompare(b)),
+    pending
+      .map(({ storage_key }) => storage_key)
+      .sort((a, b) => a.localeCompare(b)),
+  );
+});
+
 void test('concurrent identical FLOW attachments with different command IDs share one pending reservation', async () => {
   const caseId = `cross-command-attachment-race-${++sequence}`;
   await writePortalState({

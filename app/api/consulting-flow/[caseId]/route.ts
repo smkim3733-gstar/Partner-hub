@@ -1,4 +1,8 @@
-import { applyFlowCommand, FlowError } from '@/lib/consulting-flow';
+import {
+  applyFlowCommand,
+  FlowError,
+  type FlowFile,
+} from '@/lib/consulting-flow';
 import { publicFlow } from '@/lib/consulting-flow-access';
 import { describeUpload, parseFlowRequest } from '@/lib/consulting-flow-http';
 import { prepareIntakeImport } from '@/lib/consulting-intake-sources';
@@ -43,6 +47,7 @@ export async function GET(request: Request, context: Context) {
     return flowErrorResponse(error);
   }
 }
+
 export async function POST(request: Request, context: Context) {
   const fileObjectBindings = new Map<
     string,
@@ -191,31 +196,24 @@ export async function POST(request: Request, context: Context) {
       },
     };
     if (imported) {
-      const object = await flowBucket().put(upload!.key, imported.bytes, {
-        httpMetadata: { contentType: upload!.contentType },
-      });
       fileObjectBindings.set(
         upload!.id,
-        flowFileObjectBinding(upload!, object),
+        await writeReservedFlowUpload(upload!, imported.bytes),
       );
     }
     if (upload && input.file) {
-      const object = await flowBucket().put(upload.key, input.file.stream(), {
-        httpMetadata: { contentType: upload.contentType },
-      });
-      fileObjectBindings.set(upload.id, flowFileObjectBinding(upload, object));
+      fileObjectBindings.set(
+        upload.id,
+        await writeReservedFlowUpload(upload, input.file.stream()),
+      );
     }
     if (reservedAudioUpload && input.audio) {
-      const object = await flowBucket().put(
-        reservedAudioUpload.key,
-        input.audio.stream(),
-        {
-          httpMetadata: { contentType: reservedAudioUpload.contentType },
-        },
-      );
       fileObjectBindings.set(
         reservedAudioUpload.id,
-        flowFileObjectBinding(reservedAudioUpload, object),
+        await writeReservedFlowUpload(
+          reservedAudioUpload,
+          input.audio.stream(),
+        ),
       );
     }
     const access = await recheckFlowAccess(
@@ -240,5 +238,23 @@ export async function POST(request: Request, context: Context) {
     // delete it here: another exact retry can commit the shared key between a
     // FLOW re-read and R2 deletion. Inventory and exact retry recover it safely.
     return flowErrorResponse(error);
+  }
+}
+
+async function writeReservedFlowUpload(
+  file: FlowFile,
+  body: Parameters<R2Bucket['put']>[1],
+) {
+  try {
+    const object = await flowBucket().put(file.key, body, {
+      httpMetadata: { contentType: file.contentType },
+    });
+    return flowFileObjectBinding(file, object);
+  } catch (error) {
+    if (error instanceof FlowError) throw error;
+    throw new FlowError(
+      '첨부파일을 보안 저장소에 기록하지 못했습니다. 같은 자료로 다시 시도해 주세요.',
+      503,
+    );
   }
 }
