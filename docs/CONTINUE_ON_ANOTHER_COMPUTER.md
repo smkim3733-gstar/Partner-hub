@@ -6,16 +6,16 @@
 
 ## 현재 인수인계 지점
 
-- 최신 감사 커밋: `4b8159576741fae0d1e092f97e8a0aad1366e897` (`test: recheck FLOW ownCases retry`)
-- 최신 확인: 파트너 부분 R2 저장 뒤 실제 관리자 경로로 `ownCases` 권한을 회수하면 안정 계정 결속은 유지되지만 재시도는 R2 전에 403으로 차단
-- 복구 확인: 권한을 복구한 정확한 재시도만 같은 명령 ID·파일 ID·R2 키를 이용해 완료
-- 검증: Node 회귀 검사 727개, 격리 workerd/D1/R2 검사 522개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
+- 최신 감사 커밋: `47d167cfc80efdccd47984be6b85410757cc7e2a` (`test: recheck FLOW multipart revocation`)
+- 최신 확인: 기존 부분 R2 예약의 정확한 multipart 재시도 본문 처리 중 `ownCases`를 회수하면 요청 시작 인증과 안정 계정 결속이 있어도 두 번째 접근 검사에서 403으로 차단
+- 복구 확인: 거절 중 FLOW·기존 객체·예약을 보존하고 권한 복구 뒤 정확한 재시도만 같은 명령 ID·파일 ID·R2 키로 완료
+- 검증: Node 회귀 검사 728개, 격리 workerd/D1/R2 검사 522개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 272 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_0ccea32f52308191bae58aaa070d4fc6`), 소스 `4b8159576741fae0d1e092f97e8a0aad1366e897`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–271은 더 완전한 후보인 버전 272로 대체한다.
+- 최신 Sites 저장 버전: 273 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_f4a3ed812e4481918e58713337150ddd`), 소스 `47d167cfc80efdccd47984be6b85410757cc7e2a`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–272는 더 완전한 후보인 버전 273으로 대체한다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -45,7 +45,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW 재시도 담당 진행 권한 회수 무결성](FLOW_RETRY_OWN_CASES_REVOCATION_INTEGRITY_2026_09_07.md)을 확인한다.
+먼저 [상담 FLOW multipart 재시도 담당 진행 권한 경쟁 무결성](FLOW_RETRY_MULTIPART_OWN_CASES_RACE_INTEGRITY_2026_09_07.md)을 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
@@ -93,4 +93,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 버전 272 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108–271은 버전 272로 대체해 배포하지 않는다. 공개 교체는 정확한 `버전 272 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 부분 재시도 요청의 multipart 본문을 읽는 동안 `ownCases` 권한이 회수되는 경쟁에서도 예약 생성·조회와 R2 쓰기 전에 차단되는지 감사한다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
+Sites 버전 273 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108–272는 버전 273으로 대체해 배포하지 않는다. 공개 교체는 정확한 `버전 273 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 같은 multipart 본문 처리 경쟁에서 `fileUpload` 권한만 회수돼도 기존 예약 조회·R2 쓰기 전에 차단되는지 감사한다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
