@@ -17,6 +17,11 @@ import {
 } from '../lib/file-inventory-response';
 import { mutateCompanyFileObjectFixture } from './company-file-object-fixture';
 import { deleteConsultingFlowFixture } from './flow-root-fixture';
+import { consultingFlowUploadRequestsNoDeleteTriggerSql } from '../db/schema';
+import {
+  FLOW_ADMIN_COMMAND_ACTOR_KEY,
+  FLOW_ADMIN_COMMAND_ACTOR_NAME,
+} from '../lib/flow-command-receipt';
 
 const owner = 'seedy@sites.test';
 const member = {
@@ -37,31 +42,63 @@ function request(query = '', email: string | null = owner) {
       : {},
   });
 }
-async function seed(documents: unknown[] = []) {
+async function seed(documents: unknown[] = [], cases: unknown[] = []) {
   const db = companyFileDatabase();
   await ensureCompanyFileTables(db);
   await flowDatabase();
   await db
     .prepare('DROP TRIGGER IF EXISTS company_file_upload_requests_no_delete')
     .run();
+  await db
+    .prepare('DROP TRIGGER IF EXISTS consulting_flow_upload_requests_no_delete')
+    .run();
   try {
     await deleteConsultingFlowFixture(db);
     await db.batch([
       db.prepare('DELETE FROM company_file_objects'),
       db.prepare('DELETE FROM company_file_upload_requests'),
+      db.prepare('DELETE FROM consulting_flow_upload_requests'),
     ]);
   } finally {
     await ensureCompanyFileTables(db);
+    await db.prepare(consultingFlowUploadRequestsNoDeleteTriggerSql).run();
   }
   await writePortalState({
     version: 1,
     members: [member],
     companyDocuments: documents,
-    cases: [],
+    cases,
     timeline: [],
     tasks: [],
     schedule: [],
   });
+}
+async function flowReservation(
+  id: string,
+  caseId: string,
+  actorKey = FLOW_ADMIN_COMMAND_ACTOR_KEY,
+  size = 4,
+) {
+  await (
+    await flowDatabase()
+  )
+    .prepare(`INSERT INTO consulting_flow_upload_requests
+      (case_id, actor_key, command_id, slot, fingerprint, file_id, storage_key,
+       original_name, content_type, size_bytes, purpose, created_at, status)
+      VALUES (?1, ?2, ?3, 'file', ?4, ?5, ?6, ?7, 'text/plain', ?8,
+        'report', ?9, 'pending')`)
+    .bind(
+      caseId,
+      actorKey,
+      `inventory-${id}`,
+      'a'.repeat(64),
+      id,
+      `consulting-flow/${id}`,
+      `${id}.txt`,
+      size,
+      date,
+    )
+    .run();
 }
 async function file(
   id: string,
@@ -172,10 +209,20 @@ void test('inventory list and presence are administrator-only, including malform
 });
 
 void test('actual document and intake references distinguish linked files from staged, incomplete and deletion records', async () => {
-  await seed([
-    { storageFileId: 'document-linked' },
-    { storageFileId: 'deleted-reference' },
-  ]);
+  await seed(
+    [
+      { storageFileId: 'document-linked' },
+      { storageFileId: 'deleted-reference' },
+    ],
+    [
+      {
+        id: 'flow-reservation-case',
+        company: '예약 가상기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+    ],
+  );
   await file('document-linked', 'ready');
   await file('flow-linked');
   await file('unlinked-legacy');
@@ -192,6 +239,7 @@ void test('actual document and intake references distinguish linked files from s
   await file('deletion-incomplete', 'deleted');
   await file('deleted-reference', 'deleted', false);
   await file('deleted-complete', 'deleted', false);
+  await flowReservation('flow-reserved', 'flow-reservation-case');
   await mutateCompanyFileObjectFixture(
     companyFileDatabase(),
     `UPDATE company_file_objects
@@ -237,6 +285,7 @@ void test('actual document and intake references distinguish linked files from s
       'metadata-ledger-missing': 'inconsistent',
       'staged-only': 'unlinked',
       'pending-record': 'pending',
+      'flow-reserved': 'pending',
       'metadata-missing': 'inconsistent',
       'integrity-missing': 'inconsistent',
       'integrity-mime-mismatch': 'inconsistent',
@@ -254,6 +303,12 @@ void test('actual document and intake references distinguish linked files from s
   const pending = all.items.find((f) => f.id === 'pending-record')!;
   assert.equal(pending.fileName, null);
   assert.match(pending.uploader, /inventory@example.invalid/);
+  const flowPending = all.items.find((f) => f.id === 'flow-reserved')!;
+  assert.equal(flowPending.company, '예약 가상기업');
+  assert.equal(flowPending.assignedTrainee, member.name);
+  assert.equal(flowPending.partnerMemberId, member.id);
+  assert.equal(flowPending.uploader, FLOW_ADMIN_COMMAND_ACTOR_NAME);
+  assert.equal(flowPending.title, '상담 FLOW 미완료 첨부');
   assert.deepEqual(
     (await page()).items.map((item) => item.id),
     ['unlinked-legacy', 'staged-only'],
@@ -261,7 +316,7 @@ void test('actual document and intake references distinguish linked files from s
   assert.equal((await page('?status=deleted')).items.length, 2);
   assert.doesNotMatch(
     JSON.stringify(all),
-    /PRIVATE_|storage_key|owner_key|company-source\/|sourceText|request_key|fingerprint/,
+    /PRIVATE_|storage_key|owner_key|company-source\/|consulting-flow\/|sourceText|request_key|command_id|actor_key|fingerprint/,
   );
 });
 
@@ -481,6 +536,72 @@ void test('pending-only reservations can be checked without inventing file metad
       })
     ).status,
     400,
+  );
+});
+
+void test('pending FLOW reservations expose safe inventory metadata and exact-size R2 presence only', async () => {
+  const caseId = 'pending-flow-inventory-case';
+  await seed(
+    [],
+    [
+      {
+        id: caseId,
+        company: 'FLOW 예약기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+    ],
+  );
+  await flowReservation('pending-flow-presence', caseId, `member:${member.id}`);
+  const pending = await page('?status=pending');
+  assert.deepEqual(pending.items, [
+    {
+      id: 'pending-flow-presence',
+      fileName: 'pending-flow-presence.txt',
+      company: 'FLOW 예약기업',
+      title: '상담 FLOW 미완료 첨부',
+      category: 'report',
+      sizeBytes: 4,
+      createdAt: date,
+      assignedTrainee: member.name,
+      partnerMemberId: member.id,
+      uploader: `${member.name} · ${member.email}`,
+      caseId,
+      documentLinked: false,
+      flowLinked: false,
+      status: 'pending',
+    },
+  ]);
+  assert.doesNotMatch(
+    JSON.stringify(pending),
+    /consulting-flow\/|command_id|actor_key|fingerprint/,
+  );
+  await companyFileBucket().put(
+    'consulting-flow/pending-flow-presence',
+    'TEST',
+  );
+  const response = await presence(request(), {
+    params: Promise.resolve({ id: 'pending-flow-presence' }),
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    {
+      ...(await readFileInventoryPresenceResponse(
+        response,
+        'pending-flow-presence',
+      )),
+      checkedAt: date,
+    },
+    {
+      id: 'pending-flow-presence',
+      exists: true,
+      sizeBytes: 4,
+      expectedSizeBytes: 4,
+      sizeMatches: true,
+      integrityMode: null,
+      integrityMatches: null,
+      checkedAt: date,
+    },
   );
 });
 

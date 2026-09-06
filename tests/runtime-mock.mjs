@@ -9,8 +9,11 @@ const waitUntilTasks = [];
 let waitUntilFailure = false;
 let batchFailure = false;
 let batchFailurePattern = '';
+let deferredStatementFailureCount = 0;
+let deferredStatementFailurePattern = '';
 let statementFailure = false;
 let statementFailurePattern = '';
+let statementFailureCount = 0;
 export function waitUntil(task) {
   if (waitUntilFailure) {
     waitUntilFailure = false;
@@ -28,18 +31,43 @@ export function failNextWaitUntil() {
 export function failNextDatabaseBatch(sqlPattern = '') {
   batchFailure = true;
   batchFailurePattern = sqlPattern;
+  deferredStatementFailureCount = 0;
+  deferredStatementFailurePattern = '';
+}
+export function failNextDatabaseBatchThenStatements(
+  batchSqlPattern,
+  count,
+  statementSqlPattern = '',
+) {
+  if (!Number.isSafeInteger(count) || count < 1)
+    throw new Error('statement failure count must be a positive integer');
+  batchFailure = true;
+  batchFailurePattern = batchSqlPattern;
+  deferredStatementFailureCount = count;
+  deferredStatementFailurePattern = statementSqlPattern;
 }
 export function failNextDatabaseStatement(sqlPattern = '') {
   statementFailure = true;
   statementFailurePattern = sqlPattern;
+  statementFailureCount = 1;
+}
+export function failNextDatabaseStatements(count, sqlPattern = '') {
+  if (!Number.isSafeInteger(count) || count < 1)
+    throw new Error('statement failure count must be a positive integer');
+  statementFailure = true;
+  statementFailurePattern = sqlPattern;
+  statementFailureCount = count;
 }
 function failStatementIfRequested(sql) {
   if (
     statementFailure &&
     (!statementFailurePattern || sql.includes(statementFailurePattern))
   ) {
-    statementFailure = false;
-    statementFailurePattern = '';
+    statementFailureCount--;
+    if (statementFailureCount === 0) {
+      statementFailure = false;
+      statementFailurePattern = '';
+    }
     throw new Error('synthetic database statement failure');
   }
 }
@@ -101,6 +129,13 @@ export const env = {
       ) {
         batchFailure = false;
         batchFailurePattern = '';
+        if (deferredStatementFailureCount > 0) {
+          statementFailure = true;
+          statementFailureCount = deferredStatementFailureCount;
+          statementFailurePattern = deferredStatementFailurePattern;
+          deferredStatementFailureCount = 0;
+          deferredStatementFailurePattern = '';
+        }
         throw new Error('synthetic database batch failure');
       }
       sqlite.exec('BEGIN');

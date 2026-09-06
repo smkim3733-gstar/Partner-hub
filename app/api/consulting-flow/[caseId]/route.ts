@@ -20,6 +20,7 @@ import {
   flowReadiness,
   loadFlowAccess,
   recheckFlowAccess,
+  reserveFlowUploads,
 } from '@/lib/consulting-flow-store';
 import { privateJsonResponse } from '@/lib/private-response';
 import { uploadFileContentProblem } from '@/lib/upload-file-signature';
@@ -137,26 +138,42 @@ export async function POST(request: Request, context: Context) {
       input.command.type === 'import_intake_source'
         ? await prepareIntakeImport(flow, user, input.command, now)
         : undefined;
-    const upload = imported?.file ?? describedUpload;
-    const next = applyFlowCommand(
-      flow,
-      input.command,
-      {
-        id: user.memberId || user.id,
-        role: user.role === 'admin' ? 'admin' : 'partner',
-        name:
-          user.role === 'admin'
-            ? FLOW_ADMIN_COMMAND_ACTOR_NAME
-            : flow.partnerName,
-      },
-      {
+    const candidateUpload = imported?.file ?? describedUpload;
+    const actor = {
+      id: user.memberId || user.id,
+      role: user.role === 'admin' ? ('admin' as const) : ('partner' as const),
+      name:
+        user.role === 'admin'
+          ? FLOW_ADMIN_COMMAND_ACTOR_NAME
+          : flow.partnerName,
+    };
+    const apply = (upload = candidateUpload, audio = audioUpload) =>
+      applyFlowCommand(flow, input.command, actor, {
         commandId: input.commandId,
         now,
         upload,
-        audioUpload,
+        audioUpload: audio,
         intakeCategory: imported?.category,
-      },
-    );
+      });
+    // Validate the complete business transition before creating a durable upload reservation.
+    apply();
+    const reservations = await reserveFlowUploads({
+      caseId: flow.caseId,
+      actorKey: receipt.actorKey,
+      commandId: input.commandId,
+      fingerprint: receipt.fingerprint,
+      uploads: [
+        ...(candidateUpload
+          ? [{ slot: 'file' as const, file: candidateUpload }]
+          : []),
+        ...(audioUpload ? [{ slot: 'audio' as const, file: audioUpload }] : []),
+      ],
+    });
+    const upload = candidateUpload ? reservations.get('file') : undefined;
+    const reservedAudioUpload = audioUpload
+      ? reservations.get('audio')
+      : undefined;
+    const next = apply(upload, reservedAudioUpload);
     const commandAudit = next.audit.at(-1);
     if (
       !commandAudit ||
@@ -175,13 +192,13 @@ export async function POST(request: Request, context: Context) {
       },
     };
     if (imported) {
-      const object = await flowBucket().put(imported.file.key, imported.bytes, {
-        httpMetadata: { contentType: imported.file.contentType },
+      const object = await flowBucket().put(upload!.key, imported.bytes, {
+        httpMetadata: { contentType: upload!.contentType },
       });
-      uploadedKeys.push(imported.file.key);
+      uploadedKeys.push(upload!.key);
       fileObjectBindings.set(
-        imported.file.id,
-        flowFileObjectBinding(imported.file, object),
+        upload!.id,
+        flowFileObjectBinding(upload!, object),
       );
     }
     if (upload && input.file) {
@@ -191,18 +208,18 @@ export async function POST(request: Request, context: Context) {
       uploadedKeys.push(upload.key);
       fileObjectBindings.set(upload.id, flowFileObjectBinding(upload, object));
     }
-    if (audioUpload && input.audio) {
+    if (reservedAudioUpload && input.audio) {
       const object = await flowBucket().put(
-        audioUpload.key,
+        reservedAudioUpload.key,
         input.audio.stream(),
         {
-          httpMetadata: { contentType: audioUpload.contentType },
+          httpMetadata: { contentType: reservedAudioUpload.contentType },
         },
       );
-      uploadedKeys.push(audioUpload.key);
+      uploadedKeys.push(reservedAudioUpload.key);
       fileObjectBindings.set(
-        audioUpload.id,
-        flowFileObjectBinding(audioUpload, object),
+        reservedAudioUpload.id,
+        flowFileObjectBinding(reservedAudioUpload, object),
       );
     }
     const access = await recheckFlowAccess(
@@ -212,7 +229,15 @@ export async function POST(request: Request, context: Context) {
       Boolean(input.file || input.audio),
     );
     assertFlowLifecycleActive(access.state, flow.caseId);
-    await commitFlow(flow, next, access.statePayload, fileObjectBindings);
+    await commitFlow(
+      flow,
+      next,
+      access.statePayload,
+      fileObjectBindings,
+      reservations.size
+        ? new Set([...reservations.values()].map((file) => file.id))
+        : undefined,
+    );
     uploadedKeys = [];
     return privateJsonResponse({ flow: publicFlow(next) });
   } catch (error) {
@@ -228,7 +253,7 @@ export async function POST(request: Request, context: Context) {
             await flowBucket().delete(key);
         }
       } catch {
-        /* Keep the private object for reconciliation when persistence is uncertain. */
+        /* Its durable pending reservation enables inventory checks and exact retry. */
       }
     }
     return flowErrorResponse(error);

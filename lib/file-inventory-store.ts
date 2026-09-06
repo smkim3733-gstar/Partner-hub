@@ -11,7 +11,11 @@ import {
   CompanyFileError,
   type CompanyFileRow,
 } from './company-files';
-import { consultingFlowsTableSql } from '@/db/schema';
+import { flowDatabase } from './consulting-flow-store';
+import {
+  FLOW_ADMIN_COMMAND_ACTOR_KEY,
+  FLOW_ADMIN_COMMAND_ACTOR_NAME,
+} from './flow-command-receipt';
 import { PortalAccessError, requirePortalUser } from './portal-auth';
 import { readPortalState } from './portal-state';
 import {
@@ -58,7 +62,7 @@ export async function requireInventoryAdmin(request: Request) {
 async function inventoryDatabase() {
   const db = companyFileDatabase();
   await ensureCompanyFileTables(db);
-  await db.prepare(consultingFlowsTableSql).run();
+  await flowDatabase();
   return db;
 }
 function parseQuery(url: URL) {
@@ -145,6 +149,12 @@ export async function listFileInventory(
       FROM company_file_upload_requests u
       WHERE NOT EXISTS (SELECT 1 FROM company_file_objects f WHERE f.id = u.file_id)
         AND (u.status <> 'deleted' OR u.file_id IN (SELECT id FROM document_refs) OR u.file_id IN (SELECT id FROM flow_refs))
+      UNION ALL
+      SELECT u.file_id, u.original_name, NULL, '상담 FLOW 미완료 첨부',
+        u.purpose, u.size_bytes, u.created_at, NULL, NULL, NULL, u.actor_key,
+        u.case_id, u.status, 0, 0
+      FROM consulting_flow_upload_requests u
+      WHERE u.status = 'pending'
     ), classified AS (
       SELECT *, id IN (SELECT id FROM document_refs) AS document_linked,
         id IN (SELECT id FROM flow_refs) AS flow_linked,
@@ -173,6 +183,17 @@ export async function listFileInventory(
         members?: Array<{ id: string; name: string; email: string }>;
       } | null
     )?.members ?? [];
+  const cases =
+    (
+      state as {
+        cases?: Array<{
+          id: string;
+          company: string;
+          trainee: string;
+          partnerMemberId?: string;
+        }>;
+      } | null
+    )?.cases ?? [];
   const page = rows.results.slice(0, pageSize);
   const items = page.map((row): InventoryItem => {
     const member = row.owner_key?.startsWith('member:')
@@ -180,20 +201,26 @@ export async function listFileInventory(
       : undefined;
     const uploader = member
       ? `${member.name} · ${member.email}`
-      : row.uploaded_by_email ||
-        (row.owner_key?.startsWith('admin:')
-          ? row.owner_key.slice(6)
-          : '이전 계정 · 확인 필요');
+      : row.owner_key === FLOW_ADMIN_COMMAND_ACTOR_KEY
+        ? FLOW_ADMIN_COMMAND_ACTOR_NAME
+        : row.uploaded_by_email ||
+          (row.owner_key?.startsWith('admin:')
+            ? row.owner_key.slice(6)
+            : '이전 계정 · 확인 필요');
+    const linkedCase = row.case_id
+      ? cases.find((item) => item.id === row.case_id)
+      : undefined;
     return {
       id: row.id,
       fileName: row.original_name,
-      company: row.company,
+      company: row.company ?? linkedCase?.company ?? null,
       title: row.title,
       category: row.category,
       sizeBytes: row.size_bytes,
       createdAt: row.created_at,
-      assignedTrainee: row.assigned_trainee,
-      partnerMemberId: row.partner_member_id,
+      assignedTrainee: row.assigned_trainee ?? linkedCase?.trainee ?? null,
+      partnerMemberId:
+        row.partner_member_id ?? linkedCase?.partnerMemberId ?? null,
       uploader,
       caseId: row.case_id,
       documentLinked: Boolean(row.document_linked),
@@ -219,23 +246,35 @@ export async function checkInventoryPresence(
 ): Promise<InventoryPresence> {
   id = readRouteParam(id, 120, '파일 식별값을 확인해 주세요.');
   const db = await inventoryDatabase();
-  const row = await db
-    .prepare(`SELECT f.id, f.storage_key, f.content_type, f.size_bytes, u.file_id
+  const rows = await db
+    .prepare(`SELECT 'company' AS source_type, f.id, f.storage_key, f.content_type, f.size_bytes, u.file_id
     FROM company_file_objects f LEFT JOIN company_file_upload_requests u ON u.file_id = f.id WHERE f.id = ?1
-    UNION ALL SELECT NULL, NULL, NULL, NULL, file_id FROM company_file_upload_requests
-    WHERE file_id = ?1 AND NOT EXISTS (SELECT 1 FROM company_file_objects WHERE id = ?1) LIMIT 1`)
+    UNION ALL SELECT 'company', NULL, 'company-source/' || file_id, NULL, NULL, file_id
+    FROM company_file_upload_requests
+    WHERE file_id = ?1 AND NOT EXISTS (SELECT 1 FROM company_file_objects WHERE id = ?1)
+    UNION ALL SELECT 'flow', NULL, storage_key, content_type, size_bytes, file_id
+    FROM consulting_flow_upload_requests
+    WHERE file_id = ?1 AND status = 'pending' LIMIT 2`)
     .bind(id)
-    .first<{
+    .all<{
+      source_type: 'company' | 'flow';
       id: string | null;
       storage_key: string | null;
       content_type: string | null;
       size_bytes: number | null;
       file_id: string | null;
     }>();
-  if (!row)
+  if (rows.results.length === 0)
     throw new CompanyFileError('확인할 파일 기록을 찾지 못했습니다.', 404);
+  if (rows.results.length !== 1)
+    throw new CompanyFileError(
+      '같은 파일 식별값의 보관 기록이 둘 이상입니다.',
+      409,
+    );
+  const row = rows.results[0];
   let file: CompanyFileRow | null = null;
   if (
+    row.source_type === 'company' &&
     row.id !== null &&
     row.storage_key !== null &&
     row.content_type !== null &&
@@ -251,7 +290,9 @@ export async function checkInventoryPresence(
       size_bytes: file.size_bytes,
     });
   }
-  const key = file?.storage_key ?? `company-source/${row.file_id}`;
+  const key = file?.storage_key ?? row.storage_key;
+  if (!key)
+    throw new CompanyFileError('확인할 파일 저장 위치가 없습니다.', 409);
   const object = await companyFileBucket().head(key);
   let integrityMode: InventoryPresence['integrityMode'] = null;
   let integrityMatches: boolean | null = null;

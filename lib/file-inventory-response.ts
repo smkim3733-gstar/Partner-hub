@@ -186,8 +186,9 @@ export async function readFileInventoryPresenceResponse(
     (payload.expectedSizeBytes === null
       ? payload.integrityMode !== null || payload.integrityMatches !== null
       : payload.exists
-        ? payload.integrityMatches === null ||
-          (payload.integrityMatches === true && payload.integrityMode === null)
+        ? payload.integrityMatches === null
+          ? payload.integrityMode !== null
+          : payload.integrityMatches === true && payload.integrityMode === null
         : payload.integrityMatches !== null)
   )
     throw invalid(response.status, '원본 존재 확인');

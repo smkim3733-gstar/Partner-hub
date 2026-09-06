@@ -23,6 +23,7 @@ import { readPortalState, writePortalState } from '../lib/portal-state';
 import { readDuplicateRequestSummary } from '../lib/duplicate-request-metrics';
 import {
   failNextDatabaseBatch,
+  failNextDatabaseBatchThenStatements,
   flushWaitUntil,
   objects,
 } from './runtime-mock.mjs';
@@ -4935,15 +4936,9 @@ void test('concurrent first FLOW attachments keep only the committed R2 object',
   const bucket = flowBucket();
   const put = bucket.put.bind(bucket);
   let uploadCount = 0;
-  let releaseUploads!: () => void;
-  const uploadsReady = new Promise<void>((resolve) => {
-    releaseUploads = resolve;
-  });
   bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
     const object = await put(...args);
     uploadCount++;
-    if (uploadCount === files.length) releaseUploads();
-    await uploadsReady;
     return object;
   };
   let responses: Response[] = [];
@@ -4963,6 +4958,7 @@ void test('concurrent first FLOW attachments keep only the committed R2 object',
     responses.map((response) => response.status).sort((a, b) => a - b),
     [200, 409],
   );
+  assert.equal(uploadCount, 1);
   const saved = (await readFlow(caseId))!;
   assert.equal(saved.revision, 1);
   assert.equal(saved.files.length, 1);
@@ -4998,7 +4994,7 @@ void test('concurrent first FLOW attachments keep only the committed R2 object',
   assert.deepEqual(await readFlow(caseId), saved);
 });
 
-void test('failed first FLOW attachment commit removes the unreferenced R2 object', async () => {
+void test('failed first FLOW attachment commit removes the object but keeps its durable reservation', async () => {
   const caseId = `initial-attachment-failure-${++sequence}`;
   await writePortalState({
     version: 1,
@@ -5019,13 +5015,14 @@ void test('failed first FLOW attachment commit removes the unreferenced R2 objec
   });
   await flowDatabase();
   const previousKeys = new Set(objects.keys());
+  const commandId = `initial-attachment-failure-${++sequence}`;
   failNextDatabaseBatch('INSERT INTO consulting_flows');
   const response = await POST(
     request(
       caseId,
       { type: 'save_report', stage: 1, body, fileConsent: true },
       0,
-      `initial-attachment-failure-${++sequence}`,
+      commandId,
       adminEmail,
       new File(['SYNTHETIC_FAILED_UPLOAD'], 'failed.txt', {
         type: 'text/plain',
@@ -5039,6 +5036,151 @@ void test('failed first FLOW attachment commit removes the unreferenced R2 objec
   assert.deepEqual(
     [...objects.keys()].filter((key) => !previousKeys.has(key)),
     [],
+  );
+  assert.deepEqual(
+    {
+      ...(await (
+        await flowDatabase()
+      )
+        .prepare(
+          `SELECT status, original_name, size_bytes FROM consulting_flow_upload_requests
+        WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3 AND slot = 'file'`,
+        )
+        .bind(caseId, FLOW_ADMIN_COMMAND_ACTOR_KEY, commandId)
+        .first()),
+    },
+    {
+      status: 'pending',
+      original_name: 'failed.txt',
+      size_bytes: new TextEncoder().encode('SYNTHETIC_FAILED_UPLOAD').length,
+    },
+  );
+});
+
+void test('ambiguous FLOW attachment failure stays discoverable and exact retry reuses its reserved object', async () => {
+  const caseId = `ambiguous-attachment-${++sequence}`;
+  await writePortalState({
+    version: 1,
+    consultationNumber: 0,
+    members: [partner],
+    cases: [
+      {
+        id: caseId,
+        company: '가상기업',
+        trainee: partner.name,
+        partnerMemberId: partner.id,
+      },
+    ],
+    tasks: [],
+    timeline: [],
+    schedule: [],
+    companyDocuments: [],
+  });
+  await flowDatabase();
+  const commandId = `ambiguous-attachment-${++sequence}`;
+  const command = {
+    type: 'save_report',
+    stage: 1,
+    body,
+    fileConsent: true,
+  } as const;
+  const file = new File(['SYNTHETIC_AMBIGUOUS_UPLOAD'], 'ambiguous.txt', {
+    type: 'text/plain',
+  });
+  const previousKeys = new Set(objects.keys());
+  const bucket = flowBucket();
+  const put = bucket.put.bind(bucket);
+  let injected = false;
+  bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+    const object = await put(...args);
+    if (!injected) {
+      injected = true;
+      failNextDatabaseBatchThenStatements(
+        'INSERT INTO consulting_flows',
+        2,
+        'SELECT case_id, partner_id, revision, updated_at, payload FROM consulting_flows',
+      );
+    }
+    return object;
+  };
+  let failed: Response;
+  try {
+    failed = await POST(
+      request(caseId, command, 0, commandId, adminEmail, file),
+      context(caseId),
+    );
+  } finally {
+    bucket.put = put;
+  }
+  assert.equal(failed.status, 503);
+  assert.equal(await readFlow(caseId), null);
+  const db = await flowDatabase();
+  const reservation = await db
+    .prepare(
+      `SELECT status, file_id, storage_key FROM consulting_flow_upload_requests
+      WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3 AND slot = 'file'`,
+    )
+    .bind(caseId, FLOW_ADMIN_COMMAND_ACTOR_KEY, commandId)
+    .first<{ status: string; file_id: string; storage_key: string }>();
+  assert.ok(reservation);
+  assert.equal(reservation.status, 'pending');
+  assert.equal(
+    reservation.storage_key,
+    `consulting-flow/${reservation.file_id}`,
+  );
+  assert.deepEqual(
+    [...objects.keys()].filter((key) => !previousKeys.has(key)),
+    [reservation.storage_key],
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE consulting_flow_upload_requests SET status = 'ready' WHERE file_id = ?1",
+      )
+      .bind(reservation.file_id)
+      .run(),
+    /reservation is not committed/,
+  );
+
+  const retry = await POST(
+    request(caseId, command, 0, commandId, adminEmail, file),
+    context(caseId),
+  );
+  assert.equal(retry.status, 200, await retry.clone().text());
+  const saved = (await readFlow(caseId))!;
+  assert.equal(saved.files.length, 1);
+  assert.equal(saved.files[0].id, reservation.file_id);
+  assert.equal(saved.files[0].key, reservation.storage_key);
+  assert.deepEqual(
+    [...objects.keys()].filter((key) => !previousKeys.has(key)),
+    [reservation.storage_key],
+  );
+  assert.equal(
+    (
+      await db
+        .prepare(
+          'SELECT status FROM consulting_flow_upload_requests WHERE file_id = ?1',
+        )
+        .bind(reservation.file_id)
+        .first<{ status: string }>()
+    )?.status,
+    'ready',
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE consulting_flow_upload_requests SET storage_key = 'consulting-flow/changed' WHERE file_id = ?1",
+      )
+      .bind(reservation.file_id)
+      .run(),
+    /reservation transition is invalid/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM consulting_flow_upload_requests WHERE file_id = ?1')
+      .bind(reservation.file_id)
+      .run(),
+    /reservation is durable/,
   );
 });
 

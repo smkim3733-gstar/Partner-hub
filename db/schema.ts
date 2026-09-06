@@ -7,6 +7,7 @@ import {
   STEP_ZERO_PENDING_LIMIT_BYTES,
   STEP_ZERO_RESULT_LIMIT_BYTES,
 } from '@/lib/storage-limits';
+import { MAX_FLOW_UPLOAD_BYTES } from '@/lib/consulting-flow-upload-policy';
 
 export const portalStateTableSql = `
 CREATE TABLE IF NOT EXISTS portal_state (
@@ -4916,6 +4917,48 @@ FROM consulting_flow_file_metadata metadata
 JOIN consulting_flow_file_owners owner ON owner.file_id = metadata.file_id
 ORDER BY owner.created_at, metadata.file_id
 `;
+
+// A reservation exists before R2.put so an ambiguous D1 response remains
+// discoverable and an exact retry reuses the same private object key.
+export const consultingFlowUploadRequestsTableSql = `
+CREATE TABLE IF NOT EXISTS consulting_flow_upload_requests (
+  case_id TEXT NOT NULL,
+  actor_key TEXT NOT NULL,
+  command_id TEXT NOT NULL,
+  slot TEXT NOT NULL CHECK (slot IN ('file', 'audio')),
+  fingerprint TEXT NOT NULL,
+  file_id TEXT NOT NULL UNIQUE,
+  storage_key TEXT NOT NULL UNIQUE,
+  original_name TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  size_bytes INTEGER NOT NULL,
+  purpose TEXT NOT NULL,
+  intake_file_id TEXT,
+  intake_source_hash TEXT,
+  source_reviewed_at TEXT,
+  source_reviewed_by TEXT,
+  created_at TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('pending', 'ready')),
+  PRIMARY KEY (case_id, actor_key, command_id, slot)
+)
+`;
+
+export const consultingFlowUploadRequestsPendingIndexSql = `
+CREATE INDEX IF NOT EXISTS consulting_flow_upload_requests_pending_idx
+ON consulting_flow_upload_requests (status, created_at, file_id)
+WHERE status = 'pending'
+`;
+
+export const consultingFlowUploadRequestsInsertEnvelopeTriggerSql = `CREATE TRIGGER IF NOT EXISTS consulting_flow_upload_requests_insert_envelope_guard BEFORE INSERT ON consulting_flow_upload_requests WHEN typeof(NEW.case_id) <> 'text' OR length(NEW.case_id) NOT BETWEEN 1 AND 120 OR NEW.case_id GLOB '*[^A-Za-z0-9_-]*' OR typeof(NEW.actor_key) <> 'text' OR length(NEW.actor_key) NOT BETWEEN 8 AND 500 OR NOT (NEW.actor_key = 'admin:primary' OR (substr(NEW.actor_key, 1, 7) = 'member:' AND length(NEW.actor_key) BETWEEN 8 AND 127 AND substr(NEW.actor_key, 8) NOT GLOB '*[^A-Za-z0-9_-]*')) OR typeof(NEW.command_id) <> 'text' OR length(NEW.command_id) NOT BETWEEN 8 AND 100 OR NEW.command_id GLOB '*[^A-Za-z0-9_-]*' OR NEW.slot NOT IN ('file', 'audio') OR typeof(NEW.fingerprint) <> 'text' OR length(NEW.fingerprint) <> 64 OR NEW.fingerprint GLOB '*[^0-9a-f]*' OR typeof(NEW.file_id) <> 'text' OR length(NEW.file_id) NOT BETWEEN 1 AND 200 OR NEW.file_id GLOB '*[^A-Za-z0-9_-]*' OR NEW.storage_key IS NOT 'consulting-flow/' || NEW.file_id OR typeof(NEW.original_name) <> 'text' OR length(NEW.original_name) NOT BETWEEN 1 AND 300 OR typeof(NEW.content_type) <> 'text' OR length(NEW.content_type) NOT BETWEEN 1 AND 200 OR typeof(NEW.size_bytes) <> 'integer' OR NEW.size_bytes NOT BETWEEN 1 AND ${MAX_FLOW_UPLOAD_BYTES} OR NEW.purpose NOT IN ('source', 'report', 'recording', 'transcript', 'requested_document', 'signed_contract') OR (NEW.slot = 'audio' AND NEW.purpose <> 'recording') OR (NEW.purpose <> 'source' AND (NEW.intake_file_id IS NOT NULL OR NEW.intake_source_hash IS NOT NULL OR NEW.source_reviewed_at IS NOT NULL OR NEW.source_reviewed_by IS NOT NULL)) OR ((NEW.intake_file_id IS NULL) <> (NEW.intake_source_hash IS NULL)) OR ((NEW.intake_file_id IS NULL) <> (NEW.source_reviewed_at IS NULL)) OR ((NEW.intake_file_id IS NULL) <> (NEW.source_reviewed_by IS NULL)) OR (NEW.intake_file_id IS NOT NULL AND (typeof(NEW.intake_file_id) <> 'text' OR length(NEW.intake_file_id) NOT BETWEEN 1 AND 120 OR typeof(NEW.intake_source_hash) <> 'text' OR length(NEW.intake_source_hash) <> 64 OR NEW.intake_source_hash GLOB '*[^0-9a-f]*' OR ${invalidUtcMillisecondTimestampSql('NEW.source_reviewed_at')} OR typeof(NEW.source_reviewed_by) <> 'text' OR length(NEW.source_reviewed_by) NOT BETWEEN 1 AND 200)) OR ${invalidUtcMillisecondTimestampSql('NEW.created_at')} OR NEW.status <> 'pending' BEGIN SELECT RAISE(ABORT, 'consulting flow upload reservation envelope is invalid'); END`;
+
+export const consultingFlowUploadRequestsFingerprintTriggerSql = `CREATE TRIGGER IF NOT EXISTS consulting_flow_upload_requests_fingerprint_guard BEFORE INSERT ON consulting_flow_upload_requests WHEN EXISTS (SELECT 1 FROM consulting_flow_upload_requests WHERE case_id = NEW.case_id AND actor_key = NEW.actor_key AND command_id = NEW.command_id AND fingerprint <> NEW.fingerprint) BEGIN SELECT RAISE(ABORT, 'consulting flow upload reservation fingerprint is immutable'); END`;
+
+export const consultingFlowUploadRequestsLifecycleTriggerSql = `CREATE TRIGGER IF NOT EXISTS consulting_flow_upload_requests_lifecycle_guard BEFORE UPDATE ON consulting_flow_upload_requests WHEN NEW.case_id <> OLD.case_id OR NEW.actor_key <> OLD.actor_key OR NEW.command_id <> OLD.command_id OR NEW.slot <> OLD.slot OR NEW.fingerprint <> OLD.fingerprint OR NEW.file_id <> OLD.file_id OR NEW.storage_key <> OLD.storage_key OR NEW.original_name <> OLD.original_name OR NEW.content_type <> OLD.content_type OR NEW.size_bytes <> OLD.size_bytes OR NEW.purpose <> OLD.purpose OR NEW.intake_file_id IS NOT OLD.intake_file_id OR NEW.intake_source_hash IS NOT OLD.intake_source_hash OR NEW.source_reviewed_at IS NOT OLD.source_reviewed_at OR NEW.source_reviewed_by IS NOT OLD.source_reviewed_by OR NEW.created_at <> OLD.created_at OR NOT (NEW.status = OLD.status OR (OLD.status = 'pending' AND NEW.status = 'ready')) BEGIN SELECT RAISE(ABORT, 'consulting flow upload reservation transition is invalid'); END`;
+
+export const consultingFlowUploadRequestsReadyTriggerSql = `CREATE TRIGGER IF NOT EXISTS consulting_flow_upload_requests_ready_guard BEFORE UPDATE ON consulting_flow_upload_requests WHEN OLD.status = 'pending' AND NEW.status = 'ready' AND (NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners owner JOIN consulting_flow_file_metadata metadata ON metadata.file_id = owner.file_id JOIN consulting_flow_file_object_integrity integrity ON integrity.file_id = owner.file_id WHERE owner.file_id = NEW.file_id AND owner.case_id = NEW.case_id AND owner.storage_key = NEW.storage_key AND metadata.original_name = NEW.original_name AND metadata.content_type = NEW.content_type AND metadata.size_bytes = NEW.size_bytes AND metadata.purpose = NEW.purpose AND metadata.intake_file_id IS NEW.intake_file_id AND metadata.intake_source_hash IS NEW.intake_source_hash AND metadata.source_reviewed_at IS NEW.source_reviewed_at AND metadata.source_reviewed_by IS NEW.source_reviewed_by AND integrity.validation_mode = 'etag' AND integrity.r2_content_type = NEW.content_type) OR NOT EXISTS (SELECT 1 FROM consulting_flows flow, json_each(flow.payload, '$.files') file WHERE flow.case_id = NEW.case_id AND json_extract(file.value, '$.id') = NEW.file_id AND json_extract(file.value, '$.key') = NEW.storage_key AND json_extract(file.value, '$.name') = NEW.original_name AND json_extract(file.value, '$.contentType') = NEW.content_type AND json_extract(file.value, '$.size') = NEW.size_bytes AND json_extract(file.value, '$.purpose') = NEW.purpose AND json_extract(file.value, '$.intakeFileId') IS NEW.intake_file_id AND json_extract(file.value, '$.intakeSourceHash') IS NEW.intake_source_hash AND json_extract(file.value, '$.sourceReviewedAt') IS NEW.source_reviewed_at AND json_extract(file.value, '$.sourceReviewedBy') IS NEW.source_reviewed_by)) BEGIN SELECT RAISE(ABORT, 'consulting flow upload reservation is not committed'); END`;
+
+export const consultingFlowUploadRequestsNoDeleteTriggerSql =
+  "CREATE TRIGGER IF NOT EXISTS consulting_flow_upload_requests_no_delete BEFORE DELETE ON consulting_flow_upload_requests BEGIN SELECT RAISE(ABORT, 'consulting flow upload reservation is durable'); END";
 
 // Credentials and tokens must never be included in the client-facing portal_state JSON.
 export const portalPasswordSchemaSql = [

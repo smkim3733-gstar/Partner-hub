@@ -6,6 +6,13 @@ import { fileURLToPath } from 'node:url';
 import {
   FLOW_COMMAND_EFFECT_PATHS,
   FLOW_COMMAND_EXACT_EFFECT_TRIGGERS,
+  consultingFlowUploadRequestsFingerprintTriggerSql,
+  consultingFlowUploadRequestsInsertEnvelopeTriggerSql,
+  consultingFlowUploadRequestsLifecycleTriggerSql,
+  consultingFlowUploadRequestsNoDeleteTriggerSql,
+  consultingFlowUploadRequestsPendingIndexSql,
+  consultingFlowUploadRequestsReadyTriggerSql,
+  consultingFlowUploadRequestsTableSql,
   consultingFlowsInitialCommandInsertTriggerSql,
 } from '../db/schema';
 
@@ -87,4 +94,31 @@ void test('initial FLOW commands require the additive guarded-update migration',
   const name = triggerName(consultingFlowsInitialCommandInsertTriggerSql);
   assert.match(migration, new RegExp(`\\b${name}\\b`));
   assert.match(migration, /initial commands must use a guarded update/);
+});
+
+void test('FLOW upload reservation runtime schema exactly exists in its additive migration', async () => {
+  const migration = await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0093_consulting_flow_upload_reservations.sql',
+    ),
+    'utf8',
+  );
+  const normalizedMigration = migration.replace(/\s+/g, ' ').trim();
+  for (const sql of [
+    consultingFlowUploadRequestsTableSql,
+    consultingFlowUploadRequestsPendingIndexSql,
+    consultingFlowUploadRequestsInsertEnvelopeTriggerSql,
+    consultingFlowUploadRequestsFingerprintTriggerSql,
+    consultingFlowUploadRequestsLifecycleTriggerSql,
+    consultingFlowUploadRequestsReadyTriggerSql,
+    consultingFlowUploadRequestsNoDeleteTriggerSql,
+  ]) {
+    const normalized = sql.replace(/\s+/g, ' ').trim().replace(/;$/, '');
+    assert.ok(
+      normalizedMigration.includes(`${normalized};`),
+      'reservation statement is absent or drifted',
+    );
+  }
 });

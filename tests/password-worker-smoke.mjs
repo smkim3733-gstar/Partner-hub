@@ -3774,6 +3774,41 @@ try {
   const privateMimeFile = privateMimeFlow.files.at(-1);
   const privateMimeHead = await bucket.head(privateMimeFile.key);
   assert.equal(privateMimeHead.httpMetadata.contentType, 'text/plain');
+  const nativeFlowReservation = await db
+    .prepare(
+      `SELECT status, fingerprint, file_id, storage_key, original_name,
+        content_type, size_bytes, purpose
+      FROM consulting_flow_upload_requests
+      WHERE case_id = ?1 AND actor_key = 'admin:primary'
+        AND command_id = ?2 AND slot = 'file'`,
+    )
+    .bind('runtime-own', mimeCommand.commandId)
+    .first();
+  assert.equal(nativeFlowReservation.status, 'ready');
+  assert.match(nativeFlowReservation.fingerprint, /^[0-9a-f]{64}$/);
+  assert.equal(nativeFlowReservation.file_id, privateMimeFile.id);
+  assert.equal(nativeFlowReservation.storage_key, privateMimeFile.key);
+  assert.equal(nativeFlowReservation.original_name, privateMimeFile.name);
+  assert.equal(nativeFlowReservation.content_type, privateMimeFile.contentType);
+  assert.equal(nativeFlowReservation.size_bytes, privateMimeFile.size);
+  assert.equal(nativeFlowReservation.purpose, privateMimeFile.purpose);
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE consulting_flow_upload_requests SET storage_key = 'consulting-flow/changed' WHERE file_id = ?1",
+      )
+      .bind(privateMimeFile.id)
+      .run(),
+    /reservation transition is invalid/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM consulting_flow_upload_requests WHERE file_id = ?1')
+      .bind(privateMimeFile.id)
+      .run(),
+    /reservation is durable/,
+  );
+  checks.push('FLOW upload reservation is ready and immutable in native D1');
   assert.deepEqual(
     await db
       .prepare(
