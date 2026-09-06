@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `5992ae433a82ffb319d8e4052f1556138e1f1b06` (`fix: limit FLOW revisions to one command`)
-- 최신 기능: 최초·후속 FLOW revision의 새 사용자 명령을 최대 한 건으로 제한
-- 검증: Node 회귀 검사 674개, 격리 workerd/D1/R2 검사 496개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
+- 최신 기능 커밋: `65c283a1240b7876db6e8db7dc3c49b1e24cc2f3` (`fix: separate FLOW commands from AI transitions`)
+- 최신 기능: 사용자 명령 revision과 내부 AI 작업 청구·결과 전이 분리
+- 검증: Node 회귀 검사 675개, 격리 workerd/D1/R2 검사 497개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 228 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_f897984aceb481918ee0250a3b36e042`), 소스 `5992ae433a82ffb319d8e4052f1556138e1f1b06`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. Sites 안전 게이트가 정확한 공개 대상 버전 승인을 요구하며, 버전 108–227은 버전 228로 대체해 배포하지 않는다.
+- 최신 Sites 저장 버전: 229 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_c2df074e091881919f28bc35e9d0b77e`), 소스 `65c283a1240b7876db6e8db7dc3c49b1e24cc2f3`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. Sites 안전 게이트가 정확한 공개 대상 버전 승인을 요구하며, 버전 108–228은 버전 229로 대체해 배포하지 않는다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -44,7 +44,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW revision별 명령 개수 무결성](FLOW_COMMAND_CARDINALITY_INTEGRITY_2026_09_06.md)을 확인한다.
+먼저 [상담 FLOW 사용자 명령·내부 AI 전이 분리 무결성](FLOW_COMMAND_AI_TRANSITION_ISOLATION_INTEGRITY_2026_09_06.md)을 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
@@ -92,4 +92,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 버전 228 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108–227은 버전 228로 대체해 배포하지 않는다. 공개 교체는 Sites 안전 게이트가 요구하는 정확한 `버전 228 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 고우선순위 감사를 이어간다. 다음 감사는 사용자 명령 revision에 명령과 무관한 기존 AI 작업 전이를 함께 넣을 수 있는지 확인한다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
+Sites 버전 229 저장·검증까지 완료했고 공개 운영본은 버전 107이다. 버전 108–228은 버전 229로 대체해 배포하지 않는다. 공개 교체는 Sites 안전 게이트가 요구하는 정확한 `버전 229 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 다음 고우선순위 감사를 이어간다. 다음 감사는 `set_ai_policy` 중지·활성화 명령과 기존 작업 전이의 정확한 의미를 결속한다. 관리자 안정 ID가 실제로 바뀌는 경우의 결속 초기화는 계정 소유권 확인·운영 D1 백업·감사가 필요한 수동 복구이며 자동화하지 않는다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI·보관 및 삭제 정책은 별도 승인 없이 사용하거나 변경하지 않는다.
