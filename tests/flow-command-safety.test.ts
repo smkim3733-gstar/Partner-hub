@@ -10639,6 +10639,12 @@ type MultipartBodyStateChange =
       timing?: 'body-read' | 'first-r2-write' | 'd1-write';
       status: 200 | 503;
       error?: string;
+    }
+  | {
+      kind: 'assignment-change';
+      timing: 'd1-write';
+      status: 503;
+      error: string;
     };
 
 async function assertPartialR2RetryHandlesMultipartStateChange(
@@ -10841,6 +10847,8 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       }>;
       cases: Array<{
         id: string;
+        trainee: string;
+        partnerMemberId: string;
         pipelineLifecycleStatus?: string;
       }>;
     };
@@ -10859,10 +10867,23 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     } else if (scenario.kind === 'display-name-change') {
       changedState.members.find(({ id }) => id === partner.id)!.name =
         scenario.name;
+    } else if (scenario.kind === 'assignment-change') {
+      const changedCase = changedState.cases.find(
+        ({ id }) => id === stored.caseId,
+      )!;
+      changedCase.trainee = partner.name;
+      changedCase.partnerMemberId = 'other';
     } else {
       changedState.cases.find(
         ({ id }) => id === stored.caseId,
       )!.pipelineLifecycleStatus = 'discontinued';
+    }
+    if (scenario.kind === 'assignment-change') {
+      // FLOW-managed assignments are immutable through the supported admin
+      // route. Model a competing legacy/repair writer at the durable boundary.
+      await writePortalState(changedState);
+      stateChanged = true;
+      return;
     }
     const changed = await saveState(
       new Request('http://localhost/api/state', {
@@ -10884,14 +10905,16 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       scenario.kind === 'suspended' ||
       scenario.kind === 'discontinued' ||
       scenario.kind === 'email-change' ||
-      scenario.kind === 'display-name-change') &&
+      scenario.kind === 'display-name-change' ||
+      scenario.kind === 'assignment-change') &&
     scenario.timing === 'first-r2-write';
   const stateChangesDuringD1Write =
     (scenario.kind === 'permission' ||
       scenario.kind === 'suspended' ||
       scenario.kind === 'discontinued' ||
       scenario.kind === 'email-change' ||
-      scenario.kind === 'display-name-change') &&
+      scenario.kind === 'display-name-change' ||
+      scenario.kind === 'assignment-change') &&
     scenario.timing === 'd1-write';
   Object.defineProperty(stream, 'getReader', {
     value: () => {
@@ -10971,6 +10994,19 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
         currentState.members.find(({ id }) => id === partner.id)?.name,
         scenario.name,
       );
+    } else if (scenario.kind === 'assignment-change') {
+      const currentState = (await readPortalState()) as {
+        cases: Array<{
+          id: string;
+          trainee: string;
+          partnerMemberId: string;
+        }>;
+      };
+      const changedCase = currentState.cases.find(
+        ({ id }) => id === stored.caseId,
+      )!;
+      assert.equal(changedCase.trainee, partner.name);
+      assert.equal(changedCase.partnerMemberId, 'other');
     }
     assert.deepEqual(await readFlow(stored.caseId), stored);
     assert.deepEqual(
@@ -11005,6 +11041,8 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     }>;
     cases: Array<{
       id: string;
+      trainee: string;
+      partnerMemberId: string;
       pipelineLifecycleStatus?: string;
     }>;
   };
@@ -11020,7 +11058,13 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
   else if (scenario.kind === 'display-name-change')
     restoredState.members.find(({ id }) => id === partner.id)!.name =
       partner.name;
-  else
+  else if (scenario.kind === 'assignment-change') {
+    const restoredCase = restoredState.cases.find(
+      ({ id }) => id === stored.caseId,
+    )!;
+    restoredCase.trainee = partner.name;
+    restoredCase.partnerMemberId = partner.id;
+  } else
     restoredState.cases.find(
       ({ id }) => id === stored.caseId,
     )!.pipelineLifecycleStatus = 'active';
@@ -11210,6 +11254,16 @@ void test('partial R2 retry rejects a stale commit after a display name change i
   await assertPartialR2RetryHandlesMultipartStateChange({
     kind: 'display-name-change',
     name: '가상 D1 직전 변경 담당자',
+    timing: 'd1-write',
+    status: 503,
+    error:
+      '첨부파일 소유권을 안전하게 저장하지 못했습니다. 새로고침 후 다시 확인해 주세요.',
+  });
+});
+
+void test('partial R2 retry rejects a stale commit after a same-name account reassignment immediately before the D1 FLOW write and recovers after restoration', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'assignment-change',
     timing: 'd1-write',
     status: 503,
     error:
