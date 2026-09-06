@@ -17,6 +17,7 @@ import {
   flowBucket,
   flowDatabase,
   flowFileObjectBinding,
+  reserveFlowUploads,
   stateWithConsultingFlows,
 } from '../lib/consulting-flow-store';
 import { readPortalState, writePortalState } from '../lib/portal-state';
@@ -833,20 +834,23 @@ function request(
   commandId = `flow-safety-${++sequence}`,
   email = adminEmail,
   file?: File,
+  audio?: File,
 ) {
   const payload = JSON.stringify({ command, revision, commandId });
   const form = new FormData();
   form.set('payload', payload);
   if (file) form.set('file', file);
+  if (audio) form.set('audio', audio);
+  const multipart = Boolean(file || audio);
   return new Request(`http://localhost/api/consulting-flow/${caseId}`, {
     method: command ? 'POST' : 'GET',
     headers: {
       origin: 'http://localhost',
       'oai-authenticated-user-id': email,
       'oai-authenticated-user-email': email,
-      ...(!file ? { 'content-type': 'application/json' } : {}),
+      ...(!multipart ? { 'content-type': 'application/json' } : {}),
     },
-    ...(command ? { body: file ? form : payload } : {}),
+    ...(command ? { body: multipart ? form : payload } : {}),
   });
 }
 async function fixture() {
@@ -5140,6 +5144,261 @@ void test('concurrent identical FLOW attachments with different command IDs shar
   assert.deepEqual(
     [...objects.keys()].filter((key) => !previousKeys.has(key)),
     [saved.files[0].key],
+  );
+});
+
+void test('FLOW upload reservations reject an audio slot or dual-slot primary with mismatched file roles', async () => {
+  const createdAt = new Date().toISOString();
+  const transcriptId = `slot-role-transcript-${++sequence}`;
+  await assert.rejects(
+    reserveFlowUploads({
+      caseId: `slot-role-case-${++sequence}`,
+      actorKey: FLOW_ADMIN_COMMAND_ACTOR_KEY,
+      commandId: `slot-role-command-${++sequence}`,
+      fingerprint: 'a'.repeat(64),
+      uploads: [
+        {
+          slot: 'audio',
+          file: {
+            id: transcriptId,
+            key: flowFileStorageKey(transcriptId),
+            name: 'transcript.txt',
+            contentType: 'text/plain',
+            size: 10,
+            purpose: 'recording',
+            createdAt,
+          },
+        },
+      ],
+    }),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+
+  const primaryAudioId = `slot-role-primary-audio-${++sequence}`;
+  const secondaryAudioId = `slot-role-secondary-audio-${++sequence}`;
+  await assert.rejects(
+    reserveFlowUploads({
+      caseId: `slot-role-case-${++sequence}`,
+      actorKey: FLOW_ADMIN_COMMAND_ACTOR_KEY,
+      commandId: `slot-role-command-${++sequence}`,
+      fingerprint: 'b'.repeat(64),
+      uploads: [
+        {
+          slot: 'file',
+          file: {
+            id: primaryAudioId,
+            key: flowFileStorageKey(primaryAudioId),
+            name: 'primary.mp3',
+            contentType: 'audio/mpeg',
+            size: 6,
+            purpose: 'recording',
+            createdAt,
+          },
+        },
+        {
+          slot: 'audio',
+          file: {
+            id: secondaryAudioId,
+            key: flowFileStorageKey(secondaryAudioId),
+            name: 'secondary.mp3',
+            contentType: 'audio/mpeg',
+            size: 6,
+            purpose: 'recording',
+            createdAt,
+          },
+        },
+      ],
+    }),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+});
+
+void test('ambiguous dual-slot FLOW upload resumes both objects under one new command', async () => {
+  const stored = await transcriptJobFixture(false, body);
+  const command = {
+    type: 'save_recording',
+    meetingId: stored.meetings.at(-1)!.id,
+    transcript: `${body} 교차 기기 2슬롯 재시도`,
+    transcriptReviewed: true,
+    recordingConsent: true,
+    privacyMasked: true,
+    fileConsent: true,
+  } as const;
+  const transcript = new File(
+    ['SYNTHETIC_CROSS_DEVICE_TRANSCRIPT'],
+    'cross-device-transcript.txt',
+    { type: 'text/plain' },
+  );
+  const audio = new File(
+    [new Uint8Array([0x49, 0x44, 0x33, 4, 0, 0])],
+    'cross-device-audio.mp3',
+    { type: 'audio/mpeg' },
+  );
+  const firstCommandId = `dual-slot-ambiguous-${++sequence}`;
+  const previousKeys = new Set(objects.keys());
+  const bucket = flowBucket();
+  const put = bucket.put.bind(bucket);
+  let injected = false;
+  bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+    const object = await put(...args);
+    if (!injected) {
+      injected = true;
+      failNextDatabaseBatchThenStatements(
+        'UPDATE consulting_flows',
+        2,
+        'SELECT case_id, partner_id, revision, updated_at, payload FROM consulting_flows',
+      );
+    }
+    return object;
+  };
+  let failed: Response;
+  try {
+    failed = await POST(
+      request(
+        stored.caseId,
+        command,
+        stored.revision,
+        firstCommandId,
+        adminEmail,
+        transcript,
+        audio,
+      ),
+      context(stored.caseId),
+    );
+  } finally {
+    bucket.put = put;
+  }
+  assert.equal(failed.status, 503);
+  assert.deepEqual(await readFlow(stored.caseId), stored);
+
+  const db = await flowDatabase();
+  const pending = (
+    await db
+      .prepare(
+        `SELECT slot, fingerprint, file_id, storage_key, status
+        FROM consulting_flow_upload_requests
+        WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3
+        ORDER BY slot`,
+      )
+      .bind(stored.caseId, FLOW_ADMIN_COMMAND_ACTOR_KEY, firstCommandId)
+      .all<{
+        slot: string;
+        fingerprint: string;
+        file_id: string;
+        storage_key: string;
+        status: string;
+      }>()
+  ).results;
+  assert.equal(pending.length, 2);
+  assert.deepEqual(
+    pending.map(({ slot, status }) => ({ slot, status })),
+    [
+      { slot: 'audio', status: 'pending' },
+      { slot: 'file', status: 'pending' },
+    ],
+  );
+  assert.equal(new Set(pending.map(({ fingerprint }) => fingerprint)).size, 1);
+  assert.deepEqual(
+    [...objects.keys()]
+      .filter((key) => !previousKeys.has(key))
+      .sort((a, b) => a.localeCompare(b)),
+    pending
+      .map(({ storage_key }) => storage_key)
+      .sort((a, b) => a.localeCompare(b)),
+  );
+
+  const retryCommandId = `dual-slot-resume-${++sequence}`;
+  const retry = await POST(
+    request(
+      stored.caseId,
+      command,
+      stored.revision,
+      retryCommandId,
+      adminEmail,
+      transcript,
+      audio,
+    ),
+    context(stored.caseId),
+  );
+  assert.equal(retry.status, 200, await retry.clone().text());
+  const saved = (await readFlow(stored.caseId))!;
+  const recording = saved.recordings.at(-1)!;
+  const reservedBySlot = new Map(
+    pending.map(({ slot, file_id }) => [slot, file_id]),
+  );
+  assert.equal(recording.fileId, reservedBySlot.get('file'));
+  assert.equal(recording.transcriptFileId, reservedBySlot.get('file'));
+  assert.equal(recording.audioFileId, reservedBySlot.get('audio'));
+  assert.deepEqual(saved.commandIds.slice(-1), [retryCommandId]);
+
+  const completed = (
+    await db
+      .prepare(
+        `SELECT reservation.slot, reservation.status,
+          completion.command_id AS completed_command_id
+        FROM consulting_flow_upload_requests reservation
+        LEFT JOIN consulting_flow_upload_completions completion
+          ON completion.file_id = reservation.file_id
+        WHERE reservation.case_id = ?1 AND reservation.command_id = ?2
+        ORDER BY reservation.slot`,
+      )
+      .bind(stored.caseId, firstCommandId)
+      .all<{
+        slot: string;
+        status: string;
+        completed_command_id: string;
+      }>()
+  ).results;
+  assert.deepEqual(
+    completed.map(({ slot, status, completed_command_id }) => ({
+      slot,
+      status,
+      completed_command_id,
+    })),
+    [
+      { slot: 'audio', status: 'ready', completed_command_id: retryCommandId },
+      { slot: 'file', status: 'ready', completed_command_id: retryCommandId },
+    ],
+  );
+  assert.deepEqual(
+    [...objects.keys()]
+      .filter((key) => !previousKeys.has(key))
+      .sort((a, b) => a.localeCompare(b)),
+    pending
+      .map(({ storage_key }) => storage_key)
+      .sort((a, b) => a.localeCompare(b)),
+  );
+
+  const mismatchedAudioId = `slot-mismatch-audio-${++sequence}`;
+  await db
+    .prepare(
+      `INSERT INTO consulting_flow_upload_requests
+        (case_id, actor_key, command_id, slot, fingerprint, file_id,
+          storage_key, original_name, content_type, size_bytes, purpose,
+          intake_file_id, intake_source_hash, source_reviewed_at,
+          source_reviewed_by, created_at, status)
+        VALUES (?1, ?2, ?3, 'audio', ?4, ?5, ?6, 'mismatch.mp3',
+          'audio/mpeg', 6, 'recording', NULL, NULL, NULL, NULL, ?7, 'pending')`,
+    )
+    .bind(
+      stored.caseId,
+      FLOW_ADMIN_COMMAND_ACTOR_KEY,
+      `slot-mismatch-reservation-${++sequence}`,
+      pending[0].fingerprint,
+      mismatchedAudioId,
+      flowFileStorageKey(mismatchedAudioId),
+      new Date().toISOString(),
+    )
+    .run();
+  await assert.rejects(
+    db
+      .prepare(
+        `INSERT INTO consulting_flow_upload_completions
+          (file_id, command_id) VALUES (?1, ?2)`,
+      )
+      .bind(mismatchedAudioId, retryCommandId)
+      .run(),
+    /completion proof is invalid/,
   );
 });
 

@@ -3817,6 +3817,38 @@ try {
     /reservation is durable/,
   );
   checks.push('FLOW upload reservation is ready and immutable in native D1');
+  const mismatchedAudioReservationId = 'native-slot-mismatch-audio';
+  await db
+    .prepare(
+      `INSERT INTO consulting_flow_upload_requests
+        (case_id, actor_key, command_id, slot, fingerprint, file_id,
+          storage_key, original_name, content_type, size_bytes, purpose,
+          intake_file_id, intake_source_hash, source_reviewed_at,
+          source_reviewed_by, created_at, status)
+        VALUES ('runtime-own', 'admin:primary', ?1, 'audio', ?2, ?3, ?4,
+          'mismatch.mp3', 'audio/mpeg', 6, 'recording', NULL, NULL, NULL,
+          NULL, '2026-09-06T12:34:56.789Z', 'pending')`,
+    )
+    .bind(
+      'native-slot-mismatch-reservation',
+      nativeFlowReservation.fingerprint,
+      mismatchedAudioReservationId,
+      `consulting-flow/${mismatchedAudioReservationId}`,
+    )
+    .run();
+  await assert.rejects(
+    db
+      .prepare(
+        `INSERT INTO consulting_flow_upload_completions
+          (file_id, command_id) VALUES (?1, ?2)`,
+      )
+      .bind(mismatchedAudioReservationId, mimeCommand.commandId)
+      .run(),
+    /completion proof is invalid/,
+  );
+  checks.push(
+    'FLOW native D1 rejects an audio reservation without its exact recording slot',
+  );
   assert.deepEqual(
     await db
       .prepare(

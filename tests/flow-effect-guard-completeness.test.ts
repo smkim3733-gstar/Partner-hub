@@ -7,6 +7,7 @@ import {
   FLOW_COMMAND_EFFECT_PATHS,
   FLOW_COMMAND_EXACT_EFFECT_TRIGGERS,
   consultingFlowUploadCompletionsInsertTriggerSql,
+  consultingFlowUploadCompletionsInsertV1TriggerSql,
   consultingFlowUploadCompletionsNoDeleteTriggerSql,
   consultingFlowUploadCompletionsNoUpdateTriggerSql,
   consultingFlowUploadCompletionsTableSql,
@@ -142,7 +143,7 @@ void test('FLOW upload reservation cross-device resume schema exactly exists in 
   for (const sql of [
     consultingFlowUploadRequestsPendingFingerprintIndexSql,
     consultingFlowUploadCompletionsTableSql,
-    consultingFlowUploadCompletionsInsertTriggerSql,
+    consultingFlowUploadCompletionsInsertV1TriggerSql,
     consultingFlowUploadCompletionsNoUpdateTriggerSql,
     consultingFlowUploadCompletionsNoDeleteTriggerSql,
     consultingFlowUploadRequestsCompletionTriggerSql,
@@ -154,4 +155,28 @@ void test('FLOW upload reservation cross-device resume schema exactly exists in 
     );
   }
   assert.match(normalizedMigration, /PRAGMA optimize;/);
+});
+
+void test('FLOW upload completion slot binding exactly exists in its additive migration', async () => {
+  const migration = await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0095_consulting_flow_upload_slot_binding.sql',
+    ),
+    'utf8',
+  );
+  const normalizedMigration = migration.replace(/\s+/g, ' ').trim();
+  const normalizedTrigger = consultingFlowUploadCompletionsInsertTriggerSql
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/;$/, '');
+  assert.match(
+    normalizedMigration,
+    /^DROP TRIGGER IF EXISTS consulting_flow_upload_completions_insert_guard;/,
+  );
+  assert.ok(
+    normalizedMigration.includes(`${normalizedTrigger};`),
+    'slot-bound completion trigger is absent or drifted',
+  );
 });

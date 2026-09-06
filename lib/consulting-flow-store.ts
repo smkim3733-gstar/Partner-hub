@@ -939,9 +939,17 @@ export async function reserveFlowUploads(input: {
     input.uploads.some(
       ({ slot, file }) =>
         (slot !== 'file' && slot !== 'audio') ||
-        (slot === 'audio' && file.purpose !== 'recording') ||
+        (slot === 'audio' &&
+          (file.purpose !== 'recording' ||
+            !/\.(?:mp3|m4a|wav)$/i.test(file.name))) ||
         !validFlowUploadReservationCandidate(file),
-    )
+    ) ||
+    (input.uploads.length === 2 &&
+      input.uploads.some(
+        ({ slot, file }) =>
+          slot === 'file' &&
+          (file.purpose !== 'recording' || !/\.(?:docx|txt)$/i.test(file.name)),
+      ))
   )
     throw new FlowError(
       '첨부파일 보관 예약을 확인할 수 없습니다. 자료를 다시 등록해 주세요.',
