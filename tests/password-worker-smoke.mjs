@@ -451,6 +451,16 @@ const flowSaveSourceEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowImportIntakeSourceEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0077_consulting_flow_import_intake_source_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -460,6 +470,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_set_ai_policy_jobs_guard',
   'consulting_flows_queue_report_job_effect_guard',
   'consulting_flows_save_source_effect_guard',
+  'consulting_flows_import_intake_source_effect_guard',
   'consulting_flows_save_recording_effect_guard',
   'consulting_flows_save_transcript_jobs_guard',
   'consulting_flows_retry_job_effect_guard',
@@ -511,6 +522,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowSetAiPolicyJobsTriggerSql[0],
       flowQueueReportJobEffectTriggerSql[0],
       flowSaveSourceEffectTriggerSql[0],
+      flowImportIntakeSourceEffectTriggerSql[0],
       flowSaveRecordingEffectTriggerSql[0],
       flowSaveTranscriptJobsTriggerSql[0],
       flowRetryJobEffectTriggerSql[0],
@@ -3825,6 +3837,9 @@ try {
   const sourceEffectCaseId = 'native-flow-save-source-effect';
   const sourceEffectFlow = structuredClone(retryEffectFlow);
   sourceEffectFlow.caseId = sourceEffectCaseId;
+  const intakeEffectCaseId = 'native-flow-import-intake-source-effect';
+  const intakeEffectFlow = structuredClone(retryEffectFlow);
+  intakeEffectFlow.caseId = intakeEffectCaseId;
   const insertEvidenceFlow = () =>
     db
       .prepare(
@@ -3913,6 +3928,21 @@ try {
         sourceEffectFlow.revision,
         JSON.stringify(sourceEffectFlow),
         sourceEffectFlow.updatedAt,
+      )
+      .run();
+  const insertIntakeEffectFlow = () =>
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        intakeEffectCaseId,
+        intakeEffectFlow.partnerId,
+        intakeEffectFlow.revision,
+        JSON.stringify(intakeEffectFlow),
+        intakeEffectFlow.updatedAt,
       )
       .run();
   const receiptOriginCaseId = 'native-flow-command-receipt-origin';
@@ -4018,6 +4048,7 @@ try {
     await insertRecordingEffectFlow();
     await insertQueueEffectFlow();
     await insertSourceEffectFlow();
+    await insertIntakeEffectFlow();
   } finally {
     await db.batch([
       db.prepare(flowAiEvidenceInsertTriggerSql),
@@ -4431,6 +4462,57 @@ try {
   );
   await saveSourceEffectTransition(validSourceEffectFlow);
   checks.push('FLOW native D1 preserves files for source text-only saves');
+  const forgedIntakeEffectFlow = structuredClone(intakeEffectFlow);
+  forgedIntakeEffectFlow.revision++;
+  forgedIntakeEffectFlow.updatedAt = evidenceTimes[2];
+  for (const suffix of ['a', 'b']) {
+    forgedIntakeEffectFlow.files.push({
+      id: `native-import-intake-extra-${suffix}`,
+      name: `intake-${suffix}.txt`,
+      contentType: 'text/plain',
+      size: 10,
+      key: `consulting-flow/native-import-intake-extra-${suffix}`,
+      createdAt: evidenceTimes[2],
+      purpose: 'source',
+      intakeFileId: `native-intake-original-${suffix}`,
+      intakeSourceHash: suffix.repeat(64),
+      sourceReviewedAt: evidenceTimes[2],
+      sourceReviewedBy: 'native-synthetic-owner',
+    });
+  }
+  forgedIntakeEffectFlow.audit.push({
+    id: 'native-import-intake-source-effect',
+    at: evidenceTimes[2],
+    actor: '김성민 대표',
+    action: 'import_intake_source',
+    detail: '신청자료 검토본을 1차 근거자료로 반영 · 원본 보존 · AI 미전송',
+  });
+  forgedIntakeEffectFlow.commandIds.push('native-import-intake-source-effect');
+  forgedIntakeEffectFlow.commandReceipts['native-import-intake-source-effect'] =
+    {
+      actorKey: 'admin:primary',
+      fingerprint: '2'.repeat(64),
+      actor: '김성민 대표',
+      action: 'import_intake_source',
+    };
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forgedIntakeEffectFlow.revision,
+        JSON.stringify(forgedIntakeEffectFlow),
+        forgedIntakeEffectFlow.updatedAt,
+        intakeEffectCaseId,
+        intakeEffectFlow.revision,
+      )
+      .run(),
+    /intake source effect is invalid/,
+  );
+  checks.push('FLOW native D1 binds one reviewed intake source file effect');
   const commandedClaimEvidenceFlow = structuredClone(processingEvidenceFlow);
   commandedClaimEvidenceFlow.ai.approvedAt = evidenceTimes[3];
   commandedClaimEvidenceFlow.ai.approvedBy = 'native-synthetic-owner';

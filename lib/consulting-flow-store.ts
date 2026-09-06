@@ -19,6 +19,7 @@ import {
   consultingFlowsSetAiPolicyJobsTriggerSql,
   consultingFlowsQueueReportJobEffectTriggerSql,
   consultingFlowsSaveSourceEffectTriggerSql,
+  consultingFlowsImportIntakeSourceEffectTriggerSql,
   consultingFlowsSaveRecordingEffectTriggerSql,
   consultingFlowsSaveTranscriptJobsTriggerSql,
   consultingFlowsRetryJobEffectTriggerSql,
@@ -155,6 +156,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsSetAiPolicyJobsTriggerSql),
         db.prepare(consultingFlowsQueueReportJobEffectTriggerSql),
         db.prepare(consultingFlowsSaveSourceEffectTriggerSql),
+        db.prepare(consultingFlowsImportIntakeSourceEffectTriggerSql),
         db.prepare(consultingFlowsSaveRecordingEffectTriggerSql),
         db.prepare(consultingFlowsSaveTranscriptJobsTriggerSql),
         db.prepare(consultingFlowsRetryJobEffectTriggerSql),
@@ -1223,6 +1225,23 @@ function assertFlowCommitTransition(
             file.createdAt !== after.updatedAt ||
             file.intakeFileId !== undefined,
         )
+      )
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'import_intake_source') {
+      const importedFile = after.files.at(-1);
+      if (
+        after.files.length !== before.files.length + 1 ||
+        before.files.some(
+          (file, index) => !sameValue(file, after.files[index]),
+        ) ||
+        !importedFile ||
+        importedFile.purpose !== 'source' ||
+        importedFile.createdAt !== after.updatedAt ||
+        !importedFile.intakeFileId?.trim() ||
+        !/^[0-9a-f]{64}$/.test(importedFile.intakeSourceHash ?? '') ||
+        importedFile.sourceReviewedAt !== after.updatedAt ||
+        !importedFile.sourceReviewedBy?.trim()
       )
         throw storedFlowIntegrityError();
     }

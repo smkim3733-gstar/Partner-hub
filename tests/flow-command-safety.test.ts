@@ -2240,6 +2240,85 @@ void test('FLOW source save commands preserve existing source files', async () =
   );
 });
 
+void test('FLOW intake source imports append one reviewed source file', async () => {
+  const queued = await queuedReportFixture(true);
+  const stored = structuredClone(queued);
+  stored.revision++;
+  stored.updatedAt = new Date(Date.parse(queued.updatedAt) + 1).toISOString();
+  stored.jobs.at(-1)!.status = 'blocked';
+  stored.jobs.at(-1)!.reason = '기존 독립 작업 보류';
+  await commitFlow(queued, stored);
+
+  const commandId = `import-source-effect-${++sequence}`;
+  const importedBytes = 'synthetic reviewed intake source';
+  const importedFile: ConsultingFlow['files'][number] = {
+    id: `import-source-file-${++sequence}`,
+    name: 'intake-review.txt',
+    contentType: 'text/plain',
+    size: new TextEncoder().encode(importedBytes).byteLength,
+    key: flowFileStorageKey(`import-source-file-${sequence}`),
+    createdAt: new Date(Date.parse(stored.updatedAt) + 1).toISOString(),
+    purpose: 'source',
+    intakeFileId: `intake-original-${sequence}`,
+    intakeSourceHash: 'b'.repeat(64),
+    sourceReviewedAt: new Date(Date.parse(stored.updatedAt) + 1).toISOString(),
+    sourceReviewedBy: adminEmail,
+  };
+  const changed = applyFlowCommand(
+    stored,
+    {
+      type: 'import_intake_source',
+      intakeFileId: importedFile.intakeFileId,
+      contentReviewed: true,
+      fileConsent: true,
+      privacyMasked: true,
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId,
+      now: importedFile.createdAt,
+      upload: importedFile,
+      intakeCategory: '기업자료',
+    },
+  );
+  addSyntheticCommandReceipt(changed, commandId);
+  const forged = structuredClone(changed);
+  forged.files.pop();
+  forged.files[0]!.purpose = 'source_archived';
+  await assert.rejects(
+    commitFlow(stored, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+        stored.caseId,
+        stored.revision,
+      )
+      .run(),
+    /intake source effect is invalid/,
+  );
+  await commitFlow(
+    stored,
+    changed,
+    undefined,
+    await storeFlowFileBinding(importedFile, importedBytes),
+  );
+  assert.deepEqual(
+    await readFlow(stored.caseId),
+    JSON.parse(JSON.stringify(changed)),
+  );
+});
+
 void test('FLOW command receipts originate only with same-revision commands', async () => {
   const initial = await fixture();
   const legacyCommandId = `legacy-command-without-receipt-${++sequence}`;
