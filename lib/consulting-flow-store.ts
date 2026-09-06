@@ -17,6 +17,7 @@ import {
   consultingFlowsCommandCardinalityTriggerSql,
   consultingFlowsCommandAiTransitionTriggerSql,
   consultingFlowsSetAiPolicyJobsTriggerSql,
+  consultingFlowsQueueReportJobEffectTriggerSql,
   consultingFlowsSaveRecordingEffectTriggerSql,
   consultingFlowsSaveTranscriptJobsTriggerSql,
   consultingFlowsRetryJobEffectTriggerSql,
@@ -151,6 +152,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandCardinalityTriggerSql),
         db.prepare(consultingFlowsCommandAiTransitionTriggerSql),
         db.prepare(consultingFlowsSetAiPolicyJobsTriggerSql),
+        db.prepare(consultingFlowsQueueReportJobEffectTriggerSql),
         db.prepare(consultingFlowsSaveRecordingEffectTriggerSql),
         db.prepare(consultingFlowsSaveTranscriptJobsTriggerSql),
         db.prepare(consultingFlowsRetryJobEffectTriggerSql),
@@ -1188,6 +1190,20 @@ function assertFlowCommitTransition(
         return expected;
       });
       if (!sameValue(after.jobs, expectedJobs))
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'queue_report1') {
+      const reason = after.ai.enabled
+        ? ''
+        : '김성민 대표의 외부 AI 자동생성 승인이 필요합니다.';
+      const expectedJob: ConsultingFlow['jobs'][number] = {
+        id: `${commandId}-job`,
+        stage: 1,
+        status: reason ? 'blocked' : 'queued',
+        reason,
+        createdAt: after.updatedAt,
+      };
+      if (!sameValue(after.jobs, [...before.jobs, expectedJob]))
         throw storedFlowIntegrityError();
     }
     if (action === 'save_recording') {

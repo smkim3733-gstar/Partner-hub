@@ -431,6 +431,16 @@ const flowSaveRecordingEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowQueueReportJobEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0075_consulting_flow_queue_report_job_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -438,6 +448,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_command_cardinality_guard',
   'consulting_flows_command_ai_transition_guard',
   'consulting_flows_set_ai_policy_jobs_guard',
+  'consulting_flows_queue_report_job_effect_guard',
   'consulting_flows_save_recording_effect_guard',
   'consulting_flows_save_transcript_jobs_guard',
   'consulting_flows_retry_job_effect_guard',
@@ -487,6 +498,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowCommandCardinalityTriggerSql[1],
       flowCommandAiTransitionTriggerSql[0],
       flowSetAiPolicyJobsTriggerSql[0],
+      flowQueueReportJobEffectTriggerSql[0],
       flowSaveRecordingEffectTriggerSql[0],
       flowSaveTranscriptJobsTriggerSql[0],
       flowRetryJobEffectTriggerSql[0],
@@ -3795,6 +3807,9 @@ try {
   const recordingEffectCaseId = 'native-flow-save-recording-effect';
   const recordingEffectFlow = structuredClone(transcriptEffectFlow);
   recordingEffectFlow.caseId = recordingEffectCaseId;
+  const queueEffectCaseId = 'native-flow-queue-report-job-effect';
+  const queueEffectFlow = structuredClone(retryEffectFlow);
+  queueEffectFlow.caseId = queueEffectCaseId;
   const insertEvidenceFlow = () =>
     db
       .prepare(
@@ -3853,6 +3868,21 @@ try {
         recordingEffectFlow.revision,
         JSON.stringify(recordingEffectFlow),
         recordingEffectFlow.updatedAt,
+      )
+      .run();
+  const insertQueueEffectFlow = () =>
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        queueEffectCaseId,
+        queueEffectFlow.partnerId,
+        queueEffectFlow.revision,
+        JSON.stringify(queueEffectFlow),
+        queueEffectFlow.updatedAt,
       )
       .run();
   const receiptOriginCaseId = 'native-flow-command-receipt-origin';
@@ -3956,6 +3986,7 @@ try {
     await insertTranscriptEffectFlow();
     await insertRetryEffectFlow();
     await insertRecordingEffectFlow();
+    await insertQueueEffectFlow();
   } finally {
     await db.batch([
       db.prepare(flowAiEvidenceInsertTriggerSql),
@@ -4269,6 +4300,54 @@ try {
   checks.push(
     'FLOW native D1 binds recording, job and file effects to one command',
   );
+  const validQueueEffectFlow = structuredClone(queueEffectFlow);
+  validQueueEffectFlow.revision++;
+  validQueueEffectFlow.updatedAt = evidenceTimes[2];
+  validQueueEffectFlow.jobs.push({
+    id: 'native-queue-report-job-effect-job',
+    stage: 1,
+    status: 'queued',
+    reason: '',
+    createdAt: evidenceTimes[2],
+  });
+  validQueueEffectFlow.audit.push({
+    id: 'native-queue-report-job-effect',
+    at: evidenceTimes[2],
+    actor: '김성민 대표',
+    action: 'queue_report1',
+    detail: '1차 보고서 생성 요청',
+  });
+  validQueueEffectFlow.commandIds.push('native-queue-report-job-effect');
+  validQueueEffectFlow.commandReceipts['native-queue-report-job-effect'] = {
+    actorKey: 'admin:primary',
+    fingerprint: '4'.repeat(64),
+    actor: '김성민 대표',
+    action: 'queue_report1',
+  };
+  const saveQueueEffectTransition = (after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        queueEffectCaseId,
+        queueEffectFlow.revision,
+      )
+      .run();
+  const forgedQueueEffectFlow = structuredClone(validQueueEffectFlow);
+  forgedQueueEffectFlow.jobs[0].reason =
+    '1차 생성 요청에 섞은 독립 작업 사유 변조';
+  await assert.rejects(
+    saveQueueEffectTransition(forgedQueueEffectFlow),
+    /queue report job effect is invalid/,
+  );
+  await saveQueueEffectTransition(validQueueEffectFlow);
+  checks.push('FLOW native D1 binds one exact report queue job effect');
   const commandedClaimEvidenceFlow = structuredClone(processingEvidenceFlow);
   commandedClaimEvidenceFlow.ai.approvedAt = evidenceTimes[3];
   commandedClaimEvidenceFlow.ai.approvedBy = 'native-synthetic-owner';

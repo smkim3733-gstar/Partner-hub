@@ -547,6 +547,28 @@ async function fixture() {
   await commitFlow(initial, flow);
   return (await readFlow(caseId))!;
 }
+async function enabledAiFixture() {
+  const flow = await fixture();
+  const commandId = `enabled-ai-fixture-${++sequence}`;
+  const enabled = applyFlowCommand(
+    flow,
+    {
+      type: 'set_ai_policy',
+      enabled: true,
+      thirdPartyConsent: true,
+      privacyMasked: true,
+      costConsent: true,
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId,
+      now: new Date(Date.parse(flow.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(enabled, commandId);
+  await commitFlow(flow, enabled);
+  return enabled;
+}
 async function fixtureWithAttachment() {
   const flow = await fixture();
   const response = await POST(
@@ -784,7 +806,7 @@ void test('FLOW commit requires exactly one revision and a valid stored timestam
 });
 
 void test('FLOW commit preserves AI history and changes exactly one internal job target', async () => {
-  const initial = await fixture();
+  const initial = await enabledAiFixture();
   const timestamp = (offset: number) =>
     new Date(Date.parse(initial.updatedAt) + offset).toISOString();
   const queuedAt = timestamp(1);
@@ -1290,7 +1312,7 @@ void test('FLOW native D1 rejects terminal AI evidence on the first root insert'
 });
 
 void test('FLOW new AI jobs bind creation time, stage source and audit', async () => {
-  const initial = await fixture();
+  const initial = await enabledAiFixture();
   const at = new Date(Date.parse(initial.updatedAt) + 2).toISOString();
   const auditId = `creation-origin-${++sequence}`;
   const jobId = `${auditId}-job`;
@@ -1356,7 +1378,7 @@ void test('FLOW new AI jobs bind creation time, stage source and audit', async (
           initial.revision,
         )
         .run(),
-      /(?:(?:job creation (?:origin|audit identity)|new command evidence|audit cardinality) is|command semantics are) invalid/,
+      /(?:(?:job creation (?:origin|audit identity)|new command evidence|audit cardinality|queue report job effect) is|command semantics are) invalid/,
     );
     assert.deepEqual(await readFlow(initial.caseId), initial);
   }
@@ -1365,7 +1387,7 @@ void test('FLOW new AI jobs bind creation time, stage source and audit', async (
 });
 
 void test('FLOW new AI job ID binds to one exact creation audit ID', async () => {
-  const initial = await fixture();
+  const initial = await enabledAiFixture();
   const at = new Date(Date.parse(initial.updatedAt) + 2).toISOString();
   const auditId = `creation-identity-${++sequence}`;
   const valid = structuredClone(initial);
@@ -1412,7 +1434,7 @@ void test('FLOW new AI job ID binds to one exact creation audit ID', async () =>
         initial.revision,
       )
       .run(),
-    /(?:(?:job creation audit identity|new command evidence|command receipt origin) is|command semantics are) invalid/,
+    /(?:(?:job creation audit identity|new command evidence|command receipt origin|queue report job effect) is|command semantics are) invalid/,
   );
   assert.deepEqual(await readFlow(initial.caseId), initial);
   const missingCommand = structuredClone(valid);
@@ -1436,7 +1458,7 @@ void test('FLOW new AI job ID binds to one exact creation audit ID', async () =>
         initial.revision,
       )
       .run(),
-    /(?:job creation command identity|command receipt origin|non-command job target) is invalid/,
+    /(?:job creation command identity|command receipt origin|non-command job target|queue report job effect) is invalid/,
   );
   assert.deepEqual(await readFlow(initial.caseId), initial);
   await commitFlow(initial, valid);
@@ -2108,6 +2130,58 @@ void test('FLOW recording commands bind exact recording and job effects', async 
     withFiles,
     undefined,
     new Map([...transcriptBindings, ...audioBindings]),
+  );
+});
+
+void test('FLOW report queue commands bind one exact new job effect', async () => {
+  const queued = await queuedReportFixture(false);
+  const stored = structuredClone(queued);
+  stored.revision++;
+  stored.updatedAt = new Date(Date.parse(queued.updatedAt) + 1).toISOString();
+  stored.jobs.at(-1)!.status = 'blocked';
+  stored.jobs.at(-1)!.reason = '기존 독립 작업 보류';
+  await commitFlow(queued, stored);
+
+  const commandId = `queue-job-effect-${++sequence}`;
+  const changed = applyFlowCommand(
+    stored,
+    { type: 'queue_report1' },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId,
+      now: new Date(Date.parse(stored.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(changed, commandId);
+  assert.equal(changed.jobs.at(-1)!.id, `${commandId}-job`);
+  const forged = structuredClone(changed);
+  forged.jobs.at(-2)!.reason = '생성 요청에 섞은 기존 작업 사유 변조';
+  await assert.rejects(
+    commitFlow(stored, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+        stored.caseId,
+        stored.revision,
+      )
+      .run(),
+    /queue report job effect is invalid/,
+  );
+  await commitFlow(stored, changed);
+  assert.deepEqual(
+    await readFlow(stored.caseId),
+    JSON.parse(JSON.stringify(changed)),
   );
 });
 
@@ -3095,7 +3169,7 @@ void test('FLOW admin command display binds to the representative role', async (
 });
 
 void test('FLOW commit and native D1 enforce the AI job lifecycle', async () => {
-  const initial = await fixture();
+  const initial = await enabledAiFixture();
   const timestamp = (offset: number) =>
     new Date(Date.parse(initial.updatedAt) + offset).toISOString();
   const queued = structuredClone(initial);
