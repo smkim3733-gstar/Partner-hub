@@ -13,6 +13,8 @@ import {
   consultingFlowsAuditAppendOnlyTriggerSql,
   consultingFlowsAuditInsertCardinalityTriggerSql,
   consultingFlowsAuditCardinalityTriggerSql,
+  consultingFlowsCommandInsertCardinalityTriggerSql,
+  consultingFlowsCommandCardinalityTriggerSql,
   consultingFlowsCommandHistoryTriggerSql,
   consultingFlowsCommandInsertEvidenceTriggerSql,
   consultingFlowsCommandInsertEffectTriggerSql,
@@ -140,6 +142,8 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsAuditAppendOnlyTriggerSql),
         db.prepare(consultingFlowsAuditInsertCardinalityTriggerSql),
         db.prepare(consultingFlowsAuditCardinalityTriggerSql),
+        db.prepare(consultingFlowsCommandInsertCardinalityTriggerSql),
+        db.prepare(consultingFlowsCommandCardinalityTriggerSql),
         db.prepare(consultingFlowsJobsTransitionTriggerSql),
         db.prepare(consultingFlowsSuccessEvidenceTriggerSql),
         db.prepare(consultingFlowsFailureHistoryTriggerSql),
@@ -1046,6 +1050,7 @@ function assertFlowCommitTransition(
     throw storedFlowIntegrityError();
   const newAudit = after.audit.slice(before.audit.length);
   const newCommandIds = after.commandIds.slice(before.commandIds.length);
+  if (newCommandIds.length > 1) throw storedFlowIntegrityError();
   if (
     Object.keys(afterReceipts).some(
       (id) => !Object.hasOwn(beforeReceipts, id) && !newCommandIds.includes(id),
@@ -1151,22 +1156,6 @@ function assertFlowCommitTransition(
     'requests',
     'payments',
   ] as const;
-  if (newCommandIds.length > 1) {
-    if (
-      newCommandIds.some((commandId) => {
-        const action = afterReceipts[commandId]?.action;
-        const rules =
-          FLOW_COMMAND_TARGET_RULES[
-            action as keyof typeof FLOW_COMMAND_TARGET_RULES
-          ];
-        return !rules || Object.keys(rules).length > 0;
-      }) ||
-      commandTargetCollections.some(
-        (collection) => !sameValue(before[collection], after[collection]),
-      )
-    )
-      throw storedFlowIntegrityError();
-  }
   if (newCommandIds.length === 1) {
     const commandId = newCommandIds[0];
     const action = afterReceipts[commandId]?.action;

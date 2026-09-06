@@ -375,10 +375,21 @@ const flowAuditCardinalityTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowCommandCardinalityTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0069_consulting_flow_command_cardinality.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
   'consulting_flows_audit_cardinality_guard',
+  'consulting_flows_command_cardinality_guard',
   'consulting_flows_jobs_transition_guard',
   'consulting_flows_success_evidence_guard',
   'consulting_flows_failure_history_guard',
@@ -422,6 +433,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
     [
       consultingFlowsTransitionTriggerSql,
       flowAuditCardinalityTriggerSql[1],
+      flowCommandCardinalityTriggerSql[1],
       ...flowAiEvidenceTransitionTriggerSql,
       ...flowAiJobLifecycleTriggerSql,
       ...flowAiJobTransitionTimestampTriggerSql,
@@ -3706,8 +3718,16 @@ try {
       )
       .run();
   await assert.rejects(
+    insertEvidenceFlow(),
+    /initial command cardinality is invalid/,
+  );
+  checks.push('FLOW native D1 rejects multiple commands on root insert');
+  await assert.rejects(
     (async () => {
       await db.batch([
+        db.prepare(
+          'DROP TRIGGER IF EXISTS consulting_flows_command_insert_cardinality_guard',
+        ),
         db.prepare(
           'DROP TRIGGER IF EXISTS consulting_flows_command_insert_evidence_guard',
         ),
@@ -3725,6 +3745,7 @@ try {
         return await insertEvidenceFlow();
       } finally {
         await db.batch([
+          db.prepare(flowCommandCardinalityTriggerSql[0]),
           db.prepare(flowNewCommandEvidenceTriggerSql[0]),
           db.prepare(flowCommandSemanticsTriggerSql[0]),
           db.prepare(flowCommandScopeTriggerSql[0]),
@@ -3755,6 +3776,9 @@ try {
     db.prepare(
       'DROP TRIGGER IF EXISTS consulting_flows_audit_insert_cardinality_guard',
     ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_command_insert_cardinality_guard',
+    ),
   ]);
   try {
     await insertEvidenceFlow();
@@ -3768,6 +3792,7 @@ try {
       db.prepare(flowCommandScopeTriggerSql[0]),
       db.prepare(flowCommandTargetTriggerSql[0]),
       db.prepare(flowAuditCardinalityTriggerSql[0]),
+      db.prepare(flowCommandCardinalityTriggerSql[0]),
     ]);
   }
   const backfilledReceiptOriginFlow = structuredClone(legacyReceiptOriginFlow);
@@ -4085,6 +4110,32 @@ try {
           action: 'system_note',
           detail: '명령이나 AI 결과가 없는 여분 감사기록',
         });
+      },
+    },
+    {
+      name: 'FLOW native D1 rejects multiple user commands in one revision',
+      pattern: /command cardinality is invalid/,
+      apply(flow) {
+        flow.ai.approvedAt = flow.updatedAt;
+        for (const [index, commandId] of [
+          'native-compound-command-a',
+          'native-compound-command-b',
+        ].entries()) {
+          flow.commandIds.push(commandId);
+          flow.audit.push({
+            id: commandId,
+            at: flow.updatedAt,
+            actor: '김성민 대표',
+            action: 'set_ai_policy',
+            detail: '가상 복합 명령 차단 검사',
+          });
+          flow.commandReceipts[commandId] = {
+            actorKey: 'admin:primary',
+            fingerprint: String(index + 1).repeat(64),
+            actor: '김성민 대표',
+            action: 'set_ai_policy',
+          };
+        }
       },
     },
     {
@@ -4558,6 +4609,9 @@ try {
   );
   await db.batch([
     db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flows_command_insert_cardinality_guard',
+    ),
+    db.prepare(
       'DROP TRIGGER IF EXISTS consulting_flows_command_insert_evidence_guard',
     ),
     db.prepare(
@@ -4587,6 +4641,7 @@ try {
     );
   } finally {
     await db.batch([
+      db.prepare(flowCommandCardinalityTriggerSql[0]),
       db.prepare(flowNewCommandEvidenceTriggerSql[0]),
       db.prepare(flowCommandSemanticsTriggerSql[0]),
       db.prepare(flowCommandTargetTriggerSql[0]),

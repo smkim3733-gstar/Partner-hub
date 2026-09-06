@@ -682,14 +682,15 @@ void test('FLOW commit preserves AI history and changes exactly one internal job
   const timestamp = (offset: number) =>
     new Date(Date.parse(initial.updatedAt) + offset).toISOString();
   const queuedAt = timestamp(1);
-  const successStartedAt = timestamp(2);
-  const failureStartedAt = timestamp(3);
-  const successAt = timestamp(4);
-  const historyAt = timestamp(5);
-  const retryAt = timestamp(6);
-  const restartedAt = timestamp(7);
-  const failureAt = timestamp(8);
-  const nextAt = timestamp(9);
+  const failureQueuedAt = timestamp(2);
+  const successStartedAt = timestamp(3);
+  const failureStartedAt = timestamp(4);
+  const successAt = timestamp(5);
+  const historyAt = timestamp(6);
+  const retryAt = timestamp(7);
+  const restartedAt = timestamp(8);
+  const failureAt = timestamp(9);
+  const nextAt = timestamp(10);
   const successCreationAuditId = `immutable-success-creation-${++sequence}`;
   const failureCreationAuditId = `immutable-failure-creation-${++sequence}`;
   const successJobId = `${successCreationAuditId}-job`;
@@ -697,45 +698,46 @@ void test('FLOW commit preserves AI history and changes exactly one internal job
   const successAuditId = `${successJobId}-${successAt}`;
   const failureAuditId = `${failureJobId}-${failureAt}`;
   const historyAuditId = `${failureJobId}-${historyAt}`;
-  const queued = structuredClone(initial);
+  const successQueued = structuredClone(initial);
+  successQueued.revision++;
+  successQueued.updatedAt = queuedAt;
+  successQueued.jobs.push({
+    id: successJobId,
+    stage: 1,
+    status: 'queued',
+    reason: '',
+    createdAt: queuedAt,
+  });
+  successQueued.audit.push({
+    id: successCreationAuditId,
+    at: queuedAt,
+    actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    action: 'queue_report1',
+    detail: '1차 분석보고서 생성 요청',
+  });
+  successQueued.commandIds.push(successCreationAuditId);
+  addSyntheticCommandReceipt(successQueued, successCreationAuditId);
+  await commitFlow(initial, successQueued);
+  const queued = structuredClone(successQueued);
   queued.revision++;
-  queued.updatedAt = queuedAt;
-  queued.jobs.push(
-    {
-      id: successJobId,
-      stage: 1,
-      status: 'queued',
-      reason: '',
-      createdAt: queuedAt,
-    },
-    {
-      id: failureJobId,
-      stage: 1,
-      status: 'queued',
-      reason: '',
-      createdAt: queuedAt,
-    },
-  );
-  queued.audit.push(
-    {
-      id: successCreationAuditId,
-      at: queuedAt,
-      actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
-      action: 'queue_report1',
-      detail: '1차 분석보고서 생성 요청',
-    },
-    {
-      id: failureCreationAuditId,
-      at: queuedAt,
-      actor: '가상 대표',
-      action: 'queue_report1',
-      detail: '1차 분석보고서 생성 요청',
-    },
-  );
-  queued.commandIds.push(successCreationAuditId, failureCreationAuditId);
-  addSyntheticCommandReceipt(queued, successCreationAuditId);
+  queued.updatedAt = failureQueuedAt;
+  queued.jobs.push({
+    id: failureJobId,
+    stage: 1,
+    status: 'queued',
+    reason: '',
+    createdAt: failureQueuedAt,
+  });
+  queued.audit.push({
+    id: failureCreationAuditId,
+    at: failureQueuedAt,
+    actor: '가상 대표',
+    action: 'queue_report1',
+    detail: '1차 분석보고서 생성 요청',
+  });
+  queued.commandIds.push(failureCreationAuditId);
   addSyntheticCommandReceipt(queued, failureCreationAuditId);
-  await commitFlow(initial, queued);
+  await commitFlow(successQueued, queued);
   const successProcessing = structuredClone(queued);
   successProcessing.revision++;
   successProcessing.updatedAt = successStartedAt;
@@ -1489,6 +1491,96 @@ void test('FLOW new command IDs require one audit and immutable receipt', async 
     await readFlow(valid.caseId),
     JSON.parse(JSON.stringify(valid)),
   );
+});
+
+void test('FLOW permits at most one new user command per revision', async () => {
+  const appendSecondCommand = (flow: ConsultingFlow, commandId: string) => {
+    flow.commandIds.push(commandId);
+    flow.audit.push({
+      id: commandId,
+      at: flow.updatedAt,
+      actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+      action: 'set_ai_policy',
+      detail: '한 revision 복합 명령 차단 검사',
+    });
+    addSyntheticCommandReceipt(flow, commandId);
+  };
+  const db = await flowDatabase();
+  const initial = newConsultingFlow(
+    `flow-initial-command-cardinality-${++sequence}`,
+    '가상기업',
+    partner.id,
+    partner.name,
+  );
+  const initialCommandId = `initial-command-a-${++sequence}`;
+  const initialCompound = applyFlowCommand(
+    initial,
+    {
+      type: 'set_ai_policy',
+      enabled: true,
+      thirdPartyConsent: true,
+      privacyMasked: true,
+      costConsent: true,
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    { commandId: initialCommandId, now: new Date().toISOString() },
+  );
+  addSyntheticCommandReceipt(initialCompound, initialCommandId);
+  appendSecondCommand(initialCompound, `initial-command-b-${++sequence}`);
+  await assert.rejects(
+    commitFlow(initial, initialCompound),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        initialCompound.caseId,
+        initialCompound.partnerId,
+        initialCompound.revision,
+        JSON.stringify(initialCompound),
+        initialCompound.updatedAt,
+      )
+      .run(),
+    /initial command cardinality is invalid/,
+  );
+
+  const stored = await fixture();
+  const updateCommandId = `update-command-a-${++sequence}`;
+  const updateCompound = applyFlowCommand(
+    stored,
+    { type: 'set_ai_policy', enabled: false },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    { commandId: updateCommandId, now: new Date().toISOString() },
+  );
+  addSyntheticCommandReceipt(updateCompound, updateCommandId);
+  appendSecondCommand(updateCompound, `update-command-b-${++sequence}`);
+  await assert.rejects(
+    commitFlow(stored, updateCompound),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        updateCompound.revision,
+        JSON.stringify(updateCompound),
+        updateCompound.updatedAt,
+        stored.caseId,
+        stored.revision,
+      )
+      .run(),
+    /command cardinality is invalid/,
+  );
+  assert.deepEqual(await readFlow(stored.caseId), stored);
 });
 
 void test('FLOW command receipts originate only with same-revision commands', async () => {

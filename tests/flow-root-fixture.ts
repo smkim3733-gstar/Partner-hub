@@ -1,6 +1,7 @@
 import {
   consultingFlowsAuditAppendOnlyTriggerSql,
   consultingFlowsAuditCardinalityTriggerSql,
+  consultingFlowsCommandCardinalityTriggerSql,
   consultingFlowsCommandHistoryTriggerSql,
   consultingFlowsCommandReceiptOriginTriggerSql,
   consultingFlowsCommandEffectTriggerSql,
@@ -39,6 +40,7 @@ const transitionTriggers = [
   consultingFlowsTransitionTriggerSql,
   consultingFlowsAuditAppendOnlyTriggerSql,
   consultingFlowsAuditCardinalityTriggerSql,
+  consultingFlowsCommandCardinalityTriggerSql,
   consultingFlowsJobsTransitionTriggerSql,
   consultingFlowsSuccessEvidenceTriggerSql,
   consultingFlowsFailureHistoryTriggerSql,
@@ -75,6 +77,7 @@ const transitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
   'consulting_flows_audit_cardinality_guard',
+  'consulting_flows_command_cardinality_guard',
   'consulting_flows_jobs_transition_guard',
   'consulting_flows_success_evidence_guard',
   'consulting_flows_failure_history_guard',
