@@ -10642,8 +10642,8 @@ type MultipartBodyStateChange =
     }
   | {
       kind: 'assignment-change';
-      timing: 'd1-write';
-      status: 503;
+      timing?: 'body-read' | 'first-r2-write' | 'd1-write';
+      status: 409 | 503;
       error: string;
     }
   | {
@@ -11365,6 +11365,26 @@ void test('partial R2 retry rejects a stale commit after a same-name account rea
     status: 503,
     error:
       '첨부파일 소유권을 안전하게 저장하지 못했습니다. 새로고침 후 다시 확인해 주세요.',
+  });
+});
+
+void test('partial R2 retry rejects a same-name account reassignment during the first object write and recovers after restoration', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'assignment-change',
+    timing: 'first-r2-write',
+    status: 409,
+    error:
+      '전체 진행현황의 담당 계정과 상담 FLOW 담당 계정이 일치하지 않습니다. 대표가 담당 정보를 확인해 주세요.',
+  });
+});
+
+void test('partial R2 retry rejects a same-name account reassignment while reading the multipart body before any R2 write and recovers after restoration', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'assignment-change',
+    timing: 'body-read',
+    status: 409,
+    error:
+      '전체 진행현황의 담당 계정과 상담 FLOW 담당 계정이 일치하지 않습니다. 대표가 담당 정보를 확인해 주세요.',
   });
 });
 
