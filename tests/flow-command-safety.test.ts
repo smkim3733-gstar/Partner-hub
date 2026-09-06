@@ -5968,6 +5968,222 @@ void test('stale revision retry after a partial R2 write preserves reservations 
   );
 });
 
+void test('partner retry rechecks account and upload permission before resuming partial R2 writes', async () => {
+  const scenarios = [
+    {
+      kind: 'suspended-account',
+      error: '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
+    },
+    {
+      kind: 'revoked-upload-permission',
+      error: '자료 업로드 권한이 필요합니다.',
+    },
+  ] as const;
+
+  for (const scenario of scenarios) {
+    const stored = await transcriptJobFixture(false, body);
+    const command = {
+      type: 'save_recording',
+      meetingId: stored.meetings.at(-1)!.id,
+      transcript: `${body} 파트너 재권한 ${scenario.kind}`,
+      transcriptReviewed: true,
+      recordingConsent: true,
+      privacyMasked: true,
+      fileConsent: true,
+    } as const;
+    const transcript = new File(
+      [`SYNTHETIC_PARTNER_REAUTH_TRANSCRIPT_${scenario.kind}`],
+      `partner-reauth-${scenario.kind}.txt`,
+      { type: 'text/plain' },
+    );
+    const audio = new File(
+      [new Uint8Array([0x49, 0x44, 0x33, 4, 0, 8])],
+      `partner-reauth-${scenario.kind}.mp3`,
+      { type: 'audio/mpeg' },
+    );
+    const commandId = `dual-slot-partner-reauth-${scenario.kind}-${++sequence}`;
+    const previousKeys = new Set(objects.keys());
+    const bucket = flowBucket();
+    const put = bucket.put.bind(bucket);
+    let putAttempts = 0;
+    bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+      putAttempts++;
+      if (putAttempts === 2)
+        throw new Error('synthetic second R2 write failure');
+      return put(...args);
+    };
+    let failed: Response;
+    try {
+      failed = await POST(
+        request(
+          stored.caseId,
+          command,
+          stored.revision,
+          commandId,
+          partner.email,
+          transcript,
+          audio,
+        ),
+        context(stored.caseId),
+      );
+    } finally {
+      bucket.put = put;
+    }
+    assert.equal(failed.status, 503);
+    assert.deepEqual(await readFlow(stored.caseId), stored);
+
+    const db = await flowDatabase();
+    const pending = (
+      await db
+        .prepare(
+          `SELECT slot, file_id, storage_key, status
+          FROM consulting_flow_upload_requests
+          WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3
+          ORDER BY slot`,
+        )
+        .bind(stored.caseId, `member:${partner.id}`, commandId)
+        .all<{
+          slot: string;
+          file_id: string;
+          storage_key: string;
+          status: string;
+        }>()
+    ).results;
+    assert.deepEqual(
+      pending.map(({ slot, status }) => ({ slot, status })),
+      [
+        { slot: 'audio', status: 'pending' },
+        { slot: 'file', status: 'pending' },
+      ],
+    );
+    const transcriptReservation = pending.find(({ slot }) => slot === 'file')!;
+    const storedBeforeDenial = new Uint8Array(
+      objects.get(transcriptReservation.storage_key),
+    ).slice();
+    assert.deepEqual(
+      [...objects.keys()].filter((key) => !previousKeys.has(key)),
+      [transcriptReservation.storage_key],
+    );
+
+    const changedState = (await readPortalState()) as {
+      members: Array<{
+        id: string;
+        status: string;
+        permissions: Record<string, boolean>;
+      }>;
+    };
+    const changedPartner = changedState.members.find(
+      ({ id }) => id === partner.id,
+    )!;
+    if (scenario.kind === 'suspended-account') changedPartner.status = '정지';
+    else changedPartner.permissions.fileUpload = false;
+    await writePortalState(changedState);
+
+    let deniedPutAttempts = 0;
+    bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+      deniedPutAttempts++;
+      return put(...args);
+    };
+    let denied: Response;
+    try {
+      denied = await POST(
+        request(
+          stored.caseId,
+          command,
+          stored.revision,
+          commandId,
+          partner.email,
+          transcript,
+          audio,
+        ),
+        context(stored.caseId),
+      );
+    } finally {
+      bucket.put = put;
+    }
+    assert.equal(denied.status, 403);
+    assert.deepEqual(await denied.json(), { error: scenario.error });
+    assert.equal(deniedPutAttempts, 0);
+    assert.deepEqual(await readFlow(stored.caseId), stored);
+    assert.deepEqual(
+      new Uint8Array(objects.get(transcriptReservation.storage_key)),
+      storedBeforeDenial,
+    );
+    assert.deepEqual(
+      (
+        await db
+          .prepare(
+            `SELECT slot, file_id, storage_key, status
+            FROM consulting_flow_upload_requests
+            WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3
+            ORDER BY slot`,
+          )
+          .bind(stored.caseId, `member:${partner.id}`, commandId)
+          .all<{
+            slot: string;
+            file_id: string;
+            storage_key: string;
+            status: string;
+          }>()
+      ).results,
+      pending,
+    );
+
+    changedPartner.status = '활성';
+    changedPartner.permissions.fileUpload = true;
+    await writePortalState(changedState);
+    const retry = await POST(
+      request(
+        stored.caseId,
+        command,
+        stored.revision,
+        commandId,
+        partner.email,
+        transcript,
+        audio,
+      ),
+      context(stored.caseId),
+    );
+    assert.equal(retry.status, 200, await retry.clone().text());
+    const saved = (await readFlow(stored.caseId))!;
+    const recording = saved.recordings.at(-1)!;
+    const reservedBySlot = new Map(
+      pending.map(({ slot, file_id }) => [slot, file_id]),
+    );
+    assert.equal(recording.transcriptFileId, reservedBySlot.get('file'));
+    assert.equal(recording.audioFileId, reservedBySlot.get('audio'));
+    assert.deepEqual(saved.commandIds.slice(-1), [commandId]);
+    assert.deepEqual(
+      [...objects.keys()]
+        .filter((key) => !previousKeys.has(key))
+        .sort((a, b) => a.localeCompare(b)),
+      pending
+        .map(({ storage_key }) => storage_key)
+        .sort((a, b) => a.localeCompare(b)),
+    );
+    const completions = (
+      await db
+        .prepare(
+          `SELECT reservation.status, completion.command_id
+          FROM consulting_flow_upload_requests reservation
+          LEFT JOIN consulting_flow_upload_completions completion
+            ON completion.file_id = reservation.file_id
+          WHERE reservation.command_id = ?1
+          ORDER BY reservation.file_id`,
+        )
+        .bind(commandId)
+        .all<{ status: string; command_id: string | null }>()
+    ).results;
+    assert.equal(completions.length, 2);
+    assert.ok(
+      completions.every(
+        ({ status, command_id }) =>
+          status === 'ready' && command_id === commandId,
+      ),
+    );
+  }
+});
+
 void test('second dual-slot R2 write success with a lost response preserves both objects and resumes both reservations', async () => {
   const stored = await transcriptJobFixture(false, body);
   const command = {
