@@ -34,6 +34,7 @@ import {
   consultingFlowsRecordContractEffectTriggerSql,
   consultingFlowsRecordContractEvidenceTriggerSql,
   consultingFlowsConfirmPaymentEffectTriggerSql,
+  consultingFlowsStartAftercareEffectTriggerSql,
   consultingFlowsSaveSourceEffectTriggerSql,
   consultingFlowsImportIntakeSourceEffectTriggerSql,
   consultingFlowsExcludeSourceEffectTriggerSql,
@@ -194,6 +195,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsRecordContractEffectTriggerSql),
         db.prepare(consultingFlowsRecordContractEvidenceTriggerSql),
         db.prepare(consultingFlowsConfirmPaymentEffectTriggerSql),
+        db.prepare(consultingFlowsStartAftercareEffectTriggerSql),
         db.prepare(consultingFlowsSaveSourceEffectTriggerSql),
         db.prepare(consultingFlowsImportIntakeSourceEffectTriggerSql),
         db.prepare(consultingFlowsExcludeSourceEffectTriggerSql),
@@ -1773,6 +1775,43 @@ function assertFlowCommitTransition(
           (depositComplete
             ? '약정 계약금 입금 확인 완료 · 컨설팅 수행 시작'
             : '계약금 일부 입금 확인 · 잔액 대기')
+      )
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'start_aftercare') {
+      const receipt = afterReceipts[commandId];
+      const aftercare = after.aftercare;
+      const commandAudit = newAudit.find((entry) => entry.id === commandId);
+      const paid = before.payments.reduce(
+        (total, item) => total + item.amountWon,
+        0,
+      );
+      const nextDate = aftercare?.nextDate;
+      const parsedNextDate = nextDate
+        ? Date.parse(`${nextDate}T00:00:00.000Z`)
+        : Number.NaN;
+      const expectedAftercare = aftercare && {
+        at: after.updatedAt,
+        summary: aftercare.summary.trim(),
+        nextDate: aftercare.nextDate,
+        owner: aftercare.owner.trim(),
+      };
+      if (
+        receipt?.actorKey !== FLOW_ADMIN_COMMAND_ACTOR_KEY ||
+        !before.contract ||
+        paid < before.contract.expectedDepositWon ||
+        !before.executionStartedAt ||
+        !aftercare ||
+        !sameValue(aftercare, expectedAftercare) ||
+        aftercare.summary.length === 0 ||
+        Array.from(aftercare.summary).length >
+          FLOW_FIELD_LIMITS.aftercareSummary ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(nextDate ?? '') ||
+        !Number.isFinite(parsedNextDate) ||
+        new Date(parsedNextDate).toISOString().slice(0, 10) !== nextDate ||
+        aftercare.owner.length === 0 ||
+        Array.from(aftercare.owner).length > FLOW_FIELD_LIMITS.aftercareOwner ||
+        commandAudit?.detail !== '컨설팅 수행 결과 확인 · 사후관리 일정 등록'
       )
         throw storedFlowIntegrityError();
     }

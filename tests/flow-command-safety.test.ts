@@ -623,6 +623,190 @@ void test('FLOW payment confirmations bind the canonical payment, execution star
   );
 });
 
+void test('FLOW aftercare updates bind canonical content, server time and audit', async () => {
+  const flow = await fixture();
+  const paid = structuredClone(flow);
+  paid.revision++;
+  paid.files.push({
+    id: `aftercare-effect-signed-${++sequence}`,
+    name: 'aftercare-effect-signed.pdf',
+    contentType: 'application/pdf',
+    size: 1,
+    key: flowFileStorageKey(`aftercare-effect-signed-${sequence}`),
+    createdAt: flow.updatedAt,
+    purpose: 'signed_contract',
+  });
+  paid.reports.push({
+    id: `aftercare-effect-report-${++sequence}`,
+    stage: 6,
+    version: 1,
+    title: '가상 계약서',
+    body: '',
+    sourceReportId: flow.reports[0]!.id,
+    createdAt: flow.updatedAt,
+    createdBy: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    origin: 'manual',
+  });
+  paid.meetings.push({
+    id: `aftercare-effect-meeting-${++sequence}`,
+    kind: 'contract',
+    startsAt: new Date(Date.parse(flow.updatedAt) - 120_000).toISOString(),
+    endsAt: new Date(Date.parse(flow.updatedAt) - 60_000).toISOString(),
+    location: '가상 계약상담',
+    attendance: 'admin',
+    status: 'completed',
+    note: '',
+    createdBy: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    completedAt: new Date(Date.parse(flow.updatedAt) - 60_000).toISOString(),
+  });
+  paid.contract = {
+    meetingId: paid.meetings.at(-1)!.id,
+    reportId: paid.reports.at(-1)!.id,
+    signedFileId: paid.files.at(-1)!.id,
+    signedAt: new Date(Date.parse(flow.updatedAt) + 9 * 3_600_000)
+      .toISOString()
+      .slice(0, 10),
+    expectedDepositWon: 1_000_000,
+    recordedBy: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+  };
+  paid.payments.push({
+    id: `aftercare-effect-payment-${++sequence}`,
+    amountWon: paid.contract.expectedDepositWon,
+    receivedAt: paid.contract.signedAt,
+    reference: '가상 계약금 입금',
+    confirmedBy: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    recordedAt: flow.updatedAt,
+  });
+  paid.executionStartedAt = flow.updatedAt;
+  await commitFlow(
+    flow,
+    paid,
+    undefined,
+    await storeFlowFileBinding(paid.files.at(-1)!, new Uint8Array([1])),
+  );
+
+  const adminUser: PortalUser = {
+    id: 'stable-aftercare-owner-subject',
+    email: adminEmail,
+    displayName: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    role: 'admin',
+    memberId: null,
+    memberName: null,
+    permissions: null,
+  };
+  const commandId = `start-aftercare-effect-${++sequence}`;
+  const command = {
+    type: 'start_aftercare',
+    deliveryConfirmed: true,
+    summary: '컨설팅 수행 결과와 후속 과제를 확인했습니다.',
+    nextDate: '2026-10-01',
+    owner: '김성민 대표',
+  } as const;
+  const receipt = await flowCommandReceipt(adminUser, { command });
+  const aftercare = applyFlowCommand(
+    paid,
+    command,
+    {
+      id: adminEmail,
+      role: 'admin',
+      name: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    },
+    {
+      commandId,
+      now: new Date(Date.parse(paid.updatedAt) + 1_000).toISOString(),
+    },
+  );
+  aftercare.commandReceipts = {
+    ...aftercare.commandReceipts,
+    [commandId]: {
+      ...receipt,
+      actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+      action: 'start_aftercare',
+    },
+  };
+  const rejectsAtBothBoundaries = async (
+    candidate: ConsultingFlow,
+    label: string,
+  ) => {
+    await assert.rejects(
+      commitFlow(paid, candidate),
+      (error) => error instanceof FlowError && error.status === 503,
+      `application accepted ${label}`,
+    );
+    const db = await flowDatabase();
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          candidate.revision,
+          JSON.stringify(candidate),
+          candidate.updatedAt,
+          paid.caseId,
+          paid.revision,
+        )
+        .run(),
+      /command scope is invalid|command target is invalid|start aftercare effect is invalid/,
+      `D1 accepted ${label}`,
+    );
+  };
+
+  const forgedTime = structuredClone(aftercare);
+  forgedTime.aftercare!.at = paid.updatedAt;
+  await rejectsAtBothBoundaries(forgedTime, 'a forged aftercare time');
+
+  const paddedSummary = structuredClone(aftercare);
+  paddedSummary.aftercare!.summary = ` ${command.summary} `;
+  await rejectsAtBothBoundaries(paddedSummary, 'a padded aftercare summary');
+
+  const paddedOwner = structuredClone(aftercare);
+  paddedOwner.aftercare!.owner = ` ${command.owner} `;
+  await rejectsAtBothBoundaries(paddedOwner, 'a padded aftercare owner');
+
+  const forgedAudit = structuredClone(aftercare);
+  forgedAudit.audit.at(-1)!.detail = '컨설팅 종료만 기록한 것처럼 위조';
+  await rejectsAtBothBoundaries(forgedAudit, 'a forged aftercare audit detail');
+
+  await commitFlow(paid, aftercare);
+  const updateCommandId = `update-aftercare-effect-${++sequence}`;
+  const updateCommand = {
+    type: 'start_aftercare',
+    deliveryConfirmed: true,
+    summary: '첫 점검 결과와 다음 실행 과제를 갱신했습니다.',
+    nextDate: '2026-11-02',
+    owner: '사후관리 담당자',
+  } as const;
+  const updatedAftercare = applyFlowCommand(
+    aftercare,
+    updateCommand,
+    {
+      id: adminEmail,
+      role: 'admin',
+      name: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    },
+    {
+      commandId: updateCommandId,
+      now: new Date(Date.parse(aftercare.updatedAt) + 1_000).toISOString(),
+    },
+  );
+  updatedAftercare.commandReceipts = {
+    ...updatedAftercare.commandReceipts,
+    [updateCommandId]: {
+      ...(await flowCommandReceipt(adminUser, { command: updateCommand })),
+      actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+      action: 'start_aftercare',
+    },
+  };
+  await commitFlow(aftercare, updatedAftercare);
+  assert.deepEqual(
+    await readFlow(updatedAftercare.caseId),
+    JSON.parse(JSON.stringify(updatedAftercare)),
+  );
+});
+
 void test('legacy command IDs without receipts require refresh and cannot silently acknowledge a new action', async () => {
   const flow = await fixture();
   const response = await POST(

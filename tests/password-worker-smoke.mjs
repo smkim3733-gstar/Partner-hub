@@ -591,6 +591,16 @@ const flowConfirmPaymentEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowStartAftercareEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0091_consulting_flow_start_aftercare_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -615,6 +625,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_record_contract_effect_guard',
   'consulting_flows_record_contract_evidence_guard',
   'consulting_flows_confirm_payment_effect_guard',
+  'consulting_flows_start_aftercare_effect_guard',
   'consulting_flows_save_source_effect_guard',
   'consulting_flows_import_intake_source_effect_guard',
   'consulting_flows_exclude_source_effect_guard',
@@ -680,6 +691,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowReviewDocumentEffectTriggerSql,
       ...flowRecordContractEffectTriggerSql,
       ...flowConfirmPaymentEffectTriggerSql,
+      ...flowStartAftercareEffectTriggerSql,
       flowSaveSourceEffectTriggerSql[0],
       flowImportIntakeSourceEffectTriggerSql[0],
       flowExcludeSourceEffectTriggerSql[0],
@@ -3847,7 +3859,7 @@ try {
     .first();
   const intactFlowPayload = intactFlowRow.payload;
   const evidenceCaseId = 'native-flow-ai-evidence-transition';
-  const evidenceTimes = Array.from({ length: 12 }, (_, index) =>
+  const evidenceTimes = Array.from({ length: 14 }, (_, index) =>
     new Date(Date.parse('2026-09-06T12:00:00.000Z') + index).toISOString(),
   );
   const evidenceFlow = JSON.parse(intactFlowPayload);
@@ -6230,6 +6242,135 @@ try {
   checks.push(
     'FLOW native D1 binds canonical payments, representative identity, server times, one-time execution start and audit',
   );
+
+  const validStartAftercareEffectFlow = structuredClone(
+    secondConfirmPaymentFlow,
+  );
+  validStartAftercareEffectFlow.revision++;
+  validStartAftercareEffectFlow.updatedAt = evidenceTimes[12];
+  const startAftercareCommandId = 'native-start-aftercare-effect';
+  validStartAftercareEffectFlow.aftercare = {
+    at: evidenceTimes[12],
+    summary: '컨설팅 수행 결과와 후속 과제를 확인했습니다.',
+    nextDate: '2026-10-01',
+    owner: '김성민 대표',
+  };
+  validStartAftercareEffectFlow.audit.push({
+    id: startAftercareCommandId,
+    at: evidenceTimes[12],
+    actor: '김성민 대표',
+    action: 'start_aftercare',
+    detail: '컨설팅 수행 결과 확인 · 사후관리 일정 등록',
+  });
+  validStartAftercareEffectFlow.commandIds.push(startAftercareCommandId);
+  validStartAftercareEffectFlow.commandReceipts[startAftercareCommandId] = {
+    actorKey: 'admin:primary',
+    fingerprint: 'd'.repeat(64),
+    actor: '김성민 대표',
+    action: 'start_aftercare',
+  };
+  const saveStartAftercareEffectTransition = (before, after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        contractEffectCaseId,
+        before.revision,
+      )
+      .run();
+  const startAftercareEffectError =
+    /command scope is invalid|command target is invalid|start aftercare effect is invalid/;
+
+  const forgedAftercareTimeFlow = structuredClone(
+    validStartAftercareEffectFlow,
+  );
+  forgedAftercareTimeFlow.aftercare.at = evidenceTimes[11];
+  await assert.rejects(
+    saveStartAftercareEffectTransition(
+      secondConfirmPaymentFlow,
+      forgedAftercareTimeFlow,
+    ),
+    startAftercareEffectError,
+  );
+  const paddedAftercareSummaryFlow = structuredClone(
+    validStartAftercareEffectFlow,
+  );
+  paddedAftercareSummaryFlow.aftercare.summary =
+    ' 컨설팅 수행 결과와 후속 과제를 확인했습니다. ';
+  await assert.rejects(
+    saveStartAftercareEffectTransition(
+      secondConfirmPaymentFlow,
+      paddedAftercareSummaryFlow,
+    ),
+    startAftercareEffectError,
+  );
+  const paddedAftercareOwnerFlow = structuredClone(
+    validStartAftercareEffectFlow,
+  );
+  paddedAftercareOwnerFlow.aftercare.owner = ' 김성민 대표 ';
+  await assert.rejects(
+    saveStartAftercareEffectTransition(
+      secondConfirmPaymentFlow,
+      paddedAftercareOwnerFlow,
+    ),
+    startAftercareEffectError,
+  );
+  const forgedStartAftercareAuditFlow = structuredClone(
+    validStartAftercareEffectFlow,
+  );
+  forgedStartAftercareAuditFlow.audit.at(-1).detail =
+    '컨설팅 종료만 기록한 것처럼 위조';
+  await assert.rejects(
+    saveStartAftercareEffectTransition(
+      secondConfirmPaymentFlow,
+      forgedStartAftercareAuditFlow,
+    ),
+    startAftercareEffectError,
+  );
+  await saveStartAftercareEffectTransition(
+    secondConfirmPaymentFlow,
+    validStartAftercareEffectFlow,
+  );
+
+  const validAftercareUpdateFlow = structuredClone(
+    validStartAftercareEffectFlow,
+  );
+  validAftercareUpdateFlow.revision++;
+  validAftercareUpdateFlow.updatedAt = evidenceTimes[13];
+  const updateAftercareCommandId = 'native-update-aftercare-effect';
+  validAftercareUpdateFlow.aftercare = {
+    at: evidenceTimes[13],
+    summary: '첫 점검 결과와 다음 실행 과제를 갱신했습니다.',
+    nextDate: '2026-11-02',
+    owner: '사후관리 담당자',
+  };
+  validAftercareUpdateFlow.audit.push({
+    id: updateAftercareCommandId,
+    at: evidenceTimes[13],
+    actor: '김성민 대표',
+    action: 'start_aftercare',
+    detail: '컨설팅 수행 결과 확인 · 사후관리 일정 등록',
+  });
+  validAftercareUpdateFlow.commandIds.push(updateAftercareCommandId);
+  validAftercareUpdateFlow.commandReceipts[updateAftercareCommandId] = {
+    actorKey: 'admin:primary',
+    fingerprint: 'e'.repeat(64),
+    actor: '김성민 대표',
+    action: 'start_aftercare',
+  };
+  await saveStartAftercareEffectTransition(
+    validStartAftercareEffectFlow,
+    validAftercareUpdateFlow,
+  );
+  checks.push(
+    'FLOW native D1 binds canonical aftercare content, server time and audit while allowing later schedule updates',
+  );
   await deleteConsultingFlowFixture(db, contractEffectCaseId);
 
   const validSourceEffectFlow = structuredClone(sourceEffectFlow);
@@ -6733,7 +6874,7 @@ try {
     },
     {
       name: 'FLOW native D1 binds command actions to their business-state effect',
-      pattern: /command effect is invalid/,
+      pattern: /command effect is invalid|start aftercare effect is invalid/,
       apply(flow) {
         const commandId = 'native-command-without-declared-effect';
         flow.commandIds.push(commandId);
