@@ -6,16 +6,16 @@
 
 ## 현재 인수인계 지점
 
-- 최신 감사 커밋: `7ce693146972fac8549a326d5af2285d06744326` (`test: guard FLOW upload commit against changed display name`)
-- 최신 확인: 기존 부분 R2 예약의 정확한 재시도가 두 객체와 최종 접근 검사를 마친 뒤 D1 FLOW 쓰기 직전에 실제 관리자 경로로 파트너 표시명을 변경
-- 연속 확인: 안정 ChatGPT 결속·변경 프로필 유지, 포털 상태 payload 조건부 비교의 이전 프로필 FLOW·영수증·파일 원장 커밋 차단과 D1 전체 롤백, 객체·`pending` 예약 보존, 표시명 원복 뒤 같은 파일 ID·R2 키로 한 번 완료
-- 검증: Node 회귀 검사 740개, 격리 workerd/D1/R2 검사 522개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
+- 최신 감사 커밋: `6e4c0194c912713cdfab1f5423a17b856dbf8e3f` (`test: guard FLOW upload commit against reassignment`)
+- 최신 확인: 기존 부분 R2 예약의 정확한 재시도가 두 객체와 최종 접근 검사를 마친 뒤 D1 FLOW 쓰기 직전에 레거시·복구 writer가 사건 담당 회원 ID를 같은 표시명의 다른 유효 계정으로 변경
+- 연속 확인: 안정 ChatGPT 결속 유지, 포털 상태 payload 조건부 비교의 이전 담당 FLOW·영수증·파일 원장 커밋 차단과 D1 전체 롤백, 객체·`pending` 예약 보존, 담당 ID 복구 뒤 같은 파일 ID·R2 키로 한 번 완료
+- 검증: Node 회귀 검사 741개, 격리 workerd/D1/R2 검사 522개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 290 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_4a1616f989c08191a1be6b99a261af11`), 소스 `7ce693146972fac8549a326d5af2285d06744326`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–289는 더 완전한 후보인 버전 290으로 대체한다.
+- 최신 Sites 저장 버전: 291 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_da5d7d565a10819189bbf9f2a88a7b93`), 소스 `6e4c0194c912713cdfab1f5423a17b856dbf8e3f`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–290은 더 완전한 후보인 버전 291로 대체한다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -45,7 +45,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW D1 쓰기 직전 표시명 변경 경쟁 무결성](FLOW_RETRY_D1_WRITE_DISPLAY_NAME_RACE_INTEGRITY_2026_09_07.md)을 확인한다.
+먼저 [상담 FLOW D1 쓰기 직전 담당 계정 변경 경쟁 무결성](FLOW_RETRY_D1_WRITE_ASSIGNMENT_RACE_INTEGRITY_2026_09_07.md)을 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
