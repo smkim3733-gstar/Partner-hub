@@ -2919,6 +2919,132 @@ void test('FLOW meeting cancellation requires a scheduled receipt-bound target',
   );
 });
 
+void test('FLOW solution confirmation binds the latest deep report and server decision evidence', async () => {
+  const stored = await transcriptJobFixture(false, body);
+  const prepared = structuredClone(stored);
+  const sourceReportId = prepared.reports.at(-1)!.id;
+  const sourceRecordingId = prepared.recordings.at(-1)!.id;
+  const olderDeepReport = {
+    id: `solution-older-report-${++sequence}`,
+    stage: 4 as const,
+    version: 1,
+    title: reportLabels[4],
+    body,
+    sourceReportId,
+    sourceRecordingId,
+    createdAt: prepared.updatedAt,
+    createdBy: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    origin: 'manual' as const,
+  };
+  const latestDeepReport = {
+    ...olderDeepReport,
+    id: `solution-latest-report-${++sequence}`,
+    version: 2,
+  };
+  prepared.reports.push(olderDeepReport, latestDeepReport);
+  const db = await flowDatabase();
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    [JSON.stringify(prepared), prepared.caseId],
+  );
+  const ready = (await readFlow(prepared.caseId))!;
+
+  const commandId = `confirm-solutions-valid-${++sequence}`;
+  const confirmed = applyFlowCommand(
+    ready,
+    {
+      type: 'confirm_solutions',
+      reportId: latestDeepReport.id,
+      reviewConfirmed: true,
+      solutions: [
+        ' 법인 운영체계 정비 ',
+        '법인 운영체계 정비',
+        '재무구조 분석',
+      ],
+      documentsNeeded: true,
+      note: ' 심화보고서 검토 완료 ',
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId,
+      now: new Date(Date.parse(ready.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(confirmed, commandId);
+  assert.deepEqual(confirmed.decision, {
+    id: `${commandId}-decision`,
+    reportId: latestDeepReport.id,
+    solutions: ['법인 운영체계 정비', '재무구조 분석'],
+    documentsNeeded: true,
+    note: '심화보고서 검토 완료',
+    at: confirmed.updatedAt,
+  });
+
+  const rejectsAtBothBoundaries = async (
+    candidate: ConsultingFlow,
+    label: string,
+  ) => {
+    await assert.rejects(
+      commitFlow(ready, candidate),
+      (error) => error instanceof FlowError && error.status === 503,
+      `application accepted ${label}`,
+    );
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          candidate.revision,
+          JSON.stringify(candidate),
+          candidate.updatedAt,
+          ready.caseId,
+          ready.revision,
+        )
+        .run(),
+      /confirm solutions effect is invalid/,
+      `D1 accepted ${label}`,
+    );
+  };
+
+  const forgedReport = structuredClone(confirmed);
+  forgedReport.decision!.reportId = olderDeepReport.id;
+  await rejectsAtBothBoundaries(
+    forgedReport,
+    'a decision for an older deep report',
+  );
+
+  const forgedActor = structuredClone(confirmed);
+  forgedActor.commandReceipts![commandId] = {
+    ...forgedActor.commandReceipts![commandId],
+    actorKey: `member:${partner.id}`,
+    actor: partner.name,
+  };
+  forgedActor.audit.at(-1)!.actor = partner.name;
+  await rejectsAtBothBoundaries(
+    forgedActor,
+    'solution confirmation by a member',
+  );
+
+  const forgedEvidence = structuredClone(confirmed);
+  forgedEvidence.decision!.id = 'forged-solution-decision';
+  forgedEvidence.decision!.solutions = ['중복 솔루션', '중복 솔루션'];
+  forgedEvidence.decision!.at = ready.updatedAt;
+  await rejectsAtBothBoundaries(
+    forgedEvidence,
+    'forged solution decision evidence',
+  );
+
+  const emptySolutions = structuredClone(confirmed);
+  emptySolutions.decision!.solutions = [];
+  await rejectsAtBothBoundaries(emptySolutions, 'an empty solution decision');
+
+  await commitFlow(ready, confirmed);
+});
+
 void test('FLOW source save commands preserve existing source files', async () => {
   const queued = await queuedReportFixture(true);
   const stored = structuredClone(queued);

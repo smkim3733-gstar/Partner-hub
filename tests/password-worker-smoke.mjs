@@ -521,6 +521,16 @@ const flowCancelMeetingEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowConfirmSolutionsEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0084_consulting_flow_confirm_solutions_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -537,6 +547,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_command_receipt_target_history_guard',
   'consulting_flows_complete_meeting_effect_guard',
   'consulting_flows_cancel_meeting_effect_guard',
+  'consulting_flows_confirm_solutions_effect_guard',
   'consulting_flows_save_source_effect_guard',
   'consulting_flows_import_intake_source_effect_guard',
   'consulting_flows_exclude_source_effect_guard',
@@ -595,6 +606,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowBookMeetingEffectTriggerSql[0],
       ...flowCompleteMeetingEffectTriggerSql,
       ...flowCancelMeetingEffectTriggerSql,
+      ...flowConfirmSolutionsEffectTriggerSql,
       flowSaveSourceEffectTriggerSql[0],
       flowImportIntakeSourceEffectTriggerSql[0],
       flowExcludeSourceEffectTriggerSql[0],
@@ -3918,6 +3930,43 @@ try {
   const reportEffectCaseId = 'native-flow-save-report-effect';
   const reportEffectFlow = structuredClone(retryEffectFlow);
   reportEffectFlow.caseId = reportEffectCaseId;
+  const decisionEffectCaseId = 'native-flow-confirm-solutions-effect';
+  const decisionEffectFlow = structuredClone(retryEffectFlow);
+  decisionEffectFlow.caseId = decisionEffectCaseId;
+  const decisionSourceReportId = decisionEffectFlow.reports
+    .filter((report) => report.stage === 1)
+    .at(-1).id;
+  const decisionSourceRecordingId = decisionEffectFlow.recordings.at(-1).id;
+  const decisionReportBody =
+    '격리 D1에서 진행솔루션 확정 효과를 검증하는 가상 심화보고서입니다. 실제 기업자료나 외부 처리를 사용하지 않습니다. '
+      .repeat(3)
+      .trim();
+  decisionEffectFlow.reports.push(
+    {
+      id: 'native-decision-older-deep-report',
+      stage: 4,
+      version: 1,
+      title: '4차 심화보고서',
+      body: decisionReportBody,
+      sourceReportId: decisionSourceReportId,
+      sourceRecordingId: decisionSourceRecordingId,
+      createdAt: evidenceTimes[1],
+      createdBy: '김성민 대표',
+      origin: 'manual',
+    },
+    {
+      id: 'native-decision-latest-deep-report',
+      stage: 4,
+      version: 2,
+      title: '4차 심화보고서',
+      body: decisionReportBody,
+      sourceReportId: decisionSourceReportId,
+      sourceRecordingId: decisionSourceRecordingId,
+      createdAt: evidenceTimes[1],
+      createdBy: '김성민 대표',
+      origin: 'manual',
+    },
+  );
   const insertEvidenceFlow = () =>
     db
       .prepare(
@@ -4038,6 +4087,21 @@ try {
         reportEffectFlow.updatedAt,
       )
       .run();
+  const insertDecisionEffectFlow = () =>
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        decisionEffectCaseId,
+        decisionEffectFlow.partnerId,
+        decisionEffectFlow.revision,
+        JSON.stringify(decisionEffectFlow),
+        decisionEffectFlow.updatedAt,
+      )
+      .run();
   const receiptOriginCaseId = 'native-flow-command-receipt-origin';
   const legacyReceiptOriginFlow = structuredClone(evidenceFlow);
   legacyReceiptOriginFlow.caseId = receiptOriginCaseId;
@@ -4143,6 +4207,7 @@ try {
     await insertSourceEffectFlow();
     await insertIntakeEffectFlow();
     await insertReportEffectFlow();
+    await insertDecisionEffectFlow();
   } finally {
     await db.batch([
       db.prepare(flowAiEvidenceInsertTriggerSql),
@@ -4978,6 +5043,86 @@ try {
   );
   checks.push(
     'FLOW native D1 binds one scheduled target, attendee and preserved completion evidence to cancellation',
+  );
+  const validDecisionEffectFlow = structuredClone(decisionEffectFlow);
+  validDecisionEffectFlow.revision++;
+  validDecisionEffectFlow.updatedAt = evidenceTimes[2];
+  const decisionEffectCommandId = 'native-confirm-solutions-effect';
+  validDecisionEffectFlow.decision = {
+    id: `${decisionEffectCommandId}-decision`,
+    reportId: 'native-decision-latest-deep-report',
+    solutions: ['법인 운영체계 정비', '재무구조 분석'],
+    note: '가상 심화보고서 검토 완료',
+    documentsNeeded: true,
+    at: evidenceTimes[2],
+  };
+  validDecisionEffectFlow.audit.push({
+    id: decisionEffectCommandId,
+    at: evidenceTimes[2],
+    actor: '김성민 대표',
+    action: 'confirm_solutions',
+    detail: '김성민 대표 진행솔루션 확정',
+  });
+  validDecisionEffectFlow.commandIds.push(decisionEffectCommandId);
+  validDecisionEffectFlow.commandReceipts[decisionEffectCommandId] = {
+    actorKey: 'admin:primary',
+    fingerprint: '2'.repeat(64),
+    actor: '김성민 대표',
+    action: 'confirm_solutions',
+  };
+  const saveDecisionEffectTransition = (after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        decisionEffectCaseId,
+        decisionEffectFlow.revision,
+      )
+      .run();
+  const forgedDecisionReportFlow = structuredClone(validDecisionEffectFlow);
+  forgedDecisionReportFlow.decision.reportId =
+    'native-decision-older-deep-report';
+  await assert.rejects(
+    saveDecisionEffectTransition(forgedDecisionReportFlow),
+    /confirm solutions effect is invalid/,
+  );
+  const forgedDecisionActorFlow = structuredClone(validDecisionEffectFlow);
+  forgedDecisionActorFlow.audit.at(-1).actor = decisionEffectFlow.partnerName;
+  forgedDecisionActorFlow.commandReceipts[decisionEffectCommandId] = {
+    ...forgedDecisionActorFlow.commandReceipts[decisionEffectCommandId],
+    actorKey: `member:${decisionEffectFlow.partnerId}`,
+    actor: decisionEffectFlow.partnerName,
+  };
+  await assert.rejects(
+    saveDecisionEffectTransition(forgedDecisionActorFlow),
+    /confirm solutions effect is invalid/,
+  );
+  const forgedDecisionEvidenceFlow = structuredClone(validDecisionEffectFlow);
+  forgedDecisionEvidenceFlow.decision.id = 'forged-solution-decision';
+  forgedDecisionEvidenceFlow.decision.solutions = [
+    '중복 솔루션',
+    '중복 솔루션',
+  ];
+  forgedDecisionEvidenceFlow.decision.at = evidenceTimes[1];
+  await assert.rejects(
+    saveDecisionEffectTransition(forgedDecisionEvidenceFlow),
+    /confirm solutions effect is invalid/,
+  );
+  const emptyDecisionSolutionsFlow = structuredClone(validDecisionEffectFlow);
+  emptyDecisionSolutionsFlow.decision.solutions = [];
+  await assert.rejects(
+    saveDecisionEffectTransition(emptyDecisionSolutionsFlow),
+    /confirm solutions effect is invalid/,
+  );
+  await saveDecisionEffectTransition(validDecisionEffectFlow);
+  checks.push(
+    'FLOW native D1 binds latest deep report, representative and canonical decision evidence to solution confirmation',
   );
   const validSourceEffectFlow = structuredClone(sourceEffectFlow);
   validSourceEffectFlow.revision++;

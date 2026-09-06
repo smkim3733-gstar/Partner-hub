@@ -26,6 +26,7 @@ import {
   consultingFlowsCommandReceiptTargetHistoryTriggerSql,
   consultingFlowsCompleteMeetingEffectTriggerSql,
   consultingFlowsCancelMeetingEffectTriggerSql,
+  consultingFlowsConfirmSolutionsEffectTriggerSql,
   consultingFlowsSaveSourceEffectTriggerSql,
   consultingFlowsImportIntakeSourceEffectTriggerSql,
   consultingFlowsExcludeSourceEffectTriggerSql,
@@ -87,6 +88,7 @@ import {
 } from '@/db/schema';
 import {
   analysisDone,
+  deepReport,
   flowAiResultAuditDetail,
   FlowError,
   documentsKey,
@@ -177,6 +179,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsCommandReceiptTargetHistoryTriggerSql),
         db.prepare(consultingFlowsCompleteMeetingEffectTriggerSql),
         db.prepare(consultingFlowsCancelMeetingEffectTriggerSql),
+        db.prepare(consultingFlowsConfirmSolutionsEffectTriggerSql),
         db.prepare(consultingFlowsSaveSourceEffectTriggerSql),
         db.prepare(consultingFlowsImportIntakeSourceEffectTriggerSql),
         db.prepare(consultingFlowsExcludeSourceEffectTriggerSql),
@@ -1400,6 +1403,30 @@ function assertFlowCommitTransition(
         ![FLOW_ADMIN_COMMAND_ACTOR_KEY, `member:${before.partnerId}`].includes(
           receipt.actorKey,
         )
+      )
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'confirm_solutions') {
+      const decision = after.decision;
+      const report = deepReport(before);
+      if (
+        before.contract !== undefined ||
+        afterReceipts[commandId]?.actorKey !== FLOW_ADMIN_COMMAND_ACTOR_KEY ||
+        !report ||
+        !decision ||
+        decision.id !== `${commandId}-decision` ||
+        decision.reportId !== report.id ||
+        decision.solutions.length < 1 ||
+        decision.solutions.length > FLOW_FIELD_LIMITS.decisionSolutionCount ||
+        new Set(decision.solutions).size !== decision.solutions.length ||
+        decision.solutions.some(
+          (solution) =>
+            !solution ||
+            solution !== solution.trim() ||
+            Array.from(solution).length > FLOW_FIELD_LIMITS.decisionSolution,
+        ) ||
+        decision.note !== decision.note.trim() ||
+        decision.at !== after.updatedAt
       )
         throw storedFlowIntegrityError();
     }
