@@ -10654,7 +10654,12 @@ type MultipartBodyStateChange =
     }
   | {
       kind: 'case-and-member-deletion';
-      timing?: 'body-read' | 'content-check' | 'first-r2-write' | 'd1-write';
+      timing?:
+        | 'body-read'
+        | 'content-check'
+        | 'reservation-check'
+        | 'first-r2-write'
+        | 'd1-write';
       status: 403 | 503;
       error: string;
     };
@@ -10968,6 +10973,9 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
   const stateChangesDuringContentCheck =
     scenario.kind === 'case-and-member-deletion' &&
     scenario.timing === 'content-check';
+  const stateChangesDuringReservationCheck =
+    scenario.kind === 'case-and-member-deletion' &&
+    scenario.timing === 'reservation-check';
   Object.defineProperty(stream, 'getReader', {
     value: () => {
       const reader = getReader();
@@ -10978,6 +10986,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
           once = false;
           if (
             !stateChangesDuringContentCheck &&
+            !stateChangesDuringReservationCheck &&
             !stateChangesDuringFirstR2Write &&
             !stateChangesDuringD1Write
           )
@@ -10995,7 +11004,34 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     'arrayBuffer',
   ) as File['arrayBuffer'];
   const batch = db.batch.bind(db);
+  const prepare = db.prepare.bind(db);
   let d1WriteAttempts = 0;
+  const wrapReservationRead = (
+    statement: D1PreparedStatement,
+  ): D1PreparedStatement =>
+    new Proxy(statement, {
+      get(target, key) {
+        if (key === 'bind')
+          return (...values: unknown[]) =>
+            wrapReservationRead(target.bind(...values));
+        if (key === 'all')
+          return async <T = Record<string, unknown>>() => {
+            const result = await target.all<T>();
+            db.prepare = prepare;
+            await changeState();
+            return result;
+          };
+        const value = Reflect.get(target, key);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  if (stateChangesDuringReservationCheck)
+    db.prepare = (sql: string) =>
+      sql.startsWith(
+        'SELECT command_id, slot, fingerprint, file_id, storage_key, original_name,',
+      ) && sql.includes('FROM consulting_flow_upload_requests')
+        ? wrapReservationRead(prepare(sql))
+        : prepare(sql);
   bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
     retryPutAttempts++;
     const object = await put(...args);
@@ -11032,6 +11068,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     File.prototype.arrayBuffer = fileArrayBuffer;
     bucket.put = put;
     db.batch = batch;
+    db.prepare = prepare;
   }
   assert.equal(stateChanged, true);
   assert.equal(
@@ -11475,6 +11512,196 @@ void test('partial R2 retry rejects case and assigned member deletion during fil
     status: 403,
     error: '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
   });
+});
+
+void test('partial R2 retry rejects case and assigned member deletion during upload reservation lookup before any R2 write and rebinds after restoration', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'case-and-member-deletion',
+    timing: 'reservation-check',
+    status: 403,
+    error: '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
+  });
+});
+
+void test('first multipart upload rejects permission revocation during reservation creation before any R2 write and reuses the pending reservation after restoration', async () => {
+  await deleteConsultingFlowFixture(await flowDatabase());
+  const stored = await transcriptJobFixture(false, body);
+  const command = {
+    type: 'save_recording',
+    meetingId: stored.meetings.at(-1)!.id,
+    transcript: `${body} 예약 생성 중 권한 회수 경쟁`,
+    transcriptReviewed: true,
+    recordingConsent: true,
+    privacyMasked: true,
+    fileConsent: true,
+  } as const;
+  const transcript = new File(
+    ['SYNTHETIC_RESERVATION_CREATE_PERMISSION_RACE_TRANSCRIPT'],
+    'reservation-create-permission-race.txt',
+    { type: 'text/plain' },
+  );
+  const audio = new File(
+    [new Uint8Array([0x49, 0x44, 0x33, 4, 0, 13])],
+    'reservation-create-permission-race.mp3',
+    { type: 'audio/mpeg' },
+  );
+  const commandId = `reservation-create-permission-race-${++sequence}`;
+  const previousKeys = new Set(objects.keys());
+  const db = await flowDatabase();
+  const batch = db.batch.bind(db);
+  const bucket = flowBucket();
+  const put = bucket.put.bind(bucket);
+  let reservationCreationObserved = false;
+  let putAttempts = 0;
+  const setFileUploadPermission = async (enabled: boolean) => {
+    const state = structuredClone(await readPortalState()) as {
+      members: Array<{
+        id: string;
+        permissions: Record<string, boolean>;
+      }>;
+    };
+    const permissions = state.members.find(
+      ({ id }) => id === partner.id,
+    )!.permissions;
+    permissions.sharedSchedule = false;
+    permissions.collaborationApply = false;
+    permissions.fileUpload = enabled;
+    const response = await saveState(
+      new Request('http://localhost/api/state', {
+        method: 'PUT',
+        headers: {
+          origin: 'http://localhost',
+          'content-type': 'application/json',
+          'oai-authenticated-user-id': adminEmail,
+          'oai-authenticated-user-email': adminEmail,
+        },
+        body: JSON.stringify({ state }),
+      }),
+    );
+    assert.equal(response.status, 200, await response.clone().text());
+  };
+  db.batch = async <T = unknown>(statements: D1PreparedStatement[]) => {
+    const result = await batch<T>(statements);
+    if (
+      !reservationCreationObserved &&
+      statements.some((statement) =>
+        (statement as unknown as { sql: string }).sql.startsWith(
+          'INSERT INTO consulting_flow_upload_requests',
+        ),
+      )
+    ) {
+      reservationCreationObserved = true;
+      await setFileUploadPermission(false);
+    }
+    return result;
+  };
+  bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+    putAttempts++;
+    return put(...args);
+  };
+  let response: Response;
+  try {
+    response = await POST(
+      request(
+        stored.caseId,
+        command,
+        stored.revision,
+        commandId,
+        partner.email,
+        transcript,
+        audio,
+      ),
+      context(stored.caseId),
+    );
+  } finally {
+    db.batch = batch;
+    bucket.put = put;
+  }
+  assert.equal(reservationCreationObserved, true);
+  assert.equal(response.status, 403);
+  assert.deepEqual(await response.json(), {
+    error: '자료 업로드 권한이 필요합니다.',
+  });
+  assert.equal(putAttempts, 0);
+  assert.deepEqual(await readFlow(stored.caseId), stored);
+  const pending = (
+    await db
+      .prepare(
+        `SELECT slot, file_id, storage_key, status
+        FROM consulting_flow_upload_requests
+        WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3
+        ORDER BY slot`,
+      )
+      .bind(stored.caseId, `member:${partner.id}`, commandId)
+      .all<{
+        slot: string;
+        file_id: string;
+        storage_key: string;
+        status: string;
+      }>()
+  ).results;
+  assert.deepEqual(
+    pending.map(({ slot, status }) => ({ slot, status })),
+    [
+      { slot: 'audio', status: 'pending' },
+      { slot: 'file', status: 'pending' },
+    ],
+  );
+  assert.deepEqual(
+    [...objects.keys()].filter((key) => !previousKeys.has(key)),
+    [],
+  );
+
+  await setFileUploadPermission(true);
+  const retry = await POST(
+    request(
+      stored.caseId,
+      command,
+      stored.revision,
+      commandId,
+      partner.email,
+      transcript,
+      audio,
+    ),
+    context(stored.caseId),
+  );
+  assert.equal(retry.status, 200, await retry.clone().text());
+  const saved = (await readFlow(stored.caseId))!;
+  const recording = saved.recordings.at(-1)!;
+  const reservedBySlot = new Map(
+    pending.map(({ slot, file_id }) => [slot, file_id]),
+  );
+  assert.equal(recording.transcriptFileId, reservedBySlot.get('file'));
+  assert.equal(recording.audioFileId, reservedBySlot.get('audio'));
+  assert.deepEqual(saved.commandIds.slice(-1), [commandId]);
+  assert.deepEqual(
+    [...objects.keys()]
+      .filter((key) => !previousKeys.has(key))
+      .sort((a, b) => a.localeCompare(b)),
+    pending
+      .map(({ storage_key }) => storage_key)
+      .sort((a, b) => a.localeCompare(b)),
+  );
+  const completions = (
+    await db
+      .prepare(
+        `SELECT reservation.status, completion.command_id
+        FROM consulting_flow_upload_requests reservation
+        LEFT JOIN consulting_flow_upload_completions completion
+          ON completion.file_id = reservation.file_id
+        WHERE reservation.command_id = ?1
+        ORDER BY reservation.file_id`,
+      )
+      .bind(commandId)
+      .all<{ status: string; command_id: string | null }>()
+  ).results;
+  assert.equal(completions.length, 2);
+  assert.ok(
+    completions.every(
+      ({ status, command_id }) =>
+        status === 'ready' && command_id === commandId,
+    ),
+  );
 });
 
 void test('FLOW commit rejects a suspension immediately before D1 writes', async () => {

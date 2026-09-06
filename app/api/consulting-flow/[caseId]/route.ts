@@ -184,6 +184,17 @@ export async function POST(request: Request, context: Context) {
         ...(audioUpload ? [{ slot: 'audio' as const, file: audioUpload }] : []),
       ],
     });
+    if (reservations.size) {
+      // Reservation lookup or creation performs asynchronous D1 work. Recheck
+      // after it so a revoked actor cannot start an R2 write with stale access.
+      const reservationCheckedAccess = await recheckFlowAccess(
+        request,
+        flow,
+        user,
+        true,
+      );
+      assertFlowLifecycleActive(reservationCheckedAccess.state, flow.caseId);
+    }
     const upload = candidateUpload ? reservations.get('file') : undefined;
     const reservedAudioUpload = audioUpload
       ? reservations.get('audio')
