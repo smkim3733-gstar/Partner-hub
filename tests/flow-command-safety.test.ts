@@ -471,6 +471,158 @@ void test('FLOW duplicate payment requests persist one payment and accept an exa
   assert.equal((await readFlow(flow.caseId))!.revision, signed.revision + 1);
 });
 
+void test('FLOW payment confirmations bind the canonical payment, execution start and audit', async () => {
+  const flow = await fixture();
+  const signed = structuredClone(flow);
+  signed.revision++;
+  signed.files.push({
+    id: `payment-effect-signed-${++sequence}`,
+    name: 'payment-effect-signed.pdf',
+    contentType: 'application/pdf',
+    size: 1,
+    key: flowFileStorageKey(`payment-effect-signed-${sequence}`),
+    createdAt: flow.updatedAt,
+    purpose: 'signed_contract',
+  });
+  signed.reports.push({
+    id: `payment-effect-report-${++sequence}`,
+    stage: 6,
+    version: 1,
+    title: '가상 계약서',
+    body: '',
+    sourceReportId: flow.reports[0]!.id,
+    createdAt: flow.updatedAt,
+    createdBy: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    origin: 'manual',
+  });
+  signed.meetings.push({
+    id: `payment-effect-meeting-${++sequence}`,
+    kind: 'contract',
+    startsAt: new Date(Date.parse(flow.updatedAt) - 120_000).toISOString(),
+    endsAt: new Date(Date.parse(flow.updatedAt) - 60_000).toISOString(),
+    location: '가상 계약상담',
+    attendance: 'admin',
+    status: 'completed',
+    note: '',
+    createdBy: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    completedAt: new Date(Date.parse(flow.updatedAt) - 60_000).toISOString(),
+  });
+  signed.contract = {
+    meetingId: signed.meetings.at(-1)!.id,
+    reportId: signed.reports.at(-1)!.id,
+    signedFileId: signed.files.at(-1)!.id,
+    signedAt: new Date(Date.parse(flow.updatedAt) + 9 * 3_600_000)
+      .toISOString()
+      .slice(0, 10),
+    expectedDepositWon: 1_000_000,
+    recordedBy: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+  };
+  await commitFlow(
+    flow,
+    signed,
+    undefined,
+    await storeFlowFileBinding(signed.files.at(-1)!, new Uint8Array([1])),
+  );
+
+  const adminUser: PortalUser = {
+    id: 'stable-payment-owner-subject',
+    email: adminEmail,
+    displayName: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    role: 'admin',
+    memberId: null,
+    memberName: null,
+    permissions: null,
+  };
+  const commandId = `confirm-payment-effect-${++sequence}`;
+  const command = {
+    type: 'confirm_payment',
+    paymentConfirmed: true,
+    amountWon: signed.contract.expectedDepositWon,
+    receivedAt: signed.contract.signedAt,
+    reference: '가상 계약금 입금',
+  } as const;
+  const receipt = await flowCommandReceipt(adminUser, { command });
+  const confirmed = applyFlowCommand(
+    signed,
+    command,
+    {
+      id: adminEmail,
+      role: 'admin',
+      name: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    },
+    {
+      commandId,
+      now: new Date(Date.parse(signed.updatedAt) + 1_000).toISOString(),
+    },
+  );
+  confirmed.commandReceipts = {
+    ...confirmed.commandReceipts,
+    [commandId]: {
+      ...receipt,
+      actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+      action: 'confirm_payment',
+    },
+  };
+  const rejectsAtBothBoundaries = async (
+    candidate: ConsultingFlow,
+    label: string,
+  ) => {
+    await assert.rejects(
+      commitFlow(signed, candidate),
+      (error) => error instanceof FlowError && error.status === 503,
+      `application accepted ${label}`,
+    );
+    const db = await flowDatabase();
+    await assert.rejects(
+      db
+        .prepare(
+          `UPDATE consulting_flows
+          SET revision = ?1, payload = ?2, updated_at = ?3
+          WHERE case_id = ?4 AND revision = ?5`,
+        )
+        .bind(
+          candidate.revision,
+          JSON.stringify(candidate),
+          candidate.updatedAt,
+          signed.caseId,
+          signed.revision,
+        )
+        .run(),
+      /command scope is invalid|command target is invalid|confirm payment effect is invalid/,
+      `D1 accepted ${label}`,
+    );
+  };
+
+  const forgedConfirmer = structuredClone(confirmed);
+  forgedConfirmer.payments.at(-1)!.confirmedBy = partner.name;
+  await rejectsAtBothBoundaries(forgedConfirmer, 'a forged payment confirmer');
+
+  const forgedPaymentTime = structuredClone(confirmed);
+  forgedPaymentTime.payments.at(-1)!.recordedAt = signed.updatedAt;
+  await rejectsAtBothBoundaries(forgedPaymentTime, 'a forged payment time');
+
+  const paddedReference = structuredClone(confirmed);
+  paddedReference.payments.at(-1)!.reference = ' 가상 계약금 입금 ';
+  await rejectsAtBothBoundaries(paddedReference, 'a padded payment reference');
+
+  const forgedExecutionStart = structuredClone(confirmed);
+  forgedExecutionStart.executionStartedAt = signed.updatedAt;
+  await rejectsAtBothBoundaries(
+    forgedExecutionStart,
+    'a forged consulting execution start',
+  );
+
+  const forgedAudit = structuredClone(confirmed);
+  forgedAudit.audit.at(-1)!.detail = '계약금 일부만 입금된 것처럼 위조';
+  await rejectsAtBothBoundaries(forgedAudit, 'a forged payment audit detail');
+
+  await commitFlow(signed, confirmed);
+  assert.deepEqual(
+    await readFlow(confirmed.caseId),
+    JSON.parse(JSON.stringify(confirmed)),
+  );
+});
+
 void test('legacy command IDs without receipts require refresh and cannot silently acknowledge a new action', async () => {
   const flow = await fixture();
   const response = await POST(

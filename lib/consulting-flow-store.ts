@@ -33,6 +33,7 @@ import {
   consultingFlowsReviewDocumentEffectTriggerSql,
   consultingFlowsRecordContractEffectTriggerSql,
   consultingFlowsRecordContractEvidenceTriggerSql,
+  consultingFlowsConfirmPaymentEffectTriggerSql,
   consultingFlowsSaveSourceEffectTriggerSql,
   consultingFlowsImportIntakeSourceEffectTriggerSql,
   consultingFlowsExcludeSourceEffectTriggerSql,
@@ -192,6 +193,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsReviewDocumentEffectTriggerSql),
         db.prepare(consultingFlowsRecordContractEffectTriggerSql),
         db.prepare(consultingFlowsRecordContractEvidenceTriggerSql),
+        db.prepare(consultingFlowsConfirmPaymentEffectTriggerSql),
         db.prepare(consultingFlowsSaveSourceEffectTriggerSql),
         db.prepare(consultingFlowsImportIntakeSourceEffectTriggerSql),
         db.prepare(consultingFlowsExcludeSourceEffectTriggerSql),
@@ -1711,6 +1713,66 @@ function assertFlowCommitTransition(
         signedFile.sourceReviewedAt !== undefined ||
         signedFile.sourceReviewedBy !== undefined ||
         commandAudit?.detail !== '서명본과 약정 계약금 등록 · 입금 확인 대기'
+      )
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'confirm_payment') {
+      const receipt = afterReceipts[commandId];
+      const payment = after.payments.at(-1);
+      const commandAudit = newAudit.find((entry) => entry.id === commandId);
+      const previousPaid = before.payments.reduce(
+        (total, item) => total + item.amountWon,
+        0,
+      );
+      const receivedAt = payment?.receivedAt;
+      const parsedReceivedAt = receivedAt
+        ? Date.parse(`${receivedAt}T00:00:00.000Z`)
+        : Number.NaN;
+      const currentKoreanDate = new Date(
+        Date.parse(after.updatedAt) + 9 * 3_600_000,
+      )
+        .toISOString()
+        .slice(0, 10);
+      const expectedPayment = payment && {
+        id: `${commandId}-payment`,
+        amountWon: payment.amountWon,
+        receivedAt: payment.receivedAt,
+        reference: payment.reference.trim(),
+        confirmedBy: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+        recordedAt: after.updatedAt,
+      };
+      const depositComplete = Boolean(
+        before.contract &&
+        payment &&
+        previousPaid + payment.amountWon >= before.contract.expectedDepositWon,
+      );
+      const expectedExecutionStartedAt =
+        before.executionStartedAt ??
+        (depositComplete ? after.updatedAt : undefined);
+      if (
+        receipt?.actorKey !== FLOW_ADMIN_COMMAND_ACTOR_KEY ||
+        !before.contract ||
+        after.payments.length !== before.payments.length + 1 ||
+        before.payments.some(
+          (item, index) => !sameValue(item, after.payments[index]),
+        ) ||
+        !payment ||
+        !sameValue(payment, expectedPayment) ||
+        !Number.isSafeInteger(payment.amountWon) ||
+        payment.amountWon < 1 ||
+        payment.amountWon > 1_000_000_000_000 ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(receivedAt ?? '') ||
+        !Number.isFinite(parsedReceivedAt) ||
+        new Date(parsedReceivedAt).toISOString().slice(0, 10) !== receivedAt ||
+        receivedAt > currentKoreanDate ||
+        payment.reference.length === 0 ||
+        Array.from(payment.reference).length >
+          FLOW_FIELD_LIMITS.paymentReference ||
+        after.executionStartedAt !== expectedExecutionStartedAt ||
+        commandAudit?.detail !==
+          (depositComplete
+            ? '약정 계약금 입금 확인 완료 · 컨설팅 수행 시작'
+            : '계약금 일부 입금 확인 · 잔액 대기')
       )
         throw storedFlowIntegrityError();
     }

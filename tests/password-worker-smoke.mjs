@@ -581,6 +581,16 @@ const flowRecordContractEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowConfirmPaymentEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0090_consulting_flow_confirm_payment_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -604,6 +614,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_review_document_effect_guard',
   'consulting_flows_record_contract_effect_guard',
   'consulting_flows_record_contract_evidence_guard',
+  'consulting_flows_confirm_payment_effect_guard',
   'consulting_flows_save_source_effect_guard',
   'consulting_flows_import_intake_source_effect_guard',
   'consulting_flows_exclude_source_effect_guard',
@@ -668,6 +679,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowReceiveDocumentEffectTriggerSql,
       ...flowReviewDocumentEffectTriggerSql,
       ...flowRecordContractEffectTriggerSql,
+      ...flowConfirmPaymentEffectTriggerSql,
       flowSaveSourceEffectTriggerSql[0],
       flowImportIntakeSourceEffectTriggerSql[0],
       flowExcludeSourceEffectTriggerSql[0],
@@ -6064,6 +6076,159 @@ try {
   await saveRecordContractEffectTransition(validRecordContractEffectFlow);
   checks.push(
     'FLOW native D1 binds selected eligible contract meeting, latest stage-6 report, signed copy, recorder, server times and audit',
+  );
+
+  const validConfirmPaymentEffectFlow = structuredClone(
+    validRecordContractEffectFlow,
+  );
+  validConfirmPaymentEffectFlow.revision++;
+  validConfirmPaymentEffectFlow.updatedAt = evidenceTimes[10];
+  const confirmPaymentCommandId = 'native-confirm-payment-effect';
+  validConfirmPaymentEffectFlow.payments.push({
+    id: `${confirmPaymentCommandId}-payment`,
+    amountWon: 1_000_000,
+    receivedAt: '2026-09-06',
+    reference: '가상 계약금 입금',
+    confirmedBy: '김성민 대표',
+    recordedAt: evidenceTimes[10],
+  });
+  validConfirmPaymentEffectFlow.executionStartedAt = evidenceTimes[10];
+  validConfirmPaymentEffectFlow.audit.push({
+    id: confirmPaymentCommandId,
+    at: evidenceTimes[10],
+    actor: '김성민 대표',
+    action: 'confirm_payment',
+    detail: '약정 계약금 입금 확인 완료 · 컨설팅 수행 시작',
+  });
+  validConfirmPaymentEffectFlow.commandIds.push(confirmPaymentCommandId);
+  validConfirmPaymentEffectFlow.commandReceipts[confirmPaymentCommandId] = {
+    actorKey: 'admin:primary',
+    fingerprint: 'b'.repeat(64),
+    actor: '김성민 대표',
+    action: 'confirm_payment',
+  };
+  const saveConfirmPaymentEffectTransition = (before, after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        contractEffectCaseId,
+        before.revision,
+      )
+      .run();
+  const confirmPaymentEffectError =
+    /command scope is invalid|command target is invalid|confirm payment effect is invalid/;
+
+  const forgedPaymentConfirmerFlow = structuredClone(
+    validConfirmPaymentEffectFlow,
+  );
+  forgedPaymentConfirmerFlow.payments.at(-1).confirmedBy =
+    forgedPaymentConfirmerFlow.partnerName;
+  await assert.rejects(
+    saveConfirmPaymentEffectTransition(
+      validRecordContractEffectFlow,
+      forgedPaymentConfirmerFlow,
+    ),
+    confirmPaymentEffectError,
+  );
+  const forgedPaymentTimeFlow = structuredClone(validConfirmPaymentEffectFlow);
+  forgedPaymentTimeFlow.payments.at(-1).recordedAt = evidenceTimes[9];
+  await assert.rejects(
+    saveConfirmPaymentEffectTransition(
+      validRecordContractEffectFlow,
+      forgedPaymentTimeFlow,
+    ),
+    confirmPaymentEffectError,
+  );
+  const paddedPaymentReferenceFlow = structuredClone(
+    validConfirmPaymentEffectFlow,
+  );
+  paddedPaymentReferenceFlow.payments.at(-1).reference = ' 가상 계약금 입금 ';
+  await assert.rejects(
+    saveConfirmPaymentEffectTransition(
+      validRecordContractEffectFlow,
+      paddedPaymentReferenceFlow,
+    ),
+    confirmPaymentEffectError,
+  );
+  const forgedExecutionStartFlow = structuredClone(
+    validConfirmPaymentEffectFlow,
+  );
+  forgedExecutionStartFlow.executionStartedAt = evidenceTimes[9];
+  await assert.rejects(
+    saveConfirmPaymentEffectTransition(
+      validRecordContractEffectFlow,
+      forgedExecutionStartFlow,
+    ),
+    confirmPaymentEffectError,
+  );
+  const forgedConfirmPaymentAuditFlow = structuredClone(
+    validConfirmPaymentEffectFlow,
+  );
+  forgedConfirmPaymentAuditFlow.audit.at(-1).detail =
+    '계약금 일부만 입금된 것처럼 위조';
+  await assert.rejects(
+    saveConfirmPaymentEffectTransition(
+      validRecordContractEffectFlow,
+      forgedConfirmPaymentAuditFlow,
+    ),
+    confirmPaymentEffectError,
+  );
+  await saveConfirmPaymentEffectTransition(
+    validRecordContractEffectFlow,
+    validConfirmPaymentEffectFlow,
+  );
+
+  const secondConfirmPaymentFlow = structuredClone(
+    validConfirmPaymentEffectFlow,
+  );
+  secondConfirmPaymentFlow.revision++;
+  secondConfirmPaymentFlow.updatedAt = evidenceTimes[11];
+  const secondConfirmPaymentCommandId =
+    'native-confirm-payment-after-execution-effect';
+  secondConfirmPaymentFlow.payments.push({
+    id: `${secondConfirmPaymentCommandId}-payment`,
+    amountWon: 1,
+    receivedAt: '2026-09-06',
+    reference: '가상 추가 입금',
+    confirmedBy: '김성민 대표',
+    recordedAt: evidenceTimes[11],
+  });
+  secondConfirmPaymentFlow.audit.push({
+    id: secondConfirmPaymentCommandId,
+    at: evidenceTimes[11],
+    actor: '김성민 대표',
+    action: 'confirm_payment',
+    detail: '약정 계약금 입금 확인 완료 · 컨설팅 수행 시작',
+  });
+  secondConfirmPaymentFlow.commandIds.push(secondConfirmPaymentCommandId);
+  secondConfirmPaymentFlow.commandReceipts[secondConfirmPaymentCommandId] = {
+    actorKey: 'admin:primary',
+    fingerprint: 'c'.repeat(64),
+    actor: '김성민 대표',
+    action: 'confirm_payment',
+  };
+  const resetExecutionStartFlow = structuredClone(secondConfirmPaymentFlow);
+  resetExecutionStartFlow.executionStartedAt = evidenceTimes[11];
+  await assert.rejects(
+    saveConfirmPaymentEffectTransition(
+      validConfirmPaymentEffectFlow,
+      resetExecutionStartFlow,
+    ),
+    confirmPaymentEffectError,
+  );
+  await saveConfirmPaymentEffectTransition(
+    validConfirmPaymentEffectFlow,
+    secondConfirmPaymentFlow,
+  );
+  checks.push(
+    'FLOW native D1 binds canonical payments, representative identity, server times, one-time execution start and audit',
   );
   await deleteConsultingFlowFixture(db, contractEffectCaseId);
 
