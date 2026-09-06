@@ -441,6 +441,16 @@ const flowQueueReportJobEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowSaveSourceEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0076_consulting_flow_save_source_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -449,6 +459,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_command_ai_transition_guard',
   'consulting_flows_set_ai_policy_jobs_guard',
   'consulting_flows_queue_report_job_effect_guard',
+  'consulting_flows_save_source_effect_guard',
   'consulting_flows_save_recording_effect_guard',
   'consulting_flows_save_transcript_jobs_guard',
   'consulting_flows_retry_job_effect_guard',
@@ -499,6 +510,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowCommandAiTransitionTriggerSql[0],
       flowSetAiPolicyJobsTriggerSql[0],
       flowQueueReportJobEffectTriggerSql[0],
+      flowSaveSourceEffectTriggerSql[0],
       flowSaveRecordingEffectTriggerSql[0],
       flowSaveTranscriptJobsTriggerSql[0],
       flowRetryJobEffectTriggerSql[0],
@@ -3810,6 +3822,9 @@ try {
   const queueEffectCaseId = 'native-flow-queue-report-job-effect';
   const queueEffectFlow = structuredClone(retryEffectFlow);
   queueEffectFlow.caseId = queueEffectCaseId;
+  const sourceEffectCaseId = 'native-flow-save-source-effect';
+  const sourceEffectFlow = structuredClone(retryEffectFlow);
+  sourceEffectFlow.caseId = sourceEffectCaseId;
   const insertEvidenceFlow = () =>
     db
       .prepare(
@@ -3883,6 +3898,21 @@ try {
         queueEffectFlow.revision,
         JSON.stringify(queueEffectFlow),
         queueEffectFlow.updatedAt,
+      )
+      .run();
+  const insertSourceEffectFlow = () =>
+    db
+      .prepare(
+        `INSERT INTO consulting_flows
+          (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, ?3, ?4, ?5)`,
+      )
+      .bind(
+        sourceEffectCaseId,
+        sourceEffectFlow.partnerId,
+        sourceEffectFlow.revision,
+        JSON.stringify(sourceEffectFlow),
+        sourceEffectFlow.updatedAt,
       )
       .run();
   const receiptOriginCaseId = 'native-flow-command-receipt-origin';
@@ -3987,6 +4017,7 @@ try {
     await insertRetryEffectFlow();
     await insertRecordingEffectFlow();
     await insertQueueEffectFlow();
+    await insertSourceEffectFlow();
   } finally {
     await db.batch([
       db.prepare(flowAiEvidenceInsertTriggerSql),
@@ -4348,6 +4379,58 @@ try {
   );
   await saveQueueEffectTransition(validQueueEffectFlow);
   checks.push('FLOW native D1 binds one exact report queue job effect');
+  const validSourceEffectFlow = structuredClone(sourceEffectFlow);
+  validSourceEffectFlow.revision++;
+  validSourceEffectFlow.updatedAt = evidenceTimes[2];
+  validSourceEffectFlow.ai.sourceText =
+    '가상 기업의 비식별 근거자료를 원문 저장 효과 검증용으로 갱신했습니다.';
+  validSourceEffectFlow.audit.push({
+    id: 'native-save-source-effect',
+    at: evidenceTimes[2],
+    actor: '김성민 대표',
+    action: 'save_source',
+    detail: '1차 분석용 근거자료 저장',
+  });
+  validSourceEffectFlow.commandIds.push('native-save-source-effect');
+  validSourceEffectFlow.commandReceipts['native-save-source-effect'] = {
+    actorKey: 'admin:primary',
+    fingerprint: '3'.repeat(64),
+    actor: '김성민 대표',
+    action: 'save_source',
+  };
+  const saveSourceEffectTransition = (after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        sourceEffectCaseId,
+        sourceEffectFlow.revision,
+      )
+      .run();
+  const forgedSourceEffectFlow = structuredClone(validSourceEffectFlow);
+  for (const suffix of ['a', 'b']) {
+    forgedSourceEffectFlow.files.push({
+      id: `native-save-source-extra-${suffix}`,
+      name: `extra-${suffix}.txt`,
+      contentType: 'text/plain',
+      size: 10,
+      key: `consulting-flow/native-save-source-extra-${suffix}`,
+      createdAt: evidenceTimes[2],
+      purpose: 'source',
+    });
+  }
+  await assert.rejects(
+    saveSourceEffectTransition(forgedSourceEffectFlow),
+    /save source effect is invalid/,
+  );
+  await saveSourceEffectTransition(validSourceEffectFlow);
+  checks.push('FLOW native D1 preserves files for source text-only saves');
   const commandedClaimEvidenceFlow = structuredClone(processingEvidenceFlow);
   commandedClaimEvidenceFlow.ai.approvedAt = evidenceTimes[3];
   commandedClaimEvidenceFlow.ai.approvedBy = 'native-synthetic-owner';

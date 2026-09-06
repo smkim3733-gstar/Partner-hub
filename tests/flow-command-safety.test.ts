@@ -2185,6 +2185,61 @@ void test('FLOW report queue commands bind one exact new job effect', async () =
   );
 });
 
+void test('FLOW source save commands preserve existing source files', async () => {
+  const queued = await queuedReportFixture(true);
+  const stored = structuredClone(queued);
+  stored.revision++;
+  stored.updatedAt = new Date(Date.parse(queued.updatedAt) + 1).toISOString();
+  stored.jobs.at(-1)!.status = 'blocked';
+  stored.jobs.at(-1)!.reason = '기존 독립 작업 보류';
+  await commitFlow(queued, stored);
+
+  const commandId = `save-source-effect-${++sequence}`;
+  const changed = applyFlowCommand(
+    stored,
+    {
+      type: 'save_source',
+      sourceText: `${body} 새 근거자료`,
+      privacyMasked: true,
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId,
+      now: new Date(Date.parse(stored.updatedAt) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(changed, commandId);
+  const forged = structuredClone(changed);
+  forged.files[0]!.purpose = 'source_archived';
+  await assert.rejects(
+    commitFlow(stored, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+        stored.caseId,
+        stored.revision,
+      )
+      .run(),
+    /save source effect is invalid/,
+  );
+  await commitFlow(stored, changed);
+  assert.deepEqual(
+    await readFlow(stored.caseId),
+    JSON.parse(JSON.stringify(changed)),
+  );
+});
+
 void test('FLOW command receipts originate only with same-revision commands', async () => {
   const initial = await fixture();
   const legacyCommandId = `legacy-command-without-receipt-${++sequence}`;
