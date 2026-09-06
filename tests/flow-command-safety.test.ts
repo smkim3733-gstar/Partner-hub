@@ -11083,6 +11083,16 @@ void test('partial R2 retry rejects upload permission revocation during the firs
   });
 });
 
+void test('partial R2 retry rejects case permission revocation during the first object write and recovers after restoration', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'permission',
+    permission: 'ownCases',
+    timing: 'first-r2-write',
+    status: 403,
+    error: '담당 파트너만 이 진행을 열 수 있습니다.',
+  });
+});
+
 void test('FLOW commit rejects a suspension immediately before D1 writes', async () => {
   const flow = await fixture(),
     db = await flowDatabase(),
