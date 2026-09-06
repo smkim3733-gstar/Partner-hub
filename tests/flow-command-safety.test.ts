@@ -10611,7 +10611,12 @@ type MultipartBodyStateChange =
   | {
       kind: 'permission';
       permission: 'ownCases' | 'fileUpload';
-      timing?: 'body-read' | 'first-r2-write' | 'd1-write';
+      timing?:
+        | 'body-read'
+        | 'first-r2-write'
+        | 'first-r2-stream-failure-before-commit'
+        | 'first-r2-stream-failure-after-commit'
+        | 'd1-write';
       status: 403 | 503;
       error: string;
     }
@@ -10672,6 +10677,15 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     scenario.kind === 'permission'
       ? `${scenario.permission}-${scenario.timing ?? 'body-read'}`
       : `${scenario.kind}-${scenario.timing ?? 'body-read'}`;
+  const stateChangesDuringFirstR2StreamFailureBeforeCommit =
+    scenario.kind === 'permission' &&
+    scenario.timing === 'first-r2-stream-failure-before-commit';
+  const stateChangesDuringFirstR2StreamFailureAfterCommit =
+    scenario.kind === 'permission' &&
+    scenario.timing === 'first-r2-stream-failure-after-commit';
+  const initialFirstR2WriteFailure =
+    stateChangesDuringFirstR2StreamFailureBeforeCommit ||
+    stateChangesDuringFirstR2StreamFailureAfterCommit;
   const stored = await transcriptJobFixture(false, body);
   if (scenario.kind === 'discontinued') {
     const trackedState = structuredClone(
@@ -10725,7 +10739,12 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
   let putAttempts = 0;
   bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
     putAttempts++;
-    if (putAttempts === 2) throw new Error('synthetic second R2 write failure');
+    if (putAttempts === (initialFirstR2WriteFailure ? 1 : 2))
+      throw new Error(
+        initialFirstR2WriteFailure
+          ? 'synthetic first R2 write failure'
+          : 'synthetic second R2 write failure',
+      );
     return put(...args);
   };
   let failed: Response;
@@ -10833,12 +10852,12 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     );
   };
   const transcriptReservation = pending.find(({ slot }) => slot === 'file')!;
-  const storedBeforeStateChange = new Uint8Array(
-    objects.get(transcriptReservation.storage_key),
-  ).slice();
+  const storedBeforeStateChange = initialFirstR2WriteFailure
+    ? null
+    : new Uint8Array(objects.get(transcriptReservation.storage_key)).slice();
   assert.deepEqual(
     [...objects.keys()].filter((key) => !previousKeys.has(key)),
-    [transcriptReservation.storage_key],
+    initialFirstR2WriteFailure ? [] : [transcriptReservation.storage_key],
   );
 
   const retryRequest = request(
@@ -10988,6 +11007,8 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
             !stateChangesDuringContentCheck &&
             !stateChangesDuringReservationCheck &&
             !stateChangesDuringFirstR2Write &&
+            !stateChangesDuringFirstR2StreamFailureBeforeCommit &&
+            !stateChangesDuringFirstR2StreamFailureAfterCommit &&
             !stateChangesDuringD1Write
           )
             await changeState();
@@ -11034,6 +11055,46 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
         : prepare(sql);
   bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
     retryPutAttempts++;
+    if (
+      retryPutAttempts === 1 &&
+      (stateChangesDuringFirstR2StreamFailureBeforeCommit ||
+        stateChangesDuringFirstR2StreamFailureAfterCommit)
+    ) {
+      const body = args[1];
+      if (!(body instanceof ReadableStream))
+        throw new Error('expected a streaming first R2 upload');
+      const reader = body.getReader();
+      let changed = false;
+      args[1] = new ReadableStream({
+        async pull(controller) {
+          const chunk = await reader.read();
+          if (chunk.done) {
+            controller.close();
+            return;
+          }
+          if (!changed) {
+            changed = true;
+            await changeState();
+            if (stateChangesDuringFirstR2StreamFailureBeforeCommit) {
+              const failure = new Error(
+                'synthetic R2 stream failure before object commit',
+              );
+              await reader.cancel(failure).catch(() => undefined);
+              controller.error(failure);
+              return;
+            }
+          }
+          controller.enqueue(chunk.value);
+        },
+        cancel(reason) {
+          return reader.cancel(reason);
+        },
+      });
+      const object = await put(...args);
+      if (stateChangesDuringFirstR2StreamFailureAfterCommit)
+        throw new Error('synthetic ambiguous R2 response after object commit');
+      return object;
+    }
     const object = await put(...args);
     if (retryPutAttempts === 1 && stateChangesDuringFirstR2Write)
       await changeState();
@@ -11090,7 +11151,11 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     assert.deepEqual(await result.json(), { error: scenario.error });
     assert.equal(
       retryPutAttempts,
-      stateChangesDuringD1Write ? 2 : stateChangesDuringFirstR2Write ? 1 : 0,
+      stateChangesDuringD1Write
+        ? 2
+        : stateChangesDuringFirstR2Write || initialFirstR2WriteFailure
+          ? 1
+          : 0,
     );
     assert.equal(d1WriteAttempts, stateChangesDuringD1Write ? 1 : 0);
     if (
@@ -11143,10 +11208,11 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       );
     }
     assert.deepEqual(await readFlow(stored.caseId), stored);
-    assert.deepEqual(
-      new Uint8Array(objects.get(transcriptReservation.storage_key)),
-      storedBeforeStateChange,
-    );
+    if (!initialFirstR2WriteFailure)
+      assert.deepEqual(
+        new Uint8Array(objects.get(transcriptReservation.storage_key)),
+        storedBeforeStateChange,
+      );
     if (stateChangesDuringD1Write) {
       const audioReservation = pending.find(({ slot }) => slot === 'audio')!;
       assert.deepEqual(
@@ -11166,6 +11232,23 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       assert.deepEqual(
         [...objects.keys()].filter((key) => !previousKeys.has(key)),
         [transcriptReservation.storage_key],
+      );
+      assert.equal(objects.has(audioReservation.storage_key), false);
+    } else if (stateChangesDuringFirstR2StreamFailureBeforeCommit) {
+      assert.deepEqual(
+        [...objects.keys()].filter((key) => !previousKeys.has(key)),
+        [],
+      );
+      assert.equal(objects.has(transcriptReservation.storage_key), false);
+    } else if (stateChangesDuringFirstR2StreamFailureAfterCommit) {
+      const audioReservation = pending.find(({ slot }) => slot === 'audio')!;
+      assert.deepEqual(
+        [...objects.keys()].filter((key) => !previousKeys.has(key)),
+        [transcriptReservation.storage_key],
+      );
+      assert.deepEqual(
+        new Uint8Array(objects.get(transcriptReservation.storage_key)),
+        new Uint8Array(await transcript.arrayBuffer()),
       );
       assert.equal(objects.has(audioReservation.storage_key), false);
     }
@@ -11330,6 +11413,26 @@ void test('partial R2 retry rejects upload permission revocation during the firs
     kind: 'permission',
     permission: 'fileUpload',
     timing: 'first-r2-write',
+    status: 403,
+    error: '자료 업로드 권한이 필요합니다.',
+  });
+});
+
+void test('pending R2 retry rechecks upload permission when the first stream fails before object commit', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'permission',
+    permission: 'fileUpload',
+    timing: 'first-r2-stream-failure-before-commit',
+    status: 403,
+    error: '자료 업로드 권한이 필요합니다.',
+  });
+});
+
+void test('pending R2 retry rechecks upload permission after an ambiguous first object commit failure', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'permission',
+    permission: 'fileUpload',
+    timing: 'first-r2-stream-failure-after-commit',
     status: 403,
     error: '자료 업로드 권한이 필요합니다.',
   });

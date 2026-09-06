@@ -217,16 +217,35 @@ export async function POST(request: Request, context: Context) {
         ...(receipt.targetId ? { targetId: receipt.targetId } : {}),
       },
     };
+    const writeUpload = async (
+      file: FlowFile,
+      body: Parameters<R2Bucket['put']>[1],
+    ) => {
+      try {
+        return await writeReservedFlowUpload(file, body);
+      } catch (error) {
+        // R2 can fail before commit or after an ambiguous object commit. Check
+        // current access before telling the actor to retry the reserved write.
+        const failedUploadAccess = await recheckFlowAccess(
+          request,
+          flow,
+          user,
+          true,
+        );
+        assertFlowLifecycleActive(failedUploadAccess.state, flow.caseId);
+        throw error;
+      }
+    };
     if (imported) {
       fileObjectBindings.set(
         upload!.id,
-        await writeReservedFlowUpload(upload!, imported.bytes),
+        await writeUpload(upload!, imported.bytes),
       );
     }
     if (upload && input.file) {
       fileObjectBindings.set(
         upload.id,
-        await writeReservedFlowUpload(upload, input.file.stream()),
+        await writeUpload(upload, input.file.stream()),
       );
     }
     if (reservedAudioUpload && input.audio) {
@@ -243,10 +262,7 @@ export async function POST(request: Request, context: Context) {
       }
       fileObjectBindings.set(
         reservedAudioUpload.id,
-        await writeReservedFlowUpload(
-          reservedAudioUpload,
-          input.audio.stream(),
-        ),
+        await writeUpload(reservedAudioUpload, input.audio.stream()),
       );
     }
     const access = await recheckFlowAccess(
