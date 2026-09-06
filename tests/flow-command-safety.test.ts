@@ -5970,7 +5970,8 @@ void test('stale revision retry after a partial R2 write preserves reservations 
   );
 });
 
-void test('partner retry rechecks account and upload permission before resuming partial R2 writes', async () => {
+void test('partner retry rechecks account and permissions before resuming partial R2 writes', async () => {
+  await deleteConsultingFlowFixture(await flowDatabase());
   const scenarios = [
     {
       kind: 'suspended-account',
@@ -5979,6 +5980,10 @@ void test('partner retry rechecks account and upload permission before resuming 
     {
       kind: 'revoked-upload-permission',
       error: '자료 업로드 권한이 필요합니다.',
+    },
+    {
+      kind: 'revoked-own-cases-permission',
+      error: '담당 파트너만 이 진행을 열 수 있습니다.',
     },
   ] as const;
 
@@ -6035,6 +6040,16 @@ void test('partner retry rechecks account and upload permission before resuming 
     assert.deepEqual(await readFlow(stored.caseId), stored);
 
     const db = await flowDatabase();
+    const memberBinding = () =>
+      db
+        .prepare(
+          `SELECT subject_id
+          FROM portal_chatgpt_identity_bindings
+          WHERE subject_type = 'member' AND subject_id = ?1`,
+        )
+        .bind(partner.id)
+        .first<{ subject_id: string }>();
+    assert.equal((await memberBinding())?.subject_id, partner.id);
     const pending = (
       await db
         .prepare(
@@ -6067,7 +6082,7 @@ void test('partner retry rechecks account and upload permission before resuming 
       [transcriptReservation.storage_key],
     );
 
-    const changedState = (await readPortalState()) as {
+    const changedState = structuredClone(await readPortalState()) as {
       members: Array<{
         id: string;
         status: string;
@@ -6077,9 +6092,26 @@ void test('partner retry rechecks account and upload permission before resuming 
     const changedPartner = changedState.members.find(
       ({ id }) => id === partner.id,
     )!;
+    changedPartner.permissions.sharedSchedule = false;
+    changedPartner.permissions.collaborationApply = false;
     if (scenario.kind === 'suspended-account') changedPartner.status = '정지';
-    else changedPartner.permissions.fileUpload = false;
-    await writePortalState(changedState);
+    else if (scenario.kind === 'revoked-upload-permission')
+      changedPartner.permissions.fileUpload = false;
+    else changedPartner.permissions.ownCases = false;
+    const changed = await saveState(
+      new Request('http://localhost/api/state', {
+        method: 'PUT',
+        headers: {
+          origin: 'http://localhost',
+          'content-type': 'application/json',
+          'oai-authenticated-user-id': adminEmail,
+          'oai-authenticated-user-email': adminEmail,
+        },
+        body: JSON.stringify({ state: changedState }),
+      }),
+    );
+    assert.equal(changed.status, 200, await changed.clone().text());
+    assert.equal((await memberBinding())?.subject_id, partner.id);
 
     let deniedPutAttempts = 0;
     bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
@@ -6131,9 +6163,33 @@ void test('partner retry rechecks account and upload permission before resuming 
       pending,
     );
 
-    changedPartner.status = '활성';
-    changedPartner.permissions.fileUpload = true;
-    await writePortalState(changedState);
+    const restoredState = structuredClone(await readPortalState()) as {
+      members: Array<{
+        id: string;
+        status: string;
+        permissions: Record<string, boolean>;
+      }>;
+    };
+    const restoredPartner = restoredState.members.find(
+      ({ id }) => id === partner.id,
+    )!;
+    restoredPartner.status = '활성';
+    restoredPartner.permissions.fileUpload = true;
+    restoredPartner.permissions.ownCases = true;
+    const restored = await saveState(
+      new Request('http://localhost/api/state', {
+        method: 'PUT',
+        headers: {
+          origin: 'http://localhost',
+          'content-type': 'application/json',
+          'oai-authenticated-user-id': adminEmail,
+          'oai-authenticated-user-email': adminEmail,
+        },
+        body: JSON.stringify({ state: restoredState }),
+      }),
+    );
+    assert.equal(restored.status, 200, await restored.clone().text());
+    assert.equal((await memberBinding())?.subject_id, partner.id);
     const retry = await POST(
       request(
         stored.caseId,
@@ -6155,6 +6211,10 @@ void test('partner retry rechecks account and upload permission before resuming 
     assert.equal(recording.transcriptFileId, reservedBySlot.get('file'));
     assert.equal(recording.audioFileId, reservedBySlot.get('audio'));
     assert.deepEqual(saved.commandIds.slice(-1), [commandId]);
+    assert.equal(
+      saved.commandReceipts?.[commandId]?.actorKey,
+      `member:${partner.id}`,
+    );
     assert.deepEqual(
       [...objects.keys()]
         .filter((key) => !previousKeys.has(key))
