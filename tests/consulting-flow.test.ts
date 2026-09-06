@@ -989,6 +989,35 @@ test('stable member ID prevents another partner or same-name claimant reading re
     resolveFlowAssignment(duplicate, 'test-case', user, reported()).partnerId,
     'partner-one',
   );
+  const explicitlyReassigned = {
+    ...raw,
+    cases: [
+      {
+        ...raw.cases[0],
+        trainee: '다른 파트너',
+        partnerMemberId: 'partner-other',
+      },
+    ],
+    members: [
+      ...raw.members,
+      {
+        ...raw.members[0],
+        id: 'partner-other',
+        name: '다른 파트너',
+        email: 'other@example.invalid',
+      },
+    ],
+  };
+  assert.throws(
+    () =>
+      resolveFlowAssignment(
+        explicitlyReassigned,
+        'test-case',
+        user,
+        reported(),
+      ),
+    /담당 계정과 상담 FLOW 담당 계정이 일치하지 않습니다/,
+  );
   const report = reported();
   const safe = publicFlow({
     ...report,

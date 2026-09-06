@@ -33,6 +33,11 @@ export function resolveFlowAssignment(
       (user.memberId !== existing.partnerId || !user.permissions?.ownCases)
     )
       throw new FlowError('담당 파트너만 이 진행을 열 수 있습니다.', 403);
+    if (item.partnerMemberId && item.partnerMemberId !== existing.partnerId)
+      throw new FlowError(
+        '전체 진행현황의 담당 계정과 상담 FLOW 담당 계정이 일치하지 않습니다. 대표가 담당 정보를 확인해 주세요.',
+        409,
+      );
     return {
       caseId,
       company: existing.company,
