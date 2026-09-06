@@ -6,15 +6,15 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `04b3aca7aa337c3cd2d1af8c6c28a2f586bf3036` (`fix: classify FLOW attachment races`)
-- 최신 기능: 첫 첨부 명령의 동시 D1 원장 충돌을 확정된 경우만 409로 분류하고 패자 R2 객체를 제거하며 실제 저장 장애 503과 승자 재시도는 보존
-- 검증: Node 회귀 검사 701개, 집중 FLOW 검사 105개, 격리 workerd/D1/R2 검사 520개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
+- 최신 기능 커밋: `fa5f79e6959ad60a2980fb3cf071eba60b324062` (`fix: recover uncertain FLOW uploads`)
+- 최신 기능: FLOW 첨부를 R2 쓰기 전 D1에 예약하고, 불확실 저장을 관리자 인벤토리에서 탐지하며 같은 요청은 동일 파일 ID·키로 복구
+- 검증: Node 회귀 검사 704개, 격리 workerd/D1/R2 검사 521개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 252 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_6d647528ebe08191a0aa7407cb5b4eec`), 소스 `04b3aca7aa337c3cd2d1af8c6c28a2f586bf3036`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. Sites 안전 게이트가 정확한 공개 대상 버전 승인을 요구하며, 버전 108–251은 버전 252로 대체해 배포하지 않는다.
+- 최신 Sites 저장 버전: 253 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_1019859be1448191b3821628728919a0`), 소스 `fa5f79e6959ad60a2980fb3cf071eba60b324062`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. Sites 안전 게이트가 정확한 공개 대상 버전 승인을 요구하며, 버전 108–252는 버전 253으로 대체해 배포하지 않는다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
