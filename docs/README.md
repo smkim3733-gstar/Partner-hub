@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [상담 FLOW R2 쓰기 중 담당 진행 권한 회수 경쟁](FLOW_RETRY_R2_WRITE_OWN_CASES_RACE_INTEGRITY_2026_09_07.md)          | 객체 2개 보존·최종 담당 접근 차단·D1 미커밋·권한 복구 후 재시도                          |
 | [상담 FLOW R2 쓰기 중 업로드 권한 회수 경쟁](FLOW_RETRY_R2_WRITE_FILE_UPLOAD_RACE_INTEGRITY_2026_09_07.md)           | 객체 2개 보존·최종 업로드 권한 차단·D1 미커밋·권한 복구 후 재시도                        |
 | [상담 FLOW R2 쓰기 중 진행 중단 경쟁](FLOW_RETRY_R2_WRITE_LIFECYCLE_RACE_INTEGRITY_2026_09_07.md)                    | 객체 2개 보존·최종 생명주기 차단·D1 미커밋·재개 후 복구                                  |
 | [상담 FLOW R2 쓰기 중 계정 정지 경쟁](FLOW_RETRY_R2_WRITE_SUSPENSION_RACE_INTEGRITY_2026_09_07.md)                   | 객체 2개 보존·최종 인증 차단·D1 미커밋·동일 예약 복구                                    |
