@@ -11090,7 +11090,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     assert.deepEqual(await result.json(), { error: scenario.error });
     assert.equal(
       retryPutAttempts,
-      stateChangesDuringFirstR2Write || stateChangesDuringD1Write ? 2 : 0,
+      stateChangesDuringD1Write ? 2 : stateChangesDuringFirstR2Write ? 1 : 0,
     );
     assert.equal(d1WriteAttempts, stateChangesDuringD1Write ? 1 : 0);
     if (
@@ -11147,7 +11147,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       new Uint8Array(objects.get(transcriptReservation.storage_key)),
       storedBeforeStateChange,
     );
-    if (stateChangesDuringFirstR2Write || stateChangesDuringD1Write) {
+    if (stateChangesDuringD1Write) {
       const audioReservation = pending.find(({ slot }) => slot === 'audio')!;
       assert.deepEqual(
         [...objects.keys()]
@@ -11161,6 +11161,13 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
         new Uint8Array(objects.get(audioReservation.storage_key)),
         new Uint8Array([0x49, 0x44, 0x33, 4, 0, 12]),
       );
+    } else if (stateChangesDuringFirstR2Write) {
+      const audioReservation = pending.find(({ slot }) => slot === 'audio')!;
+      assert.deepEqual(
+        [...objects.keys()].filter((key) => !previousKeys.has(key)),
+        [transcriptReservation.storage_key],
+      );
+      assert.equal(objects.has(audioReservation.storage_key), false);
     }
     assert.deepEqual((await reservations()).results, pending);
   }

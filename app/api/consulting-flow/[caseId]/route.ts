@@ -230,6 +230,17 @@ export async function POST(request: Request, context: Context) {
       );
     }
     if (reservedAudioUpload && input.audio) {
+      if (fileObjectBindings.size) {
+        // A dual-slot request can lose access after its first R2 write. Stop
+        // before writing the second object while retaining both reservations.
+        const additionalUploadAccess = await recheckFlowAccess(
+          request,
+          flow,
+          user,
+          true,
+        );
+        assertFlowLifecycleActive(additionalUploadAccess.state, flow.caseId);
+      }
       fileObjectBindings.set(
         reservedAudioUpload.id,
         await writeReservedFlowUpload(
