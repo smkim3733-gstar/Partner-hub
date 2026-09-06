@@ -10616,6 +10616,7 @@ type MultipartBodyStateChange =
     }
   | {
       kind: 'discontinued';
+      timing?: 'body-read' | 'first-r2-write';
       status: 409;
       error: string;
     }
@@ -10643,7 +10644,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
   const scenarioKey =
     scenario.kind === 'permission'
       ? scenario.permission
-      : scenario.kind === 'suspended'
+      : scenario.kind === 'suspended' || scenario.kind === 'discontinued'
         ? `${scenario.kind}-${scenario.timing ?? 'body-read'}`
         : scenario.kind;
   const stored = await transcriptJobFixture(false, body);
@@ -10876,6 +10877,9 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     assert.equal(changed.status, 200, await changed.clone().text());
     stateChanged = true;
   };
+  const stateChangesDuringFirstR2Write =
+    (scenario.kind === 'suspended' || scenario.kind === 'discontinued') &&
+    scenario.timing === 'first-r2-write';
   Object.defineProperty(stream, 'getReader', {
     value: () => {
       const reader = getReader();
@@ -10884,11 +10888,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       reader.read = async () => {
         if (once) {
           once = false;
-          if (
-            scenario.kind !== 'suspended' ||
-            scenario.timing !== 'first-r2-write'
-          )
-            await changeState();
+          if (!stateChangesDuringFirstR2Write) await changeState();
         }
         return read();
       };
@@ -10899,11 +10899,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
   bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
     retryPutAttempts++;
     const object = await put(...args);
-    if (
-      retryPutAttempts === 1 &&
-      scenario.kind === 'suspended' &&
-      scenario.timing === 'first-r2-write'
-    )
+    if (retryPutAttempts === 1 && stateChangesDuringFirstR2Write)
       await changeState();
     return object;
   };
@@ -10914,8 +10910,6 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     bucket.put = put;
   }
   assert.equal(stateChanged, true);
-  const suspendedDuringFirstR2Write =
-    scenario.kind === 'suspended' && scenario.timing === 'first-r2-write';
   if (scenario.kind === 'display-name-change') {
     assert.equal(retryPutAttempts, 2);
     await assertCompleted(result);
@@ -10929,7 +10923,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
   } else {
     assert.equal(result.status, scenario.status);
     assert.deepEqual(await result.json(), { error: scenario.error });
-    assert.equal(retryPutAttempts, suspendedDuringFirstR2Write ? 2 : 0);
+    assert.equal(retryPutAttempts, stateChangesDuringFirstR2Write ? 2 : 0);
     if (scenario.kind === 'email-change')
       assert.equal(await memberBinding(), null);
     else assert.equal((await memberBinding())?.subject_id, partner.id);
@@ -10938,7 +10932,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       new Uint8Array(objects.get(transcriptReservation.storage_key)),
       storedBeforeStateChange,
     );
-    if (suspendedDuringFirstR2Write) {
+    if (stateChangesDuringFirstR2Write) {
       const audioReservation = pending.find(({ slot }) => slot === 'audio')!;
       assert.deepEqual(
         [...objects.keys()]
@@ -11063,6 +11057,16 @@ void test('partial R2 retry rejects suspension during the first object write and
     timing: 'first-r2-write',
     status: 403,
     error: '아직 대표 승인이 완료된 활성 파트너 계정이 아닙니다.',
+  });
+});
+
+void test('partial R2 retry rejects discontinuation during the first object write and recovers after reopening', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'discontinued',
+    timing: 'first-r2-write',
+    status: 409,
+    error:
+      '대표가 진행을 중단한 상태입니다. 진행판에서 다시 연 뒤 이용해 주세요.',
   });
 });
 
