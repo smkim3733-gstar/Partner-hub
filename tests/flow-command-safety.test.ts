@@ -10648,8 +10648,8 @@ type MultipartBodyStateChange =
     }
   | {
       kind: 'case-deletion';
-      timing: 'd1-write';
-      status: 503;
+      timing?: 'body-read' | 'first-r2-write' | 'd1-write';
+      status: 404 | 503;
       error: string;
     }
   | {
@@ -11375,6 +11375,24 @@ void test('partial R2 retry rejects a stale commit after case deletion immediate
     status: 503,
     error:
       '첨부파일 소유권을 안전하게 저장하지 못했습니다. 새로고침 후 다시 확인해 주세요.',
+  });
+});
+
+void test('partial R2 retry rejects case deletion during the first object write and recovers after restoration', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'case-deletion',
+    timing: 'first-r2-write',
+    status: 404,
+    error: '해당 컨설팅 진행을 찾을 수 없습니다.',
+  });
+});
+
+void test('partial R2 retry rejects case deletion while reading the multipart body before any R2 write and recovers after restoration', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'case-deletion',
+    timing: 'body-read',
+    status: 404,
+    error: '해당 컨설팅 진행을 찾을 수 없습니다.',
   });
 });
 
