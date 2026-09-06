@@ -13,6 +13,7 @@ import {
 
 /** Pure, server-enforced consulting workflow. No browser state is authoritative. */
 export type FlowActor = { id: string; role: 'admin' | 'partner'; name: string };
+export const FLOW_ADMIN_COMMAND_ACTOR_KEY = 'admin:primary';
 export type FlowFile = {
   id: string;
   name: string;
@@ -842,7 +843,8 @@ export function applyFlowCommand(
         location: txt(command, 'location', 200),
         status: 'scheduled',
         note: txt(command, 'note', 1000, false),
-        createdBy: actor.id,
+        createdBy:
+          actor.role === 'admin' ? FLOW_ADMIN_COMMAND_ACTOR_KEY : actor.id,
       });
       detail = `${kind === 'first' ? '초회' : kind === 'contract' ? '계약' : '추가'} 상담 예약 · ${attendance === 'both' ? '동반' : attendance === 'partner' ? '파트너 단독' : '김성민 대표 단독'}`;
       break;

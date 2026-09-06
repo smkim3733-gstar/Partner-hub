@@ -1,8 +1,10 @@
 import {
+  FLOW_ADMIN_COMMAND_ACTOR_KEY,
   FlowError,
   type ConsultingFlow,
   type FlowCommand,
 } from './consulting-flow';
+export { FLOW_ADMIN_COMMAND_ACTOR_KEY } from './consulting-flow';
 import type { PortalUser } from './portal-auth';
 import { fileDigest } from './file-upload-key';
 import { downloadContentType } from './download-content-type';
@@ -73,7 +75,6 @@ export type ComputedFlowCommandReceipt = {
   legacyFingerprints?: readonly string[];
 };
 
-export const FLOW_ADMIN_COMMAND_ACTOR_KEY = 'admin:primary';
 export const FLOW_ADMIN_COMMAND_ACTOR_NAME = '김성민 대표';
 
 async function commandFingerprints(

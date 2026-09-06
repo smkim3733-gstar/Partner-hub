@@ -2418,6 +2418,88 @@ void test('FLOW analysis confirmations bind the latest report and one actor time
   await commitFlow(changed, adminChanged);
 });
 
+void test('FLOW meeting bookings bind one scheduled meeting and stable creator', async () => {
+  const stored = await transcriptJobFixture();
+  const commandId = `book-meeting-effect-${++sequence}`;
+  const now = new Date(Date.parse(stored.updatedAt) + 1).toISOString();
+  const changed = applyFlowCommand(
+    stored,
+    {
+      type: 'book_meeting',
+      kind: 'followup',
+      attendance: 'partner',
+      startsAt: '2026-10-01T01:00:00.000Z',
+      endsAt: '2026-10-01T02:00:00.000Z',
+      location: '가상 후속 상담실',
+      note: '가상 회귀 검증 일정',
+    },
+    { id: partner.id, role: 'partner', name: partner.name },
+    { commandId, now },
+  );
+  changed.commandReceipts = {
+    ...changed.commandReceipts,
+    [commandId]: {
+      actorKey: `member:${partner.id}`,
+      fingerprint: 'c'.repeat(64),
+      actor: partner.name,
+      action: 'book_meeting',
+    },
+  };
+  assert.equal(changed.meetings.at(-1)!.id, `${commandId}-meeting`);
+
+  const forged = structuredClone(changed);
+  forged.meetings.at(-1)!.createdBy = 'member:another-partner';
+  await assert.rejects(
+    commitFlow(stored, forged),
+    (error) => error instanceof FlowError && error.status === 503,
+    'application accepted a forged meeting creator',
+  );
+  const db = await flowDatabase();
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forged.revision,
+        JSON.stringify(forged),
+        forged.updatedAt,
+        stored.caseId,
+        stored.revision,
+      )
+      .run(),
+    /book meeting effect is invalid/,
+    'D1 accepted a forged meeting creator',
+  );
+  await commitFlow(stored, changed);
+  const adminCommandId = `book-meeting-effect-admin-${++sequence}`;
+  const adminChanged = applyFlowCommand(
+    changed,
+    {
+      type: 'book_meeting',
+      kind: 'followup',
+      attendance: 'admin',
+      startsAt: '2026-10-01T03:00:00.000Z',
+      endsAt: '2026-10-01T04:00:00.000Z',
+      location: '가상 대표 상담실',
+      note: '',
+    },
+    { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
+    {
+      commandId: adminCommandId,
+      now: new Date(Date.parse(now) + 1).toISOString(),
+    },
+  );
+  addSyntheticCommandReceipt(adminChanged, adminCommandId);
+  assert.equal(
+    adminChanged.meetings.at(-1)!.createdBy,
+    FLOW_ADMIN_COMMAND_ACTOR_KEY,
+  );
+  await commitFlow(changed, adminChanged);
+});
+
 void test('FLOW source save commands preserve existing source files', async () => {
   const queued = await queuedReportFixture(true);
   const stored = structuredClone(queued);

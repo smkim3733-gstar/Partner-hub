@@ -491,6 +491,16 @@ const flowConfirmAnalysisEffectTriggerSql = migrationStatements(
     'utf8',
   ),
 );
+const flowBookMeetingEffectTriggerSql = migrationStatements(
+  await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0081_consulting_flow_book_meeting_effect.sql',
+    ),
+    'utf8',
+  ),
+);
 const consultingFlowTransitionTriggerNames = [
   'consulting_flows_transition_guard',
   'consulting_flows_audit_append_only',
@@ -501,6 +511,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_queue_report_job_effect_guard',
   'consulting_flows_save_report_effect_guard',
   'consulting_flows_confirm_analysis_effect_guard',
+  'consulting_flows_book_meeting_effect_guard',
   'consulting_flows_save_source_effect_guard',
   'consulting_flows_import_intake_source_effect_guard',
   'consulting_flows_exclude_source_effect_guard',
@@ -556,6 +567,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       flowQueueReportJobEffectTriggerSql[0],
       flowSaveReportEffectTriggerSql[0],
       flowConfirmAnalysisEffectTriggerSql[0],
+      flowBookMeetingEffectTriggerSql[0],
       flowSaveSourceEffectTriggerSql[0],
       flowImportIntakeSourceEffectTriggerSql[0],
       flowExcludeSourceEffectTriggerSql[0],
@@ -4589,6 +4601,75 @@ try {
   await saveAnalysisEffectTransition(validAnalysisEffectFlow);
   checks.push(
     'FLOW native D1 binds latest report and one actor timestamp to analysis confirmation',
+  );
+  const validMeetingEffectFlow = structuredClone(validAnalysisEffectFlow);
+  validMeetingEffectFlow.revision++;
+  validMeetingEffectFlow.updatedAt = evidenceTimes[4];
+  const meetingEffectCommandId = 'native-book-meeting-effect';
+  validMeetingEffectFlow.meetings.push({
+    id: `${meetingEffectCommandId}-meeting`,
+    kind: 'followup',
+    startsAt: '2026-10-01T01:00:00.000Z',
+    endsAt: '2026-10-01T02:00:00.000Z',
+    attendance: 'partner',
+    location: '가상 후속 상담실',
+    status: 'scheduled',
+    note: '가상 회귀 검증 일정',
+    createdBy: validMeetingEffectFlow.partnerId,
+  });
+  validMeetingEffectFlow.audit.push({
+    id: meetingEffectCommandId,
+    at: evidenceTimes[4],
+    actor: validMeetingEffectFlow.partnerName,
+    action: 'book_meeting',
+    detail: '추가 상담 예약 · 파트너 단독',
+  });
+  validMeetingEffectFlow.commandIds.push(meetingEffectCommandId);
+  validMeetingEffectFlow.commandReceipts[meetingEffectCommandId] = {
+    actorKey: `member:${validMeetingEffectFlow.partnerId}`,
+    fingerprint: 'b'.repeat(64),
+    actor: validMeetingEffectFlow.partnerName,
+    action: 'book_meeting',
+  };
+  const saveMeetingEffectTransition = (after) =>
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        after.revision,
+        JSON.stringify(after),
+        after.updatedAt,
+        reportEffectCaseId,
+        validAnalysisEffectFlow.revision,
+      )
+      .run();
+  const forgedMeetingCreatorFlow = structuredClone(validMeetingEffectFlow);
+  forgedMeetingCreatorFlow.meetings.at(-1).createdBy = 'member:another-partner';
+  await assert.rejects(
+    saveMeetingEffectTransition(forgedMeetingCreatorFlow),
+    /book meeting effect is invalid/,
+  );
+  const forgedMeetingStatusFlow = structuredClone(validMeetingEffectFlow);
+  forgedMeetingStatusFlow.meetings.at(-1).status = 'completed';
+  forgedMeetingStatusFlow.meetings.at(-1).completedAt =
+    forgedMeetingStatusFlow.meetings.at(-1).startsAt;
+  await assert.rejects(
+    saveMeetingEffectTransition(forgedMeetingStatusFlow),
+    /book meeting effect is invalid/,
+  );
+  const forgedMeetingPrerequisiteFlow = structuredClone(validMeetingEffectFlow);
+  forgedMeetingPrerequisiteFlow.meetings.at(-1).kind = 'first';
+  forgedMeetingPrerequisiteFlow.meetings.at(-1).attendance = 'both';
+  await assert.rejects(
+    saveMeetingEffectTransition(forgedMeetingPrerequisiteFlow),
+    /book meeting effect is invalid/,
+  );
+  await saveMeetingEffectTransition(validMeetingEffectFlow);
+  checks.push(
+    'FLOW native D1 binds one scheduled meeting, creator and prerequisites to booking',
   );
   const validSourceEffectFlow = structuredClone(sourceEffectFlow);
   validSourceEffectFlow.revision++;

@@ -20,6 +20,7 @@ import {
   consultingFlowsQueueReportJobEffectTriggerSql,
   consultingFlowsSaveReportEffectTriggerSql,
   consultingFlowsConfirmAnalysisEffectTriggerSql,
+  consultingFlowsBookMeetingEffectTriggerSql,
   consultingFlowsSaveSourceEffectTriggerSql,
   consultingFlowsImportIntakeSourceEffectTriggerSql,
   consultingFlowsExcludeSourceEffectTriggerSql,
@@ -80,13 +81,16 @@ import {
   portalStateId,
 } from '@/db/schema';
 import {
+  analysisDone,
   flowAiResultAuditDetail,
   FlowError,
   documentsKey,
+  firstMeeting,
   latestRecording,
   latestReport,
   newConsultingFlow,
   reportLabels,
+  signingPreparationDone,
   type ConsultingFlow,
   type FlowFile,
 } from '@/lib/consulting-flow';
@@ -161,6 +165,7 @@ export async function flowDatabase() {
         db.prepare(consultingFlowsQueueReportJobEffectTriggerSql),
         db.prepare(consultingFlowsSaveReportEffectTriggerSql),
         db.prepare(consultingFlowsConfirmAnalysisEffectTriggerSql),
+        db.prepare(consultingFlowsBookMeetingEffectTriggerSql),
         db.prepare(consultingFlowsSaveSourceEffectTriggerSql),
         db.prepare(consultingFlowsImportIntakeSourceEffectTriggerSql),
         db.prepare(consultingFlowsExcludeSourceEffectTriggerSql),
@@ -1284,6 +1289,39 @@ function assertFlowCommitTransition(
         expectedAnalysis.partnerAt = after.updatedAt;
       else throw storedFlowIntegrityError();
       if (!sameValue(after.analysis, expectedAnalysis))
+        throw storedFlowIntegrityError();
+    }
+    if (action === 'book_meeting') {
+      const meeting = after.meetings.at(-1);
+      const actorKey = afterReceipts[commandId]?.actorKey;
+      const expectedCreator =
+        actorKey === FLOW_ADMIN_COMMAND_ACTOR_KEY
+          ? FLOW_ADMIN_COMMAND_ACTOR_KEY
+          : actorKey === `member:${before.partnerId}`
+            ? before.partnerId
+            : undefined;
+      if (
+        !meeting ||
+        !expectedCreator ||
+        meeting.id !== `${commandId}-meeting` ||
+        meeting.status !== 'scheduled' ||
+        meeting.completedAt !== undefined ||
+        meeting.createdBy !== expectedCreator ||
+        (meeting.kind === 'first' &&
+          (!analysisDone(before) ||
+            firstMeeting(before) !== undefined ||
+            meeting.attendance !== 'both')) ||
+        (meeting.kind === 'followup' &&
+          firstMeeting(before)?.status !== 'completed') ||
+        (meeting.kind === 'contract' &&
+          (!signingPreparationDone(before) || before.contract !== undefined)) ||
+        before.meetings.some(
+          (existing) =>
+            existing.status === 'scheduled' &&
+            meeting.startsAt < existing.endsAt &&
+            meeting.endsAt > existing.startsAt,
+        )
+      )
         throw storedFlowIntegrityError();
     }
     if (action === 'save_source') {
