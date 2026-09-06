@@ -10651,6 +10651,12 @@ type MultipartBodyStateChange =
       timing: 'd1-write';
       status: 503;
       error: string;
+    }
+  | {
+      kind: 'case-and-member-deletion';
+      timing: 'd1-write';
+      status: 503;
+      error: string;
     };
 
 async function assertPartialR2RetryHandlesMultipartStateChange(
@@ -10843,6 +10849,22 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
   const getReader = stream.getReader.bind(stream);
   let stateChanged = false;
   let deletedCase: Record<string, unknown> | null = null;
+  let deletedMember: Record<string, unknown> | null = null;
+  const saveAdminState = async (state: unknown) => {
+    const response = await saveState(
+      new Request('http://localhost/api/state', {
+        method: 'PUT',
+        headers: {
+          origin: 'http://localhost',
+          'content-type': 'application/json',
+          'oai-authenticated-user-id': adminEmail,
+          'oai-authenticated-user-email': adminEmail,
+        },
+        body: JSON.stringify({ state }),
+      }),
+    );
+    assert.equal(response.status, 200, await response.clone().text());
+  };
   const changeState = async () => {
     const changedState = structuredClone(await readPortalState()) as {
       members: Array<{
@@ -10887,6 +10909,27 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       changedState.cases = changedState.cases.filter(
         ({ id }) => id !== stored.caseId,
       );
+    } else if (scenario.kind === 'case-and-member-deletion') {
+      deletedCase = structuredClone(
+        changedState.cases.find(({ id }) => id === stored.caseId)!,
+      );
+      deletedMember = structuredClone(
+        changedState.members.find(({ id }) => id === partner.id)!,
+      );
+      changedState.cases = changedState.cases.filter(
+        ({ id }) => id !== stored.caseId,
+      );
+      changedState.members.find(({ id }) => id === partner.id)!.status = '정지';
+      await saveAdminState(changedState);
+      const deletableState = structuredClone(
+        await readPortalState(),
+      ) as typeof changedState;
+      deletableState.members = deletableState.members.filter(
+        ({ id }) => id !== partner.id,
+      );
+      await saveAdminState(deletableState);
+      stateChanged = true;
+      return;
     } else {
       changedState.cases.find(
         ({ id }) => id === stored.caseId,
@@ -10899,19 +10942,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       stateChanged = true;
       return;
     }
-    const changed = await saveState(
-      new Request('http://localhost/api/state', {
-        method: 'PUT',
-        headers: {
-          origin: 'http://localhost',
-          'content-type': 'application/json',
-          'oai-authenticated-user-id': adminEmail,
-          'oai-authenticated-user-email': adminEmail,
-        },
-        body: JSON.stringify({ state: changedState }),
-      }),
-    );
-    assert.equal(changed.status, 200, await changed.clone().text());
+    await saveAdminState(changedState);
     stateChanged = true;
   };
   const stateChangesDuringFirstR2Write =
@@ -10921,7 +10952,8 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       scenario.kind === 'email-change' ||
       scenario.kind === 'display-name-change' ||
       scenario.kind === 'assignment-change' ||
-      scenario.kind === 'case-deletion') &&
+      scenario.kind === 'case-deletion' ||
+      scenario.kind === 'case-and-member-deletion') &&
     scenario.timing === 'first-r2-write';
   const stateChangesDuringD1Write =
     (scenario.kind === 'permission' ||
@@ -10930,7 +10962,8 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       scenario.kind === 'email-change' ||
       scenario.kind === 'display-name-change' ||
       scenario.kind === 'assignment-change' ||
-      scenario.kind === 'case-deletion') &&
+      scenario.kind === 'case-deletion' ||
+      scenario.kind === 'case-and-member-deletion') &&
     scenario.timing === 'd1-write';
   Object.defineProperty(stream, 'getReader', {
     value: () => {
@@ -10999,7 +11032,10 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       stateChangesDuringFirstR2Write || stateChangesDuringD1Write ? 2 : 0,
     );
     assert.equal(d1WriteAttempts, stateChangesDuringD1Write ? 1 : 0);
-    if (scenario.kind === 'email-change')
+    if (
+      scenario.kind === 'email-change' ||
+      scenario.kind === 'case-and-member-deletion'
+    )
       assert.equal(await memberBinding(), null);
     else assert.equal((await memberBinding())?.subject_id, partner.id);
     if (scenario.kind === 'display-name-change') {
@@ -11029,6 +11065,19 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       };
       assert.equal(
         currentState.cases.some(({ id }) => id === stored.caseId),
+        false,
+      );
+    } else if (scenario.kind === 'case-and-member-deletion') {
+      const currentState = (await readPortalState()) as {
+        cases: Array<{ id: string }>;
+        members: Array<{ id: string }>;
+      };
+      assert.equal(
+        currentState.cases.some(({ id }) => id === stored.caseId),
+        false,
+      );
+      assert.equal(
+        currentState.members.some(({ id }) => id === partner.id),
         false,
       );
     }
@@ -11093,11 +11142,24 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     restoredState.cases.push(
       deletedCase as (typeof restoredState.cases)[number],
     );
+  } else if (scenario.kind === 'case-and-member-deletion') {
+    assert.ok(deletedCase);
+    assert.ok(deletedMember);
+    restoredState.cases.push(
+      deletedCase as (typeof restoredState.cases)[number],
+    );
+    restoredState.members.push(
+      deletedMember as (typeof restoredState.members)[number],
+    );
   } else
     restoredState.cases.find(
       ({ id }) => id === stored.caseId,
     )!.pipelineLifecycleStatus = 'active';
-  if (scenario.kind === 'case-deletion') await writePortalState(restoredState);
+  if (
+    scenario.kind === 'case-deletion' ||
+    scenario.kind === 'case-and-member-deletion'
+  )
+    await writePortalState(restoredState);
   else {
     const restored = await saveState(
       new Request('http://localhost/api/state', {
@@ -11113,7 +11175,10 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
     );
     assert.equal(restored.status, 200, await restored.clone().text());
   }
-  if (scenario.kind === 'email-change')
+  if (
+    scenario.kind === 'email-change' ||
+    scenario.kind === 'case-and-member-deletion'
+  )
     assert.equal(await memberBinding(), null);
   else assert.equal((await memberBinding())?.subject_id, partner.id);
   if (scenario.kind === 'display-name-change' && !stateChangesDuringD1Write)
@@ -11306,6 +11371,16 @@ void test('partial R2 retry rejects a stale commit after a same-name account rea
 void test('partial R2 retry rejects a stale commit after case deletion immediately before the D1 FLOW write and recovers after restoration', async () => {
   await assertPartialR2RetryHandlesMultipartStateChange({
     kind: 'case-deletion',
+    timing: 'd1-write',
+    status: 503,
+    error:
+      '첨부파일 소유권을 안전하게 저장하지 못했습니다. 새로고침 후 다시 확인해 주세요.',
+  });
+});
+
+void test('partial R2 retry rejects a stale commit after case and assigned member deletion immediately before the D1 FLOW write and rebinds after restoration', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'case-and-member-deletion',
     timing: 'd1-write',
     status: 503,
     error:
