@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [상담 FLOW D1 쓰기 직전 진행 중단 경쟁](FLOW_RETRY_D1_WRITE_LIFECYCLE_RACE_INTEGRITY_2026_09_07.md)                  | 상태 증빙 CAS·활성 전제 D1 커밋 차단·객체와 예약 보존·진행 재개 후 완료                  |
 | [상담 FLOW D1 쓰기 직전 계정 정지 경쟁](FLOW_RETRY_D1_WRITE_SUSPENSION_RACE_INTEGRITY_2026_09_07.md)                 | 상태 증빙 CAS·정지 전 D1 커밋 차단·객체와 예약 보존·재활성화 후 완료                     |
 | [상담 FLOW D1 쓰기 직전 담당 진행 권한 회수 경쟁](FLOW_RETRY_D1_WRITE_OWN_CASES_RACE_INTEGRITY_2026_09_07.md)        | 상태 증빙 CAS·stale 담당 커밋 차단·객체와 예약 보존·권한 복구 후 완료                    |
 | [상담 FLOW D1 쓰기 직전 업로드 권한 회수 경쟁](FLOW_RETRY_D1_WRITE_FILE_UPLOAD_RACE_INTEGRITY_2026_09_07.md)         | 상태 증빙 CAS·stale D1 차단·객체와 pending 예약 보존·권한 복구 후 완료                   |
