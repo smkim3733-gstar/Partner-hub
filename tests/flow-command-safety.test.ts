@@ -21,7 +21,11 @@ import {
 } from '../lib/consulting-flow-store';
 import { readPortalState, writePortalState } from '../lib/portal-state';
 import { readDuplicateRequestSummary } from '../lib/duplicate-request-metrics';
-import { flushWaitUntil } from './runtime-mock.mjs';
+import {
+  failNextDatabaseBatch,
+  flushWaitUntil,
+  objects,
+} from './runtime-mock.mjs';
 import {
   FLOW_ADMIN_COMMAND_ACTOR_KEY,
   FLOW_ADMIN_COMMAND_ACTOR_NAME,
@@ -4895,6 +4899,147 @@ void test('FLOW command-bearing roots cannot be inserted directly', async () => 
   } finally {
     await deleteConsultingFlowFixture(db, initial.caseId);
   }
+});
+
+void test('concurrent first FLOW attachments keep only the committed R2 object', async () => {
+  const caseId = `initial-attachment-race-${++sequence}`;
+  await writePortalState({
+    version: 1,
+    consultationNumber: 0,
+    members: [partner],
+    cases: [
+      {
+        id: caseId,
+        company: '가상기업',
+        trainee: partner.name,
+        partnerMemberId: partner.id,
+      },
+    ],
+    tasks: [],
+    timeline: [],
+    schedule: [],
+    companyDocuments: [],
+  });
+  const commandId = `initial-attachment-race-${++sequence}`;
+  const command = {
+    type: 'save_report',
+    stage: 1,
+    body,
+    fileConsent: true,
+  } as const;
+  const files = [
+    new File(['SYNTHETIC_FIRST_A'], 'first-a.txt', { type: 'text/plain' }),
+    new File(['SYNTHETIC_FIRST_B'], 'first-b.txt', { type: 'text/plain' }),
+  ];
+  const previousKeys = new Set(objects.keys());
+  const bucket = flowBucket();
+  const put = bucket.put.bind(bucket);
+  let uploadCount = 0;
+  let releaseUploads!: () => void;
+  const uploadsReady = new Promise<void>((resolve) => {
+    releaseUploads = resolve;
+  });
+  bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+    const object = await put(...args);
+    uploadCount++;
+    if (uploadCount === files.length) releaseUploads();
+    await uploadsReady;
+    return object;
+  };
+  let responses: Response[] = [];
+  try {
+    responses = await Promise.all(
+      files.map((file) =>
+        POST(
+          request(caseId, command, 0, commandId, adminEmail, file),
+          context(caseId),
+        ),
+      ),
+    );
+  } finally {
+    bucket.put = put;
+  }
+  assert.deepEqual(
+    responses.map((response) => response.status).sort((a, b) => a - b),
+    [200, 409],
+  );
+  const saved = (await readFlow(caseId))!;
+  assert.equal(saved.revision, 1);
+  assert.equal(saved.files.length, 1);
+  const newKeys = [...objects.keys()].filter((key) => !previousKeys.has(key));
+  assert.deepEqual(newKeys, [saved.files[0].key]);
+
+  const storedBytes = objects.get(newKeys[0]);
+  assert.ok(storedBytes);
+  const storedBody = new TextDecoder().decode(storedBytes);
+  const winningFile = files.find((file) => file.name === saved.files[0].name);
+  assert.ok(winningFile);
+  assert.equal(storedBody, await winningFile.text());
+  const retry = await POST(
+    request(
+      caseId,
+      command,
+      saved.revision,
+      commandId,
+      adminEmail,
+      winningFile,
+    ),
+    context(caseId),
+  );
+  assert.equal(retry.status, 200);
+  assert.equal(
+    ((await retry.json()) as { duplicate?: boolean }).duplicate,
+    true,
+  );
+  assert.deepEqual(
+    [...objects.keys()].filter((key) => !previousKeys.has(key)),
+    newKeys,
+  );
+  assert.deepEqual(await readFlow(caseId), saved);
+});
+
+void test('failed first FLOW attachment commit removes the unreferenced R2 object', async () => {
+  const caseId = `initial-attachment-failure-${++sequence}`;
+  await writePortalState({
+    version: 1,
+    consultationNumber: 0,
+    members: [partner],
+    cases: [
+      {
+        id: caseId,
+        company: '가상기업',
+        trainee: partner.name,
+        partnerMemberId: partner.id,
+      },
+    ],
+    tasks: [],
+    timeline: [],
+    schedule: [],
+    companyDocuments: [],
+  });
+  await flowDatabase();
+  const previousKeys = new Set(objects.keys());
+  failNextDatabaseBatch('INSERT INTO consulting_flows');
+  const response = await POST(
+    request(
+      caseId,
+      { type: 'save_report', stage: 1, body, fileConsent: true },
+      0,
+      `initial-attachment-failure-${++sequence}`,
+      adminEmail,
+      new File(['SYNTHETIC_FAILED_UPLOAD'], 'failed.txt', {
+        type: 'text/plain',
+      }),
+    ),
+    context(caseId),
+  );
+
+  assert.equal(response.status, 503);
+  assert.equal(await readFlow(caseId), null);
+  assert.deepEqual(
+    [...objects.keys()].filter((key) => !previousKeys.has(key)),
+    [],
+  );
 });
 
 void test('FLOW commands cannot change state outside their declared scope', async () => {

@@ -2515,6 +2515,19 @@ export async function commitFlow(
         ]),
       ]);
     } catch {
+      let revisionConflict = false;
+      try {
+        const current = await readFlow(before.caseId);
+        revisionConflict =
+          current !== null && current.revision !== before.revision;
+      } catch {
+        /* Preserve the original persistence failure when state cannot be re-read. */
+      }
+      if (revisionConflict)
+        throw new FlowError(
+          '다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 확인해 주세요.',
+          409,
+        );
       if (!newFiles.length && !purposeChanges.length)
         throw new FlowError(
           '진행 변경을 안전하게 저장하지 못했습니다. 새로고침 후 다시 확인해 주세요.',
