@@ -249,6 +249,22 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
         'post-reservation-damage-source.txt',
       ),
     );
+    const destinationWriteDeleteSourceId = await add(
+      new File(
+        [
+          '목적지 저장 직후 원본 삭제 경쟁 검증용 신청자료입니다. 모든 내용은 가상 정보이며 추가 확인이 필요합니다.',
+        ],
+        'destination-write-delete-source.txt',
+      ),
+    );
+    const finalAccessDamageSourceId = await add(
+      new File(
+        [
+          '최종 접근 검사 중 원본 교체 경쟁 검증용 신청자료입니다. 모든 내용은 가상 정보이며 추가 확인이 필요합니다.',
+        ],
+        'final-access-damage-source.txt',
+      ),
+    );
     const pdfId = await add(
       new File(['%PDF-1.7\nSYNTHETIC_CERTIFICATE_ONLY'], '사업자등록증.pdf'),
       '사업자등록증',
@@ -818,6 +834,201 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
         postReservationDamageBytes,
         {
           httpMetadata: { contentType: postReservationDamageRow.content_type },
+        },
+      );
+    }
+
+    async function postDuringDestinationWriteMutation(
+      source: IntakeSourcePreview,
+      sourceStorageKey: string,
+      commandId: string,
+      timing: 'after-write' | 'during-final-access',
+      mutateSource: () => Promise<void>,
+      expectedStatus: 404 | 409,
+      expectedMessage: RegExp,
+    ) {
+      const prepare = flowDb.prepare.bind(flowDb);
+      const batch = flowDb.batch.bind(flowDb);
+      const flowStorage = flowBucket();
+      const put = flowStorage.put.bind(flowStorage);
+      const beforeKeys = new Set(objects.keys());
+      let sourceMutations = 0;
+      let destinationWrites = 0;
+      let finalCommitBatches = 0;
+      const mutateOnce = async () => {
+        if (sourceMutations) return;
+        sourceMutations++;
+        await mutateSource();
+      };
+      const wrapPortalStateRead = (
+        statement: D1PreparedStatement,
+      ): D1PreparedStatement =>
+        new Proxy(statement, {
+          get(target, key) {
+            if (key === 'bind')
+              return (...values: unknown[]) =>
+                wrapPortalStateRead(target.bind(...values));
+            if (key === 'first')
+              return async <T = Record<string, unknown>>() => {
+                const result = await target.first<T>();
+                if (timing === 'during-final-access' && destinationWrites === 1)
+                  await mutateOnce();
+                return result;
+              };
+            const value = Reflect.get(target, key);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        });
+      flowDb.prepare = (sql: string) =>
+        sql === 'SELECT payload FROM portal_state WHERE id = ?1'
+          ? wrapPortalStateRead(prepare(sql))
+          : prepare(sql);
+      flowDb.batch = async <T = unknown>(statements: D1PreparedStatement[]) => {
+        const writesFlow = statements.some((statement) => {
+          const sql = (statement as unknown as { sql: string }).sql.trimStart();
+          return (
+            sql.startsWith('INSERT INTO consulting_flows') ||
+            sql.startsWith('UPDATE consulting_flows')
+          );
+        });
+        if (sourceMutations && writesFlow) {
+          finalCommitBatches++;
+          throw new Error('synthetic FLOW commit must not begin');
+        }
+        return batch<T>(statements);
+      };
+      flowStorage.put = async (...args: Parameters<R2Bucket['put']>) => {
+        if (args[0] === sourceStorageKey) return put(...args);
+        const object = await put(...args);
+        destinationWrites++;
+        if (timing === 'after-write') await mutateOnce();
+        return object;
+      };
+      let response: Response;
+      try {
+        response = await post(importCommand(source, source.text!), commandId);
+      } finally {
+        flowDb.prepare = prepare;
+        flowDb.batch = batch;
+        flowStorage.put = put;
+      }
+      assert.equal(sourceMutations, 1);
+      assert.equal(destinationWrites, 1);
+      assert.equal(
+        response.status,
+        expectedStatus,
+        await response.clone().text(),
+      );
+      assert.match(
+        ((await response.json()) as { error: string }).error,
+        expectedMessage,
+      );
+      assert.equal(finalCommitBatches, 0);
+      const reservation = await flowDb
+        .prepare(
+          `SELECT storage_key, status FROM consulting_flow_upload_requests
+          WHERE case_id = ?1 AND command_id = ?2`,
+        )
+        .bind(caseId, commandId)
+        .first<{ storage_key: string; status: string }>();
+      assert.ok(reservation);
+      assert.equal(reservation.status, 'pending');
+      assert.deepEqual(
+        [...objects.keys()].filter((key) => !beforeKeys.has(key)),
+        [reservation.storage_key],
+      );
+      assert.equal(await readFlow(caseId), null);
+      await flowStorage.delete(reservation.storage_key);
+      assert.deepEqual(
+        [...objects.keys()].filter((key) => !beforeKeys.has(key)),
+        [],
+      );
+    }
+
+    const destinationWriteDeletePreview = await preview(
+      destinationWriteDeleteSourceId,
+    );
+    const destinationWriteDeleteRow = await findCompanyFile(
+      destinationWriteDeleteSourceId,
+    );
+    assert.ok(destinationWriteDeleteRow);
+    await postDuringDestinationWriteMutation(
+      destinationWriteDeletePreview,
+      destinationWriteDeleteRow.storage_key,
+      'intake-source-destination-write-delete-race',
+      'after-write',
+      async () => {
+        const existing = await flowDb
+          .prepare(
+            'SELECT file_id FROM company_file_upload_requests WHERE file_id = ?1',
+          )
+          .bind(destinationWriteDeleteSourceId)
+          .first();
+        const result = existing
+          ? await flowDb
+              .prepare(
+                "UPDATE company_file_upload_requests SET status = 'deleted' WHERE file_id = ?1",
+              )
+              .bind(destinationWriteDeleteSourceId)
+              .run()
+          : await flowDb
+              .prepare(`INSERT INTO company_file_upload_requests
+                (owner_key, request_key, fingerprint, file_id, created_at, status)
+                SELECT ?1, ?2, ?3, id, created_at, 'deleted'
+                FROM company_file_objects WHERE id = ?4`)
+              .bind(
+                `race:${destinationWriteDeleteSourceId}`,
+                'destination-write-delete',
+                'synthetic-destination-write-delete',
+                destinationWriteDeleteSourceId,
+              )
+              .run();
+        assert.equal(result.meta.changes, 1);
+      },
+      404,
+      /연결된 신청자료를 찾지 못했습니다/,
+    );
+
+    const finalAccessDamagePreview = await preview(finalAccessDamageSourceId);
+    const finalAccessDamageRow = await findCompanyFile(
+      finalAccessDamageSourceId,
+    );
+    assert.ok(finalAccessDamageRow);
+    const finalAccessDamageObject = await sourceGet(
+      finalAccessDamageRow.storage_key,
+    );
+    assert.ok(finalAccessDamageObject);
+    const finalAccessDamageBytes = await finalAccessDamageObject.arrayBuffer();
+    const finalAccessReplacement = new Uint8Array(
+      finalAccessDamageBytes.slice(0),
+    );
+    finalAccessReplacement[finalAccessReplacement.byteLength - 1] ^= 1;
+    try {
+      await postDuringDestinationWriteMutation(
+        finalAccessDamagePreview,
+        finalAccessDamageRow.storage_key,
+        'intake-source-final-access-damage-race',
+        'during-final-access',
+        async () => {
+          await sourceBucket.put(
+            finalAccessDamageRow.storage_key,
+            finalAccessReplacement,
+            {
+              httpMetadata: {
+                contentType: finalAccessDamageRow.content_type,
+              },
+            },
+          );
+        },
+        409,
+        /원본 보관 정보가 변경/,
+      );
+    } finally {
+      await sourceBucket.put(
+        finalAccessDamageRow.storage_key,
+        finalAccessDamageBytes,
+        {
+          httpMetadata: { contentType: finalAccessDamageRow.content_type },
         },
       );
     }

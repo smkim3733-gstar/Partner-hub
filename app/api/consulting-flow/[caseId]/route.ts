@@ -264,6 +264,9 @@ export async function POST(request: Request, context: Context) {
         upload!.id,
         await writeUpload(upload!, imported.bytes),
       );
+      // The original can change while R2 writes the already-reviewed bytes.
+      // Preserve the reservation/object, but never commit a stale source copy.
+      await recheckPreparedIntakeImport(flow, imported);
     }
     if (upload && input.file) {
       fileObjectBindings.set(
@@ -295,6 +298,9 @@ export async function POST(request: Request, context: Context) {
       Boolean(input.file || input.audio),
     );
     assertFlowLifecycleActive(access.state, flow.caseId);
+    // Final access validation performs asynchronous D1 work. Rebind an intake
+    // import to its current source immediately before the FLOW transaction.
+    if (imported) await recheckPreparedIntakeImport(flow, imported);
     await commitFlow(
       flow,
       next,
