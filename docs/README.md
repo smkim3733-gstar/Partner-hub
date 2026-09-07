@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [R2 객체와 D1 SHA-256 원장 무결성](R2_D1_SHA256_LEDGER_INTEGRITY_2026_09_07.md)                                     | 새 R2 체크섬의 D1 불변 원장 결속, 후속 읽기 검증, 레거시 무백필                          |
 | [R2 조건부 업로드와 SHA-256 무결성](R2_CONDITIONAL_UPLOAD_INTEGRITY_2026_09_07.md)                                   | FLOW·기업자료 조건부 쓰기, 체크섬 검증, 경쟁 객체 보존과 정확 재시도                     |
 | [상담 FLOW 신청자료 목적지 복사 후 원본 경쟁](FLOW_INTAKE_POST_COPY_SOURCE_RACE_INTEGRITY_2026_09_07.md)             | R2 쓰기·최종 접근 중 원본 변경 차단, FLOW 0건, 목적지 객체·pending 예약 보존             |
 | [상담 FLOW 신청자료 예약 후 원본 경쟁](FLOW_INTAKE_POST_RESERVATION_SOURCE_RACE_INTEGRITY_2026_09_07.md)             | 예약 직후 원본 삭제·R2 교체 차단, 목적지 쓰기·FLOW 0건, pending 예약 보존                |
