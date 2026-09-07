@@ -49,6 +49,21 @@ type Row = {
   integrity_proof: InventoryItem['integrityProof'];
   status: InventoryItem['status'];
 };
+type InventoryQueryRow =
+  | (Row & {
+      row_kind: 'item';
+      coverage_sha256: null;
+      coverage_etag: null;
+      coverage_metadata: null;
+      coverage_unavailable: null;
+    })
+  | {
+      row_kind: 'coverage';
+      coverage_sha256: number;
+      coverage_etag: number;
+      coverage_metadata: number;
+      coverage_unavailable: number;
+    };
 type Cursor = { createdAt: string; id: string; filter: InventoryFilter };
 
 export async function requireInventoryAdmin(request: Request) {
@@ -110,57 +125,6 @@ function documentIds(state: unknown) {
     : [];
 }
 
-async function readIntegrityCoverage(db: D1Database) {
-  const row = await db
-    .prepare(`WITH ledger_proofs AS (
-      SELECT integrity.validation_mode, integrity.r2_etag,
-        integrity.r2_content_type, checksum.sha256
-      FROM company_file_objects file
-      LEFT JOIN company_file_object_integrity integrity ON integrity.file_id = file.id
-      LEFT JOIN company_file_object_checksums checksum ON checksum.file_id = file.id
-      UNION ALL
-      SELECT integrity.validation_mode, integrity.r2_etag,
-        integrity.r2_content_type, checksum.sha256
-      FROM consulting_flow_file_owners owner
-      LEFT JOIN consulting_flow_file_object_integrity integrity ON integrity.file_id = owner.file_id
-      LEFT JOIN consulting_flow_file_object_checksums checksum ON checksum.file_id = owner.file_id
-    ), classified AS (
-      SELECT CASE
-        WHEN validation_mode = 'metadata' AND r2_etag IS NULL
-          AND typeof(r2_content_type) = 'text' AND sha256 IS NULL THEN 'metadata'
-        WHEN validation_mode = 'etag' AND typeof(r2_etag) = 'text'
-          AND length(trim(r2_etag)) BETWEEN 1 AND 256 AND sha256 IS NULL THEN 'etag'
-        WHEN validation_mode = 'etag' AND typeof(r2_etag) = 'text'
-          AND length(trim(r2_etag)) BETWEEN 1 AND 256
-          AND typeof(sha256) = 'text' AND length(sha256) = 64
-          AND sha256 NOT GLOB '*[^0-9a-f]*' THEN 'sha256'
-        ELSE 'unavailable' END AS proof
-      FROM ledger_proofs
-    ) SELECT
-      COALESCE(SUM(proof = 'sha256'), 0) AS sha256,
-      COALESCE(SUM(proof = 'etag'), 0) AS etag,
-      COALESCE(SUM(proof = 'metadata'), 0) AS metadata,
-      COALESCE(SUM(proof = 'unavailable'), 0) AS unavailable
-    FROM classified`)
-    .first<{
-      sha256: number;
-      etag: number;
-      metadata: number;
-      unavailable: number;
-    }>();
-  if (
-    !row ||
-    Object.values(row).some(
-      (value) => !Number.isSafeInteger(value) || value < 0,
-    )
-  )
-    throw new CompanyFileError(
-      '무결성 증명 적용 현황을 확인하지 못했습니다.',
-      503,
-    );
-  return row;
-}
-
 export async function listFileInventory(
   url: URL,
   state: unknown,
@@ -169,7 +133,7 @@ export async function listFileInventory(
   const db = await inventoryDatabase();
   // Only IDs and selected metadata leave SQL. Do not load transcripts, reports,
   // request fingerprints, private object keys or an entire R2 bucket into the UI.
-  const rows = await db
+  const queryRows = await db
     .prepare(`
     WITH document_refs AS (SELECT value AS id FROM json_each(?1)),
     flow_refs AS (SELECT DISTINCT json_extract(f.value, '$.intakeFileId') AS id
@@ -228,10 +192,57 @@ export async function listFileInventory(
           WHEN id IN (SELECT id FROM document_refs) OR id IN (SELECT id FROM flow_refs) THEN 'linked'
           ELSE 'unlinked' END AS status
       FROM candidates
-    ) SELECT * FROM classified
-    WHERE (?2 = 'all' OR status = ?2)
-      AND (?3 IS NULL OR created_at < ?3 OR (created_at = ?3 AND id < ?4))
-    ORDER BY created_at DESC, id DESC LIMIT 26
+    ), paged AS (
+      SELECT source_type, id, original_name, company, title, category,
+        size_bytes, created_at, assigned_trainee, partner_member_id,
+        uploaded_by_email, owner_key, case_id, document_linked, flow_linked,
+        integrity_proof, status
+      FROM classified
+      WHERE (?2 = 'all' OR status = ?2)
+        AND (?3 IS NULL OR created_at < ?3 OR (created_at = ?3 AND id < ?4))
+      ORDER BY created_at DESC, id DESC LIMIT 26
+    ), ledger_proofs AS (
+      SELECT integrity.validation_mode, integrity.r2_etag,
+        integrity.r2_content_type, checksum.sha256
+      FROM company_file_objects file
+      LEFT JOIN company_file_object_integrity integrity ON integrity.file_id = file.id
+      LEFT JOIN company_file_object_checksums checksum ON checksum.file_id = file.id
+      UNION ALL
+      SELECT integrity.validation_mode, integrity.r2_etag,
+        integrity.r2_content_type, checksum.sha256
+      FROM consulting_flow_file_owners owner
+      LEFT JOIN consulting_flow_file_object_integrity integrity ON integrity.file_id = owner.file_id
+      LEFT JOIN consulting_flow_file_object_checksums checksum ON checksum.file_id = owner.file_id
+    ), proof_classified AS (
+      SELECT CASE
+        WHEN validation_mode = 'metadata' AND r2_etag IS NULL
+          AND typeof(r2_content_type) = 'text' AND sha256 IS NULL THEN 'metadata'
+        WHEN validation_mode = 'etag' AND typeof(r2_etag) = 'text'
+          AND length(trim(r2_etag)) BETWEEN 1 AND 256 AND sha256 IS NULL THEN 'etag'
+        WHEN validation_mode = 'etag' AND typeof(r2_etag) = 'text'
+          AND length(trim(r2_etag)) BETWEEN 1 AND 256
+          AND typeof(sha256) = 'text' AND length(sha256) = 64
+          AND sha256 NOT GLOB '*[^0-9a-f]*' THEN 'sha256'
+        ELSE 'unavailable' END AS proof
+      FROM ledger_proofs
+    ), coverage AS (
+      SELECT
+        COALESCE(SUM(proof = 'sha256'), 0) AS sha256,
+        COALESCE(SUM(proof = 'etag'), 0) AS etag,
+        COALESCE(SUM(proof = 'metadata'), 0) AS metadata,
+        COALESCE(SUM(proof = 'unavailable'), 0) AS unavailable
+      FROM proof_classified
+    )
+    SELECT 'item' AS row_kind, paged.*,
+      NULL AS coverage_sha256, NULL AS coverage_etag,
+      NULL AS coverage_metadata, NULL AS coverage_unavailable
+    FROM paged
+    UNION ALL
+    SELECT 'coverage', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+      sha256, etag, metadata, unavailable
+    FROM coverage
+    ORDER BY row_kind DESC, created_at DESC, id DESC
   `)
     .bind(
       JSON.stringify(documentIds(state)),
@@ -239,8 +250,38 @@ export async function listFileInventory(
       cursor?.createdAt ?? null,
       cursor?.id ?? null,
     )
-    .all<Row>();
-  const integrityCoverage = await readIntegrityCoverage(db);
+    .all<InventoryQueryRow>();
+  const coverageRows = queryRows.results.filter(
+    (row): row is Extract<InventoryQueryRow, { row_kind: 'coverage' }> =>
+      row.row_kind === 'coverage',
+  );
+  if (
+    coverageRows.length !== 1 ||
+    queryRows.results.some(
+      (row) => row.row_kind !== 'item' && row.row_kind !== 'coverage',
+    ) ||
+    [
+      coverageRows[0].coverage_sha256,
+      coverageRows[0].coverage_etag,
+      coverageRows[0].coverage_metadata,
+      coverageRows[0].coverage_unavailable,
+    ].some((value) => !Number.isSafeInteger(value) || value < 0)
+  )
+    throw new CompanyFileError(
+      '무결성 증명 적용 현황을 확인하지 못했습니다.',
+      503,
+    );
+  const coverage = coverageRows[0];
+  const integrityCoverage = {
+    sha256: coverage.coverage_sha256,
+    etag: coverage.coverage_etag,
+    metadata: coverage.coverage_metadata,
+    unavailable: coverage.coverage_unavailable,
+  };
+  const rows = queryRows.results.filter(
+    (row): row is Extract<InventoryQueryRow, { row_kind: 'item' }> =>
+      row.row_kind === 'item',
+  );
   const members =
     (
       state as {
@@ -258,7 +299,7 @@ export async function listFileInventory(
         }>;
       } | null
     )?.cases ?? [];
-  const page = rows.results.slice(0, pageSize);
+  const page = rows.slice(0, pageSize);
   const items = page.map((row): InventoryItem => {
     const member = row.owner_key?.startsWith('member:')
       ? members.find((m) => `member:${m.id}` === row.owner_key)
@@ -298,7 +339,7 @@ export async function listFileInventory(
   return {
     items,
     nextCursor:
-      rows.results.length > pageSize && last
+      rows.length > pageSize && last
         ? Buffer.from(
             JSON.stringify({ createdAt: last.created_at, id: last.id, filter }),
           ).toString('base64url')

@@ -268,6 +268,65 @@ void test('inventory exposes SHA-256 coverage without hashes or R2 body reads', 
   assert.equal(r2Calls, 0);
 });
 
+void test('inventory list and checksum coverage share one D1 snapshot', async () => {
+  await seed();
+  await file('snapshot-existing', 'ready', true, undefined, true, {
+    validationMode: 'etag',
+    r2Etag: 'existing-etag',
+    sha256: 'a'.repeat(64),
+  });
+  const db = companyFileDatabase();
+  const prepare = db.prepare.bind(db);
+  let intercepted = 0;
+  const wrap = (statement: D1PreparedStatement): D1PreparedStatement =>
+    new Proxy(statement, {
+      get(target, property) {
+        if (property === 'bind')
+          return (...values: unknown[]) => wrap(target.bind(...values));
+        if (property === 'all')
+          return async <T = Record<string, unknown>>() => {
+            const result = await target.all<T>();
+            intercepted++;
+            await file('snapshot-late', 'ready', true, undefined, true, {
+              validationMode: 'etag',
+              r2Etag: 'late-etag',
+              sha256: 'b'.repeat(64),
+            });
+            return result;
+          };
+        const value = Reflect.get(target, property);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+  db.prepare = (sql: string) =>
+    sql.includes('WITH document_refs AS') ? wrap(prepare(sql)) : prepare(sql);
+  let result: InventoryPage;
+  try {
+    result = await page('?status=all');
+  } finally {
+    db.prepare = prepare;
+  }
+  assert.equal(intercepted, 1);
+  assert.deepEqual(
+    result.items.map((item) => item.id),
+    ['snapshot-existing'],
+  );
+  assert.deepEqual(result.integrityCoverage, {
+    sha256: 1,
+    etag: 0,
+    metadata: 0,
+    unavailable: 0,
+  });
+  assert.equal(
+    (
+      await db
+        .prepare('SELECT COUNT(*) AS count FROM company_file_objects')
+        .first<{ count: number }>()
+    )?.count,
+    2,
+  );
+});
+
 void test('actual document and intake references distinguish linked files from staged, incomplete and deletion records', async () => {
   await seed(
     [
