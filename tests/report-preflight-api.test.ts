@@ -139,32 +139,24 @@ void test('admin-only preflight is non-mutating and generation rechecks files af
         .flow.revision;
     return response;
   }
-  assert.equal(
-    (
-      await command(
-        {
-          type: 'save_source',
-          sourceText: '',
-          privacyMasked: true,
-          fileConsent: true,
-        },
-        new File([bodyText], 'verified.txt'),
-      )
-    ).status,
-    200,
+  const sourceResponse = await command(
+    {
+      type: 'save_source',
+      sourceText: '',
+      privacyMasked: true,
+      fileConsent: true,
+    },
+    new File([bodyText], 'verified.txt'),
   );
-  assert.equal(
-    (
-      await command({
-        type: 'set_ai_policy',
-        enabled: true,
-        thirdPartyConsent: true,
-        privacyMasked: true,
-        costConsent: true,
-      })
-    ).status,
-    200,
-  );
+  assert.equal(sourceResponse.status, 200, await sourceResponse.clone().text());
+  const policyResponse = await command({
+    type: 'set_ai_policy',
+    enabled: true,
+    thirdPartyConsent: true,
+    privacyMasked: true,
+    costConsent: true,
+  });
+  assert.equal(policyResponse.status, 200, await policyResponse.clone().text());
   const runtime = flowEnvironment();
   const key = runtime.ANTHROPIC_API_KEY;
   const oldFetch = globalThis.fetch;
@@ -177,6 +169,8 @@ void test('admin-only preflight is non-mutating and generation rechecks files af
   try {
     const before = await readFlow(caseId);
     assert.ok(before);
+    const originalObject = await flowBucket().head(before.files[0].key);
+    assert.ok(originalObject?.checksums.sha256);
     const checked = await GET(request(`${url}/preflight`), context);
     const raw = await checked.clone().text();
     const result = await readReportPreflightResponse(checked, caseId, revision);
@@ -205,7 +199,10 @@ void test('admin-only preflight is non-mutating and generation rechecks files af
     await flowBucket().put(
       before.files[0].key,
       new TextEncoder().encode(bodyText),
-      { httpMetadata: { contentType: before.files[0].contentType } },
+      {
+        httpMetadata: { contentType: before.files[0].contentType },
+        sha256: originalObject.checksums.sha256,
+      },
     );
     await flowBucket().delete(before.files[0].key);
     const missing = await command({ type: 'queue_report1' });
@@ -215,14 +212,17 @@ void test('admin-only preflight is non-mutating and generation rechecks files af
     await flowBucket().put(
       before.files[0].key,
       new TextEncoder().encode(bodyText),
-      { httpMetadata: { contentType: before.files[0].contentType } },
+      {
+        httpMetadata: { contentType: before.files[0].contentType },
+        sha256: originalObject.checksums.sha256,
+      },
     );
     assert.equal(
       (await command({ type: 'queue_report1' }, undefined, 0)).status,
       409,
     );
     const queued = await command({ type: 'queue_report1' });
-    assert.equal(queued.status, 200);
+    assert.equal(queued.status, 200, await queued.clone().text());
     assert.equal((await readFlow(caseId))?.jobs[0].status, 'queued');
     assert.equal(calls, 0, 'Neither inspection nor queuing calls the model');
     assert.equal(

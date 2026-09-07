@@ -9,7 +9,11 @@ import {
   ensureCompanyFileTables,
   findCompanyFile,
 } from '../lib/company-files';
-import { mutateCompanyFileObjectFixture } from './company-file-object-fixture';
+import {
+  mutateCompanyFileChecksumFixture,
+  mutateCompanyFileObjectFixture,
+} from './company-file-object-fixture';
+import { r2ObjectSha256Hex } from '../lib/r2-checksum';
 
 const member = {
   id: 'race-partner',
@@ -560,7 +564,7 @@ void test('download rejects a same-size R2 byte replacement', async () => {
   );
 });
 
-void test('new uploads bind the native R2 ETag and MIME in D1', async () => {
+void test('new uploads bind native R2 ETag, MIME and SHA-256 in D1', async () => {
   await seed();
   const id = await create(),
     head = await companyFileBucket().head(`company-source/${id}`),
@@ -570,6 +574,12 @@ void test('new uploads bind the native R2 ETag and MIME in D1', async () => {
         FROM company_file_object_integrity WHERE file_id = ?1`)
       .bind(id)
       .first(),
+    checksum = await db
+      .prepare(
+        'SELECT sha256 FROM company_file_object_checksums WHERE file_id = ?1',
+      )
+      .bind(id)
+      .first<{ sha256: string }>(),
     storageKey = await db
       .prepare(
         'SELECT storage_key FROM company_file_storage_keys WHERE file_id = ?1',
@@ -585,7 +595,29 @@ void test('new uploads bind the native R2 ETag and MIME in D1', async () => {
       r2_content_type: 'text/plain',
     },
   );
+  assert.deepEqual({ ...checksum }, { sha256: r2ObjectSha256Hex(head) });
   assert.deepEqual({ ...storageKey }, { storage_key: `company-source/${id}` });
+});
+
+void test('download rejects an independently corrupted D1 SHA-256 proof', async () => {
+  await seed();
+  const id = await create(),
+    db = companyFileDatabase(),
+    head = await companyFileBucket().head(`company-source/${id}`);
+  assert.ok(head);
+  const originalSha256 = r2ObjectSha256Hex(head);
+  assert.ok(originalSha256);
+  await mutateCompanyFileChecksumFixture(db, id, '0'.repeat(64));
+  try {
+    const response = await download(request('GET'), context(id));
+    assert.equal(response.status, 409, await response.clone().text());
+    assert.match(
+      ((await response.json()) as { error: string }).error,
+      /보관 상태/,
+    );
+  } finally {
+    await mutateCompanyFileChecksumFixture(db, id, originalSha256);
+  }
 });
 
 void test('new uploads bind every immutable company-file metadata fact in D1', async () => {
@@ -655,6 +687,14 @@ void test('object-integrity and storage-key ledgers reject direct mutation but p
       /object integrity requires parent deletion/,
     ],
     [
+      "UPDATE company_file_object_checksums SET sha256 = '0' || substr(sha256, 2) WHERE file_id = ?1",
+      /object checksum is immutable/,
+    ],
+    [
+      'DELETE FROM company_file_object_checksums WHERE file_id = ?1',
+      /object checksum requires parent deletion/,
+    ],
+    [
       "UPDATE company_file_storage_keys SET storage_key = 'company-source/direct-rewrite' WHERE file_id = ?1",
       /storage key is immutable/,
     ],
@@ -668,6 +708,7 @@ void test('object-integrity and storage-key ledgers reject direct mutation but p
   assert.equal((await remove(request('DELETE'), context(id))).status, 204);
   for (const table of [
     'company_file_object_integrity',
+    'company_file_object_checksums',
     'company_file_storage_keys',
   ])
     assert.equal(
@@ -1115,7 +1156,7 @@ void test('suspension immediately before the metadata transaction cannot commit 
     batch = db.batch.bind(db);
   let once = true;
   db.batch = async <T = unknown>(statements: D1PreparedStatement[]) => {
-    if (once && statements.length === 6) {
+    if (once && statements.length === 7) {
       once = false;
       await suspend();
     }

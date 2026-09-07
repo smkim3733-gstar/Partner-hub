@@ -326,6 +326,19 @@ export async function storeCompanyUpload(
         metadata.sizeBytes,
       ),
     db
+      .prepare(`INSERT INTO company_file_object_checksums (file_id, sha256)
+      SELECT ?1, ?2
+      WHERE EXISTS (SELECT 1 FROM company_file_object_integrity
+        WHERE file_id = ?1 AND validation_mode = 'etag'
+          AND r2_etag = ?3 AND r2_content_type = ?4)
+      AND NOT EXISTS (SELECT 1 FROM company_file_object_checksums WHERE file_id = ?1)`)
+      .bind(
+        id,
+        objectBinding.sha256,
+        objectBinding.etag,
+        objectBinding.contentType,
+      ),
+    db
       .prepare(`INSERT INTO company_file_metadata
       (file_id, original_name, company, category, title, assigned_trainee,
        uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
@@ -382,6 +395,8 @@ export async function storeCompanyUpload(
       AND EXISTS (SELECT 1 FROM company_file_objects WHERE id = ?1)
       AND EXISTS (SELECT 1 FROM company_file_object_integrity WHERE file_id = ?1
         AND validation_mode = 'etag' AND r2_etag = ?2 AND r2_content_type = ?3)
+      AND EXISTS (SELECT 1 FROM company_file_object_checksums WHERE file_id = ?1
+        AND sha256 = ?6)
       AND EXISTS (SELECT 1 FROM company_file_storage_keys WHERE file_id = ?1
         AND storage_key = ?5)
       AND EXISTS (SELECT 1 FROM company_file_objects f WHERE f.id = ?1
@@ -393,6 +408,7 @@ export async function storeCompanyUpload(
         objectBinding.contentType,
         payload,
         storageKey,
+        objectBinding.sha256,
       ),
   ]);
   const status = await db

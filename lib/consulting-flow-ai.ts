@@ -146,6 +146,7 @@ export async function buildAnalysisSourceBlocks(
             validationMode: 'metadata',
             etag: null,
             contentType: file.contentType,
+            sha256: null,
           } as const)
         : await readFlowFileObjectIntegrity(flow.caseId, file);
     const object = await flowBucket().get(file.key);

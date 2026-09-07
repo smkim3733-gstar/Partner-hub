@@ -54,12 +54,18 @@ import {
   consultingFlowsCommandInsertScopeTriggerSql,
   consultingFlowsSetAiPolicyJobsTriggerSql,
 } from '../db/schema';
-import { deleteFlowFileLedgerFixture } from './flow-file-ledger-fixture';
+import {
+  deleteFlowFileLedgerFixture,
+  mutateFlowFileChecksumFixture,
+} from './flow-file-ledger-fixture';
 import {
   deleteConsultingFlowFixture,
   mutateConsultingFlowFixture,
 } from './flow-root-fixture';
 import { PUT as saveState } from './state-request';
+import { fileDigest } from '../lib/file-digest';
+import { r2Sha256Bytes } from '../lib/r2-checksum';
+import { r2ObjectSha256Hex } from '../lib/r2-checksum';
 
 const partner = {
   id: 'safety-partner',
@@ -79,8 +85,16 @@ async function storeFlowFileBinding(
   file: ConsultingFlow['files'][number],
   body: Parameters<R2Bucket['put']>[1],
 ) {
-  const object = await flowBucket().put(file.key, body, {
+  const bytes = ArrayBuffer.isView(body)
+    ? Uint8Array.from(
+        new Uint8Array(body.buffer, body.byteOffset, body.byteLength),
+      ).buffer
+    : await new Response(body).arrayBuffer();
+  const sha256 = r2Sha256Bytes(await fileDigest(bytes));
+  assert.ok(sha256);
+  const object = await flowBucket().put(file.key, bytes, {
     httpMetadata: { contentType: file.contentType },
+    sha256,
   });
   return new Map([[file.id, flowFileObjectBinding(file, object)]]);
 }
@@ -12583,6 +12597,53 @@ void test('FLOW attachment download rejects same-size R2 byte or MIME replacemen
     });
     assert.equal(response.status, 409, await response.clone().text());
     assert.deepEqual(await readFlow(saved.caseId), saved);
+  }
+});
+
+void test('FLOW uploads bind immutable R2 SHA-256 proof and downloads enforce it', async () => {
+  const { saved, file } = await fixtureWithAttachment(),
+    db = await flowDatabase(),
+    head = await flowBucket().head(file.key);
+  assert.ok(head);
+  assert.deepEqual(
+    {
+      ...(await db
+        .prepare(
+          'SELECT sha256 FROM consulting_flow_file_object_checksums WHERE file_id = ?1',
+        )
+        .bind(file.id)
+        .first()),
+    },
+    { sha256: r2ObjectSha256Hex(head) },
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE consulting_flow_file_object_checksums SET sha256 = '0' || substr(sha256, 2) WHERE file_id = ?1",
+      )
+      .bind(file.id)
+      .run(),
+    /object checksum is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'DELETE FROM consulting_flow_file_object_checksums WHERE file_id = ?1',
+      )
+      .bind(file.id)
+      .run(),
+    /object checksum is durable/,
+  );
+  const originalSha256 = r2ObjectSha256Hex(head);
+  assert.ok(originalSha256);
+  await mutateFlowFileChecksumFixture(db, file.id, '0'.repeat(64));
+  try {
+    const response = await download(request(saved.caseId, undefined), {
+      params: Promise.resolve({ caseId: saved.caseId, fileId: file.id }),
+    });
+    assert.equal(response.status, 409, await response.clone().text());
+  } finally {
+    await mutateFlowFileChecksumFixture(db, file.id, originalSha256);
   }
 });
 

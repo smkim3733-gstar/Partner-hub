@@ -2,6 +2,9 @@ import { env } from 'cloudflare:workers';
 import {
   consultingFlowFileMetadataLifecycleTriggerSql,
   consultingFlowFileMetadataNoDeleteTriggerSql,
+  consultingFlowFileObjectChecksumsNoDeleteTriggerSql,
+  consultingFlowFileObjectChecksumsNoUpdateTriggerSql,
+  consultingFlowFileObjectChecksumsTableSql,
   consultingFlowFileObjectIntegrityTableSql,
   consultingFlowFileObjectIntegrityNoDeleteTriggerSql,
   consultingFlowFileObjectIntegrityNoUpdateTriggerSql,
@@ -117,6 +120,7 @@ import { isCrossSiteRequest } from '@/lib/request-origin';
 import { QueryRequestError } from '@/lib/request-query';
 import { readRouteParam, RouteParamError } from '@/lib/request-path';
 import { privateJsonResponse } from '@/lib/private-response';
+import { r2ObjectSha256Hex } from '@/lib/r2-checksum';
 import { CompanyFileError, ensureCompanyFileTables } from '@/lib/company-files';
 import {
   FLOW_FILE_STORAGE_PREFIX,
@@ -234,6 +238,9 @@ export async function flowDatabase() {
         db.prepare(consultingFlowFileObjectIntegrityTableSql),
         db.prepare(consultingFlowFileObjectIntegrityNoUpdateTriggerSql),
         db.prepare(consultingFlowFileObjectIntegrityNoDeleteTriggerSql),
+        db.prepare(consultingFlowFileObjectChecksumsTableSql),
+        db.prepare(consultingFlowFileObjectChecksumsNoUpdateTriggerSql),
+        db.prepare(consultingFlowFileObjectChecksumsNoDeleteTriggerSql),
         db.prepare(consultingFlowUploadRequestsTableSql),
         db.prepare(consultingFlowUploadRequestsPendingIndexSql),
         db.prepare(consultingFlowUploadRequestsPendingFingerprintIndexSql),
@@ -278,6 +285,7 @@ type StoredFlowFileObjectIntegrityRow = {
   validation_mode: string;
   r2_etag: string | null;
   r2_content_type: string;
+  r2_sha256: string | null;
 };
 type StoredFlowUploadRequestRow = {
   command_id: string;
@@ -299,11 +307,13 @@ type StoredFlowUploadRequestRow = {
 export type FlowFileObjectBinding = {
   etag: string;
   contentType: string;
+  sha256: string;
 };
 export type FlowFileObjectIntegrity = {
   validationMode: 'metadata' | 'etag';
   etag: string | null;
   contentType: string;
+  sha256: string | null;
 };
 export type FlowUploadReservationSlot = 'file' | 'audio';
 export type FlowUploadReservation = {
@@ -598,6 +608,8 @@ const flowFileOwnershipViolationSql = (
     ON metadata.file_id = json_extract(file.value, '$.id')
   LEFT JOIN consulting_flow_file_object_integrity object_integrity
     ON object_integrity.file_id = json_extract(file.value, '$.id')
+  LEFT JOIN consulting_flow_file_object_checksums object_checksum
+    ON object_checksum.file_id = json_extract(file.value, '$.id')
   WHERE ${caseIdOnly ? 'flow.case_id = ?1 AND ' : ''}(
     owner.file_id IS NULL OR owner.case_id IS NOT flow.case_id OR
     owner.storage_key IS NOT json_extract(file.value, '$.key') OR
@@ -617,7 +629,12 @@ const flowFileOwnershipViolationSql = (
     (object_integrity.validation_mode = 'metadata' AND object_integrity.r2_etag IS NOT NULL) OR
     (object_integrity.validation_mode = 'etag' AND
       (typeof(object_integrity.r2_etag) <> 'text' OR
-        length(object_integrity.r2_etag) NOT BETWEEN 1 AND 256)))
+        length(object_integrity.r2_etag) NOT BETWEEN 1 AND 256)) OR
+    (object_integrity.validation_mode = 'metadata' AND object_checksum.file_id IS NOT NULL) OR
+    (object_checksum.file_id IS NOT NULL AND
+      (typeof(object_checksum.sha256) <> 'text' OR
+        length(object_checksum.sha256) <> 64 OR
+        object_checksum.sha256 GLOB '*[^0-9a-f]*')))
   LIMIT 1`;
 const claimFlowFileOwnershipSql = `INSERT INTO consulting_flow_file_owners
     (file_id, case_id, storage_key, created_at)
@@ -693,6 +710,21 @@ const claimFlowFileObjectIntegritySql = `INSERT INTO consulting_flow_file_object
       purpose = ?8 AND intake_file_id IS ?9 AND intake_source_hash IS ?10 AND
       source_reviewed_at IS ?11 AND source_reviewed_by IS ?12)
     OR EXISTS (SELECT 1 FROM consulting_flow_file_object_integrity WHERE file_id = ?1)`;
+const claimFlowFileObjectChecksumSql = `INSERT INTO consulting_flow_file_object_checksums
+    (file_id, sha256)
+  SELECT ?1, ?2
+  WHERE EXISTS (SELECT 1 FROM consulting_flow_file_object_integrity
+      WHERE file_id = ?1 AND validation_mode = 'etag'
+        AND r2_etag = ?3 AND r2_content_type = ?4)
+    AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_object_checksums
+      WHERE file_id = ?1)
+  UNION ALL
+  SELECT NULL, ?2
+  WHERE NOT EXISTS (SELECT 1 FROM consulting_flow_file_object_integrity
+      WHERE file_id = ?1 AND validation_mode = 'etag'
+        AND r2_etag = ?3 AND r2_content_type = ?4)
+    OR EXISTS (SELECT 1 FROM consulting_flow_file_object_checksums
+      WHERE file_id = ?1)`;
 function flowFileOwnershipValues(file: FlowFile) {
   return [
     file.id,
@@ -717,26 +749,29 @@ function validFlowFileObjectBinding(
     typeof binding.etag === 'string' &&
     binding.etag.trim().length > 0 &&
     binding.etag.length <= 256 &&
-    binding.contentType === file.contentType
+    binding.contentType === file.contentType &&
+    /^[0-9a-f]{64}$/.test(binding.sha256)
   );
 }
 export function flowFileObjectBinding(
   file: FlowFile,
   object: R2Object,
 ): FlowFileObjectBinding {
+  const sha256 = r2ObjectSha256Hex(object);
   if (
     object.key !== file.key ||
     object.size !== file.size ||
     object.httpMetadata?.contentType !== file.contentType ||
     typeof object.etag !== 'string' ||
     !object.etag.trim() ||
-    object.etag.length > 256
+    object.etag.length > 256 ||
+    !sha256
   )
     throw new FlowError(
       '첨부파일을 보안 저장소에 안전하게 기록하지 못했습니다.',
       503,
     );
-  return { etag: object.etag, contentType: file.contentType };
+  return { etag: object.etag, contentType: file.contentType, sha256 };
 }
 
 function validFlowUploadReservationCandidate(file: FlowFile) {
@@ -1040,7 +1075,10 @@ export function flowFileObjectMatchesIntegrity(
     object.size === file.size &&
     object.httpMetadata?.contentType === integrity.contentType &&
     integrity.contentType === file.contentType &&
-    (integrity.validationMode === 'metadata' || object.etag === integrity.etag)
+    (integrity.validationMode === 'metadata' ||
+      object.etag === integrity.etag) &&
+    (integrity.sha256 === null ||
+      r2ObjectSha256Hex(object) === integrity.sha256)
   );
 }
 export async function readFlowFileObjectIntegrity(
@@ -1052,11 +1090,13 @@ export async function readFlowFileObjectIntegrity(
   )
     .prepare(
       `SELECT object_integrity.validation_mode, object_integrity.r2_etag,
-        object_integrity.r2_content_type
+        object_integrity.r2_content_type, object_checksum.sha256 AS r2_sha256
       FROM consulting_flow_file_owners owner
       JOIN consulting_flow_file_metadata metadata ON metadata.file_id = owner.file_id
       JOIN consulting_flow_file_object_integrity object_integrity
         ON object_integrity.file_id = owner.file_id
+      LEFT JOIN consulting_flow_file_object_checksums object_checksum
+        ON object_checksum.file_id = owner.file_id
       WHERE owner.file_id = ?1 AND owner.case_id = ?2 AND owner.storage_key = ?3 AND
         owner.created_at = ?4 AND metadata.original_name = ?5 AND
         metadata.content_type = ?6 AND metadata.size_bytes = ?7 AND
@@ -1084,16 +1124,18 @@ export async function readFlowFileObjectIntegrity(
     row.r2_content_type !== file.contentType ||
     (row.validation_mode !== 'metadata' && row.validation_mode !== 'etag') ||
     (row.validation_mode === 'metadata'
-      ? row.r2_etag !== null
+      ? row.r2_etag !== null || row.r2_sha256 !== null
       : typeof row.r2_etag !== 'string' ||
         !row.r2_etag.trim() ||
-        row.r2_etag.length > 256)
+        row.r2_etag.length > 256 ||
+        (row.r2_sha256 !== null && !/^[0-9a-f]{64}$/.test(row.r2_sha256)))
   )
     throw storedFlowIntegrityError();
   return {
     validationMode: row.validation_mode,
     etag: row.r2_etag,
     contentType: row.r2_content_type,
+    sha256: row.r2_sha256,
   };
 }
 function storedFlowFromRow(
@@ -2873,6 +2915,14 @@ export async function commitFlow(
               after.revision,
               payload,
               fileObjectBindings!.get(file.id)!.etag,
+            ),
+          db
+            .prepare(claimFlowFileObjectChecksumSql)
+            .bind(
+              file.id,
+              fileObjectBindings!.get(file.id)!.sha256,
+              fileObjectBindings!.get(file.id)!.etag,
+              fileObjectBindings!.get(file.id)!.contentType,
             ),
           ...(reservedFileIds?.has(file.id)
             ? [

@@ -104,8 +104,8 @@ void test('initial FLOW commands require the additive guarded-update migration',
   assert.match(migration, /initial commands must use a guarded update/);
 });
 
-void test('FLOW upload reservation runtime schema exactly exists in its additive migration', async () => {
-  const migration = await readFile(
+void test('FLOW upload reservation runtime schema exactly exists in its additive migrations', async () => {
+  const reservationMigration = await readFile(
     path.join(
       project,
       'drizzle',
@@ -113,7 +113,13 @@ void test('FLOW upload reservation runtime schema exactly exists in its additive
     ),
     'utf8',
   );
-  const normalizedMigration = migration.replace(/\s+/g, ' ').trim();
+  const checksumMigration = await readFile(
+    path.join(project, 'drizzle', '0097_r2_sha256_integrity.sql'),
+    'utf8',
+  );
+  const normalizedMigration = `${reservationMigration}\n${checksumMigration}`
+    .replace(/\s+/g, ' ')
+    .trim();
   for (const sql of [
     consultingFlowUploadRequestsTableSql,
     consultingFlowUploadRequestsPendingIndexSql,
@@ -126,7 +132,7 @@ void test('FLOW upload reservation runtime schema exactly exists in its additive
     const normalized = sql.replace(/\s+/g, ' ').trim().replace(/;$/, '');
     assert.ok(
       normalizedMigration.includes(`${normalized};`),
-      'reservation statement is absent or drifted',
+      `reservation statement is absent or drifted: ${normalized.slice(0, 120)}`,
     );
   }
 });

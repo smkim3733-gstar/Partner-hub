@@ -699,6 +699,7 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
         reservationDamageBytes,
         {
           httpMetadata: { contentType: reservationDamageRow.content_type },
+          sha256: reservationDamageObject.checksums.sha256,
         },
       );
     }
@@ -858,6 +859,7 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
         postReservationDamageBytes,
         {
           httpMetadata: { contentType: postReservationDamageRow.content_type },
+          sha256: postReservationDamageObject.checksums.sha256,
         },
       );
     }
@@ -1062,6 +1064,7 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
         finalAccessDamageBytes,
         {
           httpMetadata: { contentType: finalAccessDamageRow.content_type },
+          sha256: finalAccessDamageObject.checksums.sha256,
         },
       );
     }
@@ -1255,6 +1258,7 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
       sourceBucket.get = sourceGet;
       await sourceBucket.put(docRow.storage_key, originalDocBytes, {
         httpMetadata: { contentType: docRow.content_type },
+        sha256: originalDocObject.checksums.sha256,
       });
     }
     assert.equal(
@@ -1470,9 +1474,9 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
     const row = await findCompanyFile(txtId);
     assert.ok(row);
     const bucket = companyFileBucket();
-    const originalBytes = await (await bucket.get(
-      row.storage_key,
-    ))!.arrayBuffer();
+    const originalObject = await bucket.get(row.storage_key);
+    assert.ok(originalObject);
+    const originalBytes = await originalObject.arrayBuffer();
     const changed = new Uint8Array(originalBytes.slice(0));
     changed[0] ^= 1;
     await bucket.put(row.storage_key, changed, {
@@ -1485,6 +1489,7 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
     );
     await bucket.put(row.storage_key, originalBytes, {
       httpMetadata: { contentType: row.content_type },
+      sha256: originalObject.checksums.sha256,
     });
     await ok(importCommand(txtPreview, txtPreview.text!));
     const pdfPreview = await preview(pdfId);

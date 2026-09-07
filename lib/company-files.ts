@@ -10,6 +10,9 @@ import {
   companyFileMetadataNoDirectDeleteTriggerSql,
   companyFileMetadataNoUpdateTriggerSql,
   companyFileMetadataTableSql,
+  companyFileObjectChecksumsNoDirectDeleteTriggerSql,
+  companyFileObjectChecksumsNoUpdateTriggerSql,
+  companyFileObjectChecksumsTableSql,
   companyFileObjectIntegrityNoDirectDeleteTriggerSql,
   companyFileObjectIntegrityNoUpdateTriggerSql,
   companyFileObjectIntegrityTableSql,
@@ -30,6 +33,7 @@ import {
   uniqueMemberIdForName,
   type PortalUser,
 } from '@/lib/portal-auth';
+import { r2ObjectSha256Hex } from '@/lib/r2-checksum';
 
 export {
   companyFileCategories,
@@ -63,15 +67,18 @@ type StoredCompanyFileObjectIntegrityRow = {
   validation_mode: string;
   r2_etag: string | null;
   r2_content_type: string;
+  r2_sha256: string | null;
 };
 export type CompanyFileObjectBinding = {
   etag: string;
   contentType: string;
+  sha256: string;
 };
 export type CompanyFileObjectIntegrity = {
   validationMode: 'metadata' | 'etag';
   etag: string | null;
   contentType: string;
+  sha256: string | null;
 };
 type CompanyFileObjectFacts = Pick<
   CompanyFileRow,
@@ -114,12 +121,15 @@ export async function ensureCompanyFileTables(db: D1Database) {
     db.prepare(companyFileObjectsOwnerIndexSql),
     db.prepare(companyFileObjectsCompanyIndexSql),
     db.prepare(companyFileObjectIntegrityTableSql),
+    db.prepare(companyFileObjectChecksumsTableSql),
     db.prepare(companyFileStorageKeysTableSql),
     db.prepare(companyFileMetadataTableSql),
     db.prepare(companyFileMetadataNoUpdateTriggerSql),
     db.prepare(companyFileMetadataNoDirectDeleteTriggerSql),
     db.prepare(companyFileObjectIntegrityNoUpdateTriggerSql),
     db.prepare(companyFileObjectIntegrityNoDirectDeleteTriggerSql),
+    db.prepare(companyFileObjectChecksumsNoUpdateTriggerSql),
+    db.prepare(companyFileObjectChecksumsNoDirectDeleteTriggerSql),
     db.prepare(companyFileStorageKeysNoUpdateTriggerSql),
     db.prepare(companyFileStorageKeysNoDirectDeleteTriggerSql),
     db.prepare(companyFileAssignmentsTableSql),
@@ -183,6 +193,7 @@ export function companyFileObjectBinding(
   file: CompanyFileObjectFacts,
   object: R2Object,
 ): CompanyFileObjectBinding {
+  const sha256 = r2ObjectSha256Hex(object);
   if (
     file.storage_key !== `company-source/${file.id}` ||
     object.key !== file.storage_key ||
@@ -190,13 +201,14 @@ export function companyFileObjectBinding(
     object.httpMetadata?.contentType !== file.content_type ||
     typeof object.etag !== 'string' ||
     !object.etag.trim() ||
-    object.etag.length > 256
+    object.etag.length > 256 ||
+    !sha256
   )
     throw new CompanyFileError(
       '기업자료 원본을 보안 저장소에 안전하게 기록하지 못했습니다.',
       503,
     );
-  return { etag: object.etag, contentType: file.content_type };
+  return { etag: object.etag, contentType: file.content_type, sha256 };
 }
 
 export function companyFileObjectMatchesIntegrity(
@@ -209,7 +221,10 @@ export function companyFileObjectMatchesIntegrity(
     object.size === file.size_bytes &&
     object.httpMetadata?.contentType === integrity.contentType &&
     integrity.contentType === file.content_type &&
-    (integrity.validationMode === 'metadata' || object.etag === integrity.etag)
+    (integrity.validationMode === 'metadata' ||
+      object.etag === integrity.etag) &&
+    (integrity.sha256 === null ||
+      r2ObjectSha256Hex(object) === integrity.sha256)
   );
 }
 
@@ -233,9 +248,10 @@ export async function readCompanyFileObjectIntegrity(
 ): Promise<CompanyFileObjectIntegrity> {
   const row = await companyFileDatabase()
     .prepare(`SELECT integrity.validation_mode, integrity.r2_etag,
-      integrity.r2_content_type
+      integrity.r2_content_type, checksum.sha256 AS r2_sha256
     FROM company_file_objects file
     JOIN company_file_object_integrity integrity ON integrity.file_id = file.id
+    LEFT JOIN company_file_object_checksums checksum ON checksum.file_id = file.id
     JOIN company_file_storage_keys object_key ON object_key.file_id = file.id
     JOIN company_file_metadata metadata ON metadata.file_id = file.id
     WHERE file.id = ?1 AND file.storage_key = ?2 AND file.content_type = ?3
@@ -256,16 +272,18 @@ export async function readCompanyFileObjectIntegrity(
     row.r2_content_type !== file.content_type ||
     (row.validation_mode !== 'metadata' && row.validation_mode !== 'etag') ||
     (row.validation_mode === 'metadata'
-      ? row.r2_etag !== null
+      ? row.r2_etag !== null || row.r2_sha256 !== null
       : typeof row.r2_etag !== 'string' ||
         !row.r2_etag.trim() ||
-        row.r2_etag.length > 256)
+        row.r2_etag.length > 256 ||
+        (row.r2_sha256 !== null && !/^[0-9a-f]{64}$/.test(row.r2_sha256)))
   )
     throw storedCompanyFileIntegrityError();
   return {
     validationMode: row.validation_mode,
     etag: row.r2_etag,
     contentType: row.r2_content_type,
+    sha256: row.r2_sha256,
   };
 }
 

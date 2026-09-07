@@ -1341,6 +1341,15 @@ try {
   checks.push(
     'version 159 files receive explicit legacy R2 metadata validation mode',
   );
+  assert.equal(
+    await db
+      .prepare(
+        'SELECT sha256 FROM consulting_flow_file_object_checksums WHERE file_id = ?1',
+      )
+      .bind(migrationCompatibilityFile.id)
+      .first(),
+    null,
+  );
   assert.deepEqual(
     await db
       .prepare(
@@ -1357,6 +1366,18 @@ try {
   );
   checks.push(
     'version 162 company originals receive explicit legacy R2 metadata validation mode',
+  );
+  assert.equal(
+    await db
+      .prepare(
+        'SELECT sha256 FROM company_file_object_checksums WHERE file_id = ?1',
+      )
+      .bind(migrationCompanyFile.id)
+      .first(),
+    null,
+  );
+  checks.push(
+    'legacy R2 objects remain explicit and receive no invented SHA-256',
   );
   assert.deepEqual(
     await db
@@ -2479,6 +2500,15 @@ try {
   assert.deepEqual(
     await db
       .prepare(
+        'SELECT sha256 FROM company_file_object_checksums WHERE file_id = ?1',
+      )
+      .bind(normalizedFile.id)
+      .first(),
+    { sha256: await sha256('SYNTHETIC_MIME_NORMALIZATION') },
+  );
+  assert.deepEqual(
+    await db
+      .prepare(
         'SELECT storage_key FROM company_file_storage_keys WHERE file_id = ?1',
       )
       .bind(normalizedFile.id)
@@ -2538,6 +2568,22 @@ try {
       .bind(normalizedFile.id)
       .run(),
     /object integrity requires parent deletion/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE company_file_object_checksums SET sha256 = '0' || substr(sha256, 2) WHERE file_id = ?1",
+      )
+      .bind(normalizedFile.id)
+      .run(),
+    /object checksum is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare('DELETE FROM company_file_object_checksums WHERE file_id = ?1')
+      .bind(normalizedFile.id)
+      .run(),
+    /object checksum requires parent deletion/,
   );
   await assert.rejects(
     db
@@ -2803,6 +2849,7 @@ try {
   );
   await bucket.put(`company-source/${normalizedFile.id}`, normalizedBytes, {
     httpMetadata: { contentType: 'text/plain' },
+    sha256: normalizedFileHead.checksums.sha256,
   });
   await expect(
     await call(`/files/${normalizedFile.id}`, undefined, { cookie }),
@@ -3883,6 +3930,33 @@ try {
       r2_content_type: 'text/plain',
     },
   );
+  assert.deepEqual(
+    await db
+      .prepare(
+        'SELECT sha256 FROM consulting_flow_file_object_checksums WHERE file_id = ?1',
+      )
+      .bind(privateMimeFile.id)
+      .first(),
+    { sha256: await sha256('SYNTHETIC_FLOW_MIME') },
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE consulting_flow_file_object_checksums SET sha256 = '0' || substr(sha256, 2) WHERE file_id = ?1",
+      )
+      .bind(privateMimeFile.id)
+      .run(),
+    /object checksum is immutable/,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        'DELETE FROM consulting_flow_file_object_checksums WHERE file_id = ?1',
+      )
+      .bind(privateMimeFile.id)
+      .run(),
+    /object checksum is durable/,
+  );
   checks.push('new FLOW uploads bind native R2 ETag and MIME in D1');
   const flowFileBytes = new TextEncoder().encode('SYNTHETIC_FLOW_MIME');
   await bucket.put(
@@ -3942,6 +4016,7 @@ try {
   checks.push('FLOW R2 MIME replacement is rejected by immutable metadata');
   await bucket.put(privateMimeFile.key, flowFileBytes, {
     httpMetadata: { contentType: 'text/plain' },
+    sha256: privateMimeHead.checksums.sha256,
   });
   const restoredFlowDownload = await expect(
     await call(
