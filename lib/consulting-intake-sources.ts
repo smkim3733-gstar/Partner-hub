@@ -8,6 +8,7 @@ import {
   isCompanyFileIntakeVisible,
   readCompanyFileObjectIntegrity,
   safeFileName,
+  type CompanyFileObjectIntegrity,
   type CompanyFileRow,
 } from './company-files';
 import {
@@ -69,6 +70,62 @@ function sameSourceFacts(left: CompanyFileRow, right: CompanyFileRow) {
     left.created_at === right.created_at
   );
 }
+
+type IntakeSourceSnapshot = {
+  row: CompanyFileRow;
+  integrity: CompanyFileObjectIntegrity;
+};
+
+async function assertCurrentSource(
+  flow: ConsultingFlow,
+  snapshot: IntakeSourceSnapshot,
+  prefetchedObject?: R2Object,
+) {
+  const latestRow = await findCompanyFile(snapshot.row.id);
+  if (
+    !latestRow ||
+    !(await isCompanyFileIntakeVisible(snapshot.row.id)) ||
+    !belongsToFlow(latestRow, flow)
+  )
+    throw new FlowError(
+      '이 기업·담당 파트너에게 연결된 신청자료를 찾지 못했습니다.',
+      404,
+    );
+  if (!sameSourceFacts(snapshot.row, latestRow))
+    throw new FlowError(
+      '원본 보관 정보가 변경되었습니다. 자료를 다시 확인해 주세요.',
+      409,
+    );
+  const latestIntegrity = await readCompanyFileObjectIntegrity(latestRow);
+  const currentObject = await companyFileBucket().head(latestRow.storage_key);
+  if (!currentObject)
+    throw new FlowError(
+      '원본이 없거나 삭제되었습니다. 자료함을 확인해 주세요.',
+      404,
+    );
+  if (
+    latestIntegrity.validationMode !== snapshot.integrity.validationMode ||
+    latestIntegrity.etag !== snapshot.integrity.etag ||
+    latestIntegrity.contentType !== snapshot.integrity.contentType ||
+    (prefetchedObject !== undefined &&
+      !companyFileObjectMatchesIntegrity(
+        latestRow,
+        prefetchedObject,
+        latestIntegrity,
+      )) ||
+    !companyFileObjectMatchesIntegrity(
+      latestRow,
+      currentObject,
+      latestIntegrity,
+    )
+  )
+    throw new FlowError(
+      '원본 보관 정보가 변경되었습니다. 자료를 다시 확인해 주세요.',
+      409,
+    );
+  return { row: latestRow, integrity: latestIntegrity };
+}
+
 function option(row: SourceMetadata): IntakeSourceOption {
   return {
     id: row.id,
@@ -161,44 +218,12 @@ async function loadSource(flow: ConsultingFlow, fileId: unknown) {
 
   // Reading and hashing may take long enough for assignment, deletion, or the
   // R2 original to change. Never expose or copy a stale prefetched snapshot.
-  const latestRow = await findCompanyFile(fileId);
-  if (
-    !latestRow ||
-    !(await isCompanyFileIntakeVisible(fileId)) ||
-    !belongsToFlow(latestRow, flow)
-  )
-    throw new FlowError(
-      '이 기업·담당 파트너에게 연결된 신청자료를 찾지 못했습니다.',
-      404,
-    );
-  if (!sameSourceFacts(row, latestRow))
-    throw new FlowError(
-      '원본 보관 정보가 변경되었습니다. 자료를 다시 확인해 주세요.',
-      409,
-    );
-  const latestIntegrity = await readCompanyFileObjectIntegrity(latestRow);
-  const currentObject = await bucket.head(latestRow.storage_key);
-  if (!currentObject)
-    throw new FlowError(
-      '원본이 없거나 삭제되었습니다. 자료함을 확인해 주세요.',
-      404,
-    );
-  if (
-    latestIntegrity.validationMode !== integrity.validationMode ||
-    latestIntegrity.etag !== integrity.etag ||
-    latestIntegrity.contentType !== integrity.contentType ||
-    !companyFileObjectMatchesIntegrity(latestRow, object, latestIntegrity) ||
-    !companyFileObjectMatchesIntegrity(
-      latestRow,
-      currentObject,
-      latestIntegrity,
-    )
-  )
-    throw new FlowError(
-      '원본 보관 정보가 변경되었습니다. 자료를 다시 확인해 주세요.',
-      409,
-    );
-  return { file, bytes, sourceHash };
+  const sourceSnapshot = await assertCurrentSource(
+    flow,
+    { row, integrity },
+    object,
+  );
+  return { file, bytes, sourceHash, sourceSnapshot };
 }
 
 export async function previewIntakeSource(
@@ -292,5 +317,17 @@ export async function prepareIntakeImport(
     sourceReviewedAt: now,
     sourceReviewedBy: user.memberId || user.id,
   };
-  return { file, bytes, category: source.file.category };
+  return {
+    file,
+    bytes,
+    category: source.file.category,
+    sourceSnapshot: source.sourceSnapshot,
+  };
+}
+
+export async function recheckPreparedIntakeImport(
+  flow: ConsultingFlow,
+  prepared: Awaited<ReturnType<typeof prepareIntakeImport>>,
+) {
+  await assertCurrentSource(flow, prepared.sourceSnapshot);
 }

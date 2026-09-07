@@ -5,7 +5,10 @@ import {
 } from '@/lib/consulting-flow';
 import { publicFlow } from '@/lib/consulting-flow-access';
 import { describeUpload, parseFlowRequest } from '@/lib/consulting-flow-http';
-import { prepareIntakeImport } from '@/lib/consulting-intake-sources';
+import {
+  prepareIntakeImport,
+  recheckPreparedIntakeImport,
+} from '@/lib/consulting-intake-sources';
 import { buildAnalysisSourceBlocks } from '@/lib/consulting-flow-ai';
 import {
   FLOW_ADMIN_COMMAND_ACTOR_NAME,
@@ -158,6 +161,9 @@ export async function POST(request: Request, context: Context) {
       // FLOW reservation. Recheck now so stale access cannot create one.
       const sourceCheckedAccess = await recheckFlowAccess(request, flow, user);
       assertFlowLifecycleActive(sourceCheckedAccess.state, flow.caseId);
+      // Access revalidation itself performs asynchronous D1 work. Bind the
+      // upcoming reservation to the still-current reviewed source snapshot.
+      await recheckPreparedIntakeImport(flow, imported);
     }
     const candidateUpload = imported?.file ?? describedUpload;
     const actor = {

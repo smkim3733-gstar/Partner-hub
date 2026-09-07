@@ -217,6 +217,22 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
         'notes.txt',
       ),
     );
+    const reservationDeleteSourceId = await add(
+      new File(
+        [
+          '예약 직전 원본 삭제 경쟁 검증용 신청자료입니다. 모든 내용은 가상 정보이며 추가 확인이 필요합니다.',
+        ],
+        'reservation-delete-source.txt',
+      ),
+    );
+    const reservationDamageSourceId = await add(
+      new File(
+        [
+          '예약 직전 원본 교체 경쟁 검증용 신청자료입니다. 모든 내용은 가상 정보이며 추가 확인이 필요합니다.',
+        ],
+        'reservation-damage-source.txt',
+      ),
+    );
     const pdfId = await add(
       new File(['%PDF-1.7\nSYNTHETIC_CERTIFICATE_ONLY'], '사업자등록증.pdf'),
       '사업자등록증',
@@ -463,6 +479,173 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
     const cmd = importCommand(docPreview, reviewedText);
     const flowDb = await flowDatabase();
     const previousFlowKeys = new Set(objects.keys());
+
+    async function postAfterSourcePreparationMutation(
+      source: IntakeSourcePreview,
+      commandId: string,
+      mutateSource: () => Promise<void>,
+      expectedStatus: 404 | 409,
+      expectedMessage: RegExp,
+    ) {
+      const prepare = flowDb.prepare.bind(flowDb);
+      const batch = flowDb.batch.bind(flowDb);
+      let portalStateReads = 0;
+      let sourceMutations = 0;
+      let reservationBatches = 0;
+      const wrapPortalStateRead = (
+        statement: D1PreparedStatement,
+      ): D1PreparedStatement =>
+        new Proxy(statement, {
+          get(target, key) {
+            if (key === 'bind')
+              return (...values: unknown[]) =>
+                wrapPortalStateRead(target.bind(...values));
+            if (key === 'first')
+              return async <T = Record<string, unknown>>() => {
+                const result = await target.first<T>();
+                portalStateReads++;
+                if (portalStateReads === 5) {
+                  sourceMutations++;
+                  await mutateSource();
+                }
+                return result;
+              };
+            const value = Reflect.get(target, key);
+            return typeof value === 'function' ? value.bind(target) : value;
+          },
+        });
+      flowDb.prepare = (sql: string) =>
+        sql === 'SELECT payload FROM portal_state WHERE id = ?1'
+          ? wrapPortalStateRead(prepare(sql))
+          : prepare(sql);
+      flowDb.batch = async <T = unknown>(statements: D1PreparedStatement[]) => {
+        if (
+          statements.some((statement) =>
+            (statement as unknown as { sql: string }).sql
+              .trimStart()
+              .startsWith('INSERT INTO consulting_flow_upload_requests'),
+          )
+        ) {
+          reservationBatches++;
+          throw new Error('synthetic reservation write must not begin');
+        }
+        return batch<T>(statements);
+      };
+      let response: Response;
+      try {
+        response = await post(importCommand(source, source.text!), commandId);
+      } finally {
+        flowDb.prepare = prepare;
+        flowDb.batch = batch;
+      }
+      assert.equal(sourceMutations, 1);
+      assert.ok(portalStateReads >= 5);
+      assert.equal(
+        response.status,
+        expectedStatus,
+        await response.clone().text(),
+      );
+      assert.match(
+        ((await response.json()) as { error: string }).error,
+        expectedMessage,
+      );
+      assert.equal(reservationBatches, 0);
+      assert.equal(
+        (
+          await flowDb
+            .prepare(
+              `SELECT COUNT(*) AS count FROM consulting_flow_upload_requests
+              WHERE case_id = ?1 AND command_id = ?2`,
+            )
+            .bind(caseId, commandId)
+            .first<{ count: number }>()
+        )?.count,
+        0,
+      );
+      assert.deepEqual(
+        [...objects.keys()].filter((key) => !previousFlowKeys.has(key)),
+        [],
+      );
+      assert.equal(await readFlow(caseId), null);
+    }
+
+    const reservationDeletePreview = await preview(reservationDeleteSourceId);
+    await postAfterSourcePreparationMutation(
+      reservationDeletePreview,
+      'intake-source-pre-reservation-delete-race',
+      async () => {
+        const existing = await flowDb
+          .prepare(
+            'SELECT file_id FROM company_file_upload_requests WHERE file_id = ?1',
+          )
+          .bind(reservationDeleteSourceId)
+          .first();
+        const result = existing
+          ? await flowDb
+              .prepare(
+                "UPDATE company_file_upload_requests SET status = 'deleted' WHERE file_id = ?1",
+              )
+              .bind(reservationDeleteSourceId)
+              .run()
+          : await flowDb
+              .prepare(`INSERT INTO company_file_upload_requests
+                (owner_key, request_key, fingerprint, file_id, created_at, status)
+                SELECT ?1, ?2, ?3, id, created_at, 'deleted'
+                FROM company_file_objects WHERE id = ?4`)
+              .bind(
+                `race:${reservationDeleteSourceId}`,
+                'pre-reservation-delete',
+                'synthetic-pre-reservation-delete',
+                reservationDeleteSourceId,
+              )
+              .run();
+        assert.equal(result.meta.changes, 1);
+      },
+      404,
+      /연결된 신청자료를 찾지 못했습니다/,
+    );
+
+    const reservationDamagePreview = await preview(reservationDamageSourceId);
+    const reservationDamageRow = await findCompanyFile(
+      reservationDamageSourceId,
+    );
+    assert.ok(reservationDamageRow);
+    const reservationDamageObject = await sourceGet(
+      reservationDamageRow.storage_key,
+    );
+    assert.ok(reservationDamageObject);
+    const reservationDamageBytes = await reservationDamageObject.arrayBuffer();
+    const reservationReplacement = new Uint8Array(
+      reservationDamageBytes.slice(0),
+    );
+    reservationReplacement[reservationReplacement.byteLength - 1] ^= 1;
+    try {
+      await postAfterSourcePreparationMutation(
+        reservationDamagePreview,
+        'intake-source-pre-reservation-damage-race',
+        async () => {
+          await sourceBucket.put(
+            reservationDamageRow.storage_key,
+            reservationReplacement,
+            {
+              httpMetadata: {
+                contentType: reservationDamageRow.content_type,
+              },
+            },
+          );
+        },
+        409,
+        /원본 보관 정보가 변경/,
+      );
+    } finally {
+      await sourceBucket.put(
+        reservationDamageRow.storage_key,
+        reservationDamageBytes,
+        {
+          httpMetadata: { contentType: reservationDamageRow.content_type },
+        },
+      );
+    }
 
     sourceBucket.get = async (...args: Parameters<R2Bucket['get']>) => {
       const object = await sourceGet(...args);
