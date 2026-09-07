@@ -5135,6 +5135,181 @@ void test('failed first FLOW attachment commit preserves its reserved object for
   );
 });
 
+async function assertFinalR2ReplacementRejectedAndRecoverable(
+  mode: 'single' | 'dual',
+) {
+  const stored =
+    mode === 'single'
+      ? await fixture()
+      : await transcriptJobFixture(false, body);
+  const command =
+    mode === 'single'
+      ? ({
+          type: 'save_report',
+          stage: 1,
+          body: `${body} 최종 R2 단일 슬롯 교체 검증`,
+          fileConsent: true,
+        } as const)
+      : ({
+          type: 'save_recording',
+          meetingId: stored.meetings.at(-1)!.id,
+          transcript: `${body} 최종 R2 이중 슬롯 교체 검증`,
+          transcriptReviewed: true,
+          recordingConsent: true,
+          privacyMasked: true,
+          fileConsent: true,
+        } as const);
+  const transcript = new File(
+    [`SYNTHETIC_FINAL_R2_REPLACEMENT_${mode}`],
+    `final-r2-replacement-${mode}.txt`,
+    { type: 'text/plain' },
+  );
+  const audio =
+    mode === 'dual'
+      ? new File(
+          [new Uint8Array([0x49, 0x44, 0x33, 4, 0, 77])],
+          'final-r2-replacement-dual.mp3',
+          { type: 'audio/mpeg' },
+        )
+      : undefined;
+  const targetContentType = audio?.type ?? transcript.type;
+  const commandId = `final-r2-replacement-${mode}-${++sequence}`;
+  const previousKeys = new Set(objects.keys());
+  const bucket = flowBucket();
+  const put = bucket.put.bind(bucket);
+  const head = bucket.head.bind(bucket);
+  let targetKey: string | undefined;
+  let replacement: Uint8Array | undefined;
+  let replacements = 0;
+  bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+    const object = await put(...args);
+    if (object.httpMetadata?.contentType === targetContentType)
+      targetKey = object.key;
+    return object;
+  };
+  bucket.head = async (...args: Parameters<R2Bucket['head']>) => {
+    const key = args[0];
+    if (replacements === 0 && targetKey === key) {
+      const current = objects.get(key);
+      assert.ok(current);
+      const currentBytes = new Uint8Array(current);
+      replacement = Uint8Array.from(currentBytes, (value) => value ^ 0xff);
+      await put(key, replacement, {
+        httpMetadata: { contentType: targetContentType },
+      });
+      replacements++;
+    }
+    return head(...args);
+  };
+  let rejected: Response;
+  try {
+    rejected = await POST(
+      request(
+        stored.caseId,
+        command,
+        stored.revision,
+        commandId,
+        adminEmail,
+        transcript,
+        audio,
+      ),
+      context(stored.caseId),
+    );
+  } finally {
+    bucket.put = put;
+    bucket.head = head;
+  }
+  assert.equal(replacements, 1);
+  assert.equal(rejected.status, 409, await rejected.clone().text());
+  assert.deepEqual(await rejected.json(), {
+    error:
+      '첨부파일 보관 상태가 변경되었습니다. 같은 자료로 다시 시도해 주세요.',
+  });
+  assert.deepEqual(await readFlow(stored.caseId), stored);
+  assert.ok(targetKey);
+  assert.ok(replacement);
+  assert.deepEqual(new Uint8Array(objects.get(targetKey)), replacement);
+
+  const db = await flowDatabase();
+  const reservations = () =>
+    db
+      .prepare(
+        `SELECT slot, file_id, storage_key, status
+        FROM consulting_flow_upload_requests
+        WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3
+        ORDER BY slot`,
+      )
+      .bind(stored.caseId, FLOW_ADMIN_COMMAND_ACTOR_KEY, commandId)
+      .all<{
+        slot: string;
+        file_id: string;
+        storage_key: string;
+        status: string;
+      }>();
+  const pending = (await reservations()).results;
+  assert.deepEqual(
+    pending.map(({ slot, status }) => ({ slot, status })),
+    mode === 'dual'
+      ? [
+          { slot: 'audio', status: 'pending' },
+          { slot: 'file', status: 'pending' },
+        ]
+      : [{ slot: 'file', status: 'pending' }],
+  );
+  assert.deepEqual(
+    [...objects.keys()]
+      .filter((key) => !previousKeys.has(key))
+      .sort((a, b) => a.localeCompare(b)),
+    pending
+      .map(({ storage_key }) => storage_key)
+      .sort((a, b) => a.localeCompare(b)),
+  );
+
+  const retry = await POST(
+    request(
+      stored.caseId,
+      command,
+      stored.revision,
+      commandId,
+      adminEmail,
+      transcript,
+      audio,
+    ),
+    context(stored.caseId),
+  );
+  assert.equal(retry.status, 200, await retry.clone().text());
+  const ready = (await reservations()).results;
+  assert.ok(ready.every(({ status }) => status === 'ready'));
+  const saved = (await readFlow(stored.caseId))!;
+  assert.deepEqual(saved.commandIds.slice(-1), [commandId]);
+  const reservedBySlot = new Map(
+    pending.map(({ slot, file_id }) => [slot, file_id]),
+  );
+  if (mode === 'single') {
+    assert.equal(saved.files.at(-1)?.id, reservedBySlot.get('file'));
+    assert.deepEqual(
+      new Uint8Array(objects.get(targetKey)),
+      new Uint8Array(await transcript.arrayBuffer()),
+    );
+  } else {
+    const recording = saved.recordings.at(-1)!;
+    assert.equal(recording.transcriptFileId, reservedBySlot.get('file'));
+    assert.equal(recording.audioFileId, reservedBySlot.get('audio'));
+    assert.deepEqual(
+      new Uint8Array(objects.get(targetKey)),
+      new Uint8Array(await audio!.arrayBuffer()),
+    );
+  }
+}
+
+void test('FLOW final R2 proof rejects a same-size object replacement and exact retry repairs it', async () => {
+  await assertFinalR2ReplacementRejectedAndRecoverable('single');
+});
+
+void test('dual-slot FLOW final R2 proof rejects an audio replacement and exact retry repairs both reservations', async () => {
+  await assertFinalR2ReplacementRejectedAndRecoverable('dual');
+});
+
 void test('failed dual-slot FLOW commit preserves both reserved R2 objects for exact retry', async () => {
   const stored = await transcriptJobFixture(false, body);
   const command = {
