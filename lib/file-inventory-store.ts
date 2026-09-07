@@ -46,6 +46,7 @@ type Row = {
   case_id: string | null;
   document_linked: number;
   flow_linked: number;
+  integrity_proof: InventoryItem['integrityProof'];
   status: InventoryItem['status'];
 };
 type Cursor = { createdAt: string; id: string; filter: InventoryFilter };
@@ -109,6 +110,57 @@ function documentIds(state: unknown) {
     : [];
 }
 
+async function readIntegrityCoverage(db: D1Database) {
+  const row = await db
+    .prepare(`WITH ledger_proofs AS (
+      SELECT integrity.validation_mode, integrity.r2_etag,
+        integrity.r2_content_type, checksum.sha256
+      FROM company_file_objects file
+      LEFT JOIN company_file_object_integrity integrity ON integrity.file_id = file.id
+      LEFT JOIN company_file_object_checksums checksum ON checksum.file_id = file.id
+      UNION ALL
+      SELECT integrity.validation_mode, integrity.r2_etag,
+        integrity.r2_content_type, checksum.sha256
+      FROM consulting_flow_file_owners owner
+      LEFT JOIN consulting_flow_file_object_integrity integrity ON integrity.file_id = owner.file_id
+      LEFT JOIN consulting_flow_file_object_checksums checksum ON checksum.file_id = owner.file_id
+    ), classified AS (
+      SELECT CASE
+        WHEN validation_mode = 'metadata' AND r2_etag IS NULL
+          AND typeof(r2_content_type) = 'text' AND sha256 IS NULL THEN 'metadata'
+        WHEN validation_mode = 'etag' AND typeof(r2_etag) = 'text'
+          AND length(trim(r2_etag)) BETWEEN 1 AND 256 AND sha256 IS NULL THEN 'etag'
+        WHEN validation_mode = 'etag' AND typeof(r2_etag) = 'text'
+          AND length(trim(r2_etag)) BETWEEN 1 AND 256
+          AND typeof(sha256) = 'text' AND length(sha256) = 64
+          AND sha256 NOT GLOB '*[^0-9a-f]*' THEN 'sha256'
+        ELSE 'unavailable' END AS proof
+      FROM ledger_proofs
+    ) SELECT
+      COALESCE(SUM(proof = 'sha256'), 0) AS sha256,
+      COALESCE(SUM(proof = 'etag'), 0) AS etag,
+      COALESCE(SUM(proof = 'metadata'), 0) AS metadata,
+      COALESCE(SUM(proof = 'unavailable'), 0) AS unavailable
+    FROM classified`)
+    .first<{
+      sha256: number;
+      etag: number;
+      metadata: number;
+      unavailable: number;
+    }>();
+  if (
+    !row ||
+    Object.values(row).some(
+      (value) => !Number.isSafeInteger(value) || value < 0,
+    )
+  )
+    throw new CompanyFileError(
+      '무결성 증명 적용 현황을 확인하지 못했습니다.',
+      503,
+    );
+  return row;
+}
+
 export async function listFileInventory(
   url: URL,
   state: unknown,
@@ -133,32 +185,42 @@ export async function listFileInventory(
           AND ${companyFileMetadataIntegrityGuardSql}
           AND typeof(integrity.r2_content_type) = 'text'
           AND integrity.r2_content_type = f.content_type
-          AND ((integrity.validation_mode = 'metadata' AND integrity.r2_etag IS NULL)
+          AND ((integrity.validation_mode = 'metadata' AND integrity.r2_etag IS NULL
+              AND checksum.file_id IS NULL)
             OR (integrity.validation_mode = 'etag'
               AND typeof(integrity.r2_etag) = 'text'
-              AND length(trim(integrity.r2_etag)) BETWEEN 1 AND 256))
-          THEN 1 ELSE 0 END AS has_object_integrity
+              AND length(trim(integrity.r2_etag)) BETWEEN 1 AND 256
+              AND (checksum.file_id IS NULL OR
+                (typeof(checksum.sha256) = 'text' AND length(checksum.sha256) = 64
+                  AND checksum.sha256 NOT GLOB '*[^0-9a-f]*'))))
+          THEN 1 ELSE 0 END AS has_object_integrity,
+        integrity.validation_mode, checksum.sha256 AS checksum_sha256
       FROM company_file_objects f
       LEFT JOIN company_file_assignments a ON a.file_id = f.id
       LEFT JOIN company_file_case_links c ON c.file_id = f.id
       LEFT JOIN company_file_upload_requests u ON u.file_id = f.id
       LEFT JOIN company_file_object_integrity integrity ON integrity.file_id = f.id
+      LEFT JOIN company_file_object_checksums checksum ON checksum.file_id = f.id
       LEFT JOIN company_file_storage_keys object_key ON object_key.file_id = f.id
       UNION ALL
       SELECT 'company', u.file_id, NULL, NULL, NULL, NULL, NULL, u.created_at, NULL, NULL, NULL,
-        u.owner_key, NULL, u.status, 0, 0
+        u.owner_key, NULL, u.status, 0, 0, NULL, NULL
       FROM company_file_upload_requests u
       WHERE NOT EXISTS (SELECT 1 FROM company_file_objects f WHERE f.id = u.file_id)
         AND (u.status <> 'deleted' OR u.file_id IN (SELECT id FROM document_refs) OR u.file_id IN (SELECT id FROM flow_refs))
       UNION ALL
       SELECT 'flow', u.file_id, u.original_name, NULL, '상담 FLOW 미완료 첨부',
         u.purpose, u.size_bytes, u.created_at, NULL, NULL, NULL, u.actor_key,
-        u.case_id, u.status, 0, 0
+        u.case_id, u.status, 0, 0, NULL, NULL
       FROM consulting_flow_upload_requests u
       WHERE u.status = 'pending'
     ), classified AS (
       SELECT *, id IN (SELECT id FROM document_refs) AS document_linked,
         id IN (SELECT id FROM flow_refs) AS flow_linked,
+        CASE WHEN has_object_integrity = 0 THEN NULL
+          WHEN validation_mode = 'metadata' THEN 'metadata'
+          WHEN checksum_sha256 IS NULL THEN 'etag'
+          ELSE 'sha256' END AS integrity_proof,
         CASE WHEN upload_status = 'deleted' THEN 'deleted'
           WHEN upload_status = 'pending' THEN 'pending'
           WHEN has_metadata = 0 THEN 'inconsistent'
@@ -178,6 +240,7 @@ export async function listFileInventory(
       cursor?.id ?? null,
     )
     .all<Row>();
+  const integrityCoverage = await readIntegrityCoverage(db);
   const members =
     (
       state as {
@@ -227,6 +290,7 @@ export async function listFileInventory(
       caseId: row.case_id,
       documentLinked: Boolean(row.document_linked),
       flowLinked: Boolean(row.flow_linked),
+      integrityProof: row.integrity_proof,
       status: row.status,
     };
   });
@@ -240,6 +304,7 @@ export async function listFileInventory(
           ).toString('base64url')
         : null,
     checkedAt: new Date().toISOString(),
+    integrityCoverage,
   };
 }
 
@@ -297,11 +362,13 @@ export async function checkInventoryPresence(
     throw new CompanyFileError('확인할 파일 저장 위치가 없습니다.', 409);
   const object = await companyFileBucket().head(key);
   let integrityMode: InventoryPresence['integrityMode'] = null;
+  let integrityProof: InventoryPresence['integrityProof'] = null;
   let integrityMatches: boolean | null = null;
   if (object && file) {
     try {
       const integrity = await readCompanyFileObjectIntegrity(file);
       integrityMode = integrity.validationMode;
+      integrityProof = integrity.sha256 ? 'sha256' : integrity.validationMode;
       integrityMatches = companyFileObjectMatchesIntegrity(
         file,
         object,
@@ -323,6 +390,7 @@ export async function checkInventoryPresence(
         ? object.size === (file?.size_bytes ?? row.size_bytes)
         : null,
     integrityMode,
+    integrityProof,
     integrityMatches,
     checkedAt: new Date().toISOString(),
   };

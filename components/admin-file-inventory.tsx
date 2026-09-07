@@ -12,6 +12,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import {
+  inventoryIntegrityProofs,
   inventoryPendingAge,
   inventoryPendingAgeLabels,
   inventorySources,
@@ -160,7 +161,7 @@ export function AdminFileInventory(controls: RecoveryControls) {
               <ShieldCheck className="mr-1 inline size-4" aria-hidden="true" />
               연결 확인 필요는 삭제 가능 판정이 아닙니다. 목록은 DB 기록
               기준이며, 원본 무결성 확인은 파일 본문을 읽지 않고 존재·크기·고정
-              MIME·ETag 원장을 조회합니다.
+              MIME·ETag·SHA-256 원장을 조회합니다.
             </p>
             {busy && (
               <output className="block">보관 기록을 확인하고 있습니다.</output>
@@ -176,6 +177,53 @@ export function AdminFileInventory(controls: RecoveryControls) {
                   현재 페이지 {page.items.length}건 · 조회{' '}
                   {dateLabel(page.checkedAt)} · 페이지당 최대 25건
                 </p>
+                <div
+                  aria-label="무결성 증명 적용 현황"
+                  className="rounded-xl border bg-muted/20 p-3"
+                >
+                  <p className="text-xs font-bold">
+                    저장 원장 전체 무결성 증명{' '}
+                    {Object.values(page.integrityCoverage).reduce(
+                      (sum, count) => sum + count,
+                      0,
+                    )}
+                    건
+                  </p>
+                  <dl className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                    <div>
+                      <dt className="text-muted-foreground">SHA-256 적용</dt>
+                      <dd className="font-bold">
+                        {page.integrityCoverage.sha256}건
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">레거시 ETag</dt>
+                      <dd>{page.integrityCoverage.etag}건</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">
+                        레거시 메타데이터
+                      </dt>
+                      <dd>{page.integrityCoverage.metadata}건</dd>
+                    </div>
+                    <div>
+                      <dt className="text-muted-foreground">증명 확인 필요</dt>
+                      <dd
+                        className={
+                          page.integrityCoverage.unavailable
+                            ? 'font-bold text-red-700'
+                            : undefined
+                        }
+                      >
+                        {page.integrityCoverage.unavailable}건
+                      </dd>
+                    </div>
+                  </dl>
+                  <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                    R2 본문을 읽거나 레거시 체크섬을 추정하지 않은 D1 원장
+                    기준입니다.
+                  </p>
+                </div>
                 {!page.items.length ? (
                   <p className="rounded-xl border border-dashed p-6 text-sm">
                     이 조건의 확인 대상이 없습니다. 다른 보관 상태로도 확인할 수
@@ -250,6 +298,20 @@ export function AdminFileInventory(controls: RecoveryControls) {
                               </dd>
                             </div>
                             <div>
+                              <dt className="text-muted-foreground">
+                                무결성 증명
+                              </dt>
+                              <dd>
+                                {item.integrityProof
+                                  ? inventoryIntegrityProofs[
+                                      item.integrityProof
+                                    ]
+                                  : item.status === 'pending'
+                                    ? '저장 완료 전'
+                                    : '증명 원장 확인 필요'}
+                              </dd>
+                            </div>
+                            <div>
                               <dt className="text-muted-foreground">파일 ID</dt>
                               <dd className="break-all font-mono">{item.id}</dd>
                             </div>
@@ -303,7 +365,7 @@ export function AdminFileInventory(controls: RecoveryControls) {
                             <output className="block text-xs leading-5">
                               {typeof presence === 'string'
                                 ? presence
-                                : `${presence.exists ? '원본 존재' : '원본 없음'} · ${sizeLabel(presence.sizeBytes)}${presence.sizeMatches === false ? ' · 기록과 크기 불일치: 사용 중지·복구 필요' : ''}${presence.integrityMatches === false ? ' · 객체 무결성 원장 불일치: 사용 중지·복구 필요' : presence.integrityMatches && presence.integrityMode === 'etag' ? ' · ETag·MIME 무결성 확인' : presence.integrityMatches && presence.integrityMode === 'metadata' ? ' · 기존 원본: 크기·MIME만 확인' : ''} · ${dateLabel(presence.checkedAt)}`}
+                                : `${presence.exists ? '원본 존재' : '원본 없음'} · ${sizeLabel(presence.sizeBytes)}${presence.sizeMatches === false ? ' · 기록과 크기 불일치: 사용 중지·복구 필요' : ''}${presence.integrityMatches === false ? ' · 객체 무결성 원장 불일치: 사용 중지·복구 필요' : presence.integrityMatches && presence.integrityProof === 'sha256' ? ' · SHA-256·ETag·MIME 무결성 확인' : presence.integrityMatches && presence.integrityProof === 'etag' ? ' · 기존 원본: ETag·MIME 확인' : presence.integrityMatches && presence.integrityProof === 'metadata' ? ' · 기존 원본: 크기·MIME만 확인' : ''} · ${dateLabel(presence.checkedAt)}`}
                             </output>
                           )}
                           {item.status === 'unlinked' && (

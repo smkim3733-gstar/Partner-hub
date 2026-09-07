@@ -19,6 +19,16 @@ export const inventoryPendingAgeLabels = {
   threeDaysOrMore: '3일 이상',
 } as const;
 export type InventoryPendingAge = keyof typeof inventoryPendingAgeLabels;
+export const inventoryIntegrityProofs = {
+  sha256: 'SHA-256 · ETag · MIME',
+  etag: '레거시 ETag · MIME',
+  metadata: '레거시 크기 · MIME',
+} as const;
+export type InventoryIntegrityProof = keyof typeof inventoryIntegrityProofs;
+export type InventoryIntegrityCoverage = Record<
+  InventoryIntegrityProof | 'unavailable',
+  number
+>;
 
 export function inventoryPendingAge(
   createdAt: string,
@@ -54,12 +64,14 @@ export type InventoryItem = {
   caseId: string | null;
   documentLinked: boolean;
   flowLinked: boolean;
+  integrityProof: InventoryIntegrityProof | null;
   status: InventoryState;
 };
 export type InventoryPage = {
   items: InventoryItem[];
   nextCursor: string | null;
   checkedAt: string;
+  integrityCoverage: InventoryIntegrityCoverage;
 };
 export type InventoryPresence = {
   id: string;
@@ -68,6 +80,7 @@ export type InventoryPresence = {
   expectedSizeBytes: number | null;
   sizeMatches: boolean | null;
   integrityMode: 'metadata' | 'etag' | null;
+  integrityProof: InventoryIntegrityProof | null;
   integrityMatches: boolean | null;
   checkedAt: string;
 };

@@ -110,6 +110,7 @@ async function file(
     validationMode?: 'metadata' | 'etag';
     r2Etag?: string | null;
     r2ContentType?: string;
+    sha256?: string;
   } | null = {},
 ) {
   const db = companyFileDatabase();
@@ -155,6 +156,13 @@ async function file(
           objectIntegrity.r2Etag ?? null,
           objectIntegrity.r2ContentType ?? 'text/plain',
         )
+        .run();
+    if (objectIntegrity?.sha256)
+      await db
+        .prepare(
+          'INSERT INTO company_file_object_checksums (file_id, sha256) VALUES (?1, ?2)',
+        )
+        .bind(id, objectIntegrity.sha256)
         .run();
     await db
       .prepare(`INSERT INTO company_file_storage_keys (file_id, storage_key)
@@ -206,6 +214,58 @@ void test('inventory list and presence are administrator-only, including malform
     );
   }
   assert.equal((await page()).items.length, 1);
+});
+
+void test('inventory exposes SHA-256 coverage without hashes or R2 body reads', async () => {
+  await seed();
+  await file('proof-metadata', 'ready');
+  await file('proof-etag', 'ready', true, undefined, true, {
+    validationMode: 'etag',
+    r2Etag: 'legacy-etag',
+  });
+  await file('proof-sha256', 'ready', true, undefined, true, {
+    validationMode: 'etag',
+    r2Etag: 'sha-etag',
+    sha256: 'a'.repeat(64),
+  });
+  await file('proof-unavailable', 'ready', true, undefined, true, null);
+  const bucket = companyFileBucket();
+  const originalHead = bucket.head.bind(bucket),
+    originalGet = bucket.get.bind(bucket);
+  let r2Calls = 0;
+  bucket.head = async (...args: Parameters<R2Bucket['head']>) => {
+    r2Calls++;
+    return originalHead(...args);
+  };
+  bucket.get = async (...args: Parameters<R2Bucket['get']>) => {
+    r2Calls++;
+    return originalGet(...args);
+  };
+  try {
+    const result = await page('?status=all');
+    assert.deepEqual(
+      Object.fromEntries(
+        result.items.map((item) => [item.id, item.integrityProof]),
+      ),
+      {
+        'proof-unavailable': null,
+        'proof-sha256': 'sha256',
+        'proof-metadata': 'metadata',
+        'proof-etag': 'etag',
+      },
+    );
+    assert.deepEqual(result.integrityCoverage, {
+      sha256: 1,
+      etag: 1,
+      metadata: 1,
+      unavailable: 1,
+    });
+    assert.doesNotMatch(JSON.stringify(result), /a{64}|legacy-etag|sha-etag/);
+  } finally {
+    bucket.head = originalHead;
+    bucket.get = originalGet;
+  }
+  assert.equal(r2Calls, 0);
 });
 
 void test('actual document and intake references distinguish linked files from staged, incomplete and deletion records', async () => {
@@ -400,13 +460,20 @@ void test('presence uses metadata-only R2 head; size and object-integrity mismat
   bucket.put = noBody;
   bucket.delete = noBody;
   try {
-    for (const [id, exists, matches, integrityMode, integrityMatches] of [
-      ['presence-present', true, true, 'metadata', true],
-      ['presence-mismatch', true, false, 'metadata', false],
-      ['presence-missing', false, null, null, null],
-      ['presence-missing-integrity', true, true, null, false],
-      ['presence-mime-mismatch', true, true, 'metadata', false],
-      ['presence-etag-tampered', true, true, 'etag', false],
+    for (const [
+      id,
+      exists,
+      matches,
+      integrityMode,
+      integrityProof,
+      integrityMatches,
+    ] of [
+      ['presence-present', true, true, 'metadata', 'metadata', true],
+      ['presence-mismatch', true, false, 'metadata', 'metadata', false],
+      ['presence-missing', false, null, null, null, null],
+      ['presence-missing-integrity', true, true, null, null, false],
+      ['presence-mime-mismatch', true, true, 'metadata', 'metadata', false],
+      ['presence-etag-tampered', true, true, 'etag', 'etag', false],
     ] as const) {
       const response = await presence(request(), {
         params: Promise.resolve({ id }),
@@ -416,6 +483,7 @@ void test('presence uses metadata-only R2 head; size and object-integrity mismat
       assert.equal(value.exists, exists);
       assert.equal(value.sizeMatches, matches);
       assert.equal(value.integrityMode, integrityMode);
+      assert.equal(value.integrityProof, integrityProof);
       assert.equal(value.integrityMatches, integrityMatches);
       assert.doesNotMatch(
         JSON.stringify(value),
@@ -509,6 +577,7 @@ void test('pending-only reservations can be checked without inventing file metad
   assert.equal(result.expectedSizeBytes, null);
   assert.equal(result.sizeMatches, null);
   assert.equal(result.integrityMode, null);
+  assert.equal(result.integrityProof, null);
   assert.equal(result.integrityMatches, null);
   const originalHead = bucket.head.bind(bucket);
   bucket.head = async () => {
@@ -572,6 +641,7 @@ void test('pending FLOW reservations expose safe inventory metadata and exact-si
       caseId,
       documentLinked: false,
       flowLinked: false,
+      integrityProof: null,
       status: 'pending',
     },
   ]);
@@ -602,6 +672,7 @@ void test('pending FLOW reservations expose safe inventory metadata and exact-si
       expectedSizeBytes: 4,
       sizeMatches: true,
       integrityMode: null,
+      integrityProof: null,
       integrityMatches: null,
       checkedAt: date,
     },

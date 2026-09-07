@@ -25,12 +25,14 @@ const item = {
   caseId: null,
   documentLinked: false,
   flowLinked: false,
+  integrityProof: 'sha256',
   status: 'unlinked',
 };
 const page = {
   items: [item],
   nextCursor: 'safe_cursor-1',
   checkedAt: '2026-09-04T01:00:00.000Z',
+  integrityCoverage: { sha256: 1, etag: 2, metadata: 3, unavailable: 4 },
 };
 const presence = {
   id: item.id,
@@ -39,6 +41,7 @@ const presence = {
   expectedSizeBytes: 4,
   sizeMatches: true,
   integrityMode: 'etag',
+  integrityProof: 'sha256',
   integrityMatches: true,
   checkedAt: page.checkedAt,
 };
@@ -64,7 +67,11 @@ void test('inventory page rejects wrong filters, duplicate IDs and malformed pag
     { ...page, nextCursor: '../private' },
     { ...page, items: [{ ...item, sizeBytes: -1 }] },
     { ...page, items: [{ ...item, source: 'private-ledger' }] },
+    { ...page, items: [{ ...item, integrityProof: 'private-proof' }] },
     { ...page, items: [{ ...item, createdAt: 'not-a-date' }] },
+    { ...page, integrityCoverage: { ...page.integrityCoverage, sha256: -1 } },
+    { ...page, integrityCoverage: { ...page.integrityCoverage, etag: 1.5 } },
+    { ...page, integrityCoverage: null },
     {
       ...page,
       items: Array.from({ length: 26 }, (_, index) => ({
@@ -123,8 +130,16 @@ void test('presence response must match requested ID and size relationships', as
     { ...presence, sizeBytes: -1 },
     { ...presence, expectedSizeBytes: null, sizeMatches: true },
     { ...presence, integrityMode: 'invalid' },
+    { ...presence, integrityProof: 'invalid' },
+    { ...presence, integrityMode: 'metadata', integrityProof: 'sha256' },
+    { ...presence, integrityProof: 'metadata' },
     { ...presence, integrityMatches: null },
-    { ...presence, integrityMode: null, integrityMatches: true },
+    {
+      ...presence,
+      integrityMode: null,
+      integrityProof: null,
+      integrityMatches: true,
+    },
     { ...presence, checkedAt: 'not-a-date' },
   ])
     await assert.rejects(
@@ -139,6 +154,8 @@ void test('presence response must match requested ID and size relationships', as
         exists: false,
         sizeBytes: null,
         sizeMatches: null,
+        integrityMode: null,
+        integrityProof: null,
         integrityMatches: null,
       }),
       item.id,
@@ -148,6 +165,8 @@ void test('presence response must match requested ID and size relationships', as
       exists: false,
       sizeBytes: null,
       sizeMatches: null,
+      integrityMode: null,
+      integrityProof: null,
       integrityMatches: null,
     },
   );
@@ -159,6 +178,7 @@ void test('presence response must match requested ID and size relationships', as
         expectedSizeBytes: null,
         sizeMatches: null,
         integrityMode: null,
+        integrityProof: null,
         integrityMatches: null,
       }),
       item.id,
@@ -168,6 +188,7 @@ void test('presence response must match requested ID and size relationships', as
       expectedSizeBytes: null,
       sizeMatches: null,
       integrityMode: null,
+      integrityProof: null,
       integrityMatches: null,
     },
   );

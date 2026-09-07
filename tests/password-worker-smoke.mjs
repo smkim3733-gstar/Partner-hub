@@ -3033,15 +3033,25 @@ try {
       'administrator reads bounded private inventory metadata',
     )
   ).json();
-  assert.ok(
-    inventory.items.some(
-      (item) => item.id === linkedFile.id && item.status === 'unlinked',
-    ),
+  const linkedInventoryItem = inventory.items.find(
+    (item) => item.id === linkedFile.id && item.status === 'unlinked',
   );
+  assert.equal(linkedInventoryItem.integrityProof, 'sha256');
+  assert.ok(inventory.integrityCoverage.sha256 >= 2);
+  for (const count of Object.values(inventory.integrityCoverage))
+    assert.ok(Number.isSafeInteger(count) && count >= 0);
+  const linkedChecksum = await db
+    .prepare(
+      'SELECT sha256 FROM company_file_object_checksums WHERE file_id = ?1',
+    )
+    .bind(linkedFile.id)
+    .first();
+  assert.match(linkedChecksum.sha256, /^[0-9a-f]{64}$/);
   assert.doesNotMatch(
     JSON.stringify(inventory),
     /storage_key|fingerprint|request_key|company-source\//,
   );
+  assert.ok(!JSON.stringify(inventory).includes(linkedChecksum.sha256));
   await expect(
     await call(`/inventory/${linkedFile.id}`, undefined, { cookie }),
     403,
@@ -3057,7 +3067,11 @@ try {
   assert.equal(inventoryPresence.exists, true);
   assert.equal(inventoryPresence.sizeMatches, true);
   assert.equal(inventoryPresence.integrityMode, 'etag');
+  assert.equal(inventoryPresence.integrityProof, 'sha256');
   assert.equal(inventoryPresence.integrityMatches, true);
+  checks.push(
+    'inventory exposes SHA-256 and legacy proof coverage without R2 bodies or digest values',
+  );
   const inventoryIntegrityId = 'worker-inventory-integrity-missing';
   const inventoryIntegrityCreatedAt = new Date().toISOString();
   await db.batch([
@@ -3173,6 +3187,7 @@ try {
   ).json();
   assert.equal(pendingPresence.exists, true);
   assert.equal(pendingPresence.expectedSizeBytes, null);
+  assert.equal(pendingPresence.integrityProof, null);
   assert.equal(linkedFile.partnerMemberId, memberId);
   assert.equal(
     (

@@ -1,4 +1,5 @@
 import {
+  inventoryIntegrityProofs,
   inventorySources,
   inventoryStates,
   type InventoryFilter,
@@ -47,6 +48,18 @@ function validDate(value: unknown) {
   );
 }
 
+function validIntegrityProof(value: unknown) {
+  return (
+    value === null ||
+    (typeof value === 'string' &&
+      Object.hasOwn(inventoryIntegrityProofs, value))
+  );
+}
+
+function validCount(value: unknown) {
+  return Number.isSafeInteger(value) && Number(value) >= 0;
+}
+
 function parseItem(value: unknown): InventoryItem | null {
   const item = asObject(value);
   if (
@@ -67,6 +80,7 @@ function parseItem(value: unknown): InventoryItem | null {
     !nullableText(item.caseId, 200) ||
     typeof item.documentLinked !== 'boolean' ||
     typeof item.flowLinked !== 'boolean' ||
+    !validIntegrityProof(item.integrityProof) ||
     typeof item.status !== 'string' ||
     !Object.hasOwn(inventoryStates, item.status)
   )
@@ -87,6 +101,7 @@ function parseItem(value: unknown): InventoryItem | null {
     caseId: item.caseId as string | null,
     documentLinked: item.documentLinked,
     flowLinked: item.flowLinked,
+    integrityProof: item.integrityProof as InventoryItem['integrityProof'],
     status: item.status as InventoryItem['status'],
   };
 }
@@ -128,6 +143,7 @@ export async function readFileInventoryPageResponse(
     );
 
   const payload = asObject(raw);
+  const coverage = asObject(payload?.integrityCoverage);
   if (
     !payload ||
     !Array.isArray(payload.items) ||
@@ -135,7 +151,18 @@ export async function readFileInventoryPageResponse(
     (payload.nextCursor !== null &&
       (!boundedText(payload.nextCursor, 600) ||
         !/^[A-Za-z0-9_-]+$/.test(payload.nextCursor as string))) ||
-    !validDate(payload.checkedAt)
+    !validDate(payload.checkedAt) ||
+    !coverage ||
+    !validCount(coverage.sha256) ||
+    !validCount(coverage.etag) ||
+    !validCount(coverage.metadata) ||
+    !validCount(coverage.unavailable) ||
+    !Number.isSafeInteger(
+      Number(coverage.sha256) +
+        Number(coverage.etag) +
+        Number(coverage.metadata) +
+        Number(coverage.unavailable),
+    )
   )
     throw invalid(response.status, '보관 목록');
 
@@ -152,6 +179,12 @@ export async function readFileInventoryPageResponse(
     items: items as InventoryItem[],
     nextCursor: payload.nextCursor as string | null,
     checkedAt: payload.checkedAt as string,
+    integrityCoverage: {
+      sha256: coverage.sha256 as number,
+      etag: coverage.etag as number,
+      metadata: coverage.metadata as number,
+      unavailable: coverage.unavailable as number,
+    },
   };
 }
 
@@ -178,6 +211,7 @@ export async function readFileInventoryPresenceResponse(
     (payload.integrityMode !== null &&
       payload.integrityMode !== 'metadata' &&
       payload.integrityMode !== 'etag') ||
+    !validIntegrityProof(payload.integrityProof) ||
     (payload.integrityMatches !== null &&
       typeof payload.integrityMatches !== 'boolean') ||
     !validDate(payload.checkedAt) ||
@@ -188,12 +222,20 @@ export async function readFileInventoryPresenceResponse(
       ? payload.sizeMatches !== null
       : payload.exists && payload.sizeMatches === null) ||
     (payload.expectedSizeBytes === null
-      ? payload.integrityMode !== null || payload.integrityMatches !== null
+      ? payload.integrityMode !== null ||
+        payload.integrityProof !== null ||
+        payload.integrityMatches !== null
       : payload.exists
         ? payload.integrityMatches === null
-          ? payload.integrityMode !== null
+          ? payload.integrityMode !== null || payload.integrityProof !== null
           : payload.integrityMatches === true && payload.integrityMode === null
-        : payload.integrityMatches !== null)
+        : payload.integrityMatches !== null) ||
+    (payload.integrityMode === null
+      ? payload.integrityProof !== null
+      : payload.integrityMode === 'metadata'
+        ? payload.integrityProof !== 'metadata'
+        : payload.integrityProof !== 'etag' &&
+          payload.integrityProof !== 'sha256')
   )
     throw invalid(response.status, '원본 존재 확인');
 
@@ -204,6 +246,8 @@ export async function readFileInventoryPresenceResponse(
     expectedSizeBytes: payload.expectedSizeBytes as number | null,
     sizeMatches: payload.sizeMatches as boolean | null,
     integrityMode: payload.integrityMode as InventoryPresence['integrityMode'],
+    integrityProof:
+      payload.integrityProof as InventoryPresence['integrityProof'],
     integrityMatches: payload.integrityMatches as boolean | null,
     checkedAt: payload.checkedAt as string,
   };
