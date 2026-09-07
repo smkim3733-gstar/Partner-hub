@@ -6,16 +6,16 @@
 
 ## 현재 인수인계 지점
 
-- 최신 감사 커밋: `8a28c39fd8d8d75fd70c2ee3e452f2cb81a051fa` (`test: cover second R2 failure access races`)
-- 최신 확인: 첫 전사문 객체가 저장된 재시도의 두 번째 음성 스트림 중 `fileUpload` 권한 회수와 객체 생성 전·후 실패
-- 연속 확인: v301 공통 실패 후 접근 재검사의 403 차단, 객체 1개·2개 결과와 두 `pending` 예약 보존, FLOW D1 미커밋, 권한 복구 뒤 같은 예약으로 한 번 완료
+- 최신 기능 커밋: `74db95a656bcbb0b6298ce05d76e6259955aa24a` (`fix: preserve intake retry provenance`)
+- 최신 확인: 신청자료 검토본 목적지 R2 객체 생성 전·후 실패와 실제 사건 삭제, 사건 복구 뒤 정확 재시도
+- 연속 확인: 두 실패의 404 차단, 객체 0개·1개 결과와 단일 `pending` 예약 보존, FLOW D1 미커밋, 최초 검토시각·파일 ID·R2 키로 한 번 완료
 - 검증: Node 회귀 검사 756개, 격리 workerd/D1/R2 검사 522개, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
-- 최신 Sites 저장 버전: 302 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_17858f9326cc8191aa88e30054b37fea`), 소스 `8a28c39fd8d8d75fd70c2ee3e452f2cb81a051fa`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–301은 더 완전한 후보인 버전 302로 대체한다.
+- 최신 Sites 저장 버전: 303 (`appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_5be3d5433f308191924703decdcb49c4`), 소스 `74db95a656bcbb0b6298ce05d76e6259955aa24a`
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–302는 더 완전한 후보인 버전 303으로 대체한다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -45,7 +45,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [상담 FLOW 두 번째 R2 저장 실패 중 접근변경 경쟁 무결성](FLOW_SECOND_R2_WRITE_FAILURE_ACCESS_RACE_2026_09_07.md)을 확인한다.
+먼저 [상담 FLOW 신청자료 R2 복사 실패·접근변경 재시도 무결성](FLOW_INTAKE_COPY_R2_FAILURE_ACCESS_RACE_2026_09_07.md)을 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
