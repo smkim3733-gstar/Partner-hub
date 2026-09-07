@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [상담 FLOW 두 번째 R2 저장 실패 중 접근변경 경쟁](FLOW_SECOND_R2_WRITE_FAILURE_ACCESS_RACE_2026_09_07.md)            | 첫 객체 보존·두 번째 객체 생성 전/후 실패·pending 예약·정확 재시도                       |
 | [상담 FLOW R2 저장 실패 중 접근변경 경쟁](FLOW_R2_WRITE_FAILURE_ACCESS_RACE_2026_09_07.md)                           | 저장 실패 뒤 접근 재검사·객체 생성 전/후 결과·pending 예약·정확 재시도                  |
 | [상담 FLOW 다중 R2 쓰기 사이 접근변경 경쟁](FLOW_BETWEEN_R2_WRITES_ACCESS_RACE_2026_09_07.md)                       | 첫 객체 뒤 재검사·두 번째 객체 차단·두 pending 예약 보존·프로필 변경 정상 완료           |
 | [상담 FLOW 업로드 예약 중 접근변경 경쟁](FLOW_UPLOAD_RESERVATION_ACCESS_RACE_2026_09_07.md)                          | 예약 조회·생성 중 상태변경 R2 2회 재현·예약 후 재검사·복구 가능한 pending 보존           |
