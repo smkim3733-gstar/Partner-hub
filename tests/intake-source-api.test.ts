@@ -14,8 +14,13 @@ import {
   companyFileDatabase,
   findCompanyFile,
 } from '../lib/company-files';
-import { flowEnvironment, readFlow } from '../lib/consulting-flow-store';
-import { writePortalState } from '../lib/portal-state';
+import {
+  flowBucket,
+  flowDatabase,
+  flowEnvironment,
+  readFlow,
+} from '../lib/consulting-flow-store';
+import { readPortalState, writePortalState } from '../lib/portal-state';
 import type { ConsultingFlow, FlowCommand } from '../lib/consulting-flow';
 import type { IntakeSourcePreview } from '../lib/intake-source-policy';
 import {
@@ -23,6 +28,7 @@ import {
   readIntakeSourcePreviewResponse,
 } from '../lib/intake-source-response';
 import { mutateCompanyFileObjectFixture } from './company-file-object-fixture';
+import { objects } from './runtime-mock.mjs';
 
 const owner = 'seedy@sites.test';
 const partner = 'review-partner@example.invalid';
@@ -109,7 +115,7 @@ function importCommand(p: IntakeSourcePreview, text: string): FlowCommand {
   };
 }
 
-void test('intake files -> reviewed private copies -> only explicitly approved mocked first report, original preserved', async () => {
+void test('intake files -> reviewed private copies -> R2 copy retry -> only explicitly approved mocked first report, original preserved', async () => {
   await writePortalState({
     version: 1,
     consultationNumber: 0,
@@ -400,7 +406,11 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
     }
     async function ok(cmd: FlowCommand, id?: string) {
       const response = await post(cmd, id);
-      assert.equal(response.status, 200, await response.clone().text());
+      assert.equal(
+        response.status,
+        200,
+        `${cmd.type}:${id ?? 'generated'}: ${await response.clone().text()}`,
+      );
       flow = ((await response.json()) as { flow: ConsultingFlow }).flow;
     }
     const cmd = importCommand(docPreview, reviewedText);
@@ -436,12 +446,111 @@ void test('intake files -> reviewed private copies -> only explicitly approved m
       'audio import',
     );
     assert.equal(await readFlow(caseId), null);
-    await ok(cmd, 'intake-fixed-command');
+
+    const importCommandId = 'intake-fixed-command';
+    const originalPortalState = (await readPortalState()) as {
+      cases: Array<{ id: string }>;
+    };
+    const deletedCaseState = structuredClone(originalPortalState);
+    deletedCaseState.cases = deletedCaseState.cases.filter(
+      ({ id }) => id !== caseId,
+    );
+    const flowStorage = flowBucket();
+    const put = flowStorage.put.bind(flowStorage);
+    const previousFlowKeys = new Set(objects.keys());
+    async function failImportCopy(afterCommit: boolean) {
+      let injected = false;
+      flowStorage.put = async (...args: Parameters<R2Bucket['put']>) => {
+        if (injected) return put(...args);
+        injected = true;
+        if (afterCommit) await put(...args);
+        await writePortalState(deletedCaseState);
+        throw new Error(
+          afterCommit
+            ? 'synthetic lost intake copy response after storage'
+            : 'synthetic intake copy failure before storage',
+        );
+      };
+      try {
+        return await post(cmd, importCommandId);
+      } finally {
+        flowStorage.put = put;
+      }
+    }
+
+    const failedBeforeCommit = await failImportCopy(false);
+    assert.equal(failedBeforeCommit.status, 404);
+    assert.deepEqual(await failedBeforeCommit.json(), {
+      error: '해당 컨설팅 진행을 찾을 수 없습니다.',
+    });
+    assert.equal(await readFlow(caseId), null);
+    await writePortalState(originalPortalState);
+
+    const flowDb = await flowDatabase();
+    const reservation = await flowDb
+      .prepare(
+        `SELECT file_id, storage_key, status
+        FROM consulting_flow_upload_requests
+        WHERE case_id = ?1 AND command_id = ?2 AND slot = 'file'`,
+      )
+      .bind(caseId, importCommandId)
+      .first<{ file_id: string; storage_key: string; status: string }>();
+    assert.ok(reservation);
+    assert.equal(reservation.status, 'pending');
+    assert.deepEqual(
+      [...objects.keys()].filter((key) => !previousFlowKeys.has(key)),
+      [],
+    );
+
+    const failedAfterCommit = await failImportCopy(true);
+    assert.equal(failedAfterCommit.status, 404);
+    assert.deepEqual(await failedAfterCommit.json(), {
+      error: '해당 컨설팅 진행을 찾을 수 없습니다.',
+    });
+    assert.equal(await readFlow(caseId), null);
+    await writePortalState(originalPortalState);
+    assert.deepEqual(
+      [...objects.keys()].filter((key) => !previousFlowKeys.has(key)),
+      [reservation.storage_key],
+    );
+    assert.deepEqual(
+      await flowDb
+        .prepare(
+          `SELECT file_id, storage_key, status
+          FROM consulting_flow_upload_requests
+          WHERE case_id = ?1 AND command_id = ?2 AND slot = 'file'`,
+        )
+        .bind(caseId, importCommandId)
+        .first<{ file_id: string; storage_key: string; status: string }>(),
+      reservation,
+    );
+
+    await ok(cmd, importCommandId);
     assert.equal(flow.files.length, 1);
+    assert.equal(flow.files[0].id, reservation.file_id);
     assert.equal(flow.files[0].intakeFileId, docId);
     assert.equal(flow.files[0].sourceReviewedBy, owner);
     assert.ok(flow.files[0].sourceReviewedAt);
     assert.equal(flow.files[0].key, '', 'Public flow must hide storage keys');
+    assert.deepEqual(
+      [...objects.keys()].filter((key) => !previousFlowKeys.has(key)),
+      [reservation.storage_key],
+    );
+    assert.deepEqual(
+      {
+        ...(await flowDb
+          .prepare(
+            `SELECT reservation.status, completion.command_id
+          FROM consulting_flow_upload_requests reservation
+          LEFT JOIN consulting_flow_upload_completions completion
+            ON completion.file_id = reservation.file_id
+          WHERE reservation.file_id = ?1`,
+          )
+          .bind(reservation.file_id)
+          .first<{ status: string; command_id: string | null }>()),
+      },
+      { status: 'ready', command_id: importCommandId },
+    );
     assert.equal(flow.ai.enabled, false);
     assert.equal(flow.ai.sourceText, initial.ai.sourceText);
     assert.equal(

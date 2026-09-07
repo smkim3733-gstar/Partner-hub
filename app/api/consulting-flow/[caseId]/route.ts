@@ -162,10 +162,14 @@ export async function POST(request: Request, context: Context) {
           ? FLOW_ADMIN_COMMAND_ACTOR_NAME
           : flow.partnerName,
     };
-    const apply = (upload = candidateUpload, audio = audioUpload) =>
+    const apply = (
+      upload = candidateUpload,
+      audio = audioUpload,
+      appliedAt = now,
+    ) =>
       applyFlowCommand(flow, input.command, actor, {
         commandId: input.commandId,
-        now,
+        now: appliedAt,
         upload,
         audioUpload: audio,
         intakeCategory: imported?.category,
@@ -199,7 +203,11 @@ export async function POST(request: Request, context: Context) {
     const reservedAudioUpload = audioUpload
       ? reservations.get('audio')
       : undefined;
-    const next = apply(upload, reservedAudioUpload);
+    const next = apply(
+      upload,
+      reservedAudioUpload,
+      upload?.intakeFileId ? upload.createdAt : now,
+    );
     const commandAudit = next.audit.at(-1);
     if (
       !commandAudit ||

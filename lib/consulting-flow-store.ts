@@ -770,6 +770,7 @@ function validFlowUploadReservationCandidate(file: FlowFile) {
         Number.isFinite(Date.parse(file.sourceReviewedAt)) &&
         new Date(file.sourceReviewedAt).toISOString() ===
           file.sourceReviewedAt &&
+        file.sourceReviewedAt === file.createdAt &&
         typeof file.sourceReviewedBy === 'string' &&
         file.sourceReviewedBy.length > 0 &&
         file.sourceReviewedBy.length <= 200))
@@ -865,9 +866,10 @@ function validateFlowUploadReservationRows(
       contentType: row.content_type,
       size: row.size_bytes,
       purpose: row.purpose,
-      // Reservation age stays durable for inventory. A retry creates its FLOW
-      // transition at the current command time while reusing only ID and R2 key.
-      createdAt: candidate.createdAt,
+      // Intake review provenance is one immutable event. Preserve its original
+      // reservation time so an exact retry commits the same reviewed copy.
+      // Other upload retries keep current command time while reusing ID and key.
+      createdAt: hasIntake ? row.created_at : candidate.createdAt,
       ...(row.intake_file_id
         ? {
             intakeFileId: row.intake_file_id,
