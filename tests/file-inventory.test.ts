@@ -2307,6 +2307,15 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
       /forged-unexpected-receipt-target|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
     );
     await setReceiptField('targetId', undefined);
+    await setReceiptField('actor', undefined);
+    await setReceiptField('action', undefined);
+    await setReceiptField('targetId', 'forged-legacy-receipt-target');
+    await assertQuarantined(
+      /forged-legacy-receipt-target|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setReceiptField('targetId', undefined);
+    await setReceiptField('actor', actor);
+    await setReceiptField('action', action);
     await setReceiptAndAuditAction('import_intake_source');
     await assertQuarantined(
       /import_intake_source|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,

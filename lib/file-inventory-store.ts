@@ -117,7 +117,8 @@ const flowReceiptTargetBindingSql = `(
 )`;
 const flowReceiptAuditBindingSql = `(
   (json_type(receipt.value, '$.actor') IS NULL
-    AND json_type(receipt.value, '$.action') IS NULL)
+    AND json_type(receipt.value, '$.action') IS NULL
+    AND json_type(receipt.value, '$.targetId') IS NULL)
   OR (
     json_type(receipt.value, '$.actor') = 'text'
     AND json_type(receipt.value, '$.action') = 'text'

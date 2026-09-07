@@ -9297,7 +9297,7 @@ try {
     );
     assert.doesNotMatch(
       JSON.stringify(item),
-      /drifted-receipt-actor|forged-receipt-display-actor|forged-native-unexpected-target|import_intake_source|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|"targetId"|consulting-flow\//,
+      /drifted-receipt-actor|forged-receipt-display-actor|forged-native-unexpected-target|forged-native-legacy-target|import_intake_source|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|"targetId"|consulting-flow\//,
     );
     const presenceResponse = await expect(
       await call(`/inventory/${privateMimeFile.id}`, undefined, ownerHeaders),
@@ -9544,6 +9544,30 @@ try {
     );
   } finally {
     await mutateNativeFlowCommandReceipt('targetId', undefined);
+  }
+  await mutateNativeFlowCommandReceipt('actor', undefined);
+  await mutateNativeFlowCommandReceipt('action', undefined);
+  await mutateNativeFlowCommandReceipt(
+    'targetId',
+    'forged-native-legacy-target',
+  );
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW legacy command receipt unexpected target stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW legacy command receipt rejects unexpected target before native R2 presence trust',
+    );
+  } finally {
+    await mutateNativeFlowCommandReceipt('targetId', undefined);
+    await mutateNativeFlowCommandReceipt(
+      'actor',
+      nativeFlowCommandReceipt.actor,
+    );
+    await mutateNativeFlowCommandReceipt(
+      'action',
+      nativeFlowCommandReceipt.action,
+    );
   }
   await mutateNativeFlowCommandReceiptAndAuditAction('save_source');
   try {
