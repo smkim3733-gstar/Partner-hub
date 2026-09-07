@@ -4546,6 +4546,98 @@ try {
       .bind(privateMimeFile.id)
       .run();
   }
+  const durableFlowReservation = await db
+    .prepare(`SELECT case_id, actor_key, command_id, slot, fingerprint, file_id,
+      storage_key, original_name, content_type, size_bytes, purpose,
+      intake_file_id, intake_source_hash, source_reviewed_at,
+      source_reviewed_by, created_at, status
+      FROM consulting_flow_upload_requests WHERE file_id = ?1`)
+    .bind(privateMimeFile.id)
+    .first();
+  assert.ok(durableFlowReservation);
+  await withoutD1Triggers(
+    db,
+    ['consulting_flow_upload_completions_no_delete'],
+    async () =>
+      db
+        .prepare(
+          'DELETE FROM consulting_flow_upload_completions WHERE file_id = ?1',
+        )
+        .bind(privateMimeFile.id)
+        .run(),
+  );
+  try {
+    await assertNativeFlowReceiptDriftQuarantined(
+      'ready FLOW reservation without completion stays inconsistent in native inventory',
+    );
+    checks.push(
+      'ready FLOW reservation without completion is quarantined before native R2 presence trust',
+    );
+  } finally {
+    await withoutD1Triggers(
+      db,
+      ['consulting_flow_upload_completions_insert_guard'],
+      async () =>
+        db
+          .prepare(`INSERT INTO consulting_flow_upload_completions
+            (file_id, command_id) VALUES (?1, ?2)`)
+          .bind(privateMimeFile.id, durableFlowReservation.command_id)
+          .run(),
+    );
+  }
+  await withoutD1Triggers(
+    db,
+    ['consulting_flow_upload_requests_no_delete'],
+    async () =>
+      db
+        .prepare(
+          'DELETE FROM consulting_flow_upload_requests WHERE file_id = ?1',
+        )
+        .bind(privateMimeFile.id)
+        .run(),
+  );
+  try {
+    await assertNativeFlowReceiptDriftQuarantined(
+      'FLOW completion without reservation stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW completion without reservation is quarantined before native R2 presence trust',
+    );
+  } finally {
+    await withoutD1Triggers(
+      db,
+      ['consulting_flow_upload_requests_insert_envelope_guard'],
+      async () =>
+        db
+          .prepare(`INSERT INTO consulting_flow_upload_requests
+            (case_id, actor_key, command_id, slot, fingerprint, file_id,
+              storage_key, original_name, content_type, size_bytes, purpose,
+              intake_file_id, intake_source_hash, source_reviewed_at,
+              source_reviewed_by, created_at, status)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+              ?12, ?13, ?14, ?15, ?16, ?17)`)
+          .bind(
+            durableFlowReservation.case_id,
+            durableFlowReservation.actor_key,
+            durableFlowReservation.command_id,
+            durableFlowReservation.slot,
+            durableFlowReservation.fingerprint,
+            durableFlowReservation.file_id,
+            durableFlowReservation.storage_key,
+            durableFlowReservation.original_name,
+            durableFlowReservation.content_type,
+            durableFlowReservation.size_bytes,
+            durableFlowReservation.purpose,
+            durableFlowReservation.intake_file_id,
+            durableFlowReservation.intake_source_hash,
+            durableFlowReservation.source_reviewed_at,
+            durableFlowReservation.source_reviewed_by,
+            durableFlowReservation.created_at,
+            durableFlowReservation.status,
+          )
+          .run(),
+    );
+  }
   const restoredReceiptBindingInventory = await (
     await expect(
       await call('/inventory?status=linked', undefined, ownerHeaders),

@@ -1827,6 +1827,172 @@ void test('completed FLOW reservation metadata and completion command drift stay
   }
 });
 
+void test('completed FLOW files with only one upload receipt stay inconsistent and fail before R2 access', async () => {
+  const reservationCaseId = 'flow-ready-only-receipt-case';
+  const reservationFileId = 'flow-ready-only-receipt';
+  const reservationCommandId = 'flow-ready-only-command';
+  const completionCaseId = 'flow-completion-only-receipt-case';
+  const completionFileId = 'flow-completion-only-receipt';
+  const completionCommandId = 'flow-completion-only-command';
+  const actorKey = FLOW_ADMIN_COMMAND_ACTOR_KEY;
+  const fingerprint = 'c'.repeat(64);
+  await seed(
+    [],
+    [
+      {
+        id: reservationCaseId,
+        company: 'FLOW 예약 단독 영수증 기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+      {
+        id: completionCaseId,
+        company: 'FLOW 완료 단독 영수증 기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+    ],
+  );
+  await completedFlowFile(reservationFileId, reservationCaseId);
+  await completedFlowFile(completionFileId, completionCaseId);
+  const db = await flowDatabase();
+  for (const [caseId, commandId] of [
+    [reservationCaseId, reservationCommandId],
+    [completionCaseId, completionCommandId],
+  ] as const) {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind(caseId)
+      .first<{ payload: string }>();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    flow.commandIds = [commandId];
+    flow.commandReceipts = {
+      [commandId]: { actorKey, fingerprint },
+    };
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), caseId],
+    );
+  }
+  const beforeOrphans = await page('?status=linked');
+  assert.equal(
+    beforeOrphans.items.filter((item) =>
+      [reservationFileId, completionFileId].includes(item.id),
+    ).length,
+    2,
+  );
+  await db.batch([
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flow_upload_requests_insert_envelope_guard',
+    ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_insert_guard',
+    ),
+  ]);
+  try {
+    await db.batch([
+      db
+        .prepare(`INSERT INTO consulting_flow_upload_requests
+          (case_id, actor_key, command_id, slot, fingerprint, file_id,
+            storage_key, original_name, content_type, size_bytes, purpose,
+            created_at, status)
+          VALUES (?1, ?2, ?3, 'file', ?4, ?5, ?6, ?7,
+            'text/plain', 4, 'report', ?8, 'ready')`)
+        .bind(
+          reservationCaseId,
+          actorKey,
+          reservationCommandId,
+          fingerprint,
+          reservationFileId,
+          `consulting-flow/${reservationFileId}`,
+          `${reservationFileId}.txt`,
+          date,
+        ),
+      db
+        .prepare(`INSERT INTO consulting_flow_upload_completions
+          (file_id, command_id) VALUES (?1, ?2)`)
+        .bind(completionFileId, completionCommandId),
+    ]);
+  } finally {
+    await db.batch([
+      db.prepare(consultingFlowUploadRequestsInsertEnvelopeTriggerSql),
+      db.prepare(consultingFlowUploadCompletionsInsertTriggerSql),
+    ]);
+  }
+  const bucket = companyFileBucket();
+  const originalHead = bucket.head.bind(bucket);
+  let headCalls = 0;
+  bucket.head = async (...args: Parameters<R2Bucket['head']>) => {
+    headCalls++;
+    return originalHead(...args);
+  };
+  try {
+    const inconsistent = await page('?status=inconsistent');
+    assert.equal(
+      inconsistent.integrityCoverage.metadata,
+      beforeOrphans.integrityCoverage.metadata - 2,
+    );
+    assert.equal(
+      inconsistent.integrityCoverage.unavailable,
+      beforeOrphans.integrityCoverage.unavailable + 2,
+    );
+    const orphanItems = inconsistent.items.filter(
+      (item) =>
+        item.source === 'flow' &&
+        [reservationFileId, completionFileId].includes(item.id),
+    );
+    assert.equal(orphanItems.length, 2);
+    for (const item of orphanItems) {
+      assert.equal(item.status, 'inconsistent');
+      assert.equal(item.flowLinked, true);
+      assert.equal(item.integrityProof, null);
+    }
+    assert.doesNotMatch(
+      JSON.stringify(orphanItems),
+      /flow-ready-only-command|flow-completion-only-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    for (const fileId of [reservationFileId, completionFileId]) {
+      const response = await presence(request(), {
+        params: Promise.resolve({ id: fileId }),
+      });
+      assert.equal(response.status, 503, await response.clone().text());
+      assert.match(await response.text(), /원장의 무결성/);
+    }
+    assert.equal(headCalls, 0);
+  } finally {
+    bucket.head = originalHead;
+    await db.batch([
+      db.prepare(
+        'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_no_delete',
+      ),
+      db.prepare(
+        'DROP TRIGGER IF EXISTS consulting_flow_upload_requests_no_delete',
+      ),
+    ]);
+    try {
+      await db.batch([
+        db
+          .prepare(
+            'DELETE FROM consulting_flow_upload_completions WHERE file_id = ?1',
+          )
+          .bind(completionFileId),
+        db
+          .prepare(
+            'DELETE FROM consulting_flow_upload_requests WHERE file_id = ?1',
+          )
+          .bind(reservationFileId),
+      ]);
+    } finally {
+      await db.batch([
+        db.prepare(consultingFlowUploadCompletionsNoDeleteTriggerSql),
+        db.prepare(consultingFlowUploadRequestsNoDeleteTriggerSql),
+      ]);
+    }
+  }
+});
+
 void test('company and FLOW records sharing one raw ID stay visible as distinct inconsistent items', async () => {
   const caseId = 'inventory-cross-source-id-collision-case';
   const fileId = 'inventory-cross-source-id-collision';
