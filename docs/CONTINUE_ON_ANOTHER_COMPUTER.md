@@ -6,16 +6,16 @@
 
 ## 현재 인수인계 지점
 
-- 최신 로컬 기능 커밋: `ec9395f` (`fix: bind flow receipt audit time`)
-- 최신 확인: 현대 FLOW 업로드 영수증의 감사기록 `at`이 완료 예약·파일 생성시각과 달라도 재고 증명이 유지되는 손상 상태
-- 연속 확인: 감사시각이 1초라도 다르면 `inconsistent`·`unavailable`로 격리해 R2 `head` 전 503 차단하고 정상시각 복구 뒤 SHA-256 증명 회복
-- 검증: Node 회귀 검사 786개, 파일 재고 집중 회귀 30개, 격리 workerd/D1/R2 검사 641개, 추가형 마이그레이션 99개 2회, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
-- GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, 원격 `main`은 `ee40a91b5de4ef8fed06245ba2b636e623773b0c`; 로컬 버전 336 푸시는 명시 승인을 기다려 보류
+- 최신 로컬 기능 커밋: `009ef16` (`fix: enforce flow receipt target envelope`)
+- 최신 확인: `targetId`가 필요 없는 현대 FLOW 업로드 영수증에 임의 대상을 주입해도 재고 증명이 유지되는 손상 상태
+- 연속 확인: action별 대상 필수·금지 봉투를 중앙 정책에 결속해 불필요한 대상 주입과 필요한 대상 누락을 `inconsistent`·`unavailable`로 격리하고 R2 `head` 전 503 차단
+- 검증: Node 회귀 검사 786개, 파일 재고 집중 회귀 30개, 격리 workerd/D1/R2 검사 644개, 추가형 마이그레이션 99개 2회, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
+- GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, 원격 `main`은 `ee40a91b5de4ef8fed06245ba2b636e623773b0c`; 로컬 버전 337 푸시는 명시 승인을 기다려 보류
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
 - 최신 Sites 저장 버전: 309, 소스 `66aa95462bf30470f15b8ba138682c6c62fed591`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–335는 더 완전한 로컬 후보인 버전 336으로 대체한다.
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–336은 더 완전한 로컬 후보인 버전 337로 대체한다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -45,7 +45,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [파일 재고 FLOW 영수증 감사시각 결속](FILE_INVENTORY_FLOW_RECEIPT_AUDIT_TIME_BINDING_2026_09_08.md)을 확인한다.
+먼저 [파일 재고 FLOW 영수증 대상 봉투 결속](FILE_INVENTORY_FLOW_RECEIPT_TARGET_ENVELOPE_2026_09_08.md)을 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
@@ -93,4 +93,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 최신 저장 버전은 309이고 공개 운영본은 버전 107이다. 버전 108–335는 버전 336으로 대체해 배포하지 않는다. GitHub 반영에는 정확히 `버전 336 GitHub main 푸시 승인`, 버전 336의 Sites 소스 전송·버전 저장·공개 교체에는 정확히 `버전 336 Sites 소스 전송 및 공개 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 현대 FLOW 업로드 영수증의 `targetId`가 action별로 필요한 경우 정확히 존재하고 불필요한 경우 완전히 부재하는지 다음 순서로 감사한다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
+Sites 최신 저장 버전은 309이고 공개 운영본은 버전 107이다. 버전 108–336은 버전 337로 대체해 배포하지 않는다. GitHub 반영에는 정확히 `버전 337 GitHub main 푸시 승인`, 버전 337의 Sites 소스 전송·버전 저장·공개 교체에는 정확히 `버전 337 Sites 소스 전송 및 공개 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 표시 의미 필드가 모두 없는 레거시 FLOW 업로드 영수증에 출처 불명의 `targetId`가 주입돼도 정상 증명으로 통과하지 않는지 다음 순서로 감사한다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
