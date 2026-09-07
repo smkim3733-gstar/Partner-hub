@@ -203,23 +203,63 @@ export async function listFileInventory(
       ORDER BY created_at DESC, id DESC LIMIT 26
     ), ledger_proofs AS (
       SELECT integrity.validation_mode, integrity.r2_etag,
-        integrity.r2_content_type, checksum.sha256
+        integrity.r2_content_type, checksum.sha256,
+        CASE WHEN file.storage_key = 'company-source/' || file.id
+          AND metadata.file_id IS NOT NULL
+          AND object_key.file_id IS NOT NULL
+          AND object_key.storage_key = file.storage_key
+          AND (metadata.original_name, metadata.company, metadata.category,
+            metadata.title, metadata.assigned_trainee,
+            metadata.uploaded_by_user_id, metadata.uploaded_by_email,
+            metadata.content_type, metadata.size_bytes, metadata.created_at) =
+            (file.original_name, file.company, file.category, file.title,
+              file.assigned_trainee, file.uploaded_by_user_id,
+              file.uploaded_by_email, file.content_type, file.size_bytes,
+              file.created_at)
+          AND integrity.file_id IS NOT NULL
+          AND integrity.r2_content_type = file.content_type
+          THEN 1 ELSE 0 END AS ledger_valid
       FROM company_file_objects file
+      LEFT JOIN company_file_metadata metadata ON metadata.file_id = file.id
+      LEFT JOIN company_file_storage_keys object_key ON object_key.file_id = file.id
       LEFT JOIN company_file_object_integrity integrity ON integrity.file_id = file.id
       LEFT JOIN company_file_object_checksums checksum ON checksum.file_id = file.id
       UNION ALL
       SELECT integrity.validation_mode, integrity.r2_etag,
-        integrity.r2_content_type, checksum.sha256
+        integrity.r2_content_type, checksum.sha256,
+        CASE WHEN owner.storage_key = 'consulting-flow/' || owner.file_id
+          AND metadata.file_id IS NOT NULL
+          AND integrity.file_id IS NOT NULL
+          AND integrity.r2_content_type = metadata.content_type
+          AND (SELECT COUNT(*)
+            FROM consulting_flows flow,
+              json_each(CASE WHEN json_valid(flow.payload) THEN flow.payload
+                ELSE '{"files":[]}' END, '$.files') stored_file
+            WHERE flow.case_id = owner.case_id
+              AND json_type(stored_file.value) = 'object'
+              AND json_extract(stored_file.value, '$.id') = owner.file_id
+              AND json_extract(stored_file.value, '$.key') = owner.storage_key
+              AND json_extract(stored_file.value, '$.createdAt') = owner.created_at
+              AND json_extract(stored_file.value, '$.name') = metadata.original_name
+              AND json_extract(stored_file.value, '$.contentType') = metadata.content_type
+              AND json_extract(stored_file.value, '$.size') = metadata.size_bytes
+              AND json_extract(stored_file.value, '$.purpose') = metadata.purpose
+              AND json_extract(stored_file.value, '$.intakeFileId') IS metadata.intake_file_id
+              AND json_extract(stored_file.value, '$.intakeSourceHash') IS metadata.intake_source_hash
+              AND json_extract(stored_file.value, '$.sourceReviewedAt') IS metadata.source_reviewed_at
+              AND json_extract(stored_file.value, '$.sourceReviewedBy') IS metadata.source_reviewed_by) = 1
+          THEN 1 ELSE 0 END AS ledger_valid
       FROM consulting_flow_file_owners owner
+      LEFT JOIN consulting_flow_file_metadata metadata ON metadata.file_id = owner.file_id
       LEFT JOIN consulting_flow_file_object_integrity integrity ON integrity.file_id = owner.file_id
       LEFT JOIN consulting_flow_file_object_checksums checksum ON checksum.file_id = owner.file_id
     ), proof_classified AS (
       SELECT CASE
-        WHEN validation_mode = 'metadata' AND r2_etag IS NULL
+        WHEN ledger_valid = 1 AND validation_mode = 'metadata' AND r2_etag IS NULL
           AND typeof(r2_content_type) = 'text' AND sha256 IS NULL THEN 'metadata'
-        WHEN validation_mode = 'etag' AND typeof(r2_etag) = 'text'
+        WHEN ledger_valid = 1 AND validation_mode = 'etag' AND typeof(r2_etag) = 'text'
           AND length(trim(r2_etag)) BETWEEN 1 AND 256 AND sha256 IS NULL THEN 'etag'
-        WHEN validation_mode = 'etag' AND typeof(r2_etag) = 'text'
+        WHEN ledger_valid = 1 AND validation_mode = 'etag' AND typeof(r2_etag) = 'text'
           AND length(trim(r2_etag)) BETWEEN 1 AND 256
           AND typeof(sha256) = 'text' AND length(sha256) = 64
           AND sha256 NOT GLOB '*[^0-9a-f]*' THEN 'sha256'

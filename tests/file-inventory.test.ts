@@ -17,6 +17,7 @@ import {
 } from '../lib/file-inventory-response';
 import { mutateCompanyFileObjectFixture } from './company-file-object-fixture';
 import { deleteConsultingFlowFixture } from './flow-root-fixture';
+import { deleteFlowFileLedgerFixture } from './flow-file-ledger-fixture';
 import { consultingFlowUploadRequestsNoDeleteTriggerSql } from '../db/schema';
 import {
   FLOW_ADMIN_COMMAND_ACTOR_KEY,
@@ -325,6 +326,86 @@ void test('inventory list and checksum coverage share one D1 snapshot', async ()
     )?.count,
     2,
   );
+});
+
+void test('inventory coverage rejects broken MIME, storage and FLOW ownership ledgers', async () => {
+  await seed();
+  await file('proof-valid-binding', 'ready', true, undefined, true, {
+    validationMode: 'etag',
+    r2Etag: 'valid-etag',
+    sha256: 'a'.repeat(64),
+  });
+  await file('proof-mime-drift', 'ready', true, undefined, true, {
+    validationMode: 'etag',
+    r2Etag: 'mime-etag',
+    sha256: 'b'.repeat(64),
+  });
+  await file('proof-key-drift', 'ready', true, undefined, true, {
+    validationMode: 'etag',
+    r2Etag: 'key-etag',
+    sha256: 'c'.repeat(64),
+  });
+  const db = companyFileDatabase();
+  await mutateCompanyFileObjectFixture(
+    db,
+    "UPDATE company_file_objects SET content_type = 'text/markdown' WHERE id = ?1",
+    ['proof-mime-drift'],
+  );
+  await mutateCompanyFileObjectFixture(
+    db,
+    "UPDATE company_file_objects SET storage_key = 'company-source/wrong-key' WHERE id = ?1",
+    ['proof-key-drift'],
+  );
+  const orphanFlowId = 'proof-orphan-flow';
+  await db.batch([
+    db
+      .prepare(`INSERT INTO consulting_flow_file_owners
+        (file_id, case_id, storage_key, created_at)
+        VALUES (?1, 'missing-flow-case', ?2, ?3)`)
+      .bind(orphanFlowId, `consulting-flow/${orphanFlowId}`, date),
+    db
+      .prepare(`INSERT INTO consulting_flow_file_metadata
+        (file_id, original_name, content_type, size_bytes, purpose)
+        VALUES (?1, 'orphan.txt', 'text/plain', 4, 'report')`)
+      .bind(orphanFlowId),
+    db
+      .prepare(`INSERT INTO consulting_flow_file_object_integrity
+        (file_id, validation_mode, r2_etag, r2_content_type)
+        VALUES (?1, 'etag', 'orphan-etag', 'text/plain')`)
+      .bind(orphanFlowId),
+    db
+      .prepare(`INSERT INTO consulting_flow_file_object_checksums
+        (file_id, sha256) VALUES (?1, ?2)`)
+      .bind(orphanFlowId, 'd'.repeat(64)),
+  ]);
+  let result: InventoryPage;
+  try {
+    result = await page('?status=all');
+  } finally {
+    for (const table of [
+      'consulting_flow_file_object_checksums',
+      'consulting_flow_file_object_integrity',
+      'consulting_flow_file_metadata',
+      'consulting_flow_file_owners',
+    ] as const)
+      await deleteFlowFileLedgerFixture(db, table, orphanFlowId);
+  }
+  assert.deepEqual(result.integrityCoverage, {
+    sha256: 1,
+    etag: 0,
+    metadata: 0,
+    unavailable: 3,
+  });
+  assert.equal(
+    result.items.find((item) => item.id === 'proof-valid-binding')
+      ?.integrityProof,
+    'sha256',
+  );
+  for (const id of ['proof-mime-drift', 'proof-key-drift']) {
+    const item = result.items.find((candidate) => candidate.id === id);
+    assert.equal(item?.integrityProof, null);
+    assert.equal(item?.status, 'inconsistent');
+  }
 });
 
 void test('actual document and intake references distinguish linked files from staged, incomplete and deletion records', async () => {
