@@ -50,6 +50,10 @@ const flowReceiptFieldEnvelopeSql = `NOT EXISTS (
   SELECT 1 FROM json_each(receipt.value) field
   WHERE field.key NOT IN (${flowReceiptAllowedFieldsSql})
 )`;
+const flowAuditAllowedFieldsSql = FLOW_OBJECT_KEYS.audit
+  .map((field) => sqlTextLiteral(`$.${field}`))
+  .join(', ');
+const flowAuditFieldEnvelopeSql = `json_remove(audit.value, ${flowAuditAllowedFieldsSql}) = '{}'`;
 const flowUploadIntakeColumns = [
   'upload.intake_file_id',
   'upload.intake_source_hash',
@@ -136,6 +140,7 @@ const flowReceiptAuditBindingSql = `(
           CASE WHEN json_valid(flow.payload) THEN flow.payload
             ELSE '{"audit":[]}' END, '$.audit') audit
         WHERE audit.type = 'object'
+          AND ${flowAuditFieldEnvelopeSql}
           AND json_extract(audit.value, '$.id') = upload.command_id
           AND json_extract(audit.value, '$.actor') =
             json_extract(receipt.value, '$.actor')

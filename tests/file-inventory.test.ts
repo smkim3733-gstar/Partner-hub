@@ -2103,6 +2103,25 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
       [JSON.stringify(flow), caseId],
     );
   };
+  const setAuditField = async (field: string, value: unknown) => {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind(caseId)
+      .first<{ payload: string }>();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    const audit = flow.audit.find(
+      (entry: { id?: unknown }) => entry.id === commandId,
+    );
+    assert.ok(audit);
+    if (value === undefined) delete audit[field];
+    else audit[field] = value;
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), caseId],
+    );
+  };
   const setIntakeProvenance = async (present: boolean) => {
     const row = await db
       .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
@@ -2299,6 +2318,11 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
       /2026-08-31T00:00:01.000Z|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
     );
     await setAuditAt(date);
+    await setAuditField('forgedField', 'forged-audit-extra-value');
+    await assertQuarantined(
+      /forgedField|forged-audit-extra-value|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setAuditField('forgedField', undefined);
     await setReceiptField('targetId', 'forged-unexpected-receipt-target');
     await assertQuarantined(
       /forged-unexpected-receipt-target|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
@@ -2371,6 +2395,7 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
     await setAuditAt(date);
     await setReceiptField('targetId', undefined);
     await setReceiptField('forgedField', undefined);
+    await setAuditField('forgedField', undefined);
     await db.batch([
       db.prepare(
         'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_no_delete',

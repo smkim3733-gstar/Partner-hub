@@ -9297,7 +9297,7 @@ try {
     );
     assert.doesNotMatch(
       JSON.stringify(item),
-      /drifted-receipt-actor|forged-receipt-display-actor|forged-native-unexpected-target|forged-native-legacy-target|forged-native-extra-value|forgedField|import_intake_source|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|"targetId"|consulting-flow\//,
+      /drifted-receipt-actor|forged-receipt-display-actor|forged-native-unexpected-target|forged-native-legacy-target|forged-native-extra-value|forged-native-audit-extra-value|forgedField|import_intake_source|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|"targetId"|consulting-flow\//,
     );
     const presenceResponse = await expect(
       await call(`/inventory/${privateMimeFile.id}`, undefined, ownerHeaders),
@@ -9356,6 +9356,25 @@ try {
     );
     assert.ok(audit);
     audit.at = value;
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), 'runtime-own'],
+    );
+  };
+  const mutateNativeFlowCommandAuditField = async (field, value) => {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind('runtime-own')
+      .first();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    const audit = flow.audit.find(
+      (entry) => entry.id === mimeCommand.commandId,
+    );
+    assert.ok(audit);
+    if (value === undefined) delete audit[field];
+    else audit[field] = value;
     await mutateConsultingFlowFixture(
       db,
       'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
@@ -9530,6 +9549,20 @@ try {
     );
   } finally {
     await mutateNativeFlowCommandAuditAt(nativeFlowCommandAudit.at);
+  }
+  await mutateNativeFlowCommandAuditField(
+    'forgedField',
+    'forged-native-audit-extra-value',
+  );
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW command audit unexpected field stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW command audit rejects unexpected fields before native R2 presence trust',
+    );
+  } finally {
+    await mutateNativeFlowCommandAuditField('forgedField', undefined);
   }
   await mutateNativeFlowCommandReceipt(
     'targetId',
