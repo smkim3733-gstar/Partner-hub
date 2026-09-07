@@ -9519,6 +9519,232 @@ try {
   checks.push(
     'FLOW receipt actor, action, actor key and fingerprint proof resumes after cleanup',
   );
+  const nativeRecordingTargetFiles = [
+    {
+      id: 'native-recording-target-file',
+      slot: 'file',
+      field: 'fileId',
+      name: 'native-recording-target.txt',
+      contentType: 'text/plain',
+      bytes: new TextEncoder().encode('SYNTHETIC_RECORDING_TRANSCRIPT'),
+    },
+    {
+      id: 'native-recording-target-audio',
+      slot: 'audio',
+      field: 'audioFileId',
+      name: 'native-recording-target.mp3',
+      contentType: 'audio/mpeg',
+      bytes: new Uint8Array([0x49, 0x44, 0x33, 0x04]),
+    },
+  ].map((fixture) => ({
+    ...fixture,
+    key: `consulting-flow/${fixture.id}`,
+    createdAt: evidenceTimes[2],
+    purpose: 'recording',
+  }));
+  const nativeRecordingTargetRow = await db
+    .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+    .bind(recordingEffectCaseId)
+    .first();
+  assert.ok(nativeRecordingTargetRow);
+  const nativeRecordingTargetFlow = JSON.parse(
+    nativeRecordingTargetRow.payload,
+  );
+  const nativeRecordingTarget = nativeRecordingTargetFlow.recordings.find(
+    (recording) => recording.id === 'native-save-recording-effect-recording',
+  );
+  assert.ok(nativeRecordingTarget);
+  nativeRecordingTarget.fileId = nativeRecordingTargetFiles[0].id;
+  nativeRecordingTarget.transcriptFileId = nativeRecordingTargetFiles[0].id;
+  nativeRecordingTarget.audioFileId = nativeRecordingTargetFiles[1].id;
+  nativeRecordingTargetFlow.files.push(
+    ...nativeRecordingTargetFiles.map(
+      ({ bytes: _bytes, slot: _slot, field: _field, ...file }) => ({
+        ...file,
+        size: _bytes.byteLength,
+      }),
+    ),
+  );
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    [JSON.stringify(nativeRecordingTargetFlow), recordingEffectCaseId],
+  );
+  for (const fixture of nativeRecordingTargetFiles) {
+    await bucket.put(fixture.key, fixture.bytes, {
+      httpMetadata: { contentType: fixture.contentType },
+    });
+    const object = await bucket.head(fixture.key);
+    assert.ok(object);
+    await db.batch([
+      db
+        .prepare(`INSERT INTO consulting_flow_file_owners
+          (file_id, case_id, storage_key, created_at)
+          VALUES (?1, ?2, ?3, ?4)`)
+        .bind(
+          fixture.id,
+          recordingEffectCaseId,
+          fixture.key,
+          fixture.createdAt,
+        ),
+      db
+        .prepare(`INSERT INTO consulting_flow_file_metadata
+          (file_id, original_name, content_type, size_bytes, purpose)
+          VALUES (?1, ?2, ?3, ?4, 'recording')`)
+        .bind(
+          fixture.id,
+          fixture.name,
+          fixture.contentType,
+          fixture.bytes.byteLength,
+        ),
+      db
+        .prepare(`INSERT INTO consulting_flow_file_object_integrity
+          (file_id, validation_mode, r2_etag, r2_content_type)
+          VALUES (?1, 'etag', ?2, ?3)`)
+        .bind(fixture.id, object.etag, fixture.contentType),
+      db
+        .prepare(`INSERT INTO consulting_flow_file_object_checksums
+          (file_id, sha256) VALUES (?1, ?2)`)
+        .bind(fixture.id, await sha256(fixture.bytes)),
+      db
+        .prepare(`INSERT INTO consulting_flow_upload_requests
+          (case_id, actor_key, command_id, slot, fingerprint, file_id,
+            storage_key, original_name, content_type, size_bytes, purpose,
+            created_at, status)
+          VALUES (?1, 'admin:primary', 'native-save-recording-effect', ?2,
+            ?3, ?4, ?5, ?6, ?7, ?8, 'recording', ?9, 'pending')`)
+        .bind(
+          recordingEffectCaseId,
+          fixture.slot,
+          '5'.repeat(64),
+          fixture.id,
+          fixture.key,
+          fixture.name,
+          fixture.contentType,
+          fixture.bytes.byteLength,
+          fixture.createdAt,
+        ),
+    ]);
+  }
+  for (const fixture of nativeRecordingTargetFiles)
+    await db
+      .prepare(`INSERT INTO consulting_flow_upload_completions
+        (file_id, command_id)
+        VALUES (?1, 'native-save-recording-effect')`)
+      .bind(fixture.id)
+      .run();
+  await db.batch(
+    nativeRecordingTargetFiles.map((fixture) =>
+      db
+        .prepare(`UPDATE consulting_flow_upload_requests
+          SET status = 'ready' WHERE file_id = ?1`)
+        .bind(fixture.id),
+    ),
+  );
+  const readNativeRecordingTargetInventoryItem = async (
+    status,
+    fileId,
+    label,
+  ) => {
+    let path = `/inventory?status=${status}`;
+    const cursors = new Set();
+    while (true) {
+      const response = await expect(
+        await call(path, undefined, ownerHeaders),
+        200,
+        label,
+      );
+      assertPrivateAuthResponse(response);
+      const inventory = await response.json();
+      const item = inventory.items.find(
+        (candidate) => candidate.source === 'flow' && candidate.id === fileId,
+      );
+      if (item) return { inventory, item };
+      assert.equal(
+        typeof inventory.nextCursor,
+        'string',
+        `${label} must include the recording file`,
+      );
+      assert.ok(
+        !cursors.has(inventory.nextCursor),
+        `${label} cursor must advance`,
+      );
+      cursors.add(inventory.nextCursor);
+      path = `/inventory?status=${status}&cursor=${encodeURIComponent(inventory.nextCursor)}`;
+    }
+  };
+  const mutateNativeRecordingTarget = async (field, value) => {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind(recordingEffectCaseId)
+      .first();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    const recording = flow.recordings.find(
+      (candidate) => candidate.id === 'native-save-recording-effect-recording',
+    );
+    assert.ok(recording);
+    if (value === undefined) delete recording[field];
+    else recording[field] = value;
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), recordingEffectCaseId],
+    );
+  };
+  const beforeNativeRecordingTargetDrift =
+    await readNativeRecordingTargetInventoryItem(
+      'linked',
+      nativeRecordingTargetFiles[0].id,
+      'FLOW recording slot targets are linked before synthetic native drift',
+    );
+  assert.equal(beforeNativeRecordingTargetDrift.item.integrityProof, 'sha256');
+  for (const fixture of nativeRecordingTargetFiles) {
+    await mutateNativeRecordingTarget(fixture.field, undefined);
+    try {
+      const { inventory, item } = await readNativeRecordingTargetInventoryItem(
+        'inconsistent',
+        fixture.id,
+        `FLOW recording ${fixture.slot} slot target drift stays inconsistent in native inventory`,
+      );
+      assert.equal(item.status, 'inconsistent');
+      assert.equal(item.flowLinked, true);
+      assert.equal(item.integrityProof, null);
+      assert.equal(
+        inventory.integrityCoverage.sha256,
+        beforeNativeRecordingTargetDrift.inventory.integrityCoverage.sha256 - 1,
+      );
+      assert.equal(
+        inventory.integrityCoverage.unavailable,
+        beforeNativeRecordingTargetDrift.inventory.integrityCoverage
+          .unavailable + 1,
+      );
+      assert.doesNotMatch(
+        JSON.stringify(item),
+        /native-save-recording-effect|admin:primary|"actorKey"|"fingerprint"|consulting-flow\//,
+      );
+      const presenceResponse = await expect(
+        await call(`/inventory/${fixture.id}`, undefined, ownerHeaders),
+        503,
+        `FLOW recording ${fixture.slot} slot target drift blocks native R2 presence trust`,
+      );
+      assertPrivateAuthResponse(presenceResponse);
+      assert.match((await presenceResponse.json()).error, /원장의 무결성/);
+      checks.push(
+        `FLOW native inventory binds save-recording ${fixture.slot} receipt to its exact recording target`,
+      );
+    } finally {
+      await mutateNativeRecordingTarget(fixture.field, fixture.id);
+    }
+  }
+  for (const fixture of nativeRecordingTargetFiles) {
+    const restored = await readNativeRecordingTargetInventoryItem(
+      'linked',
+      fixture.id,
+      `FLOW recording ${fixture.slot} slot proof recovers after target cleanup`,
+    );
+    assert.equal(restored.item.integrityProof, 'sha256');
+  }
   const mimeRetry = await expect(
     await callFlowFile(
       '/flow/runtime-own',

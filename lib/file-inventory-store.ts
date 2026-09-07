@@ -18,7 +18,10 @@ import {
   readFlowFileObjectIntegrity,
 } from './consulting-flow-store';
 import { FlowError, type FlowFile } from './consulting-flow';
-import { flowUploadReceiptRules } from './consulting-flow-upload-policy';
+import {
+  flowUploadReceiptRules,
+  flowUploadReceiptTargetRules,
+} from './consulting-flow-upload-policy';
 import {
   FLOW_ADMIN_COMMAND_ACTOR_KEY,
   FLOW_ADMIN_COMMAND_ACTOR_NAME,
@@ -58,14 +61,31 @@ const flowReceiptUploadBindingSql = `(${Object.entries(flowUploadReceiptRules)
         AND ${flowUploadIntakeBindingSql(rule.intakeProvenance)})`,
   )
   .join(' OR ')})`;
+const flowReceiptTargetActionsSql = Object.keys(flowUploadReceiptTargetRules)
+  .map(sqlTextLiteral)
+  .join(', ');
 const flowReceiptTargetBindingSql = `(
-  json_extract(receipt.value, '$.action') <> 'save_report'
-  OR (SELECT COUNT(*) FROM json_each(
-      CASE WHEN json_valid(flow.payload) THEN flow.payload
-        ELSE '{"reports":[]}' END, '$.reports') report
-    WHERE report.type = 'object'
-      AND json_extract(report.value, '$.id') = upload.command_id || '-report'
-      AND json_extract(report.value, '$.fileId') = upload.file_id) = 1
+  json_extract(receipt.value, '$.action') NOT IN (${flowReceiptTargetActionsSql})
+  OR ${Object.entries(flowUploadReceiptTargetRules)
+    .map(
+      ([action, rule]) =>
+        `(json_extract(receipt.value, '$.action') = ${sqlTextLiteral(action)}
+          AND (SELECT COUNT(*) FROM json_each(
+              CASE WHEN json_valid(flow.payload) THEN flow.payload
+                ELSE '{}' END, '$.${rule.collection}') target
+            WHERE target.type = 'object'
+              AND json_extract(target.value, '$.id') =
+                upload.command_id || '-${rule.suffix}'
+              AND (${Object.entries(rule.slots)
+                .map(
+                  ([slot, field]) =>
+                    `(upload.slot = ${sqlTextLiteral(slot)}
+                      AND json_extract(target.value, '$.${field}') =
+                        upload.file_id)`,
+                )
+                .join(' OR ')})) = 1)`,
+    )
+    .join(' OR ')}
 )`;
 const flowReceiptAuditBindingSql = `(
   (json_type(receipt.value, '$.actor') IS NULL

@@ -156,6 +156,29 @@ export const flowUploadReceiptRules = {
   }
 >;
 
+type FlowUploadReceiptTargetRule = {
+  collection: 'reports' | 'recordings';
+  suffix: 'report' | 'recording';
+  slots: Partial<
+    Record<Exclude<FlowUploadSlot, 'document'>, 'fileId' | 'audioFileId'>
+  >;
+};
+
+export const flowUploadReceiptTargetRules = {
+  save_report: {
+    collection: 'reports',
+    suffix: 'report',
+    slots: { file: 'fileId' },
+  },
+  save_recording: {
+    collection: 'recordings',
+    suffix: 'recording',
+    slots: { file: 'fileId', audio: 'audioFileId' },
+  },
+} as const satisfies Partial<
+  Record<keyof typeof flowUploadReceiptRules, FlowUploadReceiptTargetRule>
+>;
+
 const directFlowUploadCommands = [
   'save_source',
   'save_report',
