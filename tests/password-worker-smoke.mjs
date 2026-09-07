@@ -4422,6 +4422,118 @@ try {
     false,
   );
   checks.push('orphan FLOW receipt audit cleanup restores inventory');
+  const assertNativeFlowReceiptDriftQuarantined = async (label) => {
+    const inventoryResponse = await expect(
+      await call('/inventory?status=inconsistent', undefined, ownerHeaders),
+      200,
+      label,
+    );
+    assertPrivateAuthResponse(inventoryResponse);
+    const inventory = await inventoryResponse.json();
+    const item = inventory.items.find(
+      (candidate) =>
+        candidate.source === 'flow' && candidate.id === privateMimeFile.id,
+    );
+    assert.ok(item);
+    assert.equal(item.status, 'inconsistent');
+    assert.equal(item.flowLinked, true);
+    assert.equal(item.integrityProof, null);
+    assert.equal(
+      inventory.integrityCoverage.sha256,
+      afterOrphanReceiptCleanup.integrityCoverage.sha256 - 1,
+    );
+    assert.equal(
+      inventory.integrityCoverage.unavailable,
+      afterOrphanReceiptCleanup.integrityCoverage.unavailable + 1,
+    );
+    assert.doesNotMatch(
+      JSON.stringify(item),
+      /drifted-name|drifted-completion-command|admin:primary|fingerprint|consulting-flow\//,
+    );
+    const presenceResponse = await expect(
+      await call(`/inventory/${privateMimeFile.id}`, undefined, ownerHeaders),
+      503,
+      `${label} blocks native R2 presence trust`,
+    );
+    assertPrivateAuthResponse(presenceResponse);
+    assert.match((await presenceResponse.json()).error, /원장의 무결성/);
+  };
+  await withoutD1Triggers(
+    db,
+    ['consulting_flow_upload_requests_lifecycle_guard'],
+    async () =>
+      db
+        .prepare(
+          "UPDATE consulting_flow_upload_requests SET original_name = 'drifted-name.txt' WHERE file_id = ?1",
+        )
+        .bind(privateMimeFile.id)
+        .run(),
+  );
+  try {
+    await assertNativeFlowReceiptDriftQuarantined(
+      'ready FLOW reservation metadata drift stays inconsistent in native inventory',
+    );
+    checks.push(
+      'ready FLOW reservation metadata drift is quarantined before native R2 presence trust',
+    );
+  } finally {
+    await withoutD1Triggers(
+      db,
+      ['consulting_flow_upload_requests_lifecycle_guard'],
+      async () =>
+        db
+          .prepare(
+            'UPDATE consulting_flow_upload_requests SET original_name = ?1 WHERE file_id = ?2',
+          )
+          .bind(nativeFlowReservation.original_name, privateMimeFile.id)
+          .run(),
+    );
+  }
+  await withoutD1Triggers(
+    db,
+    ['consulting_flow_upload_completions_no_update'],
+    async () =>
+      db
+        .prepare(
+          "UPDATE consulting_flow_upload_completions SET command_id = 'drifted-completion-command' WHERE file_id = ?1",
+        )
+        .bind(privateMimeFile.id)
+        .run(),
+  );
+  try {
+    await assertNativeFlowReceiptDriftQuarantined(
+      'FLOW completion command drift stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW completion command drift is quarantined before native R2 presence trust',
+    );
+  } finally {
+    await withoutD1Triggers(
+      db,
+      ['consulting_flow_upload_completions_no_update'],
+      async () =>
+        db
+          .prepare(
+            'UPDATE consulting_flow_upload_completions SET command_id = ?1 WHERE file_id = ?2',
+          )
+          .bind(nativeFlowReservation.completed_command_id, privateMimeFile.id)
+          .run(),
+    );
+  }
+  const restoredReceiptBindingInventory = await (
+    await expect(
+      await call('/inventory?status=linked', undefined, ownerHeaders),
+      200,
+      'FLOW receipt binding recovers after synthetic drift cleanup',
+    )
+  ).json();
+  assert.equal(
+    restoredReceiptBindingInventory.items.find(
+      (item) => item.source === 'flow' && item.id === privateMimeFile.id,
+    ).integrityProof,
+    'sha256',
+  );
+  checks.push('FLOW receipt binding proof resumes after synthetic cleanup');
   const collisionCompanyKey = `company-source/${privateMimeFile.id}`;
   const collisionCompanyBytes = new TextEncoder().encode(
     'SYNTHETIC_COLLISION_COMPANY',
