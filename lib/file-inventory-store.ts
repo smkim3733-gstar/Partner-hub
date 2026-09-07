@@ -58,6 +58,15 @@ const flowReceiptUploadBindingSql = `(${Object.entries(flowUploadReceiptRules)
         AND ${flowUploadIntakeBindingSql(rule.intakeProvenance)})`,
   )
   .join(' OR ')})`;
+const flowReceiptTargetBindingSql = `(
+  json_extract(receipt.value, '$.action') <> 'save_report'
+  OR (SELECT COUNT(*) FROM json_each(
+      CASE WHEN json_valid(flow.payload) THEN flow.payload
+        ELSE '{"reports":[]}' END, '$.reports') report
+    WHERE report.type = 'object'
+      AND json_extract(report.value, '$.id') = upload.command_id || '-report'
+      AND json_extract(report.value, '$.fileId') = upload.file_id) = 1
+)`;
 const flowReceiptAuditBindingSql = `(
   (json_type(receipt.value, '$.actor') IS NULL
     AND json_type(receipt.value, '$.action') IS NULL)
@@ -74,6 +83,7 @@ const flowReceiptAuditBindingSql = `(
         AND json_extract(audit.value, '$.action') =
           json_extract(receipt.value, '$.action')) = 1
     AND ${flowReceiptUploadBindingSql}
+    AND ${flowReceiptTargetBindingSql}
   )
 )`;
 type Row = {

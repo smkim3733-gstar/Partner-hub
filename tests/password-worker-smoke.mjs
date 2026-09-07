@@ -3867,6 +3867,9 @@ try {
     ).payload,
   );
   const privateMimeFile = privateMimeFlow.files.at(-1);
+  const privateMimeReport = privateMimeFlow.reports.at(-1);
+  assert.equal(privateMimeReport.id, `${mimeCommand.commandId}-report`);
+  assert.equal(privateMimeReport.fileId, privateMimeFile.id);
   const privateMimeHead = await bucket.head(privateMimeFile.key);
   assert.equal(privateMimeHead.httpMetadata.contentType, 'text/plain');
   assert.deepEqual(
@@ -9311,6 +9314,25 @@ try {
       [JSON.stringify(flow), 'runtime-own'],
     );
   };
+  const mutateNativeFlowReportFileId = async (value) => {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind('runtime-own')
+      .first();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    const report = flow.reports.find(
+      (entry) => entry.id === privateMimeReport.id,
+    );
+    assert.ok(report);
+    if (value === undefined) delete report.fileId;
+    else report.fileId = value;
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), 'runtime-own'],
+    );
+  };
   const mutateNativeFlowFilePurpose = async (purpose) => {
     const row = await db
       .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
@@ -9476,6 +9498,17 @@ try {
     await mutateNativeFlowCommandReceiptAndAuditAction(
       nativeFlowCommandReceipt.action,
     );
+  }
+  await mutateNativeFlowReportFileId(undefined);
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW report receipt without its saved report attachment stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW native inventory binds save-report receipt to its exact report attachment before R2 trust',
+    );
+  } finally {
+    await mutateNativeFlowReportFileId(privateMimeFile.id);
   }
   const restoredNativeFlowReceiptIdentity =
     await readNativeFlowReceiptInventoryItem(
