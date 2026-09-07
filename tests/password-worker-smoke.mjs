@@ -10272,6 +10272,298 @@ try {
     restoredNativeRequestedDocumentTarget.item.integrityProof,
     'sha256',
   );
+  const nativeSignedContractTargetFile = {
+    id: 'native-signed-contract-target-file',
+    key: 'consulting-flow/native-signed-contract-target-file',
+    name: 'native-signed-contract-target-file.pdf',
+    contentType: 'application/pdf',
+    bytes: new TextEncoder().encode('SYNTHETIC_SIGNED_CONTRACT_TARGET'),
+    purpose: 'signed_contract',
+    createdAt: evidenceTimes[2],
+  };
+  const nativeSignedContractTargetCommandId =
+    'native-record-contract-target-command';
+  const nativeSignedContractTargetMeetingId =
+    'native-record-contract-target-meeting';
+  const nativeSignedContractTargetReportId =
+    'native-record-contract-target-report';
+  const nativeSignedContractTargetFingerprint = 'c'.repeat(64);
+  const nativeSignedContractTargetRow = await db
+    .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+    .bind(recordingEffectCaseId)
+    .first();
+  assert.ok(nativeSignedContractTargetRow);
+  const nativeSignedContractTargetFlow = JSON.parse(
+    nativeSignedContractTargetRow.payload,
+  );
+  nativeSignedContractTargetFlow.files.push({
+    ...nativeSignedContractTargetFile,
+    size: nativeSignedContractTargetFile.bytes.byteLength,
+    bytes: undefined,
+  });
+  delete nativeSignedContractTargetFlow.files.at(-1).bytes;
+  nativeSignedContractTargetFlow.meetings.push({
+    id: nativeSignedContractTargetMeetingId,
+    kind: 'contract',
+    startsAt: '2026-09-01T00:00:00.000Z',
+    endsAt: '2026-09-01T01:00:00.000Z',
+    location: '격리 가상 계약상담실',
+    attendance: 'admin',
+    status: 'completed',
+    note: '',
+    createdBy: '김성민 대표',
+    completedAt: evidenceTimes[2],
+  });
+  nativeSignedContractTargetFlow.reports.push({
+    id: nativeSignedContractTargetReportId,
+    stage: 6,
+    title: '가상 경영자문용역계약서',
+    body: '파일 재고 계약 대상 결속을 위한 비식별 가상 계약서입니다.',
+    createdAt: evidenceTimes[2],
+    createdBy: '김성민 대표',
+  });
+  nativeSignedContractTargetFlow.contract = {
+    meetingId: nativeSignedContractTargetMeetingId,
+    reportId: nativeSignedContractTargetReportId,
+    signedFileId: nativeSignedContractTargetFile.id,
+    signedAt: '2026-09-01',
+    expectedDepositWon: 1_000_000,
+    recordedBy: '김성민 대표',
+  };
+  nativeSignedContractTargetFlow.commandIds.push(
+    nativeSignedContractTargetCommandId,
+  );
+  nativeSignedContractTargetFlow.commandReceipts[
+    nativeSignedContractTargetCommandId
+  ] = {
+    actorKey: 'admin:primary',
+    fingerprint: nativeSignedContractTargetFingerprint,
+    actor: '김성민 대표',
+    action: 'record_contract',
+    targetId: nativeSignedContractTargetMeetingId,
+  };
+  nativeSignedContractTargetFlow.audit.push({
+    id: nativeSignedContractTargetCommandId,
+    at: evidenceTimes[2],
+    actor: '김성민 대표',
+    action: 'record_contract',
+    detail: '서명본과 약정 계약금 등록 · 입금 확인 대기',
+  });
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    [JSON.stringify(nativeSignedContractTargetFlow), recordingEffectCaseId],
+  );
+  await bucket.put(
+    nativeSignedContractTargetFile.key,
+    nativeSignedContractTargetFile.bytes,
+    {
+      httpMetadata: { contentType: nativeSignedContractTargetFile.contentType },
+    },
+  );
+  const nativeSignedContractTargetObject = await bucket.head(
+    nativeSignedContractTargetFile.key,
+  );
+  assert.ok(nativeSignedContractTargetObject);
+  await db.batch([
+    db
+      .prepare(`INSERT INTO consulting_flow_file_owners
+        (file_id, case_id, storage_key, created_at)
+        VALUES (?1, ?2, ?3, ?4)`)
+      .bind(
+        nativeSignedContractTargetFile.id,
+        recordingEffectCaseId,
+        nativeSignedContractTargetFile.key,
+        nativeSignedContractTargetFile.createdAt,
+      ),
+    db
+      .prepare(`INSERT INTO consulting_flow_file_metadata
+        (file_id, original_name, content_type, size_bytes, purpose)
+        VALUES (?1, ?2, ?3, ?4, 'signed_contract')`)
+      .bind(
+        nativeSignedContractTargetFile.id,
+        nativeSignedContractTargetFile.name,
+        nativeSignedContractTargetFile.contentType,
+        nativeSignedContractTargetFile.bytes.byteLength,
+      ),
+    db
+      .prepare(`INSERT INTO consulting_flow_file_object_integrity
+        (file_id, validation_mode, r2_etag, r2_content_type)
+        VALUES (?1, 'etag', ?2, ?3)`)
+      .bind(
+        nativeSignedContractTargetFile.id,
+        nativeSignedContractTargetObject.etag,
+        nativeSignedContractTargetFile.contentType,
+      ),
+    db
+      .prepare(`INSERT INTO consulting_flow_file_object_checksums
+        (file_id, sha256) VALUES (?1, ?2)`)
+      .bind(
+        nativeSignedContractTargetFile.id,
+        await sha256(nativeSignedContractTargetFile.bytes),
+      ),
+    db
+      .prepare(`INSERT INTO consulting_flow_upload_requests
+        (case_id, actor_key, command_id, slot, fingerprint, file_id,
+          storage_key, original_name, content_type, size_bytes, purpose,
+          created_at, status)
+        VALUES (?1, 'admin:primary', ?2, 'file', ?3, ?4, ?5, ?6, ?7,
+          ?8, 'signed_contract', ?9, 'pending')`)
+      .bind(
+        recordingEffectCaseId,
+        nativeSignedContractTargetCommandId,
+        nativeSignedContractTargetFingerprint,
+        nativeSignedContractTargetFile.id,
+        nativeSignedContractTargetFile.key,
+        nativeSignedContractTargetFile.name,
+        nativeSignedContractTargetFile.contentType,
+        nativeSignedContractTargetFile.bytes.byteLength,
+        nativeSignedContractTargetFile.createdAt,
+      ),
+  ]);
+  await db
+    .prepare(`INSERT INTO consulting_flow_upload_completions
+      (file_id, command_id) VALUES (?1, ?2)`)
+    .bind(
+      nativeSignedContractTargetFile.id,
+      nativeSignedContractTargetCommandId,
+    )
+    .run();
+  await db
+    .prepare(`UPDATE consulting_flow_upload_requests
+      SET status = 'ready' WHERE file_id = ?1`)
+    .bind(nativeSignedContractTargetFile.id)
+    .run();
+  const mutateNativeSignedContractTarget = async (kind, value) => {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind(recordingEffectCaseId)
+      .first();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    if (kind === 'receipt') {
+      if (value === undefined)
+        delete flow.commandReceipts[nativeSignedContractTargetCommandId]
+          .targetId;
+      else
+        flow.commandReceipts[nativeSignedContractTargetCommandId].targetId =
+          value;
+    } else if (kind === 'contract_file') {
+      if (value === undefined) delete flow.contract.signedFileId;
+      else flow.contract.signedFileId = value;
+    } else if (value === undefined) delete flow.contract.meetingId;
+    else flow.contract.meetingId = value;
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), recordingEffectCaseId],
+    );
+  };
+  const beforeNativeSignedContractTargetDrift =
+    await readNativeRecordingTargetInventoryItem(
+      'linked',
+      nativeSignedContractTargetFile.id,
+      'FLOW signed contract receipt target is linked before synthetic native drift',
+    );
+  assert.equal(
+    beforeNativeSignedContractTargetDrift.item.integrityProof,
+    'sha256',
+  );
+  const nativeSignedContractTargetDrifts = [
+    {
+      label: 'contract signed file',
+      corrupt: () => mutateNativeSignedContractTarget('contract_file'),
+      restore: () =>
+        mutateNativeSignedContractTarget(
+          'contract_file',
+          nativeSignedContractTargetFile.id,
+        ),
+    },
+    {
+      label: 'contract meeting',
+      corrupt: () =>
+        mutateNativeSignedContractTarget(
+          'contract_meeting',
+          'forged-native-contract-meeting',
+        ),
+      restore: () =>
+        mutateNativeSignedContractTarget(
+          'contract_meeting',
+          nativeSignedContractTargetMeetingId,
+        ),
+    },
+    {
+      label: 'receipt meeting',
+      corrupt: () =>
+        mutateNativeSignedContractTarget(
+          'receipt',
+          'forged-native-receipt-meeting',
+        ),
+      restore: () =>
+        mutateNativeSignedContractTarget(
+          'receipt',
+          nativeSignedContractTargetMeetingId,
+        ),
+    },
+  ];
+  for (const drift of nativeSignedContractTargetDrifts) {
+    await drift.corrupt();
+    try {
+      const { inventory, item } = await readNativeRecordingTargetInventoryItem(
+        'inconsistent',
+        nativeSignedContractTargetFile.id,
+        `FLOW signed contract ${drift.label} drift stays inconsistent in native inventory`,
+      );
+      assert.equal(item.status, 'inconsistent');
+      assert.equal(item.flowLinked, true);
+      assert.equal(item.integrityProof, null);
+      assert.equal(
+        inventory.integrityCoverage.sha256,
+        beforeNativeSignedContractTargetDrift.inventory.integrityCoverage
+          .sha256 - 1,
+      );
+      assert.equal(
+        inventory.integrityCoverage.unavailable,
+        beforeNativeSignedContractTargetDrift.inventory.integrityCoverage
+          .unavailable + 1,
+      );
+      assert.doesNotMatch(
+        JSON.stringify(item),
+        /native-record-contract-target-(?:command|meeting|report)|admin:primary|"actorKey"|"fingerprint"|consulting-flow\//,
+      );
+      const presenceResponse = await expect(
+        await call(
+          `/inventory/${nativeSignedContractTargetFile.id}`,
+          undefined,
+          ownerHeaders,
+        ),
+        503,
+        `FLOW signed contract ${drift.label} drift blocks native R2 presence trust`,
+      );
+      assertPrivateAuthResponse(presenceResponse);
+      assert.match((await presenceResponse.json()).error, /원장의 무결성/);
+      checks.push(
+        `FLOW native inventory binds record-contract receipt to its ${drift.label} target`,
+      );
+    } finally {
+      await drift.restore();
+    }
+  }
+  const restoredNativeSignedContractTarget =
+    await readNativeRecordingTargetInventoryItem(
+      'linked',
+      nativeSignedContractTargetFile.id,
+      'FLOW signed contract receipt target proof recovers after synthetic native drift cleanup',
+    );
+  assert.equal(
+    restoredNativeSignedContractTarget.item.integrityProof,
+    'sha256',
+  );
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    [nativeSignedContractTargetRow.payload, recordingEffectCaseId],
+  );
   const mimeRetry = await expect(
     await callFlowFile(
       '/flow/runtime-own',

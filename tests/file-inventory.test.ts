@@ -123,7 +123,8 @@ async function completedFlowFile(
     | 'source'
     | 'recording'
     | 'transcript'
-    | 'requested_document' = 'report',
+    | 'requested_document'
+    | 'signed_contract' = 'report',
   name = `${id}.txt`,
   contentType = 'text/plain',
 ) {
@@ -3486,5 +3487,236 @@ void test('completed FLOW requested document whose receipt or request file targe
     bucket.head = originalHead;
     await mutateTarget('receipt', requestId);
     await mutateTarget('request', fileId);
+  }
+});
+
+void test('completed FLOW signed contract whose receipt or contract target drifts stays inconsistent before R2 access', async () => {
+  const caseId = 'flow-signed-contract-target-drift-case';
+  const fileId = 'flow-signed-contract-target-drift';
+  const commandId = 'flow-signed-contract-target-command';
+  const meetingId = 'flow-signed-contract-target-meeting';
+  const reportId = 'flow-signed-contract-target-report';
+  const fingerprint = 'e'.repeat(64);
+  await seed(
+    [],
+    [
+      {
+        id: caseId,
+        company: 'FLOW 서명계약 영수증 대상 손상기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+    ],
+  );
+  await completedFlowFile(
+    fileId,
+    caseId,
+    undefined,
+    caseId,
+    'signed_contract',
+    `${fileId}.pdf`,
+    'application/pdf',
+  );
+  const db = await flowDatabase();
+  const row = await db
+    .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+    .bind(caseId)
+    .first<{ payload: string }>();
+  assert.ok(row);
+  const flow = JSON.parse(row.payload);
+  flow.meetings = [
+    {
+      id: meetingId,
+      kind: 'contract',
+      startsAt: '2026-08-30T22:00:00.000Z',
+      endsAt: '2026-08-30T23:00:00.000Z',
+      location: '격리 가상 계약상담실',
+      attendance: 'admin',
+      status: 'completed',
+      note: '',
+      createdBy: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+      completedAt: date,
+    },
+  ];
+  flow.reports = [
+    {
+      id: reportId,
+      stage: 6,
+      title: '가상 경영자문용역계약서',
+      body: '파일 재고 계약 대상 결속을 위한 비식별 가상 계약서입니다.',
+      createdAt: date,
+      createdBy: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    },
+  ];
+  flow.contract = {
+    meetingId,
+    reportId,
+    signedFileId: fileId,
+    signedAt: '2026-08-31',
+    expectedDepositWon: 1_000_000,
+    recordedBy: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+  };
+  flow.commandIds = [commandId];
+  flow.commandReceipts = {
+    [commandId]: {
+      actorKey: FLOW_ADMIN_COMMAND_ACTOR_KEY,
+      fingerprint,
+      actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+      action: 'record_contract',
+      targetId: meetingId,
+    },
+  };
+  flow.audit = [
+    {
+      id: commandId,
+      at: date,
+      actor: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+      action: 'record_contract',
+      detail: '서명본과 약정 계약금 등록 · 입금 확인 대기',
+    },
+  ];
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    [JSON.stringify(flow), caseId],
+  );
+  const mutateTarget = async (
+    kind: 'receipt' | 'contract_file' | 'contract_meeting',
+    value?: string,
+  ) => {
+    const stored = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind(caseId)
+      .first<{ payload: string }>();
+    assert.ok(stored);
+    const current = JSON.parse(stored.payload);
+    if (kind === 'receipt') {
+      if (value === undefined)
+        delete current.commandReceipts[commandId].targetId;
+      else current.commandReceipts[commandId].targetId = value;
+    } else if (kind === 'contract_file') {
+      if (value === undefined) delete current.contract.signedFileId;
+      else current.contract.signedFileId = value;
+    } else if (value === undefined) delete current.contract.meetingId;
+    else current.contract.meetingId = value;
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(current), caseId],
+    );
+  };
+  await db.batch([
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flow_upload_requests_insert_envelope_guard',
+    ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_insert_guard',
+    ),
+  ]);
+  try {
+    await db.batch([
+      db
+        .prepare(`INSERT INTO consulting_flow_upload_requests
+          (case_id, actor_key, command_id, slot, fingerprint, file_id,
+            storage_key, original_name, content_type, size_bytes, purpose,
+            created_at, status)
+          VALUES (?1, ?2, ?3, 'file', ?4, ?5, ?6, ?7,
+            'application/pdf', 4, 'signed_contract', ?8, 'ready')`)
+        .bind(
+          caseId,
+          FLOW_ADMIN_COMMAND_ACTOR_KEY,
+          commandId,
+          fingerprint,
+          fileId,
+          `consulting-flow/${fileId}`,
+          `${fileId}.pdf`,
+          date,
+        ),
+      db
+        .prepare(`INSERT INTO consulting_flow_upload_completions
+          (file_id, command_id) VALUES (?1, ?2)`)
+        .bind(fileId, commandId),
+    ]);
+  } finally {
+    await db.batch([
+      db.prepare(consultingFlowUploadRequestsInsertEnvelopeTriggerSql),
+      db.prepare(consultingFlowUploadCompletionsInsertTriggerSql),
+    ]);
+  }
+  const beforeDrift = await page('?status=linked');
+  assert.equal(
+    beforeDrift.items.find(
+      (item) => item.source === 'flow' && item.id === fileId,
+    )?.integrityProof,
+    'metadata',
+  );
+  const bucket = companyFileBucket();
+  const originalHead = bucket.head.bind(bucket);
+  let headCalls = 0;
+  bucket.head = async (...args: Parameters<R2Bucket['head']>) => {
+    headCalls++;
+    return originalHead(...args);
+  };
+  const drifts = [
+    {
+      label: 'contract signed file',
+      corrupt: () => mutateTarget('contract_file'),
+      restore: () => mutateTarget('contract_file', fileId),
+    },
+    {
+      label: 'contract meeting',
+      corrupt: () =>
+        mutateTarget('contract_meeting', 'forged-contract-meeting'),
+      restore: () => mutateTarget('contract_meeting', meetingId),
+    },
+    {
+      label: 'receipt meeting',
+      corrupt: () => mutateTarget('receipt', 'forged-receipt-meeting'),
+      restore: () => mutateTarget('receipt', meetingId),
+    },
+  ];
+  try {
+    for (const drift of drifts) {
+      await drift.corrupt();
+      const inconsistent = await page('?status=inconsistent');
+      assert.equal(
+        inconsistent.integrityCoverage.metadata,
+        beforeDrift.integrityCoverage.metadata - 1,
+      );
+      assert.equal(
+        inconsistent.integrityCoverage.unavailable,
+        beforeDrift.integrityCoverage.unavailable + 1,
+      );
+      const item = inconsistent.items.find(
+        (candidate) => candidate.source === 'flow' && candidate.id === fileId,
+      );
+      assert.ok(item, drift.label);
+      assert.equal(item.status, 'inconsistent');
+      assert.equal(item.flowLinked, true);
+      assert.equal(item.integrityProof, null);
+      assert.doesNotMatch(
+        JSON.stringify(item),
+        /flow-signed-contract-target-(?:command|meeting|report)|actor_key|fingerprint|consulting-flow\//,
+      );
+      const response = await presence(request(), {
+        params: Promise.resolve({ id: fileId }),
+      });
+      assert.equal(response.status, 503, await response.clone().text());
+      assert.match(await response.text(), /원장의 무결성/);
+      assert.equal(headCalls, 0);
+      await drift.restore();
+      const restored = await page('?status=linked');
+      assert.equal(
+        restored.items.find(
+          (candidate) => candidate.source === 'flow' && candidate.id === fileId,
+        )?.integrityProof,
+        'metadata',
+      );
+    }
+  } finally {
+    bucket.head = originalHead;
+    await mutateTarget('receipt', meetingId);
+    await mutateTarget('contract_meeting', meetingId);
+    await mutateTarget('contract_file', fileId);
   }
 });

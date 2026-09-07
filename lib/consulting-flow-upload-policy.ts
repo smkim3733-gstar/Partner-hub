@@ -157,38 +157,45 @@ export const flowUploadReceiptRules = {
 >;
 
 type FlowUploadReceiptTargetRule = {
-  collection: 'reports' | 'recordings' | 'requests';
+  source:
+    | { kind: 'collection'; path: 'reports' | 'recordings' | 'requests' }
+    | { kind: 'object'; path: 'contract'; idField: 'meetingId' };
   target:
     | { kind: 'command_suffix'; suffix: 'report' | 'recording' }
     | { kind: 'receipt' };
   slots: Partial<
     Record<
       Exclude<FlowUploadSlot, 'document'>,
-      'fileId' | 'transcriptFileId' | 'audioFileId'
+      'fileId' | 'transcriptFileId' | 'audioFileId' | 'signedFileId'
     >
   >;
 };
 
 export const flowUploadReceiptTargetRules = {
   save_report: {
-    collection: 'reports',
+    source: { kind: 'collection', path: 'reports' },
     target: { kind: 'command_suffix', suffix: 'report' },
     slots: { file: 'fileId' },
   },
   save_recording: {
-    collection: 'recordings',
+    source: { kind: 'collection', path: 'recordings' },
     target: { kind: 'command_suffix', suffix: 'recording' },
     slots: { file: 'fileId', audio: 'audioFileId' },
   },
   save_transcript: {
-    collection: 'recordings',
+    source: { kind: 'collection', path: 'recordings' },
     target: { kind: 'receipt' },
     slots: { file: 'transcriptFileId' },
   },
   receive_document: {
-    collection: 'requests',
+    source: { kind: 'collection', path: 'requests' },
     target: { kind: 'receipt' },
     slots: { file: 'fileId' },
+  },
+  record_contract: {
+    source: { kind: 'object', path: 'contract', idField: 'meetingId' },
+    target: { kind: 'receipt' },
+    slots: { file: 'signedFileId' },
   },
 } as const satisfies Partial<
   Record<keyof typeof flowUploadReceiptRules, FlowUploadReceiptTargetRule>

@@ -72,13 +72,13 @@ const flowReceiptTargetBindingSql = `(
         rule.target.kind === 'command_suffix'
           ? `upload.command_id || '-${rule.target.suffix}'`
           : `json_extract(receipt.value, '$.targetId')`;
-      return `(json_extract(receipt.value, '$.action') = ${sqlTextLiteral(action)}
-          AND (SELECT COUNT(*) FROM json_each(
-              CASE WHEN json_valid(flow.payload) THEN flow.payload
-                ELSE '{}' END, '$.${rule.collection}') target
+      const safePayloadSql = `CASE WHEN json_valid(flow.payload) THEN flow.payload ELSE '{}' END`;
+      const targetBindingSql =
+        rule.source.kind === 'collection'
+          ? `(SELECT COUNT(*) FROM json_each(
+              ${safePayloadSql}, '$.${rule.source.path}') target
             WHERE target.type = 'object'
-              AND json_extract(target.value, '$.id') =
-                ${targetIdSql}
+              AND json_extract(target.value, '$.id') = ${targetIdSql}
               AND (${Object.entries(rule.slots)
                 .map(
                   ([slot, field]) =>
@@ -86,7 +86,20 @@ const flowReceiptTargetBindingSql = `(
                       AND json_extract(target.value, '$.${field}') =
                         upload.file_id)`,
                 )
-                .join(' OR ')})) = 1)`;
+                .join(' OR ')})) = 1`
+          : `(json_type(${safePayloadSql}, '$.${rule.source.path}') = 'object'
+              AND json_extract(${safePayloadSql},
+                '$.${rule.source.path}.${rule.source.idField}') = ${targetIdSql}
+              AND (${Object.entries(rule.slots)
+                .map(
+                  ([slot, field]) =>
+                    `(upload.slot = ${sqlTextLiteral(slot)}
+                      AND json_extract(${safePayloadSql},
+                        '$.${rule.source.path}.${field}') = upload.file_id)`,
+                )
+                .join(' OR ')}))`;
+      return `(json_extract(receipt.value, '$.action') = ${sqlTextLiteral(action)}
+          AND ${targetBindingSql})`;
     })
     .join(' OR ')}
 )`;
