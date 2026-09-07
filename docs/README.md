@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [파일 재고 FLOW 영수증 행위자·지문 결속](FILE_INVENTORY_FLOW_RECEIPT_IDENTITY_BINDING_2026_09_08.md)                 | payload 영수증 actorKey·fingerprint와 예약 원장의 정확 결속·R2 전 차단                   |
 | [파일 재고 FLOW 한쪽 완료 영수증 격리](FILE_INVENTORY_FLOW_PARTIAL_RECEIPT_LEDGERS_2026_09_08.md)                    | ready 예약만/완료 영수증만 남은 완료 파일의 증명 제외·R2 전 차단                         |
 | [파일 재고 FLOW 부분 완료 pending 격리](FILE_INVENTORY_FLOW_PENDING_OWNER_QUARANTINE_2026_09_07.md)                  | 소유 원장과 함께 남은 pending 예약의 inconsistent 격리, 정상 pending-only 유지           |
 | [파일 재고 FLOW 완료 예약·영수증 결속 무결성](FILE_INVENTORY_FLOW_RECEIPT_BINDING_INTEGRITY_2026_09_07.md)           | ready 예약·완료 영수증과 소유·payload 증명의 정확 결속, 손상 시 R2 전 격리               |
