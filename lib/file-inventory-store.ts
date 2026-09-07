@@ -464,6 +464,9 @@ export async function listFileInventory(
           ELSE 'sha256' END AS integrity_proof,
         CASE WHEN identity_count > 1 THEN 'inconsistent'
           WHEN upload_status = 'deleted' THEN 'deleted'
+          WHEN upload_status = 'pending' AND source_type = 'flow'
+            AND EXISTS (SELECT 1 FROM consulting_flow_file_owners pending_owner
+              WHERE pending_owner.file_id = identified.id) THEN 'inconsistent'
           WHEN upload_status = 'pending' THEN 'pending'
           WHEN has_metadata = 0 THEN 'inconsistent'
           WHEN has_object_integrity = 0 THEN 'inconsistent'

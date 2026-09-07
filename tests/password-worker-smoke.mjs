@@ -4520,6 +4520,32 @@ try {
           .run(),
     );
   }
+  await withoutD1Triggers(
+    db,
+    ['consulting_flow_upload_requests_lifecycle_guard'],
+    async () =>
+      db
+        .prepare(
+          "UPDATE consulting_flow_upload_requests SET status = 'pending' WHERE file_id = ?1",
+        )
+        .bind(privateMimeFile.id)
+        .run(),
+  );
+  try {
+    await assertNativeFlowReceiptDriftQuarantined(
+      'pending FLOW reservation with completed ledgers stays inconsistent in native inventory',
+    );
+    checks.push(
+      'pending FLOW reservation with completed ledgers is quarantined before native R2 presence trust',
+    );
+  } finally {
+    await db
+      .prepare(
+        "UPDATE consulting_flow_upload_requests SET status = 'ready' WHERE file_id = ?1",
+      )
+      .bind(privateMimeFile.id)
+      .run();
+  }
   const restoredReceiptBindingInventory = await (
     await expect(
       await call('/inventory?status=linked', undefined, ownerHeaders),

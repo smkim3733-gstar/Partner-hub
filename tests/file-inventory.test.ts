@@ -974,6 +974,71 @@ void test('pending FLOW reservations expose safe inventory metadata and exact-si
   );
 });
 
+void test('pending FLOW reservation with completed owner and payload ledgers stays inconsistent and fails before R2 access', async () => {
+  const caseId = 'pending-completed-flow-inventory-case';
+  const fileId = 'pending-completed-flow-inventory';
+  await seed(
+    [],
+    [
+      {
+        id: caseId,
+        company: 'FLOW 부분 완료 손상기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+    ],
+  );
+  await completedFlowFile(fileId, caseId);
+  const beforeReservation = await page('?status=linked');
+  assert.equal(
+    beforeReservation.items.some((item) => item.id === fileId),
+    true,
+  );
+  await flowReservation(fileId, caseId);
+  const pending = await page('?status=pending');
+  assert.equal(
+    pending.items.some((item) => item.id === fileId),
+    false,
+  );
+  const inconsistent = await page('?status=inconsistent');
+  assert.equal(
+    inconsistent.integrityCoverage.metadata,
+    beforeReservation.integrityCoverage.metadata - 1,
+  );
+  assert.equal(
+    inconsistent.integrityCoverage.unavailable,
+    beforeReservation.integrityCoverage.unavailable + 1,
+  );
+  const item = inconsistent.items.find(
+    (candidate) => candidate.source === 'flow' && candidate.id === fileId,
+  );
+  assert.ok(item);
+  assert.equal(item.status, 'inconsistent');
+  assert.equal(item.flowLinked, true);
+  assert.equal(item.integrityProof, null);
+  assert.doesNotMatch(
+    JSON.stringify(item),
+    /command_id|actor_key|fingerprint|consulting-flow\//,
+  );
+  const bucket = companyFileBucket();
+  const originalHead = bucket.head.bind(bucket);
+  let headCalls = 0;
+  bucket.head = async (...args: Parameters<R2Bucket['head']>) => {
+    headCalls++;
+    return originalHead(...args);
+  };
+  try {
+    const response = await presence(request(), {
+      params: Promise.resolve({ id: fileId }),
+    });
+    assert.equal(response.status, 503, await response.clone().text());
+    assert.match(await response.text(), /원장의 무결성/);
+    assert.equal(headCalls, 0);
+  } finally {
+    bucket.head = originalHead;
+  }
+});
+
 void test('completed FLOW files remain visible and support metadata-only R2 presence checks', async () => {
   const caseId = 'completed-flow-inventory-case';
   await seed(
