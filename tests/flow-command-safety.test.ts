@@ -10616,6 +10616,8 @@ type MultipartBodyStateChange =
         | 'first-r2-write'
         | 'first-r2-stream-failure-before-commit'
         | 'first-r2-stream-failure-after-commit'
+        | 'second-r2-stream-failure-before-commit'
+        | 'second-r2-stream-failure-after-commit'
         | 'd1-write';
       status: 403 | 503;
       error: string;
@@ -10683,6 +10685,26 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
   const stateChangesDuringFirstR2StreamFailureAfterCommit =
     scenario.kind === 'permission' &&
     scenario.timing === 'first-r2-stream-failure-after-commit';
+  const stateChangesDuringSecondR2StreamFailureBeforeCommit =
+    scenario.kind === 'permission' &&
+    scenario.timing === 'second-r2-stream-failure-before-commit';
+  const stateChangesDuringSecondR2StreamFailureAfterCommit =
+    scenario.kind === 'permission' &&
+    scenario.timing === 'second-r2-stream-failure-after-commit';
+  const stateChangesDuringR2StreamFailureBeforeCommit =
+    stateChangesDuringFirstR2StreamFailureBeforeCommit ||
+    stateChangesDuringSecondR2StreamFailureBeforeCommit;
+  const stateChangesDuringR2StreamFailureAfterCommit =
+    stateChangesDuringFirstR2StreamFailureAfterCommit ||
+    stateChangesDuringSecondR2StreamFailureAfterCommit;
+  const r2StreamFailurePutAttempt =
+    stateChangesDuringFirstR2StreamFailureBeforeCommit ||
+    stateChangesDuringFirstR2StreamFailureAfterCommit
+      ? 1
+      : stateChangesDuringSecondR2StreamFailureBeforeCommit ||
+          stateChangesDuringSecondR2StreamFailureAfterCommit
+        ? 2
+        : 0;
   const initialFirstR2WriteFailure =
     stateChangesDuringFirstR2StreamFailureBeforeCommit ||
     stateChangesDuringFirstR2StreamFailureAfterCommit;
@@ -11009,6 +11031,8 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
             !stateChangesDuringFirstR2Write &&
             !stateChangesDuringFirstR2StreamFailureBeforeCommit &&
             !stateChangesDuringFirstR2StreamFailureAfterCommit &&
+            !stateChangesDuringSecondR2StreamFailureBeforeCommit &&
+            !stateChangesDuringSecondR2StreamFailureAfterCommit &&
             !stateChangesDuringD1Write
           )
             await changeState();
@@ -11055,14 +11079,10 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
         : prepare(sql);
   bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
     retryPutAttempts++;
-    if (
-      retryPutAttempts === 1 &&
-      (stateChangesDuringFirstR2StreamFailureBeforeCommit ||
-        stateChangesDuringFirstR2StreamFailureAfterCommit)
-    ) {
+    if (retryPutAttempts === r2StreamFailurePutAttempt) {
       const body = args[1];
       if (!(body instanceof ReadableStream))
-        throw new Error('expected a streaming first R2 upload');
+        throw new Error('expected a streaming R2 upload');
       const reader = body.getReader();
       let changed = false;
       args[1] = new ReadableStream({
@@ -11075,7 +11095,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
           if (!changed) {
             changed = true;
             await changeState();
-            if (stateChangesDuringFirstR2StreamFailureBeforeCommit) {
+            if (stateChangesDuringR2StreamFailureBeforeCommit) {
               const failure = new Error(
                 'synthetic R2 stream failure before object commit',
               );
@@ -11091,7 +11111,7 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
         },
       });
       const object = await put(...args);
-      if (stateChangesDuringFirstR2StreamFailureAfterCommit)
+      if (stateChangesDuringR2StreamFailureAfterCommit)
         throw new Error('synthetic ambiguous R2 response after object commit');
       return object;
     }
@@ -11153,9 +11173,9 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
       retryPutAttempts,
       stateChangesDuringD1Write
         ? 2
-        : stateChangesDuringFirstR2Write || initialFirstR2WriteFailure
+        : stateChangesDuringFirstR2Write
           ? 1
-          : 0,
+          : r2StreamFailurePutAttempt,
     );
     assert.equal(d1WriteAttempts, stateChangesDuringD1Write ? 1 : 0);
     if (
@@ -11251,6 +11271,27 @@ async function assertPartialR2RetryHandlesMultipartStateChange(
         new Uint8Array(await transcript.arrayBuffer()),
       );
       assert.equal(objects.has(audioReservation.storage_key), false);
+    } else if (stateChangesDuringSecondR2StreamFailureBeforeCommit) {
+      const audioReservation = pending.find(({ slot }) => slot === 'audio')!;
+      assert.deepEqual(
+        [...objects.keys()].filter((key) => !previousKeys.has(key)),
+        [transcriptReservation.storage_key],
+      );
+      assert.equal(objects.has(audioReservation.storage_key), false);
+    } else if (stateChangesDuringSecondR2StreamFailureAfterCommit) {
+      const audioReservation = pending.find(({ slot }) => slot === 'audio')!;
+      assert.deepEqual(
+        [...objects.keys()]
+          .filter((key) => !previousKeys.has(key))
+          .sort((a, b) => a.localeCompare(b)),
+        pending
+          .map(({ storage_key }) => storage_key)
+          .sort((a, b) => a.localeCompare(b)),
+      );
+      assert.deepEqual(
+        new Uint8Array(objects.get(audioReservation.storage_key)),
+        new Uint8Array(await audio.arrayBuffer()),
+      );
     }
     assert.deepEqual((await reservations()).results, pending);
   }
@@ -11433,6 +11474,26 @@ void test('pending R2 retry rechecks upload permission after an ambiguous first 
     kind: 'permission',
     permission: 'fileUpload',
     timing: 'first-r2-stream-failure-after-commit',
+    status: 403,
+    error: '자료 업로드 권한이 필요합니다.',
+  });
+});
+
+void test('partial R2 retry rechecks upload permission when the second stream fails before object commit', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'permission',
+    permission: 'fileUpload',
+    timing: 'second-r2-stream-failure-before-commit',
+    status: 403,
+    error: '자료 업로드 권한이 필요합니다.',
+  });
+});
+
+void test('partial R2 retry rechecks upload permission after an ambiguous second object commit failure', async () => {
+  await assertPartialR2RetryHandlesMultipartStateChange({
+    kind: 'permission',
+    permission: 'fileUpload',
+    timing: 'second-r2-stream-failure-after-commit',
     status: 403,
     error: '자료 업로드 권한이 필요합니다.',
   });
