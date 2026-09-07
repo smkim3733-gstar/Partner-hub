@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [파일 재고 FLOW 계약 영수증 대상 결속](FILE_INVENTORY_FLOW_CONTRACT_RECEIPT_TARGET_BINDING_2026_09_08.md)           | record_contract 영수증 회의·계약 회의·서명본 파일 결속·R2 전 차단                        |
 | [파일 재고 FLOW 요청서류 영수증 대상 결속](FILE_INVENTORY_FLOW_DOCUMENT_RECEIPT_TARGET_BINDING_2026_09_08.md)        | receive_document 영수증 대상 요청과 실제 fileId 결속·R2 전 차단                          |
 | [파일 재고 FLOW 전사문 영수증 대상 결속](FILE_INVENTORY_FLOW_TRANSCRIPT_RECEIPT_TARGET_BINDING_2026_09_08.md)        | save_transcript 영수증 대상 녹취와 transcriptFileId 결속·R2 전 차단                      |
 | [파일 재고 FLOW 녹취 영수증 대상 결속](FILE_INVENTORY_FLOW_RECORDING_RECEIPT_TARGET_BINDING_2026_09_08.md)           | save_recording file/audio 슬롯과 명령 기반 녹취 대상 결속·R2 전 차단                     |
