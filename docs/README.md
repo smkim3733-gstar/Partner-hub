@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [파일 재고 FLOW 영수증 행위자 텍스트 무결성](FILE_INVENTORY_FLOW_RECEIPT_ACTOR_TEXT_INTEGRITY_2026_09_08.md)         | 공동 actor 공백·과다 길이·잘못된 Unicode 변조 격리와 D1 깊이 안전 검증                   |
 | [파일 재고 FLOW 감사기록 detail 텍스트 무결성](FILE_INVENTORY_FLOW_AUDIT_DETAIL_TEXT_INTEGRITY_2026_09_08.md)        | 공백 전용·잘못된 유니코드 detail 격리와 D1 깊이 안전 검증                                |
 | [파일 재고 FLOW 감사기록 detail 봉투](FILE_INVENTORY_FLOW_AUDIT_DETAIL_ENVELOPE_2026_09_08.md)                       | 연결 감사 detail 필수 텍스트·2,000자 상한과 R2 전 차단                                   |
 | [파일 재고 FLOW 감사기록 필드 봉투](FILE_INVENTORY_FLOW_AUDIT_FIELD_ENVELOPE_2026_09_08.md)                          | 연결 감사기록 허용 키 봉투와 D1 복잡도 안전 검증                                         |

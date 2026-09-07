@@ -6,16 +6,16 @@
 
 ## 현재 인수인계 지점
 
-- 최신 로컬 기능 커밋: `8c7f7e3` (`fix: bind flow audit detail text semantics`)
-- 최신 확인: 연결 감사기록 `detail`이 ECMAScript 공백만 포함하거나 짝 없는 UTF-16 서로게이트를 가져도 재고 증명이 유지되는 손상 상태
-- 연속 확인: 공용 FLOW 문자열 의미와 같은 공백·유니코드 검사를 균형 D1 조건 트리에 적용해 `inconsistent`·`unavailable` 격리와 R2 `head` 전 503 차단
-- 검증: Node 회귀 검사 786개, 파일 재고 집중 회귀 30개, 격리 workerd/D1/R2 검사 674개, 추가형 마이그레이션 99개 2회, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
-- GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, 원격 `main`은 `ee40a91b5de4ef8fed06245ba2b636e623773b0c`; 로컬 버전 342 푸시는 명시 승인을 기다려 보류
+- 최신 로컬 기능 커밋: `ed2050c` (`fix: bind flow receipt actor text semantics`)
+- 최신 확인: 영수증과 연결 감사기록의 `actor`를 함께 공백 전용·과다 길이·짝 없는 UTF-16 서로게이트로 바꾸면 재고 증명이 유지되는 손상 상태
+- 연속 확인: 현대 영수증 `actor`를 필수 JSON 텍스트·1~200 Unicode 코드포인트·비공백·정상 Unicode로 결속하고 감사기록의 정확한 일치를 유지해 `inconsistent`·`unavailable` 격리와 R2 `head` 전 503 차단
+- 검증: Node 회귀 검사 786개, 파일 재고 집중 회귀 30개, 격리 workerd/D1/R2 검사 683개, 추가형 마이그레이션 99개 2회, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
+- GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, 원격 `main`은 `ee40a91b5de4ef8fed06245ba2b636e623773b0c`; 로컬 버전 343 푸시는 명시 승인을 기다려 보류
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
 - 최신 Sites 저장 버전: 309, 소스 `66aa95462bf30470f15b8ba138682c6c62fed591`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–341은 더 완전한 로컬 후보인 버전 342로 대체한다.
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–342는 더 완전한 로컬 후보인 버전 343으로 대체한다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -45,7 +45,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [파일 재고 FLOW 감사기록 detail 텍스트 무결성](FILE_INVENTORY_FLOW_AUDIT_DETAIL_TEXT_INTEGRITY_2026_09_08.md)을 확인한다.
+먼저 [파일 재고 FLOW 영수증 행위자 텍스트 무결성](FILE_INVENTORY_FLOW_RECEIPT_ACTOR_TEXT_INTEGRITY_2026_09_08.md)을 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
@@ -93,4 +93,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 최신 저장 버전은 309이고 공개 운영본은 버전 107이다. 버전 108–341은 버전 342로 대체해 배포하지 않는다. GitHub 반영에는 정확히 `버전 342 GitHub main 푸시 승인`, 버전 342의 Sites 소스 전송·버전 저장·공개 교체에는 정확히 `버전 342 Sites 소스 전송 및 공개 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 영수증과 감사기록의 `actor`를 함께 공백·과다 길이·잘못된 유니코드로 변조해도 정상 증명으로 통과하지 않는지 다음 순서로 감사한다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
+Sites 최신 저장 버전은 309이고 공개 운영본은 버전 107이다. 버전 108–342는 버전 343으로 대체해 배포하지 않는다. GitHub 반영에는 정확히 `버전 343 GitHub main 푸시 승인`, 버전 343의 Sites 소스 전송·버전 저장·공개 교체에는 정확히 `버전 343 Sites 소스 전송 및 공개 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 영수증과 감사기록의 `actor`를 함께 다른 정상 문자열로 바꿔도 권위 있는 관리자·담당 표시명과 결속되는지 다음 순서로 감사한다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
