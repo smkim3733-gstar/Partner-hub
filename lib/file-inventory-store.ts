@@ -158,7 +158,8 @@ export async function listFileInventory(
       WHERE json_type(f.value) = 'object'
         AND json_type(f.value, '$.intakeFileId') = 'text'),
     flow_file_bindings AS (
-      SELECT flow.case_id, json_extract(file.value, '$.id') AS id,
+      SELECT flow.case_id, flow.updated_at AS flow_updated_at,
+        json_extract(file.value, '$.id') AS id,
         json_extract(file.value, '$.key') AS storage_key,
         json_extract(file.value, '$.createdAt') AS created_at,
         json_extract(file.value, '$.name') AS original_name,
@@ -176,6 +177,41 @@ export async function listFileInventory(
         AND json_type(file.value, '$.id') = 'text'
     ), flow_file_refs AS (
       SELECT DISTINCT id FROM flow_file_bindings
+    ), flow_orphan_payloads AS (
+      SELECT binding.id,
+        CASE WHEN COUNT(*) = 1 THEN MAX(CASE
+          WHEN typeof(binding.original_name) = 'text'
+            AND length(binding.original_name) <= 500
+          THEN binding.original_name END) END AS original_name,
+        CASE WHEN COUNT(*) = 1 THEN MAX(CASE
+          WHEN typeof(binding.purpose) = 'text'
+            AND length(binding.purpose) <= 200
+          THEN binding.purpose END) END AS purpose,
+        CASE WHEN COUNT(*) = 1 THEN MAX(CASE
+          WHEN typeof(binding.size_bytes) = 'integer'
+            AND binding.size_bytes BETWEEN 0 AND 9007199254740991
+          THEN binding.size_bytes END) END AS size_bytes,
+        MIN(CASE
+          WHEN typeof(binding.created_at) = 'text'
+            AND length(binding.created_at) <= 80
+            AND julianday(binding.created_at) IS NOT NULL
+          THEN binding.created_at
+          WHEN typeof(binding.flow_updated_at) = 'text'
+            AND length(binding.flow_updated_at) <= 80
+            AND julianday(binding.flow_updated_at) IS NOT NULL
+          THEN binding.flow_updated_at
+          ELSE '1970-01-01T00:00:00.000Z' END) AS created_at,
+        CASE WHEN COUNT(*) = 1 THEN MAX(CASE
+          WHEN typeof(binding.case_id) = 'text'
+            AND length(binding.case_id) BETWEEN 1 AND 200
+          THEN binding.case_id END) END AS case_id
+      FROM flow_file_bindings binding
+      WHERE length(binding.id) BETWEEN 1 AND 200
+        AND binding.id NOT GLOB '*[^A-Za-z0-9_-]*'
+        AND typeof(binding.storage_key) = 'text'
+        AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners owner
+          WHERE owner.file_id = binding.id)
+      GROUP BY binding.id
     ), flow_owner_payload_bindings AS (
       SELECT owner.file_id, COUNT(binding.id) AS payload_count,
         COALESCE(SUM(CASE WHEN
@@ -263,6 +299,12 @@ export async function listFileInventory(
       LEFT JOIN flow_owner_payload_bindings payload_binding
         ON payload_binding.file_id = owner.file_id
       UNION ALL
+      SELECT 'flow', orphan.id, orphan.original_name, NULL,
+        '상담 FLOW 소유 원장 누락 첨부', orphan.purpose,
+        orphan.size_bytes, orphan.created_at, NULL, NULL, NULL, NULL,
+        orphan.case_id, NULL, 0, 0, NULL, NULL
+      FROM flow_orphan_payloads orphan
+      UNION ALL
       SELECT 'flow', u.file_id, u.original_name, NULL, '상담 FLOW 미완료 첨부',
         u.purpose, u.size_bytes, u.created_at, NULL, NULL, NULL, u.actor_key,
         u.case_id, u.status, 0, 0, NULL, NULL
@@ -270,6 +312,8 @@ export async function listFileInventory(
       WHERE u.status = 'pending'
         AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners owner
           WHERE owner.file_id = u.file_id)
+        AND NOT EXISTS (SELECT 1 FROM flow_orphan_payloads orphan
+          WHERE orphan.id = u.file_id)
     ), identity_counts AS (
       SELECT id, COUNT(*) AS identity_count FROM candidates GROUP BY id
     ), identified AS (
@@ -353,6 +397,9 @@ export async function listFileInventory(
       LEFT JOIN consulting_flow_file_object_checksums checksum ON checksum.file_id = owner.file_id
       LEFT JOIN flow_owner_payload_bindings payload_binding
         ON payload_binding.file_id = owner.file_id
+      UNION ALL
+      SELECT NULL, NULL, NULL, NULL, 0
+      FROM flow_orphan_payloads
     ), proof_classified AS (
       SELECT CASE
         WHEN ledger_valid = 1 AND validation_mode = 'metadata' AND r2_etag IS NULL
@@ -525,12 +572,31 @@ export async function checkInventoryPresence(
     LEFT JOIN consulting_flow_file_metadata metadata
       ON metadata.file_id = owner.file_id
     WHERE owner.file_id = ?1
+    UNION ALL SELECT 'flow', ?1, NULL, NULL, NULL, ?1, NULL, NULL
+    WHERE EXISTS (
+      SELECT 1 FROM consulting_flows flow,
+        json_each(CASE WHEN json_valid(flow.payload) THEN flow.payload
+          ELSE '{"files":[]}' END, '$.files') stored_file
+      WHERE json_type(stored_file.value) = 'object'
+        AND json_type(stored_file.value, '$.id') = 'text'
+        AND json_type(stored_file.value, '$.key') = 'text'
+        AND json_extract(stored_file.value, '$.id') = ?1)
+      AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners owner
+        WHERE owner.file_id = ?1)
     UNION ALL SELECT 'flow', NULL, upload.storage_key, upload.content_type,
       upload.size_bytes, upload.file_id, upload.case_id, NULL
     FROM consulting_flow_upload_requests upload
     WHERE upload.file_id = ?1 AND upload.status = 'pending'
       AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners owner
         WHERE owner.file_id = upload.file_id)
+      AND NOT EXISTS (
+        SELECT 1 FROM consulting_flows flow,
+          json_each(CASE WHEN json_valid(flow.payload) THEN flow.payload
+            ELSE '{"files":[]}' END, '$.files') stored_file
+        WHERE json_type(stored_file.value) = 'object'
+          AND json_type(stored_file.value, '$.id') = 'text'
+          AND json_type(stored_file.value, '$.key') = 'text'
+          AND json_extract(stored_file.value, '$.id') = upload.file_id)
     LIMIT 2`)
     .bind(id)
     .all<{

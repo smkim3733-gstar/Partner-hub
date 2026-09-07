@@ -4102,6 +4102,79 @@ try {
     'sha256',
   );
   checks.push('unique FLOW payload proof resumes after synthetic cleanup');
+  const privateMimeOwner = await db
+    .prepare(`SELECT file_id, case_id, storage_key, created_at
+      FROM consulting_flow_file_owners WHERE file_id = ?1`)
+    .bind(privateMimeFile.id)
+    .first();
+  assert.ok(privateMimeOwner);
+  await deleteFlowFileLedgerFixture(
+    db,
+    'consulting_flow_file_owners',
+    privateMimeFile.id,
+  );
+  const missingOwnerInventoryResponse = await expect(
+    await call('/inventory?status=inconsistent', undefined, ownerHeaders),
+    200,
+    'FLOW payload without its owner ledger remains visible in native inventory',
+  );
+  assertPrivateAuthResponse(missingOwnerInventoryResponse);
+  const missingOwnerInventory = await missingOwnerInventoryResponse.json();
+  const missingOwnerItems = missingOwnerInventory.items.filter(
+    (item) => item.source === 'flow' && item.id === privateMimeFile.id,
+  );
+  assert.equal(missingOwnerItems.length, 1);
+  assert.equal(missingOwnerItems[0].status, 'inconsistent');
+  assert.equal(missingOwnerItems[0].flowLinked, true);
+  assert.equal(missingOwnerItems[0].integrityProof, null);
+  assert.equal(
+    missingOwnerInventory.integrityCoverage.sha256,
+    restoredUniqueFlowInventory.integrityCoverage.sha256 - 1,
+  );
+  assert.equal(
+    missingOwnerInventory.integrityCoverage.unavailable,
+    restoredUniqueFlowInventory.integrityCoverage.unavailable + 1,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(missingOwnerItems[0]),
+    /storage_key|consulting-flow\/|fingerprint/,
+  );
+  const missingOwnerPresenceResponse = await expect(
+    await call(`/inventory/${privateMimeFile.id}`, undefined, ownerHeaders),
+    503,
+    'FLOW payload without its owner ledger blocks native R2 presence trust',
+  );
+  assertPrivateAuthResponse(missingOwnerPresenceResponse);
+  assert.match(
+    (await missingOwnerPresenceResponse.json()).error,
+    /원장의 무결성/,
+  );
+  checks.push(
+    'missing FLOW owner ledger remains quarantined before native R2 presence trust',
+  );
+  await db
+    .prepare(`INSERT INTO consulting_flow_file_owners
+      (file_id, case_id, storage_key, created_at) VALUES (?1, ?2, ?3, ?4)`)
+    .bind(
+      privateMimeOwner.file_id,
+      privateMimeOwner.case_id,
+      privateMimeOwner.storage_key,
+      privateMimeOwner.created_at,
+    )
+    .run();
+  const restoredOwnerInventory = await (
+    await expect(
+      await call('/inventory?status=linked', undefined, ownerHeaders),
+      200,
+      'completed FLOW inventory recovers after owner ledger restoration',
+    )
+  ).json();
+  assert.equal(
+    restoredOwnerInventory.items.find((item) => item.id === privateMimeFile.id)
+      .integrityProof,
+    'sha256',
+  );
+  checks.push('FLOW proof resumes after synthetic owner ledger restoration');
   const collisionCompanyKey = `company-source/${privateMimeFile.id}`;
   const collisionCompanyBytes = new TextEncoder().encode(
     'SYNTHETIC_COLLISION_COMPANY',

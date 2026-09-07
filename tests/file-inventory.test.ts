@@ -1219,6 +1219,109 @@ void test('completed FLOW case drift, missing payload and cross-FLOW duplicate s
   }
 });
 
+void test('completed FLOW payloads with a missing owner ledger stay visible, unavailable and fail before R2 access', async () => {
+  const caseId = 'completed-flow-missing-owner-case';
+  const fileId = 'completed-flow-missing-owner';
+  await seed(
+    [],
+    [
+      {
+        id: caseId,
+        company: 'FLOW 소유 원장 누락기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+    ],
+  );
+  await completedFlowFile(fileId, caseId);
+  const beforeOwnerDeletion = await page('?status=all');
+  const db = await flowDatabase();
+  await deleteFlowFileLedgerFixture(db, 'consulting_flow_file_owners', fileId);
+  const duplicateCaseId = 'completed-flow-missing-owner-duplicate-case';
+  const duplicateFlow = {
+    ...newConsultingFlow(
+      duplicateCaseId,
+      'FLOW 소유 원장 누락 중복기업',
+      member.id,
+      member.name,
+    ),
+    revision: 1,
+    updatedAt: date,
+    files: [
+      {
+        id: fileId,
+        key: `consulting-flow/${fileId}`,
+        name: `${fileId}.txt`,
+        contentType: 'text/plain',
+        size: 4,
+        purpose: 'report',
+        createdAt: date,
+      },
+    ],
+  };
+  await db
+    .prepare(
+      'INSERT INTO consulting_flows (case_id, partner_id, revision, payload, updated_at) VALUES (?1, ?2, 1, ?3, ?4)',
+    )
+    .bind(duplicateCaseId, member.id, JSON.stringify(duplicateFlow), date)
+    .run();
+
+  const inconsistent = await page('?status=inconsistent');
+  assert.equal(
+    inconsistent.integrityCoverage.metadata,
+    beforeOwnerDeletion.integrityCoverage.metadata - 1,
+  );
+  assert.equal(
+    inconsistent.integrityCoverage.unavailable,
+    beforeOwnerDeletion.integrityCoverage.unavailable + 1,
+  );
+  const matchingItems = inconsistent.items.filter(
+    (candidate) => candidate.source === 'flow' && candidate.id === fileId,
+  );
+  assert.equal(matchingItems.length, 1);
+  const item = matchingItems[0];
+  assert.deepEqual(
+    item && {
+      id: item.id,
+      source: item.source,
+      status: item.status,
+      flowLinked: item.flowLinked,
+      integrityProof: item.integrityProof,
+    },
+    {
+      id: fileId,
+      source: 'flow',
+      status: 'inconsistent',
+      flowLinked: true,
+      integrityProof: null,
+    },
+  );
+  assert.doesNotMatch(
+    JSON.stringify(item),
+    /consulting-flow\/|storage_key|TEST|fingerprint/,
+  );
+
+  const bucket = companyFileBucket();
+  const originalHead = bucket.head.bind(bucket);
+  let headCalls = 0;
+  bucket.head = async (...args: Parameters<R2Bucket['head']>) => {
+    headCalls++;
+    return originalHead(...args);
+  };
+  try {
+    const response = await presence(request(), {
+      params: Promise.resolve({ id: fileId }),
+    });
+    assert.equal(response.status, 503, await response.clone().text());
+    assert.deepEqual(await response.json(), {
+      error: '저장된 상담 FLOW 첨부 원장의 무결성을 확인할 수 없습니다.',
+    });
+    assert.equal(headCalls, 0);
+  } finally {
+    bucket.head = originalHead;
+  }
+});
+
 void test('company and FLOW records sharing one raw ID stay visible as distinct inconsistent items', async () => {
   const caseId = 'inventory-cross-source-id-collision-case';
   const fileId = 'inventory-cross-source-id-collision';
