@@ -301,15 +301,24 @@ export async function POST(request: Request, context: Context) {
     // Final access validation performs asynchronous D1 work. Rebind an intake
     // import to its current source immediately before the FLOW transaction.
     if (imported) await recheckPreparedIntakeImport(flow, imported);
-    await commitFlow(
-      flow,
-      next,
-      access.statePayload,
-      fileObjectBindings,
-      reservations.size
-        ? new Set([...reservations.values()].map((file) => file.id))
-        : undefined,
-    );
+    try {
+      await commitFlow(
+        flow,
+        next,
+        access.statePayload,
+        fileObjectBindings,
+        reservations.size
+          ? new Set([...reservations.values()].map((file) => file.id))
+          : undefined,
+      );
+    } catch (error) {
+      // The D1 import-source trigger can reject a source deletion or ledger
+      // change that races the final preflight. Re-read it after rollback so the
+      // caller receives the precise 404/409 source decision, not a generic save
+      // failure. Unexpected persistence failures keep their original error.
+      if (imported) await recheckPreparedIntakeImport(flow, imported);
+      throw error;
+    }
     return privateJsonResponse({ flow: publicFlow(next) });
   } catch (error) {
     // Every uploaded key already has a durable reservation. Do not

@@ -456,7 +456,7 @@ const flowImportIntakeSourceEffectTriggerSql = migrationStatements(
     path.join(
       project,
       'drizzle',
-      '0077_consulting_flow_import_intake_source_effect.sql',
+      '0096_consulting_flow_intake_source_origin.sql',
     ),
     'utf8',
   ),
@@ -703,7 +703,7 @@ async function restoreConsultingFlowTransitionGuards(db) {
       ...flowConfirmPaymentEffectTriggerSql,
       ...flowStartAftercareEffectTriggerSql,
       flowSaveSourceEffectTriggerSql[0],
-      flowImportIntakeSourceEffectTriggerSql[0],
+      flowImportIntakeSourceEffectTriggerSql.at(-1),
       flowExcludeSourceEffectTriggerSql[0],
       flowSaveRecordingEffectTriggerSql[0],
       flowSaveTranscriptJobsTriggerSql[0],
@@ -6660,6 +6660,137 @@ try {
     /intake source effect is invalid/,
   );
   checks.push('FLOW native D1 binds one reviewed intake source file effect');
+  const deletedIntakeOriginalId = 'native-deleted-intake-original';
+  const deletedIntakeOriginalKey = `company-source/${deletedIntakeOriginalId}`;
+  await db.batch([
+    db
+      .prepare(`INSERT INTO company_file_objects
+        (id, storage_key, original_name, company, category, title,
+         assigned_trainee, uploaded_by_user_id, uploaded_by_email,
+         content_type, size_bytes, created_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`)
+      .bind(
+        deletedIntakeOriginalId,
+        deletedIntakeOriginalKey,
+        'native-deleted-intake.txt',
+        intakeEffectFlow.company,
+        '기업자료',
+        '가상 삭제 원본',
+        intakeEffectFlow.partnerName,
+        'native-synthetic-owner',
+        'native-owner@example.invalid',
+        'text/plain',
+        10,
+        evidenceTimes[1],
+      ),
+    db
+      .prepare(`INSERT INTO company_file_storage_keys (file_id, storage_key)
+        VALUES (?1, ?2)`)
+      .bind(deletedIntakeOriginalId, deletedIntakeOriginalKey),
+    db
+      .prepare(`INSERT INTO company_file_metadata
+        (file_id, original_name, company, category, title, assigned_trainee,
+         uploaded_by_user_id, uploaded_by_email, content_type, size_bytes,
+         created_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`)
+      .bind(
+        deletedIntakeOriginalId,
+        'native-deleted-intake.txt',
+        intakeEffectFlow.company,
+        '기업자료',
+        '가상 삭제 원본',
+        intakeEffectFlow.partnerName,
+        'native-synthetic-owner',
+        'native-owner@example.invalid',
+        'text/plain',
+        10,
+        evidenceTimes[1],
+      ),
+    db
+      .prepare(`INSERT INTO company_file_object_integrity
+        (file_id, validation_mode, r2_etag, r2_content_type)
+        VALUES (?1, 'metadata', NULL, 'text/plain')`)
+      .bind(deletedIntakeOriginalId),
+    db
+      .prepare(`INSERT INTO company_file_assignments
+        (file_id, partner_member_id) VALUES (?1, ?2)`)
+      .bind(deletedIntakeOriginalId, intakeEffectFlow.partnerId),
+    db
+      .prepare(`INSERT INTO company_file_case_links (file_id, case_id)
+        VALUES (?1, ?2)`)
+      .bind(deletedIntakeOriginalId, intakeEffectCaseId),
+    db
+      .prepare(`INSERT INTO company_file_upload_requests
+        (owner_key, request_key, fingerprint, file_id, created_at, status)
+        VALUES (?1, ?2, ?3, ?4, ?5, 'deleted')`)
+      .bind(
+        'native-deleted-intake-owner',
+        'native-deleted-intake-request',
+        '3'.repeat(64),
+        deletedIntakeOriginalId,
+        evidenceTimes[1],
+      ),
+  ]);
+  const deletedIntakeEffectFlow = structuredClone(intakeEffectFlow);
+  deletedIntakeEffectFlow.revision++;
+  deletedIntakeEffectFlow.updatedAt = evidenceTimes[2];
+  deletedIntakeEffectFlow.files.push({
+    id: 'native-deleted-intake-copy',
+    name: 'native-deleted-intake-copy.txt',
+    contentType: 'text/plain',
+    size: 10,
+    key: 'consulting-flow/native-deleted-intake-copy',
+    createdAt: evidenceTimes[2],
+    purpose: 'source',
+    intakeFileId: deletedIntakeOriginalId,
+    intakeSourceHash: '3'.repeat(64),
+    sourceReviewedAt: evidenceTimes[2],
+    sourceReviewedBy: 'native-synthetic-owner',
+  });
+  const deletedIntakeCommandId = 'native-deleted-intake-source-effect';
+  deletedIntakeEffectFlow.audit.push({
+    id: deletedIntakeCommandId,
+    at: evidenceTimes[2],
+    actor: '김성민 대표',
+    action: 'import_intake_source',
+    detail: '신청자료 검토본을 1차 근거자료로 반영 · 원본 보존 · AI 미전송',
+  });
+  deletedIntakeEffectFlow.commandIds.push(deletedIntakeCommandId);
+  deletedIntakeEffectFlow.commandReceipts[deletedIntakeCommandId] = {
+    actorKey: 'admin:primary',
+    fingerprint: '3'.repeat(64),
+    actor: '김성민 대표',
+    action: 'import_intake_source',
+  };
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        deletedIntakeEffectFlow.revision,
+        JSON.stringify(deletedIntakeEffectFlow),
+        deletedIntakeEffectFlow.updatedAt,
+        intakeEffectCaseId,
+        intakeEffectFlow.revision,
+      )
+      .run(),
+    /intake source effect is invalid/,
+  );
+  assert.equal(
+    (
+      await db
+        .prepare('SELECT revision FROM consulting_flows WHERE case_id = ?1')
+        .bind(intakeEffectCaseId)
+        .first()
+    ).revision,
+    intakeEffectFlow.revision,
+  );
+  checks.push(
+    'FLOW native D1 rejects a deleted intake-source tombstone in the root transaction',
+  );
   const forgedExcludeEffectFlow = structuredClone(intakeEffectFlow);
   forgedExcludeEffectFlow.revision++;
   forgedExcludeEffectFlow.updatedAt = evidenceTimes[2];

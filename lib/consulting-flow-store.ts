@@ -117,7 +117,7 @@ import { isCrossSiteRequest } from '@/lib/request-origin';
 import { QueryRequestError } from '@/lib/request-query';
 import { readRouteParam, RouteParamError } from '@/lib/request-path';
 import { privateJsonResponse } from '@/lib/private-response';
-import { CompanyFileError } from '@/lib/company-files';
+import { CompanyFileError, ensureCompanyFileTables } from '@/lib/company-files';
 import {
   FLOW_FILE_STORAGE_PREFIX,
   storedFlowFileKeyMatches,
@@ -160,8 +160,9 @@ export async function flowDatabase() {
   const db = flowEnvironment().DB;
   if (!db) throw new FlowError('진행 저장소가 연결되지 않았습니다.', 503);
   if (!flowDatabaseInitialization) {
-    const initialization = db
-      .batch([
+    const initialization = (async () => {
+      await ensureCompanyFileTables(db);
+      await db.batch([
         db.prepare(consultingFlowsTableSql),
         db.prepare(consultingFlowsIdentityTriggerSql),
         db.prepare(consultingFlowsInsertEnvelopeTriggerSql),
@@ -246,8 +247,8 @@ export async function flowDatabase() {
         db.prepare(consultingFlowUploadCompletionsNoUpdateTriggerSql),
         db.prepare(consultingFlowUploadCompletionsNoDeleteTriggerSql),
         db.prepare(consultingFlowUploadRequestsCompletionTriggerSql),
-      ])
-      .then(() => undefined);
+      ]);
+    })();
     flowDatabaseInitialization = initialization.catch((error) => {
       flowDatabaseInitialization = undefined;
       throw error;

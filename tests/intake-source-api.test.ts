@@ -265,6 +265,14 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
         'final-access-damage-source.txt',
       ),
     );
+    const finalCommitDeleteSourceId = await add(
+      new File(
+        [
+          '최종 FLOW 커밋 직전 원본 삭제 경쟁 검증용 신청자료입니다. 모든 내용은 가상 정보이며 추가 확인이 필요합니다.',
+        ],
+        'final-commit-delete-source.txt',
+      ),
+    );
     const pdfId = await add(
       new File(['%PDF-1.7\nSYNTHETIC_CERTIFICATE_ONLY'], '사업자등록증.pdf'),
       '사업자등록증',
@@ -1032,6 +1040,76 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
         },
       );
     }
+
+    const finalCommitDeletePreview = await preview(finalCommitDeleteSourceId);
+    const finalCommitDeleteCommandId = 'intake-source-final-commit-delete-race';
+    const flowBatch = flowDb.batch.bind(flowDb);
+    const finalCommitFlowStorage = flowBucket();
+    const beforeFinalCommitKeys = new Set(objects.keys());
+    let finalCommitSourceMutations = 0;
+    let finalCommitBatches = 0;
+    flowDb.batch = async <T = unknown>(statements: D1PreparedStatement[]) => {
+      const writesFlow = statements.some((statement) => {
+        const sql = (statement as unknown as { sql: string }).sql.trimStart();
+        return (
+          sql.startsWith('INSERT INTO consulting_flows') ||
+          sql.startsWith('UPDATE consulting_flows')
+        );
+      });
+      if (writesFlow) {
+        finalCommitBatches++;
+        if (!finalCommitSourceMutations) {
+          finalCommitSourceMutations++;
+          const deleted = await flowDb
+            .prepare(
+              "UPDATE company_file_upload_requests SET status = 'deleted' WHERE file_id = ?1",
+            )
+            .bind(finalCommitDeleteSourceId)
+            .run();
+          assert.equal(deleted.meta.changes, 1);
+        }
+      }
+      return flowBatch<T>(statements);
+    };
+    let finalCommitDeleteResponse: Response;
+    try {
+      finalCommitDeleteResponse = await post(
+        importCommand(finalCommitDeletePreview, finalCommitDeletePreview.text!),
+        finalCommitDeleteCommandId,
+      );
+    } finally {
+      flowDb.batch = flowBatch;
+    }
+    assert.equal(finalCommitSourceMutations, 1);
+    assert.equal(finalCommitBatches, 1);
+    assert.equal(
+      finalCommitDeleteResponse.status,
+      404,
+      await finalCommitDeleteResponse.clone().text(),
+    );
+    assert.match(
+      ((await finalCommitDeleteResponse.json()) as { error: string }).error,
+      /연결된 신청자료를 찾지 못했습니다/,
+    );
+    assert.equal(await readFlow(caseId), null);
+    const finalCommitReservation = await flowDb
+      .prepare(
+        `SELECT storage_key, status FROM consulting_flow_upload_requests
+        WHERE case_id = ?1 AND command_id = ?2`,
+      )
+      .bind(caseId, finalCommitDeleteCommandId)
+      .first<{ storage_key: string; status: string }>();
+    assert.ok(finalCommitReservation);
+    assert.equal(finalCommitReservation.status, 'pending');
+    assert.deepEqual(
+      [...objects.keys()].filter((key) => !beforeFinalCommitKeys.has(key)),
+      [finalCommitReservation.storage_key],
+    );
+    await finalCommitFlowStorage.delete(finalCommitReservation.storage_key);
+    assert.deepEqual(
+      [...objects.keys()].filter((key) => !beforeFinalCommitKeys.has(key)),
+      [],
+    );
 
     sourceBucket.get = async (...args: Parameters<R2Bucket['get']>) => {
       const object = await sourceGet(...args);

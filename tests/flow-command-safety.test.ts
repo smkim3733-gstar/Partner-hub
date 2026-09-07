@@ -4470,6 +4470,68 @@ void test('FLOW intake source imports append one reviewed source file', async ()
       .run(),
     /intake source effect is invalid/,
   );
+  const intakeOriginalId = importedFile.intakeFileId!;
+  const intakeOriginalKey = `company-source/${intakeOriginalId}`;
+  await db.batch([
+    db
+      .prepare(`INSERT INTO company_file_objects
+        (id, storage_key, original_name, company, category, title,
+         assigned_trainee, uploaded_by_user_id, uploaded_by_email,
+         content_type, size_bytes, created_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`)
+      .bind(
+        intakeOriginalId,
+        intakeOriginalKey,
+        'intake-original.txt',
+        stored.company,
+        '기업자료',
+        '가상 신청자료',
+        stored.partnerName,
+        adminEmail,
+        adminEmail,
+        'text/plain',
+        new TextEncoder().encode(importedBytes).byteLength,
+        importedFile.createdAt,
+      ),
+    db
+      .prepare(
+        `INSERT INTO company_file_storage_keys (file_id, storage_key)
+        VALUES (?1, ?2)`,
+      )
+      .bind(intakeOriginalId, intakeOriginalKey),
+    db
+      .prepare(`INSERT INTO company_file_metadata
+        (file_id, original_name, company, category, title, assigned_trainee,
+         uploaded_by_user_id, uploaded_by_email, content_type, size_bytes,
+         created_at)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`)
+      .bind(
+        intakeOriginalId,
+        'intake-original.txt',
+        stored.company,
+        '기업자료',
+        '가상 신청자료',
+        stored.partnerName,
+        adminEmail,
+        adminEmail,
+        'text/plain',
+        new TextEncoder().encode(importedBytes).byteLength,
+        importedFile.createdAt,
+      ),
+    db
+      .prepare(`INSERT INTO company_file_object_integrity
+        (file_id, validation_mode, r2_etag, r2_content_type)
+        VALUES (?1, 'metadata', NULL, ?2)`)
+      .bind(intakeOriginalId, 'text/plain'),
+    db
+      .prepare(`INSERT INTO company_file_assignments
+        (file_id, partner_member_id) VALUES (?1, ?2)`)
+      .bind(intakeOriginalId, stored.partnerId),
+    db
+      .prepare(`INSERT INTO company_file_case_links (file_id, case_id)
+        VALUES (?1, ?2)`)
+      .bind(intakeOriginalId, stored.caseId),
+  ]);
   await commitFlow(
     stored,
     changed,

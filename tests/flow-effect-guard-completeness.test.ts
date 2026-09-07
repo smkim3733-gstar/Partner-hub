@@ -20,6 +20,7 @@ import {
   consultingFlowUploadRequestsPendingIndexSql,
   consultingFlowUploadRequestsReadyTriggerSql,
   consultingFlowUploadRequestsTableSql,
+  consultingFlowsImportIntakeSourceEffectTriggerSql,
   consultingFlowsInitialCommandInsertTriggerSql,
 } from '../db/schema';
 
@@ -27,7 +28,7 @@ const project = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 type FlowAction = keyof typeof FLOW_COMMAND_EFFECT_PATHS;
 
 const effectMigrations = {
-  import_intake_source: '0077_consulting_flow_import_intake_source_effect.sql',
+  import_intake_source: '0096_consulting_flow_intake_source_origin.sql',
   save_source: '0076_consulting_flow_save_source_effect.sql',
   exclude_source: '0078_consulting_flow_exclude_source_effect.sql',
   set_ai_policy: '0071_consulting_flow_set_ai_policy_jobs.sql',
@@ -178,5 +179,29 @@ void test('FLOW upload completion slot binding exactly exists in its additive mi
   assert.ok(
     normalizedMigration.includes(`${normalizedTrigger};`),
     'slot-bound completion trigger is absent or drifted',
+  );
+});
+
+void test('FLOW intake source origin guard exactly exists in its additive migration', async () => {
+  const migration = await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0096_consulting_flow_intake_source_origin.sql',
+    ),
+    'utf8',
+  );
+  const normalizedMigration = migration.replace(/\s+/g, ' ').trim();
+  const normalizedTrigger = consultingFlowsImportIntakeSourceEffectTriggerSql
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/;$/, '');
+  assert.match(
+    normalizedMigration,
+    /^DROP TRIGGER IF EXISTS consulting_flows_import_intake_source_effect_guard;/,
+  );
+  assert.ok(
+    normalizedMigration.includes(`${normalizedTrigger};`),
+    'intake source origin trigger is absent or drifted',
   );
 });
