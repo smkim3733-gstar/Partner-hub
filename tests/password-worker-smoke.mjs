@@ -9297,7 +9297,7 @@ try {
     );
     assert.doesNotMatch(
       JSON.stringify(item),
-      /drifted-receipt-actor|forged-receipt-display-actor|forged-native-unexpected-target|forged-native-legacy-target|forged-native-extra-value|forged-native-audit-extra-value|forgedField|import_intake_source|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|"targetId"|consulting-flow\//,
+      /drifted-receipt-actor|forged-receipt-display-actor|forged-native-unexpected-target|forged-native-legacy-target|forged-native-extra-value|forged-native-audit-extra-value|forged-native-audit-detail|forgedField|import_intake_source|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|"targetId"|consulting-flow\//,
     );
     const presenceResponse = await expect(
       await call(`/inventory/${privateMimeFile.id}`, undefined, ownerHeaders),
@@ -9563,6 +9563,50 @@ try {
     );
   } finally {
     await mutateNativeFlowCommandAuditField('forgedField', undefined);
+  }
+  await mutateNativeFlowCommandAuditField('detail', undefined);
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW command audit missing detail stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW command audit requires detail before native R2 presence trust',
+    );
+  } finally {
+    await mutateNativeFlowCommandAuditField(
+      'detail',
+      nativeFlowCommandAudit.detail,
+    );
+  }
+  await mutateNativeFlowCommandAuditField('detail', '');
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW command audit empty detail stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW command audit rejects empty detail before native R2 presence trust',
+    );
+  } finally {
+    await mutateNativeFlowCommandAuditField(
+      'detail',
+      nativeFlowCommandAudit.detail,
+    );
+  }
+  await mutateNativeFlowCommandAuditField('detail', {
+    forged: 'forged-native-audit-detail',
+  });
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW command audit non-text detail stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW command audit rejects non-text detail before native R2 presence trust',
+    );
+  } finally {
+    await mutateNativeFlowCommandAuditField(
+      'detail',
+      nativeFlowCommandAudit.detail,
+    );
   }
   await mutateNativeFlowCommandReceipt(
     'targetId',

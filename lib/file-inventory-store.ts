@@ -17,7 +17,7 @@ import {
   readFlow,
   readFlowFileObjectIntegrity,
 } from './consulting-flow-store';
-import { FLOW_OBJECT_KEYS } from './consulting-flow-shape';
+import { FLOW_OBJECT_KEYS, FLOW_TEXT_LIMITS } from './consulting-flow-shape';
 import { FlowError, type FlowFile } from './consulting-flow';
 import {
   flowUploadReceiptRules,
@@ -141,6 +141,9 @@ const flowReceiptAuditBindingSql = `(
             ELSE '{"audit":[]}' END, '$.audit') audit
         WHERE audit.type = 'object'
           AND ${flowAuditFieldEnvelopeSql}
+          AND json_type(audit.value, '$.detail') = 'text'
+          AND length(json_extract(audit.value, '$.detail'))
+            BETWEEN 1 AND ${FLOW_TEXT_LIMITS.auditDetail}
           AND json_extract(audit.value, '$.id') = upload.command_id
           AND json_extract(audit.value, '$.actor') =
             json_extract(receipt.value, '$.actor')

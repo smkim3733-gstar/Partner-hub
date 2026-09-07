@@ -2038,6 +2038,7 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
   const fingerprint = 'f'.repeat(64);
   const actor = FLOW_ADMIN_COMMAND_ACTOR_NAME;
   const action = 'save_source';
+  const detail = '1차 분석용 근거자료 저장';
   await seed(
     [],
     [
@@ -2213,7 +2214,7 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
       at: date,
       actor,
       action,
-      detail: '1차 분석용 근거자료 저장',
+      detail,
     },
   ];
   await mutateConsultingFlowFixture(
@@ -2323,6 +2324,19 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
       /forgedField|forged-audit-extra-value|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
     );
     await setAuditField('forgedField', undefined);
+    await setAuditField('detail', undefined);
+    await assertQuarantined(
+      /save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setAuditField('detail', '');
+    await assertQuarantined(
+      /save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setAuditField('detail', { forged: 'audit-detail-object' });
+    await assertQuarantined(
+      /audit-detail-object|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setAuditField('detail', detail);
     await setReceiptField('targetId', 'forged-unexpected-receipt-target');
     await assertQuarantined(
       /forged-unexpected-receipt-target|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
@@ -2396,6 +2410,7 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
     await setReceiptField('targetId', undefined);
     await setReceiptField('forgedField', undefined);
     await setAuditField('forgedField', undefined);
+    await setAuditField('detail', detail);
     await db.batch([
       db.prepare(
         'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_no_delete',
