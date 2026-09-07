@@ -2336,6 +2336,14 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
     await assertQuarantined(
       /audit-detail-object|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
     );
+    await setAuditField('detail', ' \t\n\u00a0\u3000\ufeff');
+    await assertQuarantined(
+      /save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setAuditField('detail', `forged-malformed-audit-detail\ud800`);
+    await assertQuarantined(
+      /forged-malformed-audit-detail|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
     await setAuditField('detail', detail);
     await setReceiptField('targetId', 'forged-unexpected-receipt-target');
     await assertQuarantined(

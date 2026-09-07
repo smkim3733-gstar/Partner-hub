@@ -9297,7 +9297,7 @@ try {
     );
     assert.doesNotMatch(
       JSON.stringify(item),
-      /drifted-receipt-actor|forged-receipt-display-actor|forged-native-unexpected-target|forged-native-legacy-target|forged-native-extra-value|forged-native-audit-extra-value|forged-native-audit-detail|forgedField|import_intake_source|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|"targetId"|consulting-flow\//,
+      /drifted-receipt-actor|forged-receipt-display-actor|forged-native-unexpected-target|forged-native-legacy-target|forged-native-extra-value|forged-native-audit-extra-value|forged-native-audit-detail|forged-native-audit-malformed-unicode|forgedField|import_intake_source|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|"targetId"|consulting-flow\//,
     );
     const presenceResponse = await expect(
       await call(`/inventory/${privateMimeFile.id}`, undefined, ownerHeaders),
@@ -9601,6 +9601,37 @@ try {
     );
     checks.push(
       'FLOW command audit rejects non-text detail before native R2 presence trust',
+    );
+  } finally {
+    await mutateNativeFlowCommandAuditField(
+      'detail',
+      nativeFlowCommandAudit.detail,
+    );
+  }
+  await mutateNativeFlowCommandAuditField('detail', ' \t\n\u00a0\u3000\ufeff');
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW command audit blank detail stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW command audit rejects whitespace-only detail before native R2 presence trust',
+    );
+  } finally {
+    await mutateNativeFlowCommandAuditField(
+      'detail',
+      nativeFlowCommandAudit.detail,
+    );
+  }
+  await mutateNativeFlowCommandAuditField(
+    'detail',
+    `forged-native-audit-malformed-unicode\ud800`,
+  );
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW command audit malformed Unicode detail stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW command audit rejects malformed Unicode detail before native R2 presence trust',
     );
   } finally {
     await mutateNativeFlowCommandAuditField(

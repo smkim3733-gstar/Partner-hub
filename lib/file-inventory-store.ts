@@ -43,6 +43,13 @@ import { privateJsonResponse } from './private-response';
 
 const pageSize = 25;
 const sqlTextLiteral = (value: string) => `'${value.replaceAll("'", "''")}'`;
+// Mirrors ECMAScript trim whitespace in one literal; repeated char() chains exceed D1's expression-depth limit.
+const sqliteTrimCharacters = `'\u0009\u000a\u000b\u000c\u000d\u0020\u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff'`;
+const nonBlankSqlText = (expression: string) =>
+  `trim(${expression}, ${sqliteTrimCharacters}) <> ''`;
+// JSON1 exposes an unpaired UTF-16 surrogate as its invalid UTF-8 byte form ED A0..BF 80..BF.
+const wellFormedUnicodeSql = (expression: string) =>
+  `hex(${expression}) NOT GLOB '*ED[AB][0-9A-F][89AB][0-9A-F]*'`;
 const flowReceiptAllowedFieldsSql = FLOW_OBJECT_KEYS.receipt
   .map(sqlTextLiteral)
   .join(', ');
@@ -54,6 +61,15 @@ const flowAuditAllowedFieldsSql = FLOW_OBJECT_KEYS.audit
   .map((field) => sqlTextLiteral(`$.${field}`))
   .join(', ');
 const flowAuditFieldEnvelopeSql = `json_remove(audit.value, ${flowAuditAllowedFieldsSql}) = '{}'`;
+const flowAuditDetailSql = "json_extract(audit.value, '$.detail')";
+// One CASE keeps the large inventory predicate below D1's depth-100 ceiling.
+const flowAuditDetailEnvelopeSql = `CASE
+  WHEN json_type(audit.value, '$.detail') = 'text'
+  THEN length(${flowAuditDetailSql})
+      BETWEEN 1 AND ${FLOW_TEXT_LIMITS.auditDetail}
+    AND ${nonBlankSqlText(flowAuditDetailSql)}
+    AND ${wellFormedUnicodeSql(flowAuditDetailSql)}
+  ELSE 0 END = 1`;
 const flowUploadIntakeColumns = [
   'upload.intake_file_id',
   'upload.intake_source_hash',
@@ -130,29 +146,33 @@ const flowReceiptTargetBindingSql = `(
 const flowReceiptAuditBindingSql = `(
   ${flowReceiptFieldEnvelopeSql}
   AND (
-    (json_type(receipt.value, '$.actor') IS NULL
-      AND json_type(receipt.value, '$.action') IS NULL
+    ((json_type(receipt.value, '$.actor') IS NULL
+      AND json_type(receipt.value, '$.action') IS NULL)
       AND json_type(receipt.value, '$.targetId') IS NULL)
     OR (
-      json_type(receipt.value, '$.actor') = 'text'
-      AND json_type(receipt.value, '$.action') = 'text'
-      AND (SELECT COUNT(*) FROM json_each(
-          CASE WHEN json_valid(flow.payload) THEN flow.payload
-            ELSE '{"audit":[]}' END, '$.audit') audit
-        WHERE audit.type = 'object'
-          AND ${flowAuditFieldEnvelopeSql}
-          AND json_type(audit.value, '$.detail') = 'text'
-          AND length(json_extract(audit.value, '$.detail'))
-            BETWEEN 1 AND ${FLOW_TEXT_LIMITS.auditDetail}
-          AND json_extract(audit.value, '$.id') = upload.command_id
-          AND json_extract(audit.value, '$.actor') =
-            json_extract(receipt.value, '$.actor')
-          AND json_extract(audit.value, '$.action') =
-            json_extract(receipt.value, '$.action')
-      AND json_extract(audit.value, '$.at') = upload.created_at) = 1
-      AND ${flowReceiptUploadBindingSql}
-      AND ${flowReceiptTargetEnvelopeSql}
-      AND ${flowReceiptTargetBindingSql}
+      ((json_type(receipt.value, '$.actor') = 'text'
+        AND json_type(receipt.value, '$.action') = 'text')
+        AND (
+          (SELECT COUNT(*) FROM json_each(
+              CASE WHEN json_valid(flow.payload) THEN flow.payload
+                ELSE '{"audit":[]}' END, '$.audit') audit
+            WHERE (
+                (audit.type = 'object' AND ${flowAuditFieldEnvelopeSql})
+                AND (${flowAuditDetailEnvelopeSql}
+                  AND json_extract(audit.value, '$.id') = upload.command_id)
+              )
+              AND (
+                (json_extract(audit.value, '$.actor') =
+                    json_extract(receipt.value, '$.actor')
+                  AND json_extract(audit.value, '$.action') =
+                    json_extract(receipt.value, '$.action'))
+                AND json_extract(audit.value, '$.at') = upload.created_at
+              )) = 1
+          AND ${flowReceiptUploadBindingSql}
+        )
+      )
+      AND (${flowReceiptTargetEnvelopeSql}
+        AND ${flowReceiptTargetBindingSql})
     )
   )
 )`;
