@@ -265,6 +265,22 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
         'final-access-damage-source.txt',
       ),
     );
+    const destinationObjectDamageSourceId = await add(
+      new File(
+        [
+          '최종 접근 검사 중 목적지 교체 경쟁 검증용 신청자료입니다. 모든 내용은 가상 정보이며 추가 확인이 필요합니다.',
+        ],
+        'destination-object-damage-source.txt',
+      ),
+    );
+    const destinationObjectDeleteSourceId = await add(
+      new File(
+        [
+          '최종 접근 검사 중 목적지 삭제 경쟁 검증용 신청자료입니다. 모든 내용은 가상 정보이며 추가 확인이 필요합니다.',
+        ],
+        'destination-object-delete-source.txt',
+      ),
+    );
     const finalCommitDeleteSourceId = await add(
       new File(
         [
@@ -851,9 +867,14 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
       sourceStorageKey: string,
       commandId: string,
       timing: 'after-write' | 'during-final-access',
-      mutateSource: () => Promise<void>,
+      mutateSource: (
+        destinationStorageKey: string,
+        putObject: R2Bucket['put'],
+      ) => Promise<void>,
       expectedStatus: 404 | 409,
       expectedMessage: RegExp,
+      blockFinalCommit = true,
+      expectDestinationObject = true,
     ) {
       const prepare = flowDb.prepare.bind(flowDb);
       const batch = flowDb.batch.bind(flowDb);
@@ -862,11 +883,12 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
       const beforeKeys = new Set(objects.keys());
       let sourceMutations = 0;
       let destinationWrites = 0;
+      let destinationStorageKey = '';
       let finalCommitBatches = 0;
       const mutateOnce = async () => {
         if (sourceMutations) return;
         sourceMutations++;
-        await mutateSource();
+        await mutateSource(destinationStorageKey, put);
       };
       const wrapPortalStateRead = (
         statement: D1PreparedStatement,
@@ -901,13 +923,15 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
         });
         if (sourceMutations && writesFlow) {
           finalCommitBatches++;
-          throw new Error('synthetic FLOW commit must not begin');
+          if (blockFinalCommit)
+            throw new Error('synthetic FLOW commit must not begin');
         }
         return batch<T>(statements);
       };
       flowStorage.put = async (...args: Parameters<R2Bucket['put']>) => {
         if (args[0] === sourceStorageKey) return put(...args);
         const object = await put(...args);
+        destinationStorageKey = String(args[0]);
         destinationWrites++;
         if (timing === 'after-write') await mutateOnce();
         return object;
@@ -922,6 +946,7 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
       }
       assert.equal(sourceMutations, 1);
       assert.equal(destinationWrites, 1);
+      assert.ok(destinationStorageKey);
       assert.equal(
         response.status,
         expectedStatus,
@@ -943,7 +968,7 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
       assert.equal(reservation.status, 'pending');
       assert.deepEqual(
         [...objects.keys()].filter((key) => !beforeKeys.has(key)),
-        [reservation.storage_key],
+        expectDestinationObject ? [reservation.storage_key] : [],
       );
       assert.equal(await readFlow(caseId), null);
       await flowStorage.delete(reservation.storage_key);
@@ -1040,6 +1065,55 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
         },
       );
     }
+
+    const destinationObjectDamagePreview = await preview(
+      destinationObjectDamageSourceId,
+    );
+    const destinationObjectDamageRow = await findCompanyFile(
+      destinationObjectDamageSourceId,
+    );
+    assert.ok(destinationObjectDamageRow);
+    const destinationReplacement = new TextEncoder().encode(
+      destinationObjectDamagePreview.text!,
+    );
+    destinationReplacement[destinationReplacement.byteLength - 1] ^= 1;
+    await postDuringDestinationWriteMutation(
+      destinationObjectDamagePreview,
+      destinationObjectDamageRow.storage_key,
+      'intake-destination-object-final-access-damage-race',
+      'during-final-access',
+      async (destinationStorageKey, putObject) => {
+        assert.ok(destinationStorageKey);
+        await putObject(destinationStorageKey, destinationReplacement, {
+          httpMetadata: { contentType: 'text/plain' },
+        });
+      },
+      409,
+      /첨부파일 보관 상태가 변경/,
+      false,
+    );
+
+    const destinationObjectDeletePreview = await preview(
+      destinationObjectDeleteSourceId,
+    );
+    const destinationObjectDeleteRow = await findCompanyFile(
+      destinationObjectDeleteSourceId,
+    );
+    assert.ok(destinationObjectDeleteRow);
+    await postDuringDestinationWriteMutation(
+      destinationObjectDeletePreview,
+      destinationObjectDeleteRow.storage_key,
+      'intake-destination-object-final-access-delete-race',
+      'during-final-access',
+      async (destinationStorageKey) => {
+        assert.ok(destinationStorageKey);
+        await sourceBucket.delete(destinationStorageKey);
+      },
+      409,
+      /첨부파일 보관 상태가 변경/,
+      false,
+      false,
+    );
 
     const finalCommitDeletePreview = await preview(finalCommitDeleteSourceId);
     const finalCommitDeleteCommandId = 'intake-source-final-commit-delete-race';

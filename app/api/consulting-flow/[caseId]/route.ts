@@ -301,6 +301,40 @@ export async function POST(request: Request, context: Context) {
     // Final access validation performs asynchronous D1 work. Rebind an intake
     // import to its current source immediately before the FLOW transaction.
     if (imported) await recheckPreparedIntakeImport(flow, imported);
+    // An object can be replaced after put() returns while final access/source
+    // checks run. Re-read every new object so D1 never records stale R2 proof.
+    await Promise.all(
+      [upload, reservedAudioUpload]
+        .filter((file): file is FlowFile => file !== undefined)
+        .map(async (file) => {
+          const binding = fileObjectBindings.get(file.id);
+          if (!binding)
+            throw new FlowError(
+              '첨부파일 보관 증빙을 확인할 수 없습니다. 자료를 다시 등록해 주세요.',
+              503,
+            );
+          let object: R2Object | null;
+          try {
+            object = await flowBucket().head(file.key);
+          } catch {
+            throw new FlowError(
+              '첨부파일 보관 상태를 확인하지 못했습니다. 같은 자료로 다시 시도해 주세요.',
+              503,
+            );
+          }
+          if (
+            !object ||
+            object.key !== file.key ||
+            object.size !== file.size ||
+            object.httpMetadata?.contentType !== binding.contentType ||
+            object.etag !== binding.etag
+          )
+            throw new FlowError(
+              '첨부파일 보관 상태가 변경되었습니다. 같은 자료로 다시 시도해 주세요.',
+              409,
+            );
+        }),
+    );
     try {
       await commitFlow(
         flow,
