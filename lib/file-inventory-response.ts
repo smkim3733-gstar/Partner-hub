@@ -68,6 +68,7 @@ function parseItem(value: unknown): InventoryItem | null {
     !/^[A-Za-z0-9_-]{1,200}$/.test(item.id as string) ||
     typeof item.source !== 'string' ||
     !Object.hasOwn(inventorySources, item.source) ||
+    typeof item.idCollision !== 'boolean' ||
     !nullableText(item.fileName, 500) ||
     !nullableText(item.company, 500) ||
     !nullableText(item.title, 500) ||
@@ -89,6 +90,7 @@ function parseItem(value: unknown): InventoryItem | null {
   return {
     id: item.id as string,
     source: item.source as InventoryItem['source'],
+    idCollision: item.idCollision,
     fileName: item.fileName as string | null,
     company: item.company as string | null,
     title: item.title as string | null,
@@ -167,16 +169,32 @@ export async function readFileInventoryPageResponse(
     throw invalid(response.status, '보관 목록');
 
   const items = payload.items.map(parseItem);
+  if (items.some((item) => item === null))
+    throw invalid(response.status, '보관 목록');
+  const parsedItems = items as InventoryItem[];
+  const duplicateRawIds = new Set(
+    parsedItems
+      .filter((item, index) =>
+        parsedItems.some(
+          (candidate, candidateIndex) =>
+            candidateIndex !== index && candidate.id === item.id,
+        ),
+      )
+      .map((item) => item.id),
+  );
   if (
-    items.some((item) => item === null) ||
-    new Set(items.map((item) => item?.id)).size !== items.length ||
+    new Set(parsedItems.map((item) => `${item.source}:${item.id}`)).size !==
+      parsedItems.length ||
+    parsedItems.some(
+      (item) => duplicateRawIds.has(item.id) && !item.idCollision,
+    ) ||
     (expectedFilter !== 'all' &&
-      items.some((item) => item?.status !== expectedFilter))
+      parsedItems.some((item) => item.status !== expectedFilter))
   )
     throw invalid(response.status, '보관 목록');
 
   return {
-    items: items as InventoryItem[],
+    items: parsedItems,
     nextCursor: payload.nextCursor as string | null,
     checkedAt: payload.checkedAt as string,
     integrityCoverage: {

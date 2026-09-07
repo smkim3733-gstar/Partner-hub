@@ -52,6 +52,7 @@ export function inventoryPendingAge(
 export type InventoryItem = {
   id: string;
   source: InventorySource;
+  idCollision: boolean;
   fileName: string | null;
   company: string | null;
   title: string | null;

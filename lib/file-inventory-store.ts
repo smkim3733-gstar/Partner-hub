@@ -25,6 +25,7 @@ import {
 import { PortalAccessError, requirePortalUser } from './portal-auth';
 import { readPortalState } from './portal-state';
 import {
+  inventorySources,
   inventoryStates,
   type InventoryFilter,
   type InventoryItem,
@@ -39,6 +40,7 @@ const pageSize = 25;
 type Row = {
   source_type: InventoryItem['source'];
   id: string;
+  id_collision: number;
   original_name: string | null;
   company: string | null;
   title: string | null;
@@ -70,7 +72,12 @@ type InventoryQueryRow =
       coverage_metadata: number;
       coverage_unavailable: number;
     };
-type Cursor = { createdAt: string; id: string; filter: InventoryFilter };
+type Cursor = {
+  createdAt: string;
+  id: string;
+  source: InventoryItem['source'];
+  filter: InventoryFilter;
+};
 
 export async function requireInventoryAdmin(request: Request) {
   const state = await readPortalState();
@@ -106,7 +113,9 @@ function parseQuery(url: URL) {
         typeof value.createdAt !== 'string' ||
         value.createdAt.length > 80 ||
         typeof value.id !== 'string' ||
-        !/^[A-Za-z0-9_-]{1,200}$/.test(value.id)
+        !/^[A-Za-z0-9_-]{1,200}$/.test(value.id) ||
+        typeof value.source !== 'string' ||
+        !Object.hasOwn(inventorySources, value.source)
       )
         throw new Error();
       cursor = value;
@@ -240,6 +249,12 @@ export async function listFileInventory(
       WHERE u.status = 'pending'
         AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners owner
           WHERE owner.file_id = u.file_id)
+    ), identity_counts AS (
+      SELECT id, COUNT(*) AS identity_count FROM candidates GROUP BY id
+    ), identified AS (
+      SELECT candidate.*, identity.identity_count
+      FROM candidates candidate
+      JOIN identity_counts identity ON identity.id = candidate.id
     ), classified AS (
       SELECT *,
         source_type = 'company' AND id IN (SELECT id FROM document_refs)
@@ -247,11 +262,12 @@ export async function listFileInventory(
         ((source_type = 'company' AND id IN (SELECT id FROM flow_refs))
           OR (source_type = 'flow' AND id IN (SELECT id FROM flow_file_refs)))
           AS flow_linked,
-        CASE WHEN has_object_integrity = 0 THEN NULL
+        CASE WHEN identity_count > 1 OR has_object_integrity = 0 THEN NULL
           WHEN validation_mode = 'metadata' THEN 'metadata'
           WHEN checksum_sha256 IS NULL THEN 'etag'
           ELSE 'sha256' END AS integrity_proof,
-        CASE WHEN upload_status = 'deleted' THEN 'deleted'
+        CASE WHEN identity_count > 1 THEN 'inconsistent'
+          WHEN upload_status = 'deleted' THEN 'deleted'
           WHEN upload_status = 'pending' THEN 'pending'
           WHEN has_metadata = 0 THEN 'inconsistent'
           WHEN has_object_integrity = 0 THEN 'inconsistent'
@@ -261,20 +277,24 @@ export async function listFileInventory(
             OR (source_type = 'flow' AND id IN (SELECT id FROM flow_file_refs))
             THEN 'linked'
           ELSE 'unlinked' END AS status
-      FROM candidates
+      FROM identified
     ), paged AS (
       SELECT source_type, id, original_name, company, title, category,
         size_bytes, created_at, assigned_trainee, partner_member_id,
         uploaded_by_email, owner_key, case_id, document_linked, flow_linked,
-        integrity_proof, status
+        identity_count > 1 AS id_collision, integrity_proof, status
       FROM classified
       WHERE (?2 = 'all' OR status = ?2)
-        AND (?3 IS NULL OR created_at < ?3 OR (created_at = ?3 AND id < ?4))
-      ORDER BY created_at DESC, id DESC LIMIT 26
+        AND (?3 IS NULL OR created_at < ?3 OR
+          (created_at = ?3 AND (id < ?4 OR
+            (id = ?4 AND source_type < ?5))))
+      ORDER BY created_at DESC, id DESC, source_type DESC LIMIT 26
     ), ledger_proofs AS (
       SELECT integrity.validation_mode, integrity.r2_etag,
         integrity.r2_content_type, checksum.sha256,
-        CASE WHEN file.storage_key = 'company-source/' || file.id
+        CASE WHEN (SELECT identity_count FROM identity_counts
+            WHERE id = file.id) = 1
+          AND file.storage_key = 'company-source/' || file.id
           AND metadata.file_id IS NOT NULL
           AND object_key.file_id IS NOT NULL
           AND object_key.storage_key = file.storage_key
@@ -297,7 +317,9 @@ export async function listFileInventory(
       UNION ALL
       SELECT integrity.validation_mode, integrity.r2_etag,
         integrity.r2_content_type, checksum.sha256,
-        CASE WHEN owner.storage_key = 'consulting-flow/' || owner.file_id
+        CASE WHEN (SELECT identity_count FROM identity_counts
+            WHERE id = owner.file_id) = 1
+          AND owner.storage_key = 'consulting-flow/' || owner.file_id
           AND metadata.file_id IS NOT NULL
           AND integrity.file_id IS NOT NULL
           AND integrity.r2_content_type = metadata.content_type
@@ -343,22 +365,26 @@ export async function listFileInventory(
         COALESCE(SUM(proof = 'unavailable'), 0) AS unavailable
       FROM proof_classified
     )
-    SELECT 'item' AS row_kind, paged.*,
+    SELECT 'item' AS row_kind, source_type, id, original_name, company, title,
+      category, size_bytes, created_at, assigned_trainee, partner_member_id,
+      uploaded_by_email, owner_key, case_id, document_linked, flow_linked,
+      id_collision, integrity_proof, status,
       NULL AS coverage_sha256, NULL AS coverage_etag,
       NULL AS coverage_metadata, NULL AS coverage_unavailable
     FROM paged
     UNION ALL
     SELECT 'coverage', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+      NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
       sha256, etag, metadata, unavailable
     FROM coverage
-    ORDER BY row_kind DESC, created_at DESC, id DESC
+    ORDER BY row_kind DESC, created_at DESC, id DESC, source_type DESC
   `)
     .bind(
       JSON.stringify(documentIds(state)),
       filter,
       cursor?.createdAt ?? null,
       cursor?.id ?? null,
+      cursor?.source ?? null,
     )
     .all<InventoryQueryRow>();
   const coverageRows = queryRows.results.filter(
@@ -428,6 +454,7 @@ export async function listFileInventory(
     return {
       id: row.id,
       source: row.source_type,
+      idCollision: Boolean(row.id_collision),
       fileName: row.original_name,
       company: row.company ?? linkedCase?.company ?? null,
       title: row.title,
@@ -451,7 +478,12 @@ export async function listFileInventory(
     nextCursor:
       rows.length > pageSize && last
         ? Buffer.from(
-            JSON.stringify({ createdAt: last.created_at, id: last.id, filter }),
+            JSON.stringify({
+              createdAt: last.created_at,
+              id: last.id,
+              source: last.source_type,
+              filter,
+            }),
           ).toString('base64url')
         : null,
     checkedAt: new Date().toISOString(),

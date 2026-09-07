@@ -4012,6 +4012,113 @@ try {
       await sha256('SYNTHETIC_FLOW_MIME'),
     ),
   );
+  const collisionCompanyKey = `company-source/${privateMimeFile.id}`;
+  const collisionCompanyBytes = new TextEncoder().encode(
+    'SYNTHETIC_COLLISION_COMPANY',
+  );
+  const collisionCompanySha256 = await sha256(collisionCompanyBytes);
+  const collisionCompanyObject = await bucket.put(
+    collisionCompanyKey,
+    collisionCompanyBytes,
+    {
+      httpMetadata: { contentType: 'text/plain' },
+      customMetadata: { sha256: collisionCompanySha256 },
+    },
+  );
+  const collisionCreatedAt = new Date().toISOString();
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO company_file_objects
+          (id, storage_key, original_name, company, category, title,
+            assigned_trainee, uploaded_by_user_id, uploaded_by_email,
+            content_type, size_bytes, created_at)
+          VALUES (?1, ?2, 'collision-company.txt', '식별값 충돌기업',
+            '기타자료', '교차 출처 충돌 점검', '가상 담당자', ?3, ?3,
+            'text/plain', ?4, ?5)`,
+      )
+      .bind(
+        privateMimeFile.id,
+        collisionCompanyKey,
+        email,
+        collisionCompanyBytes.byteLength,
+        collisionCreatedAt,
+      ),
+    db
+      .prepare(
+        `INSERT INTO company_file_metadata
+          (file_id, original_name, company, category, title, assigned_trainee,
+            uploaded_by_user_id, uploaded_by_email, content_type, size_bytes,
+            created_at)
+          SELECT id, original_name, company, category, title, assigned_trainee,
+            uploaded_by_user_id, uploaded_by_email, content_type, size_bytes,
+            created_at FROM company_file_objects WHERE id = ?1`,
+      )
+      .bind(privateMimeFile.id),
+    db
+      .prepare(
+        `INSERT INTO company_file_storage_keys (file_id, storage_key)
+          VALUES (?1, ?2)`,
+      )
+      .bind(privateMimeFile.id, collisionCompanyKey),
+    db
+      .prepare(
+        `INSERT INTO company_file_object_integrity
+          (file_id, validation_mode, r2_etag, r2_content_type)
+          VALUES (?1, 'etag', ?2, 'text/plain')`,
+      )
+      .bind(privateMimeFile.id, collisionCompanyObject.etag),
+    db
+      .prepare(
+        `INSERT INTO company_file_object_checksums (file_id, sha256)
+          VALUES (?1, ?2)`,
+      )
+      .bind(privateMimeFile.id, collisionCompanySha256),
+  ]);
+  const collisionInventoryResponse = await expect(
+    await call('/inventory?status=inconsistent', undefined, ownerHeaders),
+    200,
+    'cross-source file ID collision remains visible in native inventory',
+  );
+  assertPrivateAuthResponse(collisionInventoryResponse);
+  const collisionInventory = await collisionInventoryResponse.json();
+  const collisionItems = collisionInventory.items.filter(
+    (item) => item.id === privateMimeFile.id,
+  );
+  assert.equal(collisionItems.length, 2);
+  assert.deepEqual(collisionItems.map((item) => item.source).sort(), [
+    'company',
+    'flow',
+  ]);
+  assert.equal(
+    collisionItems.every(
+      (item) =>
+        item.idCollision === true &&
+        item.status === 'inconsistent' &&
+        item.integrityProof === null,
+    ),
+    true,
+  );
+  assert.equal(
+    collisionInventory.integrityCoverage.sha256,
+    completedFlowInventory.integrityCoverage.sha256 - 1,
+  );
+  assert.equal(
+    collisionInventory.integrityCoverage.unavailable,
+    completedFlowInventory.integrityCoverage.unavailable + 2,
+  );
+  assert.doesNotMatch(
+    JSON.stringify(collisionItems),
+    /storage_key|company-source\/|consulting-flow\/|SYNTHETIC_COLLISION/,
+  );
+  assert.ok(!JSON.stringify(collisionItems).includes(collisionCompanySha256));
+  const collisionPresenceResponse = await expect(
+    await call(`/inventory/${privateMimeFile.id}`, undefined, ownerHeaders),
+    409,
+    'cross-source file ID collision blocks ambiguous R2 presence checks',
+  );
+  assertPrivateAuthResponse(collisionPresenceResponse);
+  assert.match((await collisionPresenceResponse.json()).error, /둘 이상/);
   const brokenFlowOwnerId = 'inventory-broken-flow-owner';
   await db.batch([
     db

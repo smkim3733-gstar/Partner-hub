@@ -602,6 +602,78 @@ void test('keyset pagination has no duplicates or missing same-time rows; cursor
     assert.equal((await list(request(query))).status, 400);
 });
 
+void test('source-qualified cursors retain both sides of a raw ID collision across pages', async () => {
+  const caseId = 'inventory-collision-pagination-case';
+  const collisionId = 'm-collision-page-file';
+  await seed(
+    [],
+    [
+      {
+        id: caseId,
+        company: '충돌 페이지기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+    ],
+  );
+  for (let index = 0; index < 24; index++)
+    await file(`z-page-file-${String(index).padStart(2, '0')}`, 'ready');
+  await file(collisionId, 'ready');
+  await completedFlowFile(collisionId, caseId);
+  await file('a-page-tail', 'ready');
+
+  const first = await page('?status=all');
+  assert.equal(first.items.length, 25);
+  assert.ok(first.nextCursor);
+  const lastFirstPageItem = first.items.at(-1);
+  assert.deepEqual(
+    lastFirstPageItem && {
+      id: lastFirstPageItem.id,
+      source: lastFirstPageItem.source,
+      idCollision: lastFirstPageItem.idCollision,
+      status: lastFirstPageItem.status,
+    },
+    {
+      id: collisionId,
+      source: 'flow',
+      idCollision: true,
+      status: 'inconsistent',
+    },
+  );
+  const second = await page(`?status=all&cursor=${first.nextCursor}`);
+  assert.equal(second.nextCursor, null);
+  assert.deepEqual(
+    second.items.map(({ id, source, idCollision, status }) => ({
+      id,
+      source,
+      idCollision,
+      status,
+    })),
+    [
+      {
+        id: collisionId,
+        source: 'company',
+        idCollision: true,
+        status: 'inconsistent',
+      },
+      {
+        id: 'a-page-tail',
+        source: 'company',
+        idCollision: false,
+        status: 'unlinked',
+      },
+    ],
+  );
+  assert.equal(
+    new Set(
+      [...first.items, ...second.items].map(
+        (item) => `${item.source}:${item.id}`,
+      ),
+    ).size,
+    27,
+  );
+});
+
 void test('presence uses metadata-only R2 head; size and object-integrity mismatches do not mutate records or expose keys', async () => {
   await seed();
   await file('presence-present', 'ready');
@@ -680,7 +752,12 @@ void test('presence uses metadata-only R2 head; size and object-integrity mismat
       );
       assert.match(response.headers.get('cache-control')!, /private, no-store/);
     }
-    assert.equal((await page('?status=all')).items.length, 6);
+    assert.equal(
+      (await page('?status=all')).items.filter(
+        (item) => item.source === 'company' && item.id.startsWith('presence-'),
+      ).length,
+      6,
+    );
   } finally {
     bucket.get = originalGet;
     bucket.put = originalPut;
@@ -834,6 +911,7 @@ void test('pending FLOW reservations expose safe inventory metadata and exact-si
     {
       id: 'pending-flow-presence',
       source: 'flow',
+      idCollision: false,
       fileName: 'pending-flow-presence.txt',
       company: 'FLOW 예약기업',
       title: '상담 FLOW 미완료 첨부',
@@ -903,6 +981,7 @@ void test('completed FLOW files remain visible and support metadata-only R2 pres
     {
       id: 'completed-flow-presence',
       source: 'flow',
+      idCollision: false,
       fileName: 'completed-flow-presence.txt',
       company: '완료 FLOW 재고기업',
       title: '상담 FLOW 보관 첨부',
@@ -1003,6 +1082,51 @@ void test('completed FLOW owner-key drift stays inconsistent and fails before R2
   } finally {
     bucket.head = originalHead;
   }
+});
+
+void test('company and FLOW records sharing one raw ID stay visible as distinct inconsistent items', async () => {
+  const caseId = 'inventory-cross-source-id-collision-case';
+  const fileId = 'inventory-cross-source-id-collision';
+  await seed(
+    [],
+    [
+      {
+        id: caseId,
+        company: '식별값 충돌기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+    ],
+  );
+  await file(fileId, 'ready');
+  const beforeCollision = await page('?status=all');
+  await completedFlowFile(fileId, caseId);
+  const collisionPage = await page('?status=all');
+  assert.equal(
+    collisionPage.integrityCoverage.metadata,
+    beforeCollision.integrityCoverage.metadata - 1,
+  );
+  assert.equal(
+    collisionPage.integrityCoverage.unavailable,
+    beforeCollision.integrityCoverage.unavailable + 2,
+  );
+  const collidedItems = collisionPage.items.filter(
+    (item) => item.id === fileId,
+  );
+  assert.equal(collidedItems.length, 2);
+  assert.equal(
+    collidedItems.every((item) => item.idCollision),
+    true,
+  );
+  assert.deepEqual(
+    collidedItems
+      .map(({ id, source, status }) => ({ id, source, status }))
+      .sort((left, right) => left.source.localeCompare(right.source)),
+    [
+      { id: fileId, source: 'company', status: 'inconsistent' },
+      { id: fileId, source: 'flow', status: 'inconsistent' },
+    ],
+  );
 });
 
 void test('refreshing the inventory reflects newly linked files without altering uploads or making deletion decisions', async () => {

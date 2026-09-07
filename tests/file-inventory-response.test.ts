@@ -16,6 +16,7 @@ import {
 const item = {
   id: 'inventory-file-1',
   source: 'company',
+  idCollision: false,
   fileName: '가상자료.txt',
   company: '가상기업',
   title: '가상 자료',
@@ -63,13 +64,18 @@ void test('inventory page returns only validated fields', async () => {
   assert.equal(Object.hasOwn(result.items[0]!, 'privateStorageKey'), false);
 });
 
-void test('inventory page rejects wrong filters, duplicate IDs and malformed pagination', async () => {
+void test('inventory page rejects wrong filters, duplicate source identities and malformed pagination', async () => {
   for (const changed of [
     { ...page, items: [{ ...item, status: 'linked' }] },
     { ...page, items: [item, item] },
     { ...page, nextCursor: '../private' },
     { ...page, items: [{ ...item, sizeBytes: -1 }] },
     { ...page, items: [{ ...item, source: 'private-ledger' }] },
+    { ...page, items: [{ ...item, idCollision: null }] },
+    {
+      ...page,
+      items: [item, { ...item, source: 'flow', idCollision: false }],
+    },
     { ...page, items: [{ ...item, integrityProof: 'private-proof' }] },
     { ...page, items: [{ ...item, id: 'x'.repeat(201) }] },
     { ...page, items: [{ ...item, createdAt: 'not-a-date' }] },
@@ -99,6 +105,26 @@ void test('inventory page rejects wrong filters, duplicate IDs and malformed pag
       'unlinked',
     ),
     maximumFlowIdPage,
+  );
+
+  const crossSourceCollisionPage = {
+    ...page,
+    items: [
+      { ...item, status: 'inconsistent', idCollision: true },
+      {
+        ...item,
+        source: 'flow',
+        status: 'inconsistent',
+        idCollision: true,
+      },
+    ],
+  };
+  assert.deepEqual(
+    await readFileInventoryPageResponse(
+      Response.json(crossSourceCollisionPage),
+      'inconsistent',
+    ),
+    crossSourceCollisionPage,
   );
 });
 
@@ -147,6 +173,8 @@ void test('inventory UI distinguishes D1 proof ledgers from current R2 metadata 
     '현재 R2 원본 확인',
     '현재 R2 객체를 검사한 결과가 아닙니다.',
     '현재 R2 객체 정보가 D1 SHA-256·ETag·MIME 원장과 일치 · 본문 미읽음',
+    'ID 충돌 · R2 확인 중지',
+    '자동 복구를 중지했습니다.',
   ])
     assert.match(source, new RegExp(phrase));
   assert.doesNotMatch(source, /저장 원장 전체 무결성 증명|원본 무결성 확인/);

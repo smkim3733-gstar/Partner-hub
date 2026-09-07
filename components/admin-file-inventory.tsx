@@ -19,6 +19,7 @@ import {
   inventoryStates,
   inventoryNotes,
   type InventoryFilter,
+  type InventoryItem,
   type InventoryPage,
   type InventoryPresence,
 } from '@/lib/file-inventory';
@@ -51,6 +52,9 @@ function presenceIntegrityLabel(presence: InventoryPresence) {
   if (presence.integrityProof === 'etag')
     return ' · 현재 R2 객체 정보가 D1 레거시 ETag·MIME 원장과 일치 · 본문 미읽음';
   return ' · 현재 R2 객체 정보가 D1 레거시 크기·MIME 원장과 일치 · 본문 미읽음';
+}
+function inventoryItemKey(item: InventoryItem) {
+  return `${item.source}:${item.id}`;
 }
 export function AdminFileInventory(controls: RecoveryControls) {
   const [opened, setOpened] = useState(false);
@@ -96,22 +100,24 @@ export function AdminFileInventory(controls: RecoveryControls) {
       if (attempt === sequence.current) setBusy(false);
     }
   }
-  async function check(id: string) {
+  async function check(item: InventoryItem) {
+    if (item.idCollision) return;
     const attempt = sequence.current;
-    setChecking(id);
+    const itemKey = inventoryItemKey(item);
+    setChecking(itemKey);
     try {
       const response = await fetch(
-        `/api/admin/file-inventory/${encodeURIComponent(id)}/presence`,
+        `/api/admin/file-inventory/${encodeURIComponent(item.id)}/presence`,
         { cache: 'no-store' },
       );
-      const result = await readFileInventoryPresenceResponse(response, id);
+      const result = await readFileInventoryPresenceResponse(response, item.id);
       if (attempt === sequence.current)
-        setChecks((current) => ({ ...current, [id]: result }));
+        setChecks((current) => ({ ...current, [itemKey]: result }));
     } catch (issue) {
       if (attempt === sequence.current)
         setChecks((current) => ({
           ...current,
-          [id]: issue instanceof Error ? issue.message : '확인 실패',
+          [itemKey]: issue instanceof Error ? issue.message : '확인 실패',
         }));
     } finally {
       if (attempt === sequence.current) setChecking(null);
@@ -249,14 +255,15 @@ export function AdminFileInventory(controls: RecoveryControls) {
                 ) : (
                   <div className="grid gap-3 lg:grid-cols-2">
                     {page.items.map((item) => {
-                      const presence = checks[item.id];
+                      const itemKey = inventoryItemKey(item);
+                      const presence = checks[itemKey];
                       const pendingAge =
                         item.status === 'pending'
                           ? inventoryPendingAge(item.createdAt, page.checkedAt)
                           : null;
                       return (
                         <article
-                          key={item.id}
+                          key={itemKey}
                           className="min-w-0 space-y-3 rounded-xl border p-4"
                         >
                           <div>
@@ -346,6 +353,12 @@ export function AdminFileInventory(controls: RecoveryControls) {
                           <p className="text-xs leading-5 text-muted-foreground">
                             {inventoryNotes[item.status]}
                           </p>
+                          {item.idCollision && (
+                            <p className="rounded-lg bg-red-50 p-3 text-xs font-medium leading-5 text-red-800">
+                              기업자료와 상담 FLOW에 같은 파일 ID가 있습니다. 두
+                              기록의 현재 R2 확인과 자동 복구를 중지했습니다.
+                            </p>
+                          )}
                           {item.status === 'pending' &&
                             item.source === 'flow' && (
                               <p className="rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-950">
@@ -370,13 +383,18 @@ export function AdminFileInventory(controls: RecoveryControls) {
                             size="sm"
                             variant="outline"
                             disabled={
-                              checking !== null || busy || controls.recoveryBusy
+                              checking !== null ||
+                              busy ||
+                              controls.recoveryBusy ||
+                              item.idCollision
                             }
-                            onClick={() => void check(item.id)}
+                            onClick={() => void check(item)}
                           >
-                            {checking === item.id
-                              ? '확인 중…'
-                              : '현재 R2 원본 확인'}
+                            {item.idCollision
+                              ? 'ID 충돌 · R2 확인 중지'
+                              : checking === itemKey
+                                ? '확인 중…'
+                                : '현재 R2 원본 확인'}
                           </Button>
                           {presence && (
                             <output className="block text-xs leading-5">
