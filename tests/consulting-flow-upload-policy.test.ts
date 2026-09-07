@@ -9,6 +9,7 @@ import {
   flowUploadExtensions,
   flowUploadMaxMegabytes,
   flowUploadPurpose,
+  flowUploadReceiptRules,
   isStoredFlowFilePurpose,
   MAX_FLOW_UPLOAD_BYTES,
   storedFlowFileExtensionRules,
@@ -25,6 +26,15 @@ import {
 } from '../lib/consulting-flow-file-policy';
 
 void test('consulting flow upload policy owns purpose and command-specific formats', () => {
+  assert.deepEqual(flowUploadReceiptRules, {
+    save_source: { purpose: 'source', slots: ['file'] },
+    import_intake_source: { purpose: 'source', slots: ['file'] },
+    save_report: { purpose: 'report', slots: ['file'] },
+    save_recording: { purpose: 'recording', slots: ['file', 'audio'] },
+    save_transcript: { purpose: 'transcript', slots: ['file'] },
+    receive_document: { purpose: 'requested_document', slots: ['file'] },
+    record_contract: { purpose: 'signed_contract', slots: ['file'] },
+  });
   assert.equal(flowUploadPurpose({ type: 'save_source' }), 'source');
   assert.equal(flowUploadPurpose({ type: 'unknown' }), undefined);
   assert.equal(

@@ -9291,6 +9291,26 @@ try {
       [JSON.stringify(flow), 'runtime-own'],
     );
   };
+  const mutateNativeFlowCommandReceiptAndAuditAction = async (value) => {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind('runtime-own')
+      .first();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    assert.ok(flow.commandReceipts[mimeCommand.commandId]);
+    flow.commandReceipts[mimeCommand.commandId].action = value;
+    const audit = flow.audit.find(
+      (entry) => entry.id === mimeCommand.commandId,
+    );
+    assert.ok(audit);
+    audit.action = value;
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), 'runtime-own'],
+    );
+  };
   await mutateNativeFlowCommandReceipt(
     'actorKey',
     'member:drifted-receipt-actor',
@@ -9354,6 +9374,19 @@ try {
   } finally {
     await mutateNativeFlowCommandReceipt(
       'action',
+      nativeFlowCommandReceipt.action,
+    );
+  }
+  await mutateNativeFlowCommandReceiptAndAuditAction('save_source');
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW coordinated command receipt and audit action drift stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW coordinated receipt and audit action drift cannot bypass native upload purpose binding',
+    );
+  } finally {
+    await mutateNativeFlowCommandReceiptAndAuditAction(
       nativeFlowCommandReceipt.action,
     );
   }

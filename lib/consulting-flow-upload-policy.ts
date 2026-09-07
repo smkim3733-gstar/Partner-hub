@@ -111,17 +111,37 @@ export function storedFlowFileFormat(purpose: unknown, name: unknown) {
   return uploadFileFormat(extension);
 }
 
-const purposeByCommand = {
-  save_source: 'source',
-  save_report: 'report',
-  save_recording: 'recording',
-  save_transcript: 'transcript',
-  receive_document: 'requested_document',
-  record_contract: 'signed_contract',
-} as const satisfies Record<string, FlowUploadPurpose>;
+export const flowUploadReceiptRules = {
+  save_source: { purpose: 'source', slots: ['file'] },
+  import_intake_source: { purpose: 'source', slots: ['file'] },
+  save_report: { purpose: 'report', slots: ['file'] },
+  save_recording: { purpose: 'recording', slots: ['file', 'audio'] },
+  save_transcript: { purpose: 'transcript', slots: ['file'] },
+  receive_document: { purpose: 'requested_document', slots: ['file'] },
+  record_contract: { purpose: 'signed_contract', slots: ['file'] },
+} as const satisfies Record<
+  string,
+  {
+    purpose: FlowUploadPurpose;
+    slots: readonly Exclude<FlowUploadSlot, 'document'>[];
+  }
+>;
+
+const directFlowUploadCommands = [
+  'save_source',
+  'save_report',
+  'save_recording',
+  'save_transcript',
+  'receive_document',
+  'record_contract',
+] as const;
+type DirectFlowUploadCommand = (typeof directFlowUploadCommands)[number];
 
 export function flowUploadPurpose(command: FlowUploadCommand) {
-  return purposeByCommand[command.type as keyof typeof purposeByCommand];
+  const type = command.type as DirectFlowUploadCommand;
+  return directFlowUploadCommands.includes(type)
+    ? flowUploadReceiptRules[type].purpose
+    : undefined;
 }
 
 export function flowUploadExtensions(

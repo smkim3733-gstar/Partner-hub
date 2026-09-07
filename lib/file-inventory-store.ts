@@ -18,6 +18,7 @@ import {
   readFlowFileObjectIntegrity,
 } from './consulting-flow-store';
 import { FlowError, type FlowFile } from './consulting-flow';
+import { flowUploadReceiptRules } from './consulting-flow-upload-policy';
 import {
   FLOW_ADMIN_COMMAND_ACTOR_KEY,
   FLOW_ADMIN_COMMAND_ACTOR_NAME,
@@ -37,6 +38,15 @@ import { readRouteParam, RouteParamError } from './request-path';
 import { privateJsonResponse } from './private-response';
 
 const pageSize = 25;
+const sqlTextLiteral = (value: string) => `'${value.replaceAll("'", "''")}'`;
+const flowReceiptUploadBindingSql = `(${Object.entries(flowUploadReceiptRules)
+  .map(
+    ([action, rule]) =>
+      `(json_extract(receipt.value, '$.action') = ${sqlTextLiteral(action)}
+        AND upload.purpose = ${sqlTextLiteral(rule.purpose)}
+        AND upload.slot IN (${rule.slots.map(sqlTextLiteral).join(', ')}))`,
+  )
+  .join(' OR ')})`;
 const flowReceiptAuditBindingSql = `(
   (json_type(receipt.value, '$.actor') IS NULL
     AND json_type(receipt.value, '$.action') IS NULL)
@@ -52,6 +62,7 @@ const flowReceiptAuditBindingSql = `(
           json_extract(receipt.value, '$.actor')
         AND json_extract(audit.value, '$.action') =
           json_extract(receipt.value, '$.action')) = 1
+    AND ${flowReceiptUploadBindingSql}
   )
 )`;
 type Row = {

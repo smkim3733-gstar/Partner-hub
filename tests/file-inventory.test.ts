@@ -2019,7 +2019,7 @@ void test('completed FLOW receipt actor and fingerprint drift stay inconsistent 
   }
 });
 
-void test('completed FLOW receipt display actor and action drift stay inconsistent and fail before R2 access', async () => {
+void test('completed FLOW receipt display actor, action and upload-purpose drift stay inconsistent and fail before R2 access', async () => {
   const caseId = 'flow-receipt-semantics-drift-case';
   const fileId = 'flow-receipt-semantics-drift';
   const commandId = 'flow-receipt-semantics-command';
@@ -2048,6 +2048,25 @@ void test('completed FLOW receipt display actor and action drift stay inconsiste
     assert.ok(row);
     const flow = JSON.parse(row.payload);
     flow.commandReceipts[commandId][field] = value;
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), caseId],
+    );
+  };
+  const setReceiptAndAuditAction = async (value: string) => {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind(caseId)
+      .first<{ payload: string }>();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    flow.commandReceipts[commandId].action = value;
+    const audit = flow.audit.find(
+      (entry: { id?: unknown }) => entry.id === commandId,
+    );
+    assert.ok(audit);
+    audit.action = value;
     await mutateConsultingFlowFixture(
       db,
       'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
@@ -2165,6 +2184,11 @@ void test('completed FLOW receipt display actor and action drift stay inconsiste
       /save_source|save_report|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
     );
     await setReceiptField('action', action);
+    await setReceiptAndAuditAction('save_source');
+    await assertQuarantined(
+      /save_source|save_report|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setReceiptAndAuditAction(action);
     const restored = await page('?status=linked');
     assert.equal(
       restored.items.find(
@@ -2175,7 +2199,7 @@ void test('completed FLOW receipt display actor and action drift stay inconsiste
   } finally {
     bucket.head = originalHead;
     await setReceiptField('actor', actor);
-    await setReceiptField('action', action);
+    await setReceiptAndAuditAction(action);
     await db.batch([
       db.prepare(
         'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_no_delete',
