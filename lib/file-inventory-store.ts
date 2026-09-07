@@ -212,6 +212,47 @@ export async function listFileInventory(
         AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners owner
           WHERE owner.file_id = binding.id)
       GROUP BY binding.id
+    ), flow_child_ledger_ids AS (
+      SELECT file_id FROM consulting_flow_file_metadata
+      UNION
+      SELECT file_id FROM consulting_flow_file_object_integrity
+      UNION
+      SELECT file_id FROM consulting_flow_file_object_checksums
+    ), flow_orphan_child_ledgers AS (
+      SELECT ledger.file_id AS id,
+        CASE WHEN typeof(metadata.original_name) = 'text'
+          AND length(metadata.original_name) <= 500
+          THEN metadata.original_name ELSE NULL END AS original_name,
+        CASE WHEN typeof(metadata.purpose) = 'text'
+          AND length(metadata.purpose) <= 200
+          THEN metadata.purpose ELSE NULL END AS purpose,
+        CASE WHEN typeof(metadata.size_bytes) = 'integer'
+          AND metadata.size_bytes BETWEEN 0 AND 9007199254740991
+          THEN metadata.size_bytes ELSE NULL END AS size_bytes,
+        CASE WHEN typeof(upload.created_at) = 'text'
+          AND length(upload.created_at) <= 80
+          AND julianday(upload.created_at) IS NOT NULL
+          THEN upload.created_at
+          ELSE '1970-01-01T00:00:00.000Z' END AS created_at
+      FROM flow_child_ledger_ids ledger
+      LEFT JOIN consulting_flow_file_metadata metadata
+        ON metadata.file_id = ledger.file_id
+      LEFT JOIN consulting_flow_upload_requests upload
+        ON upload.file_id = ledger.file_id
+      WHERE length(ledger.file_id) BETWEEN 1 AND 200
+        AND ledger.file_id NOT GLOB '*[^A-Za-z0-9_-]*'
+        AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners owner
+          WHERE owner.file_id = ledger.file_id)
+        AND NOT EXISTS (SELECT 1 FROM flow_orphan_payloads orphan
+          WHERE orphan.id = ledger.file_id)
+    ), flow_orphan_inventory AS (
+      SELECT id, original_name, purpose, size_bytes, created_at, case_id,
+        '상담 FLOW 소유 원장 누락 첨부' AS title
+      FROM flow_orphan_payloads
+      UNION ALL
+      SELECT id, original_name, purpose, size_bytes, created_at, NULL,
+        '상담 FLOW 소유·payload 누락 원장'
+      FROM flow_orphan_child_ledgers
     ), flow_owner_payload_bindings AS (
       SELECT owner.file_id, COUNT(binding.id) AS payload_count,
         COALESCE(SUM(CASE WHEN
@@ -299,11 +340,11 @@ export async function listFileInventory(
       LEFT JOIN flow_owner_payload_bindings payload_binding
         ON payload_binding.file_id = owner.file_id
       UNION ALL
-      SELECT 'flow', orphan.id, orphan.original_name, NULL,
-        '상담 FLOW 소유 원장 누락 첨부', orphan.purpose,
+      SELECT 'flow', orphan.id, orphan.original_name, NULL, orphan.title,
+        orphan.purpose,
         orphan.size_bytes, orphan.created_at, NULL, NULL, NULL, NULL,
         orphan.case_id, NULL, 0, 0, NULL, NULL
-      FROM flow_orphan_payloads orphan
+      FROM flow_orphan_inventory orphan
       UNION ALL
       SELECT 'flow', u.file_id, u.original_name, NULL, '상담 FLOW 미완료 첨부',
         u.purpose, u.size_bytes, u.created_at, NULL, NULL, NULL, u.actor_key,
@@ -312,7 +353,7 @@ export async function listFileInventory(
       WHERE u.status = 'pending'
         AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners owner
           WHERE owner.file_id = u.file_id)
-        AND NOT EXISTS (SELECT 1 FROM flow_orphan_payloads orphan
+        AND NOT EXISTS (SELECT 1 FROM flow_orphan_inventory orphan
           WHERE orphan.id = u.file_id)
     ), identity_counts AS (
       SELECT id, COUNT(*) AS identity_count FROM candidates GROUP BY id
@@ -399,7 +440,7 @@ export async function listFileInventory(
         ON payload_binding.file_id = owner.file_id
       UNION ALL
       SELECT NULL, NULL, NULL, NULL, 0
-      FROM flow_orphan_payloads
+      FROM flow_orphan_inventory
     ), proof_classified AS (
       SELECT CASE
         WHEN ledger_valid = 1 AND validation_mode = 'metadata' AND r2_etag IS NULL
@@ -573,16 +614,22 @@ export async function checkInventoryPresence(
       ON metadata.file_id = owner.file_id
     WHERE owner.file_id = ?1
     UNION ALL SELECT 'flow', ?1, NULL, NULL, NULL, ?1, NULL, NULL
-    WHERE EXISTS (
-      SELECT 1 FROM consulting_flows flow,
-        json_each(CASE WHEN json_valid(flow.payload) THEN flow.payload
-          ELSE '{"files":[]}' END, '$.files') stored_file
-      WHERE json_type(stored_file.value) = 'object'
-        AND json_type(stored_file.value, '$.id') = 'text'
-        AND json_type(stored_file.value, '$.key') = 'text'
-        AND json_extract(stored_file.value, '$.id') = ?1)
-      AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners owner
+    WHERE NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners owner
         WHERE owner.file_id = ?1)
+      AND (EXISTS (
+          SELECT 1 FROM consulting_flows flow,
+            json_each(CASE WHEN json_valid(flow.payload) THEN flow.payload
+              ELSE '{"files":[]}' END, '$.files') stored_file
+          WHERE json_type(stored_file.value) = 'object'
+            AND json_type(stored_file.value, '$.id') = 'text'
+            AND json_type(stored_file.value, '$.key') = 'text'
+            AND json_extract(stored_file.value, '$.id') = ?1)
+        OR EXISTS (SELECT 1 FROM consulting_flow_file_metadata
+          WHERE file_id = ?1)
+        OR EXISTS (SELECT 1 FROM consulting_flow_file_object_integrity
+          WHERE file_id = ?1)
+        OR EXISTS (SELECT 1 FROM consulting_flow_file_object_checksums
+          WHERE file_id = ?1))
     UNION ALL SELECT 'flow', NULL, upload.storage_key, upload.content_type,
       upload.size_bytes, upload.file_id, upload.case_id, NULL
     FROM consulting_flow_upload_requests upload
@@ -597,6 +644,12 @@ export async function checkInventoryPresence(
           AND json_type(stored_file.value, '$.id') = 'text'
           AND json_type(stored_file.value, '$.key') = 'text'
           AND json_extract(stored_file.value, '$.id') = upload.file_id)
+      AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_metadata
+        WHERE file_id = upload.file_id)
+      AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_object_integrity
+        WHERE file_id = upload.file_id)
+      AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_object_checksums
+        WHERE file_id = upload.file_id)
     LIMIT 2`)
     .bind(id)
     .all<{

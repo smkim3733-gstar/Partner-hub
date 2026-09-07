@@ -750,6 +750,8 @@ const flowLedgerNoDeleteTriggerSql = {
     "CREATE TRIGGER IF NOT EXISTS consulting_flow_file_metadata_no_delete BEFORE DELETE ON consulting_flow_file_metadata BEGIN SELECT RAISE(ABORT, 'consulting FLOW file metadata is durable'); END",
   consulting_flow_file_object_integrity:
     "CREATE TRIGGER IF NOT EXISTS consulting_flow_file_object_integrity_no_delete BEFORE DELETE ON consulting_flow_file_object_integrity BEGIN SELECT RAISE(ABORT, 'consulting FLOW file object integrity is durable'); END",
+  consulting_flow_file_object_checksums:
+    "CREATE TRIGGER IF NOT EXISTS consulting_flow_file_object_checksums_no_delete BEFORE DELETE ON consulting_flow_file_object_checksums BEGIN SELECT RAISE(ABORT, 'consulting flow file object checksum is durable'); END",
 };
 async function withoutUploadRequestDeleteGuard(db, action) {
   await db
@@ -4175,6 +4177,86 @@ try {
     'sha256',
   );
   checks.push('FLOW proof resumes after synthetic owner ledger restoration');
+  const orphanChildLedgerId = 'inventory-orphan-flow-child-ledgers';
+  await db.batch([
+    db
+      .prepare(`INSERT INTO consulting_flow_file_metadata
+        (file_id, original_name, content_type, size_bytes, purpose)
+        VALUES (?1, 'orphan-child.txt', 'text/plain', 4, 'report')`)
+      .bind(orphanChildLedgerId),
+    db
+      .prepare(`INSERT INTO consulting_flow_file_object_integrity
+        (file_id, validation_mode, r2_etag, r2_content_type)
+        VALUES (?1, 'etag', 'private-orphan-etag', 'text/plain')`)
+      .bind(orphanChildLedgerId),
+    db
+      .prepare(`INSERT INTO consulting_flow_file_object_checksums
+        (file_id, sha256) VALUES (?1, ?2)`)
+      .bind(orphanChildLedgerId, 'e'.repeat(64)),
+  ]);
+  try {
+    const orphanChildInventoryResponse = await expect(
+      await call('/inventory?status=inconsistent', undefined, ownerHeaders),
+      200,
+      'orphan FLOW child ledgers remain visible once in native inventory',
+    );
+    assertPrivateAuthResponse(orphanChildInventoryResponse);
+    const orphanChildInventory = await orphanChildInventoryResponse.json();
+    const orphanChildItems = orphanChildInventory.items.filter(
+      (item) => item.source === 'flow' && item.id === orphanChildLedgerId,
+    );
+    assert.equal(orphanChildItems.length, 1);
+    assert.equal(orphanChildItems[0].fileName, 'orphan-child.txt');
+    assert.equal(orphanChildItems[0].status, 'inconsistent');
+    assert.equal(orphanChildItems[0].flowLinked, false);
+    assert.equal(orphanChildItems[0].integrityProof, null);
+    assert.equal(
+      orphanChildInventory.integrityCoverage.sha256,
+      restoredOwnerInventory.integrityCoverage.sha256,
+    );
+    assert.equal(
+      orphanChildInventory.integrityCoverage.unavailable,
+      restoredOwnerInventory.integrityCoverage.unavailable + 1,
+    );
+    assert.doesNotMatch(
+      JSON.stringify(orphanChildItems[0]),
+      /private-orphan-etag|e{64}|storage_key|consulting-flow\/|fingerprint/,
+    );
+    const orphanChildPresenceResponse = await expect(
+      await call(`/inventory/${orphanChildLedgerId}`, undefined, ownerHeaders),
+      503,
+      'orphan FLOW child ledgers block native R2 presence trust',
+    );
+    assertPrivateAuthResponse(orphanChildPresenceResponse);
+    assert.match(
+      (await orphanChildPresenceResponse.json()).error,
+      /원장의 무결성/,
+    );
+    checks.push(
+      'orphan FLOW child ledgers are unavailable without exposing native proof values',
+    );
+  } finally {
+    for (const table of [
+      'consulting_flow_file_object_checksums',
+      'consulting_flow_file_object_integrity',
+      'consulting_flow_file_metadata',
+    ])
+      await deleteFlowFileLedgerFixture(db, table, orphanChildLedgerId);
+  }
+  const afterOrphanChildCleanup = await (
+    await expect(
+      await call('/inventory?status=all', undefined, ownerHeaders),
+      200,
+      'synthetic orphan FLOW child ledgers are removed after native audit',
+    )
+  ).json();
+  assert.equal(
+    afterOrphanChildCleanup.items.some(
+      (item) => item.source === 'flow' && item.id === orphanChildLedgerId,
+    ),
+    false,
+  );
+  checks.push('orphan FLOW child ledger audit cleanup restores inventory');
   const collisionCompanyKey = `company-source/${privateMimeFile.id}`;
   const collisionCompanyBytes = new TextEncoder().encode(
     'SYNTHETIC_COLLISION_COMPANY',
