@@ -10010,6 +10010,268 @@ try {
       'FLOW transcript receipt target proof recovers after synthetic native drift cleanup',
     );
   assert.equal(restoredNativeTranscriptTarget.item.integrityProof, 'sha256');
+  const nativeRequestedDocumentTargetFile = {
+    id: 'native-requested-document-target-file',
+    key: 'consulting-flow/native-requested-document-target-file',
+    name: 'native-requested-document-target-file.pdf',
+    contentType: 'application/pdf',
+    bytes: new TextEncoder().encode('SYNTHETIC_REQUESTED_DOCUMENT_TARGET'),
+    purpose: 'requested_document',
+    createdAt: evidenceTimes[2],
+  };
+  const nativeRequestedDocumentTargetCommandId =
+    'native-receive-document-target-command';
+  const nativeRequestedDocumentTargetRequestId =
+    'native-receive-document-target-request';
+  const nativeRequestedDocumentTargetFingerprint = 'b'.repeat(64);
+  const nativeRequestedDocumentTargetRow = await db
+    .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+    .bind(recordingEffectCaseId)
+    .first();
+  assert.ok(nativeRequestedDocumentTargetRow);
+  const nativeRequestedDocumentTargetFlow = JSON.parse(
+    nativeRequestedDocumentTargetRow.payload,
+  );
+  nativeRequestedDocumentTargetFlow.files.push({
+    ...nativeRequestedDocumentTargetFile,
+    size: nativeRequestedDocumentTargetFile.bytes.byteLength,
+    bytes: undefined,
+  });
+  delete nativeRequestedDocumentTargetFlow.files.at(-1).bytes;
+  nativeRequestedDocumentTargetFlow.requests.push({
+    id: nativeRequestedDocumentTargetRequestId,
+    title: '가상 필수서류',
+    required: true,
+    channel: '이메일',
+    recipient: 'native-request@example.invalid',
+    dueDate: '',
+    status: 'received',
+    fileId: nativeRequestedDocumentTargetFile.id,
+    note: '가상 수령 메모',
+    createdAt: evidenceTimes[2],
+    receivedAt: evidenceTimes[2],
+  });
+  nativeRequestedDocumentTargetFlow.commandIds.push(
+    nativeRequestedDocumentTargetCommandId,
+  );
+  nativeRequestedDocumentTargetFlow.commandReceipts[
+    nativeRequestedDocumentTargetCommandId
+  ] = {
+    actorKey: 'admin:primary',
+    fingerprint: nativeRequestedDocumentTargetFingerprint,
+    actor: '김성민 대표',
+    action: 'receive_document',
+    targetId: nativeRequestedDocumentTargetRequestId,
+  };
+  nativeRequestedDocumentTargetFlow.audit.push({
+    id: nativeRequestedDocumentTargetCommandId,
+    at: evidenceTimes[2],
+    actor: '김성민 대표',
+    action: 'receive_document',
+    detail: '요청 서류 수령 · 대표 검토 대기',
+  });
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    [JSON.stringify(nativeRequestedDocumentTargetFlow), recordingEffectCaseId],
+  );
+  await bucket.put(
+    nativeRequestedDocumentTargetFile.key,
+    nativeRequestedDocumentTargetFile.bytes,
+    {
+      httpMetadata: {
+        contentType: nativeRequestedDocumentTargetFile.contentType,
+      },
+    },
+  );
+  const nativeRequestedDocumentTargetObject = await bucket.head(
+    nativeRequestedDocumentTargetFile.key,
+  );
+  assert.ok(nativeRequestedDocumentTargetObject);
+  await db.batch([
+    db
+      .prepare(`INSERT INTO consulting_flow_file_owners
+        (file_id, case_id, storage_key, created_at)
+        VALUES (?1, ?2, ?3, ?4)`)
+      .bind(
+        nativeRequestedDocumentTargetFile.id,
+        recordingEffectCaseId,
+        nativeRequestedDocumentTargetFile.key,
+        nativeRequestedDocumentTargetFile.createdAt,
+      ),
+    db
+      .prepare(`INSERT INTO consulting_flow_file_metadata
+        (file_id, original_name, content_type, size_bytes, purpose)
+        VALUES (?1, ?2, ?3, ?4, 'requested_document')`)
+      .bind(
+        nativeRequestedDocumentTargetFile.id,
+        nativeRequestedDocumentTargetFile.name,
+        nativeRequestedDocumentTargetFile.contentType,
+        nativeRequestedDocumentTargetFile.bytes.byteLength,
+      ),
+    db
+      .prepare(`INSERT INTO consulting_flow_file_object_integrity
+        (file_id, validation_mode, r2_etag, r2_content_type)
+        VALUES (?1, 'etag', ?2, ?3)`)
+      .bind(
+        nativeRequestedDocumentTargetFile.id,
+        nativeRequestedDocumentTargetObject.etag,
+        nativeRequestedDocumentTargetFile.contentType,
+      ),
+    db
+      .prepare(`INSERT INTO consulting_flow_file_object_checksums
+        (file_id, sha256) VALUES (?1, ?2)`)
+      .bind(
+        nativeRequestedDocumentTargetFile.id,
+        await sha256(nativeRequestedDocumentTargetFile.bytes),
+      ),
+    db
+      .prepare(`INSERT INTO consulting_flow_upload_requests
+        (case_id, actor_key, command_id, slot, fingerprint, file_id,
+          storage_key, original_name, content_type, size_bytes, purpose,
+          created_at, status)
+        VALUES (?1, 'admin:primary', ?2, 'file', ?3, ?4, ?5, ?6, ?7,
+          ?8, 'requested_document', ?9, 'pending')`)
+      .bind(
+        recordingEffectCaseId,
+        nativeRequestedDocumentTargetCommandId,
+        nativeRequestedDocumentTargetFingerprint,
+        nativeRequestedDocumentTargetFile.id,
+        nativeRequestedDocumentTargetFile.key,
+        nativeRequestedDocumentTargetFile.name,
+        nativeRequestedDocumentTargetFile.contentType,
+        nativeRequestedDocumentTargetFile.bytes.byteLength,
+        nativeRequestedDocumentTargetFile.createdAt,
+      ),
+  ]);
+  await db
+    .prepare(`INSERT INTO consulting_flow_upload_completions
+      (file_id, command_id) VALUES (?1, ?2)`)
+    .bind(
+      nativeRequestedDocumentTargetFile.id,
+      nativeRequestedDocumentTargetCommandId,
+    )
+    .run();
+  await db
+    .prepare(`UPDATE consulting_flow_upload_requests
+      SET status = 'ready' WHERE file_id = ?1`)
+    .bind(nativeRequestedDocumentTargetFile.id)
+    .run();
+  const mutateNativeRequestedDocumentTarget = async (kind, value) => {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind(recordingEffectCaseId)
+      .first();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    if (kind === 'receipt') {
+      if (value === undefined)
+        delete flow.commandReceipts[nativeRequestedDocumentTargetCommandId]
+          .targetId;
+      else
+        flow.commandReceipts[nativeRequestedDocumentTargetCommandId].targetId =
+          value;
+    } else {
+      const request = flow.requests.find(
+        (candidate) => candidate.id === nativeRequestedDocumentTargetRequestId,
+      );
+      assert.ok(request);
+      if (value === undefined) delete request.fileId;
+      else request.fileId = value;
+    }
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), recordingEffectCaseId],
+    );
+  };
+  const beforeNativeRequestedDocumentTargetDrift =
+    await readNativeRecordingTargetInventoryItem(
+      'linked',
+      nativeRequestedDocumentTargetFile.id,
+      'FLOW requested document receipt target is linked before synthetic native drift',
+    );
+  assert.equal(
+    beforeNativeRequestedDocumentTargetDrift.item.integrityProof,
+    'sha256',
+  );
+  const nativeRequestedDocumentTargetDrifts = [
+    {
+      label: 'request file',
+      corrupt: () => mutateNativeRequestedDocumentTarget('request'),
+      restore: () =>
+        mutateNativeRequestedDocumentTarget(
+          'request',
+          nativeRequestedDocumentTargetFile.id,
+        ),
+    },
+    {
+      label: 'receipt request',
+      corrupt: () =>
+        mutateNativeRequestedDocumentTarget(
+          'receipt',
+          'forged-native-request-target',
+        ),
+      restore: () =>
+        mutateNativeRequestedDocumentTarget(
+          'receipt',
+          nativeRequestedDocumentTargetRequestId,
+        ),
+    },
+  ];
+  for (const drift of nativeRequestedDocumentTargetDrifts) {
+    await drift.corrupt();
+    try {
+      const { inventory, item } = await readNativeRecordingTargetInventoryItem(
+        'inconsistent',
+        nativeRequestedDocumentTargetFile.id,
+        `FLOW requested document ${drift.label} drift stays inconsistent in native inventory`,
+      );
+      assert.equal(item.status, 'inconsistent');
+      assert.equal(item.flowLinked, true);
+      assert.equal(item.integrityProof, null);
+      assert.equal(
+        inventory.integrityCoverage.sha256,
+        beforeNativeRequestedDocumentTargetDrift.inventory.integrityCoverage
+          .sha256 - 1,
+      );
+      assert.equal(
+        inventory.integrityCoverage.unavailable,
+        beforeNativeRequestedDocumentTargetDrift.inventory.integrityCoverage
+          .unavailable + 1,
+      );
+      assert.doesNotMatch(
+        JSON.stringify(item),
+        /native-receive-document-target-(?:command|request)|admin:primary|"actorKey"|"fingerprint"|consulting-flow\//,
+      );
+      const presenceResponse = await expect(
+        await call(
+          `/inventory/${nativeRequestedDocumentTargetFile.id}`,
+          undefined,
+          ownerHeaders,
+        ),
+        503,
+        `FLOW requested document ${drift.label} drift blocks native R2 presence trust`,
+      );
+      assertPrivateAuthResponse(presenceResponse);
+      assert.match((await presenceResponse.json()).error, /원장의 무결성/);
+      checks.push(
+        `FLOW native inventory binds receive-document receipt to its ${drift.label} target`,
+      );
+    } finally {
+      await drift.restore();
+    }
+  }
+  const restoredNativeRequestedDocumentTarget =
+    await readNativeRecordingTargetInventoryItem(
+      'linked',
+      nativeRequestedDocumentTargetFile.id,
+      'FLOW requested document receipt target proof recovers after synthetic native drift cleanup',
+    );
+  assert.equal(
+    restoredNativeRequestedDocumentTarget.item.integrityProof,
+    'sha256',
+  );
   const mimeRetry = await expect(
     await callFlowFile(
       '/flow/runtime-own',

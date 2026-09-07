@@ -157,7 +157,7 @@ export const flowUploadReceiptRules = {
 >;
 
 type FlowUploadReceiptTargetRule = {
-  collection: 'reports' | 'recordings';
+  collection: 'reports' | 'recordings' | 'requests';
   target:
     | { kind: 'command_suffix'; suffix: 'report' | 'recording' }
     | { kind: 'receipt' };
@@ -184,6 +184,11 @@ export const flowUploadReceiptTargetRules = {
     collection: 'recordings',
     target: { kind: 'receipt' },
     slots: { file: 'transcriptFileId' },
+  },
+  receive_document: {
+    collection: 'requests',
+    target: { kind: 'receipt' },
+    slots: { file: 'fileId' },
   },
 } as const satisfies Partial<
   Record<keyof typeof flowUploadReceiptRules, FlowUploadReceiptTargetRule>

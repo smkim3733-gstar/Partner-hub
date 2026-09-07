@@ -118,7 +118,12 @@ async function completedFlowFile(
   caseId: string,
   ownerStorageKey?: string,
   ownerCaseId = caseId,
-  purpose: 'report' | 'source' | 'recording' | 'transcript' = 'report',
+  purpose:
+    | 'report'
+    | 'source'
+    | 'recording'
+    | 'transcript'
+    | 'requested_document' = 'report',
   name = `${id}.txt`,
   contentType = 'text/plain',
 ) {
@@ -3281,4 +3286,205 @@ void test('refreshing the inventory reflects newly linked files without altering
     .bind('newly-linked-file')
     .first<{ status: string }>();
   assert.equal(row?.status, 'ready');
+});
+
+void test('completed FLOW requested document whose receipt or request file target drifts stays inconsistent before R2 access', async () => {
+  const caseId = 'flow-requested-document-target-drift-case';
+  const fileId = 'flow-requested-document-target-drift';
+  const commandId = 'flow-requested-document-target-command';
+  const requestId = 'flow-requested-document-target-request';
+  const actorKey = `member:${member.id}`;
+  const fingerprint = 'd'.repeat(64);
+  await seed(
+    [],
+    [
+      {
+        id: caseId,
+        company: 'FLOW 요청서류 영수증 대상 손상기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+    ],
+  );
+  await completedFlowFile(
+    fileId,
+    caseId,
+    undefined,
+    caseId,
+    'requested_document',
+    `${fileId}.pdf`,
+    'application/pdf',
+  );
+  const db = await flowDatabase();
+  const row = await db
+    .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+    .bind(caseId)
+    .first<{ payload: string }>();
+  assert.ok(row);
+  const flow = JSON.parse(row.payload);
+  flow.requests = [
+    {
+      id: requestId,
+      title: '가상 필수서류',
+      required: true,
+      channel: '이메일',
+      recipient: member.email,
+      dueDate: '',
+      status: 'received',
+      fileId,
+      note: '가상 수령 메모',
+      createdAt: date,
+      receivedAt: date,
+    },
+  ];
+  flow.commandIds = [commandId];
+  flow.commandReceipts = {
+    [commandId]: {
+      actorKey,
+      fingerprint,
+      actor: member.name,
+      action: 'receive_document',
+      targetId: requestId,
+    },
+  };
+  flow.audit = [
+    {
+      id: commandId,
+      at: date,
+      actor: member.name,
+      action: 'receive_document',
+      detail: '요청 서류 수령 · 대표 검토 대기',
+    },
+  ];
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    [JSON.stringify(flow), caseId],
+  );
+  const mutateTarget = async (kind: 'receipt' | 'request', value?: string) => {
+    const stored = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind(caseId)
+      .first<{ payload: string }>();
+    assert.ok(stored);
+    const current = JSON.parse(stored.payload);
+    if (kind === 'receipt') {
+      if (value === undefined)
+        delete current.commandReceipts[commandId].targetId;
+      else current.commandReceipts[commandId].targetId = value;
+    } else if (value === undefined) delete current.requests[0].fileId;
+    else current.requests[0].fileId = value;
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(current), caseId],
+    );
+  };
+  await db.batch([
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flow_upload_requests_insert_envelope_guard',
+    ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_insert_guard',
+    ),
+  ]);
+  try {
+    await db.batch([
+      db
+        .prepare(`INSERT INTO consulting_flow_upload_requests
+          (case_id, actor_key, command_id, slot, fingerprint, file_id,
+            storage_key, original_name, content_type, size_bytes, purpose,
+            created_at, status)
+          VALUES (?1, ?2, ?3, 'file', ?4, ?5, ?6, ?7,
+            'application/pdf', 4, 'requested_document', ?8, 'ready')`)
+        .bind(
+          caseId,
+          actorKey,
+          commandId,
+          fingerprint,
+          fileId,
+          `consulting-flow/${fileId}`,
+          `${fileId}.pdf`,
+          date,
+        ),
+      db
+        .prepare(`INSERT INTO consulting_flow_upload_completions
+          (file_id, command_id) VALUES (?1, ?2)`)
+        .bind(fileId, commandId),
+    ]);
+  } finally {
+    await db.batch([
+      db.prepare(consultingFlowUploadRequestsInsertEnvelopeTriggerSql),
+      db.prepare(consultingFlowUploadCompletionsInsertTriggerSql),
+    ]);
+  }
+  const beforeDrift = await page('?status=linked');
+  assert.equal(
+    beforeDrift.items.find(
+      (item) => item.source === 'flow' && item.id === fileId,
+    )?.integrityProof,
+    'metadata',
+  );
+  const bucket = companyFileBucket();
+  const originalHead = bucket.head.bind(bucket);
+  let headCalls = 0;
+  bucket.head = async (...args: Parameters<R2Bucket['head']>) => {
+    headCalls++;
+    return originalHead(...args);
+  };
+  const drifts = [
+    {
+      label: 'request file',
+      corrupt: () => mutateTarget('request'),
+      restore: () => mutateTarget('request', fileId),
+    },
+    {
+      label: 'receipt request',
+      corrupt: () => mutateTarget('receipt', 'forged-request-target'),
+      restore: () => mutateTarget('receipt', requestId),
+    },
+  ];
+  try {
+    for (const drift of drifts) {
+      await drift.corrupt();
+      const inconsistent = await page('?status=inconsistent');
+      assert.equal(
+        inconsistent.integrityCoverage.metadata,
+        beforeDrift.integrityCoverage.metadata - 1,
+      );
+      assert.equal(
+        inconsistent.integrityCoverage.unavailable,
+        beforeDrift.integrityCoverage.unavailable + 1,
+      );
+      const item = inconsistent.items.find(
+        (candidate) => candidate.source === 'flow' && candidate.id === fileId,
+      );
+      assert.ok(item, drift.label);
+      assert.equal(item.status, 'inconsistent');
+      assert.equal(item.flowLinked, true);
+      assert.equal(item.integrityProof, null);
+      assert.doesNotMatch(
+        JSON.stringify(item),
+        /flow-requested-document-target-(?:command|request)|actor_key|fingerprint|consulting-flow\//,
+      );
+      const response = await presence(request(), {
+        params: Promise.resolve({ id: fileId }),
+      });
+      assert.equal(response.status, 503, await response.clone().text());
+      assert.match(await response.text(), /원장의 무결성/);
+      assert.equal(headCalls, 0);
+      await drift.restore();
+      const restored = await page('?status=linked');
+      assert.equal(
+        restored.items.find(
+          (candidate) => candidate.source === 'flow' && candidate.id === fileId,
+        )?.integrityProof,
+        'metadata',
+      );
+    }
+  } finally {
+    bucket.head = originalHead;
+    await mutateTarget('receipt', requestId);
+    await mutateTarget('request', fileId);
+  }
 });
