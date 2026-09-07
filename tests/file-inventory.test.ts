@@ -101,7 +101,11 @@ async function flowReservation(
     )
     .run();
 }
-async function completedFlowFile(id: string, caseId: string) {
+async function completedFlowFile(
+  id: string,
+  caseId: string,
+  ownerStorageKey?: string,
+) {
   const key = `consulting-flow/${id}`;
   const storedFile = {
     id,
@@ -133,7 +137,7 @@ async function completedFlowFile(id: string, caseId: string) {
       .prepare(`INSERT INTO consulting_flow_file_owners
         (file_id, case_id, storage_key, created_at)
         VALUES (?1, ?2, ?3, ?4)`)
-      .bind(id, caseId, key, date),
+      .bind(id, caseId, ownerStorageKey ?? key, date),
     db
       .prepare(`INSERT INTO consulting_flow_file_metadata
         (file_id, original_name, content_type, size_bytes, purpose)
@@ -954,6 +958,49 @@ void test('completed FLOW files remain visible and support metadata-only R2 pres
     assert.equal(headCalls, 1);
   } finally {
     bucket.get = originalGet;
+    bucket.head = originalHead;
+  }
+});
+
+void test('completed FLOW owner-key drift stays inconsistent and fails before R2 access', async () => {
+  const caseId = 'completed-flow-owner-drift-case';
+  const fileId = 'completed-flow-owner-drift';
+  await seed(
+    [],
+    [
+      {
+        id: caseId,
+        company: '소유 원장 손상기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+    ],
+  );
+  await completedFlowFile(fileId, caseId, 'consulting-flow/wrong-owner-key');
+  const inconsistent = await page('?status=inconsistent');
+  const item = inconsistent.items.find((candidate) => candidate.id === fileId);
+  assert.equal(item?.source, 'flow');
+  assert.equal(item?.status, 'inconsistent');
+  assert.equal(item?.flowLinked, true);
+  assert.equal(item?.integrityProof, null);
+
+  const bucket = companyFileBucket();
+  const originalHead = bucket.head.bind(bucket);
+  let headCalls = 0;
+  bucket.head = async (...args: Parameters<R2Bucket['head']>) => {
+    headCalls++;
+    return originalHead(...args);
+  };
+  try {
+    const response = await presence(request(), {
+      params: Promise.resolve({ id: fileId }),
+    });
+    assert.equal(response.status, 503, await response.clone().text());
+    assert.deepEqual(await response.json(), {
+      error: '저장된 상담 FLOW 첨부 원장의 무결성을 확인할 수 없습니다.',
+    });
+    assert.equal(headCalls, 0);
+  } finally {
     bucket.head = originalHead;
   }
 });

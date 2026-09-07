@@ -4012,6 +4012,64 @@ try {
       await sha256('SYNTHETIC_FLOW_MIME'),
     ),
   );
+  const brokenFlowOwnerId = 'inventory-broken-flow-owner';
+  await db.batch([
+    db
+      .prepare(
+        `INSERT INTO consulting_flow_file_owners
+          (file_id, case_id, storage_key, created_at)
+          VALUES (?1, 'runtime-own', ?2, ?3)`,
+      )
+      .bind(
+        brokenFlowOwnerId,
+        'consulting-flow/inventory-wrong-owner-key',
+        privateMimeFile.createdAt,
+      ),
+    db
+      .prepare(
+        `INSERT INTO consulting_flow_file_metadata
+          (file_id, original_name, content_type, size_bytes, purpose)
+          VALUES (?1, 'broken-owner.txt', 'text/plain', 4, 'report')`,
+      )
+      .bind(brokenFlowOwnerId),
+    db
+      .prepare(
+        `INSERT INTO consulting_flow_file_object_integrity
+          (file_id, validation_mode, r2_etag, r2_content_type)
+          VALUES (?1, 'metadata', NULL, 'text/plain')`,
+      )
+      .bind(brokenFlowOwnerId),
+  ]);
+  const brokenFlowInventoryResponse = await expect(
+    await call('/inventory?status=inconsistent', undefined, ownerHeaders),
+    200,
+    'broken completed FLOW ownership remains visible as inconsistent',
+  );
+  const brokenFlowInventory = await brokenFlowInventoryResponse.json();
+  const brokenFlowInventoryItem = brokenFlowInventory.items.find(
+    (item) => item.id === brokenFlowOwnerId,
+  );
+  assert.equal(brokenFlowInventoryItem.source, 'flow');
+  assert.equal(brokenFlowInventoryItem.status, 'inconsistent');
+  assert.equal(brokenFlowInventoryItem.integrityProof, null);
+  assert.doesNotMatch(
+    JSON.stringify(brokenFlowInventoryItem),
+    /storage_key|inventory-wrong-owner-key/,
+  );
+  checks.push(
+    'broken completed FLOW ownership stays inconsistent in inventory',
+  );
+  const brokenFlowPresenceResponse = await expect(
+    await call(`/inventory/${brokenFlowOwnerId}`, undefined, ownerHeaders),
+    503,
+    'broken completed FLOW ownership fails closed before R2 presence trust',
+  );
+  assertPrivateAuthResponse(brokenFlowPresenceResponse);
+  assert.match(
+    (await brokenFlowPresenceResponse.json()).error,
+    /원장의 무결성/,
+  );
+  checks.push('broken completed FLOW ownership blocks R2 presence trust');
   const flowFileBytes = new TextEncoder().encode('SYNTHETIC_FLOW_MIME');
   await bucket.put(
     privateMimeFile.key,
