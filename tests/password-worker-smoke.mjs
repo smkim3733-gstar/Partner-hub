@@ -4012,6 +4012,96 @@ try {
       await sha256('SYNTHETIC_FLOW_MIME'),
     ),
   );
+  const duplicatePayloadCaseId = 'inventory-cross-flow-duplicate-payload';
+  const duplicatePayloadFlow = {
+    schemaVersion: 1,
+    caseId: duplicatePayloadCaseId,
+    company: '전역 파일 중복 감사기업',
+    partnerId: memberId,
+    partnerName: '가상 런타임파트너',
+    revision: 0,
+    updatedAt: '',
+    reports: [],
+    files: [privateMimeFile],
+    analysis: { reportId: '' },
+    meetings: [],
+    recordings: [],
+    requests: [],
+    payments: [],
+    ai: { enabled: false, sourceText: '' },
+    jobs: [],
+    audit: [],
+    commandIds: [],
+  };
+  await db
+    .prepare(
+      `INSERT INTO consulting_flows
+        (case_id, partner_id, revision, payload, updated_at)
+        VALUES (?1, ?2, 0, ?3, '')`,
+    )
+    .bind(
+      duplicatePayloadCaseId,
+      duplicatePayloadFlow.partnerId,
+      JSON.stringify(duplicatePayloadFlow),
+    )
+    .run();
+  try {
+    const duplicatePayloadInventoryResponse = await expect(
+      await call('/inventory?status=inconsistent', undefined, ownerHeaders),
+      200,
+      'cross-FLOW duplicate file payload is quarantined in native inventory',
+    );
+    assertPrivateAuthResponse(duplicatePayloadInventoryResponse);
+    const duplicatePayloadInventory =
+      await duplicatePayloadInventoryResponse.json();
+    const duplicatePayloadItem = duplicatePayloadInventory.items.find(
+      (item) => item.id === privateMimeFile.id,
+    );
+    assert.equal(duplicatePayloadItem.source, 'flow');
+    assert.equal(duplicatePayloadItem.status, 'inconsistent');
+    assert.equal(duplicatePayloadItem.integrityProof, null);
+    assert.equal(
+      duplicatePayloadInventory.integrityCoverage.sha256,
+      completedFlowInventory.integrityCoverage.sha256 - 1,
+    );
+    assert.equal(
+      duplicatePayloadInventory.integrityCoverage.unavailable,
+      completedFlowInventory.integrityCoverage.unavailable + 1,
+    );
+    assert.doesNotMatch(
+      JSON.stringify(duplicatePayloadItem),
+      /storage_key|consulting-flow\//,
+    );
+    const duplicatePayloadPresenceResponse = await expect(
+      await call(`/inventory/${privateMimeFile.id}`, undefined, ownerHeaders),
+      503,
+      'cross-FLOW duplicate blocks native R2 presence trust',
+    );
+    assertPrivateAuthResponse(duplicatePayloadPresenceResponse);
+    assert.match(
+      (await duplicatePayloadPresenceResponse.json()).error,
+      /원장의 무결성/,
+    );
+    checks.push(
+      'cross-FLOW duplicate payload is quarantined before R2 presence trust',
+    );
+  } finally {
+    await deleteConsultingFlowFixture(db, duplicatePayloadCaseId);
+  }
+  const restoredUniqueFlowInventoryResponse = await expect(
+    await call('/inventory?status=linked', undefined, ownerHeaders),
+    200,
+    'completed FLOW inventory recovers after duplicate payload removal',
+  );
+  const restoredUniqueFlowInventory =
+    await restoredUniqueFlowInventoryResponse.json();
+  assert.equal(
+    restoredUniqueFlowInventory.items.find(
+      (item) => item.id === privateMimeFile.id,
+    ).integrityProof,
+    'sha256',
+  );
+  checks.push('unique FLOW payload proof resumes after synthetic cleanup');
   const collisionCompanyKey = `company-source/${privateMimeFile.id}`;
   const collisionCompanyBytes = new TextEncoder().encode(
     'SYNTHETIC_COLLISION_COMPANY',

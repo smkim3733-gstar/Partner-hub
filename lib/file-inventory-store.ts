@@ -157,12 +157,46 @@ export async function listFileInventory(
           ELSE '{"files":[]}' END, '$.files') f
       WHERE json_type(f.value) = 'object'
         AND json_type(f.value, '$.intakeFileId') = 'text'),
-    flow_file_refs AS (SELECT DISTINCT json_extract(f.value, '$.id') AS id
-      FROM consulting_flows c,
-        json_each(CASE WHEN json_valid(c.payload) THEN c.payload
-          ELSE '{"files":[]}' END, '$.files') f
-      WHERE json_type(f.value) = 'object'
-        AND json_type(f.value, '$.id') = 'text'),
+    flow_file_bindings AS (
+      SELECT flow.case_id, json_extract(file.value, '$.id') AS id,
+        json_extract(file.value, '$.key') AS storage_key,
+        json_extract(file.value, '$.createdAt') AS created_at,
+        json_extract(file.value, '$.name') AS original_name,
+        json_extract(file.value, '$.contentType') AS content_type,
+        json_extract(file.value, '$.size') AS size_bytes,
+        json_extract(file.value, '$.purpose') AS purpose,
+        json_extract(file.value, '$.intakeFileId') AS intake_file_id,
+        json_extract(file.value, '$.intakeSourceHash') AS intake_source_hash,
+        json_extract(file.value, '$.sourceReviewedAt') AS source_reviewed_at,
+        json_extract(file.value, '$.sourceReviewedBy') AS source_reviewed_by
+      FROM consulting_flows flow,
+        json_each(CASE WHEN json_valid(flow.payload) THEN flow.payload
+          ELSE '{"files":[]}' END, '$.files') file
+      WHERE json_type(file.value) = 'object'
+        AND json_type(file.value, '$.id') = 'text'
+    ), flow_file_refs AS (
+      SELECT DISTINCT id FROM flow_file_bindings
+    ), flow_owner_payload_bindings AS (
+      SELECT owner.file_id, COUNT(binding.id) AS payload_count,
+        COALESCE(SUM(CASE WHEN
+          binding.case_id = owner.case_id
+          AND binding.storage_key = owner.storage_key
+          AND binding.created_at = owner.created_at
+          AND binding.original_name = metadata.original_name
+          AND binding.content_type = metadata.content_type
+          AND binding.size_bytes = metadata.size_bytes
+          AND binding.purpose = metadata.purpose
+          AND binding.intake_file_id IS metadata.intake_file_id
+          AND binding.intake_source_hash IS metadata.intake_source_hash
+          AND binding.source_reviewed_at IS metadata.source_reviewed_at
+          AND binding.source_reviewed_by IS metadata.source_reviewed_by
+          THEN 1 ELSE 0 END), 0) AS exact_count
+      FROM consulting_flow_file_owners owner
+      LEFT JOIN consulting_flow_file_metadata metadata
+        ON metadata.file_id = owner.file_id
+      LEFT JOIN flow_file_bindings binding ON binding.id = owner.file_id
+      GROUP BY owner.file_id
+    ),
     candidates AS (
       SELECT 'company' AS source_type, f.id, f.original_name, f.company, f.title, f.category, f.size_bytes,
         f.created_at, f.assigned_trainee, a.partner_member_id, f.uploaded_by_email,
@@ -205,23 +239,8 @@ export async function listFileInventory(
           AND metadata.file_id IS NOT NULL
           AND integrity.file_id IS NOT NULL
           AND integrity.r2_content_type = metadata.content_type
-          AND (SELECT COUNT(*)
-            FROM consulting_flows flow,
-              json_each(CASE WHEN json_valid(flow.payload) THEN flow.payload
-                ELSE '{"files":[]}' END, '$.files') stored_file
-            WHERE flow.case_id = owner.case_id
-              AND json_type(stored_file.value) = 'object'
-              AND json_extract(stored_file.value, '$.id') = owner.file_id
-              AND json_extract(stored_file.value, '$.key') = owner.storage_key
-              AND json_extract(stored_file.value, '$.createdAt') = owner.created_at
-              AND json_extract(stored_file.value, '$.name') = metadata.original_name
-              AND json_extract(stored_file.value, '$.contentType') = metadata.content_type
-              AND json_extract(stored_file.value, '$.size') = metadata.size_bytes
-              AND json_extract(stored_file.value, '$.purpose') = metadata.purpose
-              AND json_extract(stored_file.value, '$.intakeFileId') IS metadata.intake_file_id
-              AND json_extract(stored_file.value, '$.intakeSourceHash') IS metadata.intake_source_hash
-              AND json_extract(stored_file.value, '$.sourceReviewedAt') IS metadata.source_reviewed_at
-              AND json_extract(stored_file.value, '$.sourceReviewedBy') IS metadata.source_reviewed_by) = 1
+          AND payload_binding.payload_count = 1
+          AND payload_binding.exact_count = 1
           AND ((integrity.validation_mode = 'metadata'
               AND integrity.r2_etag IS NULL AND checksum.file_id IS NULL)
             OR (integrity.validation_mode = 'etag'
@@ -241,6 +260,8 @@ export async function listFileInventory(
         ON checksum.file_id = owner.file_id
       LEFT JOIN consulting_flow_upload_requests upload
         ON upload.file_id = owner.file_id
+      LEFT JOIN flow_owner_payload_bindings payload_binding
+        ON payload_binding.file_id = owner.file_id
       UNION ALL
       SELECT 'flow', u.file_id, u.original_name, NULL, '상담 FLOW 미완료 첨부',
         u.purpose, u.size_bytes, u.created_at, NULL, NULL, NULL, u.actor_key,
@@ -323,28 +344,15 @@ export async function listFileInventory(
           AND metadata.file_id IS NOT NULL
           AND integrity.file_id IS NOT NULL
           AND integrity.r2_content_type = metadata.content_type
-          AND (SELECT COUNT(*)
-            FROM consulting_flows flow,
-              json_each(CASE WHEN json_valid(flow.payload) THEN flow.payload
-                ELSE '{"files":[]}' END, '$.files') stored_file
-            WHERE flow.case_id = owner.case_id
-              AND json_type(stored_file.value) = 'object'
-              AND json_extract(stored_file.value, '$.id') = owner.file_id
-              AND json_extract(stored_file.value, '$.key') = owner.storage_key
-              AND json_extract(stored_file.value, '$.createdAt') = owner.created_at
-              AND json_extract(stored_file.value, '$.name') = metadata.original_name
-              AND json_extract(stored_file.value, '$.contentType') = metadata.content_type
-              AND json_extract(stored_file.value, '$.size') = metadata.size_bytes
-              AND json_extract(stored_file.value, '$.purpose') = metadata.purpose
-              AND json_extract(stored_file.value, '$.intakeFileId') IS metadata.intake_file_id
-              AND json_extract(stored_file.value, '$.intakeSourceHash') IS metadata.intake_source_hash
-              AND json_extract(stored_file.value, '$.sourceReviewedAt') IS metadata.source_reviewed_at
-              AND json_extract(stored_file.value, '$.sourceReviewedBy') IS metadata.source_reviewed_by) = 1
+          AND payload_binding.payload_count = 1
+          AND payload_binding.exact_count = 1
           THEN 1 ELSE 0 END AS ledger_valid
       FROM consulting_flow_file_owners owner
       LEFT JOIN consulting_flow_file_metadata metadata ON metadata.file_id = owner.file_id
       LEFT JOIN consulting_flow_file_object_integrity integrity ON integrity.file_id = owner.file_id
       LEFT JOIN consulting_flow_file_object_checksums checksum ON checksum.file_id = owner.file_id
+      LEFT JOIN flow_owner_payload_bindings payload_binding
+        ON payload_binding.file_id = owner.file_id
     ), proof_classified AS (
       SELECT CASE
         WHEN ledger_valid = 1 AND validation_mode = 'metadata' AND r2_etag IS NULL
@@ -498,20 +506,27 @@ export async function checkInventoryPresence(
   const db = await inventoryDatabase();
   const rows = await db
     .prepare(`SELECT 'company' AS source_type, f.id, f.storage_key, f.content_type,
-      f.size_bytes, u.file_id, NULL AS case_id
+      f.size_bytes, u.file_id, NULL AS case_id, NULL AS payload_file_count
     FROM company_file_objects f LEFT JOIN company_file_upload_requests u ON u.file_id = f.id WHERE f.id = ?1
     UNION ALL SELECT 'company', NULL, 'company-source/' || file_id, NULL, NULL,
-      file_id, NULL
+      file_id, NULL, NULL
     FROM company_file_upload_requests
     WHERE file_id = ?1 AND NOT EXISTS (SELECT 1 FROM company_file_objects WHERE id = ?1)
     UNION ALL SELECT 'flow', owner.file_id, owner.storage_key,
-      metadata.content_type, metadata.size_bytes, owner.file_id, owner.case_id
+      metadata.content_type, metadata.size_bytes, owner.file_id, owner.case_id,
+      (SELECT COUNT(*)
+        FROM consulting_flows flow,
+          json_each(CASE WHEN json_valid(flow.payload) THEN flow.payload
+            ELSE '{"files":[]}' END, '$.files') stored_file
+        WHERE json_type(stored_file.value) = 'object'
+          AND json_type(stored_file.value, '$.id') = 'text'
+          AND json_extract(stored_file.value, '$.id') = owner.file_id)
     FROM consulting_flow_file_owners owner
     LEFT JOIN consulting_flow_file_metadata metadata
       ON metadata.file_id = owner.file_id
     WHERE owner.file_id = ?1
     UNION ALL SELECT 'flow', NULL, upload.storage_key, upload.content_type,
-      upload.size_bytes, upload.file_id, upload.case_id
+      upload.size_bytes, upload.file_id, upload.case_id, NULL
     FROM consulting_flow_upload_requests upload
     WHERE upload.file_id = ?1 AND upload.status = 'pending'
       AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners owner
@@ -526,6 +541,7 @@ export async function checkInventoryPresence(
       size_bytes: number | null;
       file_id: string | null;
       case_id: string | null;
+      payload_file_count: number | null;
     }>();
   if (rows.results.length === 0)
     throw new CompanyFileError('확인할 파일 기록을 찾지 못했습니다.', 404);
@@ -556,7 +572,11 @@ export async function checkInventoryPresence(
   let flowFile: FlowFile | null = null;
   let flowCaseId: string | null = null;
   if (row.source_type === 'flow' && row.id !== null) {
-    if (row.case_id === null || row.storage_key !== `consulting-flow/${row.id}`)
+    if (
+      row.case_id === null ||
+      row.storage_key !== `consulting-flow/${row.id}` ||
+      row.payload_file_count !== 1
+    )
       throw new CompanyFileError(
         '저장된 상담 FLOW 첨부 원장의 무결성을 확인할 수 없습니다.',
         503,

@@ -16,7 +16,10 @@ import {
   readFileInventoryPresenceResponse,
 } from '../lib/file-inventory-response';
 import { mutateCompanyFileObjectFixture } from './company-file-object-fixture';
-import { deleteConsultingFlowFixture } from './flow-root-fixture';
+import {
+  deleteConsultingFlowFixture,
+  mutateConsultingFlowFixture,
+} from './flow-root-fixture';
 import { deleteFlowFileLedgerFixture } from './flow-file-ledger-fixture';
 import { consultingFlowUploadRequestsNoDeleteTriggerSql } from '../db/schema';
 import {
@@ -105,6 +108,7 @@ async function completedFlowFile(
   id: string,
   caseId: string,
   ownerStorageKey?: string,
+  ownerCaseId = caseId,
 ) {
   const key = `consulting-flow/${id}`;
   const storedFile = {
@@ -137,7 +141,7 @@ async function completedFlowFile(
       .prepare(`INSERT INTO consulting_flow_file_owners
         (file_id, case_id, storage_key, created_at)
         VALUES (?1, ?2, ?3, ?4)`)
-      .bind(id, caseId, ownerStorageKey ?? key, date),
+      .bind(id, ownerCaseId, ownerStorageKey ?? key, date),
     db
       .prepare(`INSERT INTO consulting_flow_file_metadata
         (file_id, original_name, content_type, size_bytes, purpose)
@@ -149,6 +153,7 @@ async function completedFlowFile(
         VALUES (?1, 'metadata', NULL, 'text/plain')`)
       .bind(id),
   ]);
+  return storedFile;
 }
 async function file(
   id: string,
@@ -1078,6 +1083,136 @@ void test('completed FLOW owner-key drift stays inconsistent and fails before R2
     assert.deepEqual(await response.json(), {
       error: '저장된 상담 FLOW 첨부 원장의 무결성을 확인할 수 없습니다.',
     });
+    assert.equal(headCalls, 0);
+  } finally {
+    bucket.head = originalHead;
+  }
+});
+
+void test('completed FLOW case drift, missing payload and cross-FLOW duplicate stay inconsistent and fail before R2 access', async () => {
+  const ownerDriftFlowCaseId = 'completed-flow-owner-case-drift-source';
+  const ownerDriftLedgerCaseId = 'completed-flow-owner-case-drift-target';
+  const missingPayloadCaseId = 'completed-flow-missing-payload-case';
+  const duplicateOwnerCaseId = 'completed-flow-duplicate-owner-case';
+  const duplicateOtherCaseId = 'completed-flow-duplicate-other-case';
+  const ownerDriftId = 'completed-flow-owner-case-drift';
+  const missingPayloadId = 'completed-flow-missing-payload';
+  const duplicateId = 'completed-flow-cross-flow-duplicate';
+  await seed(
+    [],
+    [
+      ownerDriftFlowCaseId,
+      ownerDriftLedgerCaseId,
+      missingPayloadCaseId,
+      duplicateOwnerCaseId,
+      duplicateOtherCaseId,
+    ].map((id) => ({
+      id,
+      company: `FLOW 재고 감사 ${id}`,
+      trainee: member.name,
+      partnerMemberId: member.id,
+    })),
+  );
+  await completedFlowFile(
+    ownerDriftId,
+    ownerDriftFlowCaseId,
+    undefined,
+    ownerDriftLedgerCaseId,
+  );
+  await completedFlowFile(missingPayloadId, missingPayloadCaseId);
+  const duplicateFile = await completedFlowFile(
+    duplicateId,
+    duplicateOwnerCaseId,
+  );
+  const beforePayloadCorruption = await page('?status=all');
+  const db = await flowDatabase();
+  const missingPayloadRow = await db
+    .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+    .bind(missingPayloadCaseId)
+    .first<{ payload: string }>();
+  assert.ok(missingPayloadRow);
+  const missingPayloadFlow = JSON.parse(missingPayloadRow.payload);
+  missingPayloadFlow.revision = 2;
+  missingPayloadFlow.updatedAt = '2026-08-31T00:00:00.001Z';
+  missingPayloadFlow.files = [];
+  await mutateConsultingFlowFixture(
+    db,
+    `UPDATE consulting_flows
+      SET revision = 2, payload = ?2, updated_at = ?3 WHERE case_id = ?1`,
+    [
+      missingPayloadCaseId,
+      JSON.stringify(missingPayloadFlow),
+      missingPayloadFlow.updatedAt,
+    ],
+  );
+  const duplicateFlow = {
+    ...newConsultingFlow(
+      duplicateOtherCaseId,
+      '중복 FLOW payload 감사기업',
+      member.id,
+      member.name,
+    ),
+    revision: 1,
+    updatedAt: date,
+    files: [duplicateFile],
+  };
+  await db
+    .prepare(
+      'INSERT INTO consulting_flows (case_id, partner_id, revision, payload, updated_at) VALUES (?1, ?2, 1, ?3, ?4)',
+    )
+    .bind(duplicateOtherCaseId, member.id, JSON.stringify(duplicateFlow), date)
+    .run();
+
+  const inconsistent = await page('?status=inconsistent');
+  assert.equal(
+    inconsistent.integrityCoverage.metadata,
+    beforePayloadCorruption.integrityCoverage.metadata - 2,
+  );
+  assert.equal(
+    inconsistent.integrityCoverage.unavailable,
+    beforePayloadCorruption.integrityCoverage.unavailable + 2,
+  );
+  assert.deepEqual(
+    inconsistent.items
+      .filter((item) =>
+        [ownerDriftId, missingPayloadId, duplicateId].includes(item.id),
+      )
+      .map(({ id, source, status, integrityProof }) => ({
+        id,
+        source,
+        status,
+        integrityProof,
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    [duplicateId, missingPayloadId, ownerDriftId].sort().map((id) => ({
+      id,
+      source: 'flow',
+      status: 'inconsistent',
+      integrityProof: null,
+    })),
+  );
+  assert.doesNotMatch(
+    JSON.stringify(inconsistent.items),
+    /consulting-flow\/|storage_key/,
+  );
+
+  const bucket = companyFileBucket();
+  const originalHead = bucket.head.bind(bucket);
+  let headCalls = 0;
+  bucket.head = async (...args: Parameters<R2Bucket['head']>) => {
+    headCalls++;
+    return originalHead(...args);
+  };
+  try {
+    for (const id of [ownerDriftId, missingPayloadId, duplicateId]) {
+      const response = await presence(request(), {
+        params: Promise.resolve({ id }),
+      });
+      assert.equal(response.status, 503, await response.clone().text());
+      assert.deepEqual(await response.json(), {
+        error: '저장된 상담 FLOW 첨부 원장의 무결성을 확인할 수 없습니다.',
+      });
+    }
     assert.equal(headCalls, 0);
   } finally {
     bucket.head = originalHead;
