@@ -39,6 +39,36 @@ type SourceMetadata = Pick<
   CompanyFileRow,
   'id' | 'original_name' | 'category' | 'size_bytes' | 'created_at'
 >;
+
+function belongsToFlow(row: CompanyFileRow, flow: ConsultingFlow) {
+  return (
+    row.company === flow.company &&
+    (row.case_id == null || row.case_id === flow.caseId) &&
+    (row.partner_member_id != null
+      ? Boolean(row.partner_member_id) &&
+        row.partner_member_id === flow.partnerId
+      : row.assigned_trainee === flow.partnerName)
+  );
+}
+
+function sameSourceFacts(left: CompanyFileRow, right: CompanyFileRow) {
+  return (
+    left.id === right.id &&
+    left.storage_key === right.storage_key &&
+    left.original_name === right.original_name &&
+    left.company === right.company &&
+    left.category === right.category &&
+    left.title === right.title &&
+    left.assigned_trainee === right.assigned_trainee &&
+    (left.partner_member_id ?? null) === (right.partner_member_id ?? null) &&
+    (left.case_id ?? null) === (right.case_id ?? null) &&
+    left.uploaded_by_user_id === right.uploaded_by_user_id &&
+    left.uploaded_by_email === right.uploaded_by_email &&
+    left.content_type === right.content_type &&
+    left.size_bytes === right.size_bytes &&
+    left.created_at === right.created_at
+  );
+}
 function option(row: SourceMetadata): IntakeSourceOption {
   return {
     id: row.id,
@@ -85,11 +115,7 @@ async function loadSource(flow: ConsultingFlow, fileId: unknown) {
   if (
     !row ||
     !(await isCompanyFileIntakeVisible(fileId)) ||
-    row.company !== flow.company ||
-    (row.case_id != null && row.case_id !== flow.caseId) ||
-    (row.partner_member_id != null
-      ? !row.partner_member_id || row.partner_member_id !== flow.partnerId
-      : row.assigned_trainee !== flow.partnerName)
+    !belongsToFlow(row, flow)
   )
     throw new FlowError(
       '이 기업·담당 파트너에게 연결된 신청자료를 찾지 못했습니다.',
@@ -98,7 +124,8 @@ async function loadSource(flow: ConsultingFlow, fileId: unknown) {
   const file = option(row);
   if (file.blockedReason) throw new FlowError(file.blockedReason);
   const integrity = await readCompanyFileObjectIntegrity(row);
-  const object = await companyFileBucket().get(row.storage_key);
+  const bucket = companyFileBucket();
+  const object = await bucket.get(row.storage_key);
   if (!object)
     throw new FlowError(
       '원본이 없거나 삭제되었습니다. 자료함을 확인해 주세요.',
@@ -131,6 +158,46 @@ async function loadSource(flow: ConsultingFlow, fileId: unknown) {
   const sourceHash = Array.from(new Uint8Array(digest), (b) =>
     b.toString(16).padStart(2, '0'),
   ).join('');
+
+  // Reading and hashing may take long enough for assignment, deletion, or the
+  // R2 original to change. Never expose or copy a stale prefetched snapshot.
+  const latestRow = await findCompanyFile(fileId);
+  if (
+    !latestRow ||
+    !(await isCompanyFileIntakeVisible(fileId)) ||
+    !belongsToFlow(latestRow, flow)
+  )
+    throw new FlowError(
+      '이 기업·담당 파트너에게 연결된 신청자료를 찾지 못했습니다.',
+      404,
+    );
+  if (!sameSourceFacts(row, latestRow))
+    throw new FlowError(
+      '원본 보관 정보가 변경되었습니다. 자료를 다시 확인해 주세요.',
+      409,
+    );
+  const latestIntegrity = await readCompanyFileObjectIntegrity(latestRow);
+  const currentObject = await bucket.head(latestRow.storage_key);
+  if (!currentObject)
+    throw new FlowError(
+      '원본이 없거나 삭제되었습니다. 자료함을 확인해 주세요.',
+      404,
+    );
+  if (
+    latestIntegrity.validationMode !== integrity.validationMode ||
+    latestIntegrity.etag !== integrity.etag ||
+    latestIntegrity.contentType !== integrity.contentType ||
+    !companyFileObjectMatchesIntegrity(latestRow, object, latestIntegrity) ||
+    !companyFileObjectMatchesIntegrity(
+      latestRow,
+      currentObject,
+      latestIntegrity,
+    )
+  )
+    throw new FlowError(
+      '원본 보관 정보가 변경되었습니다. 자료를 다시 확인해 주세요.',
+      409,
+    );
   return { file, bytes, sourceHash };
 }
 

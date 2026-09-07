@@ -153,6 +153,12 @@ export async function POST(request: Request, context: Context) {
       input.command.type === 'import_intake_source'
         ? await prepareIntakeImport(flow, user, input.command, now)
         : undefined;
+    if (imported) {
+      // Source R2 reads, document parsing, and SHA-256 hashing happen before a
+      // FLOW reservation. Recheck now so stale access cannot create one.
+      const sourceCheckedAccess = await recheckFlowAccess(request, flow, user);
+      assertFlowLifecycleActive(sourceCheckedAccess.state, flow.caseId);
+    }
     const candidateUpload = imported?.file ?? describedUpload;
     const actor = {
       id: user.memberId || user.id,

@@ -376,6 +376,53 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
     assert.equal(docPreview.text, originalText);
     assert.equal(docPreview.file.kind, 'text');
     assert.match(docPreview.sourceHash, /^[a-f0-9]{64}$/);
+    const originalPortalState = (await readPortalState()) as {
+      cases: Array<{
+        id: string;
+        trainee: string;
+        partnerMemberId?: string;
+      }>;
+    };
+    const deletedCaseState = structuredClone(originalPortalState);
+    deletedCaseState.cases = deletedCaseState.cases.filter(
+      ({ id }) => id !== caseId,
+    );
+    const reassignedCaseState = structuredClone(originalPortalState);
+    const reassignedCase = reassignedCaseState.cases.find(
+      ({ id }) => id === caseId,
+    );
+    assert.ok(reassignedCase);
+    reassignedCase.trainee = '다른 담당자';
+    reassignedCase.partnerMemberId = 'review-other';
+    const sourceBucket = companyFileBucket();
+    const sourceGet = sourceBucket.get.bind(sourceBucket);
+    const docRow = await findCompanyFile(docId);
+    assert.ok(docRow);
+
+    sourceBucket.get = async (...args: Parameters<R2Bucket['get']>) => {
+      const object = await sourceGet(...args);
+      if (!object || args[0] !== docRow.storage_key) return object;
+      const arrayBuffer = object.arrayBuffer.bind(object);
+      object.arrayBuffer = async () => {
+        const bytes = await arrayBuffer();
+        await writePortalState(deletedCaseState);
+        return bytes;
+      };
+      return object;
+    };
+    try {
+      const revokedPreview = await intake(
+        request(`${endpoint}/intake-files?fileId=${docId}`),
+        context,
+      );
+      assert.equal(revokedPreview.status, 404);
+      assert.deepEqual(await revokedPreview.json(), {
+        error: '해당 컨설팅 진행을 찾을 수 없습니다.',
+      });
+    } finally {
+      sourceBucket.get = sourceGet;
+      await writePortalState(originalPortalState);
+    }
     assert.equal(
       await readFlow(caseId),
       null,
@@ -414,6 +461,98 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
       flow = ((await response.json()) as { flow: ConsultingFlow }).flow;
     }
     const cmd = importCommand(docPreview, reviewedText);
+    const flowDb = await flowDatabase();
+    const previousFlowKeys = new Set(objects.keys());
+
+    sourceBucket.get = async (...args: Parameters<R2Bucket['get']>) => {
+      const object = await sourceGet(...args);
+      if (!object || args[0] !== docRow.storage_key) return object;
+      const arrayBuffer = object.arrayBuffer.bind(object);
+      object.arrayBuffer = async () => {
+        const bytes = await arrayBuffer();
+        await writePortalState(reassignedCaseState);
+        return bytes;
+      };
+      return object;
+    };
+    const accessRaceCommandId = 'intake-source-read-assignment-race';
+    try {
+      const accessRace = await post(cmd, accessRaceCommandId);
+      assert.equal(accessRace.status, 403, await accessRace.clone().text());
+      assert.match(
+        ((await accessRace.json()) as { error: string }).error,
+        /담당 정보가 변경/,
+      );
+    } finally {
+      sourceBucket.get = sourceGet;
+      await writePortalState(originalPortalState);
+    }
+    assert.equal(
+      (
+        await flowDb
+          .prepare(
+            `SELECT COUNT(*) AS count FROM consulting_flow_upload_requests
+            WHERE case_id = ?1 AND command_id = ?2`,
+          )
+          .bind(caseId, accessRaceCommandId)
+          .first<{ count: number }>()
+      )?.count,
+      0,
+    );
+    assert.deepEqual(
+      [...objects.keys()].filter((key) => !previousFlowKeys.has(key)),
+      [],
+    );
+
+    const originalDocObject = await sourceGet(docRow.storage_key);
+    assert.ok(originalDocObject);
+    const originalDocBytes = await originalDocObject.arrayBuffer();
+    const damagedDocBytes = new Uint8Array(originalDocBytes.slice(0));
+    damagedDocBytes[damagedDocBytes.byteLength - 1] ^= 1;
+    sourceBucket.get = async (...args: Parameters<R2Bucket['get']>) => {
+      const object = await sourceGet(...args);
+      if (!object || args[0] !== docRow.storage_key) return object;
+      const arrayBuffer = object.arrayBuffer.bind(object);
+      object.arrayBuffer = async () => {
+        const bytes = await arrayBuffer();
+        await sourceBucket.put(docRow.storage_key, damagedDocBytes, {
+          httpMetadata: { contentType: docRow.content_type },
+        });
+        return bytes;
+      };
+      return object;
+    };
+    const damageRaceCommandId = 'intake-source-read-damage-race';
+    try {
+      const damageRace = await post(cmd, damageRaceCommandId);
+      assert.equal(damageRace.status, 409, await damageRace.clone().text());
+      assert.match(
+        ((await damageRace.json()) as { error: string }).error,
+        /원본 보관 정보가 변경/,
+      );
+    } finally {
+      sourceBucket.get = sourceGet;
+      await sourceBucket.put(docRow.storage_key, originalDocBytes, {
+        httpMetadata: { contentType: docRow.content_type },
+      });
+    }
+    assert.equal(
+      (
+        await flowDb
+          .prepare(
+            `SELECT COUNT(*) AS count FROM consulting_flow_upload_requests
+            WHERE case_id = ?1 AND command_id = ?2`,
+          )
+          .bind(caseId, damageRaceCommandId)
+          .first<{ count: number }>()
+      )?.count,
+      0,
+    );
+    assert.deepEqual(
+      [...objects.keys()].filter((key) => !previousFlowKeys.has(key)),
+      [],
+    );
+
     for (const key of [
       'contentReviewed',
       'fileConsent',
@@ -448,16 +587,8 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
     assert.equal(await readFlow(caseId), null);
 
     const importCommandId = 'intake-fixed-command';
-    const originalPortalState = (await readPortalState()) as {
-      cases: Array<{ id: string }>;
-    };
-    const deletedCaseState = structuredClone(originalPortalState);
-    deletedCaseState.cases = deletedCaseState.cases.filter(
-      ({ id }) => id !== caseId,
-    );
     const flowStorage = flowBucket();
     const put = flowStorage.put.bind(flowStorage);
-    const previousFlowKeys = new Set(objects.keys());
     async function failImportCopy(afterCommit: boolean) {
       let injected = false;
       flowStorage.put = async (...args: Parameters<R2Bucket['put']>) => {
@@ -486,7 +617,6 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
     assert.equal(await readFlow(caseId), null);
     await writePortalState(originalPortalState);
 
-    const flowDb = await flowDatabase();
     const reservation = await flowDb
       .prepare(
         `SELECT file_id, storage_key, status

@@ -3,7 +3,11 @@ import {
   previewIntakeSource,
   requireIntakeReviewer,
 } from '@/lib/consulting-intake-sources';
-import { loadFlowAccess, flowErrorResponse } from '@/lib/consulting-flow-store';
+import {
+  loadFlowAccess,
+  flowErrorResponse,
+  recheckFlowAccess,
+} from '@/lib/consulting-flow-store';
 import { readSingleQueryParam } from '@/lib/request-query';
 import { privateJsonResponse } from '@/lib/private-response';
 
@@ -21,6 +25,9 @@ export async function GET(request: Request, context: Context) {
       fileId !== null
         ? await previewIntakeSource(flow, fileId)
         : await listIntakeSources(flow);
+    // Listing, R2 reads, parsing, and hashing are asynchronous. Do not return
+    // prefetched private metadata or content after case access changes.
+    await recheckFlowAccess(request, flow, user);
     return privateJsonResponse(result);
   } catch (error) {
     return flowErrorResponse(error);
