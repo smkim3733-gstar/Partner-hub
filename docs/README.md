@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [상담 FLOW 신청자료 예약 직전 원본 경쟁](FLOW_INTAKE_PRE_RESERVATION_SOURCE_RACE_INTEGRITY_2026_09_07.md)            | 접근 재검사 중 원본 삭제·R2 교체 차단, 예약 배치·행·객체·FLOW 0건                        |
 | [상담 FLOW 신청자료 원본 읽기·해시 경쟁](FLOW_INTAKE_SOURCE_READ_RACE_INTEGRITY_2026_09_07.md)                       | 읽기 뒤 접근·원본 재대조, 사건 삭제·담당 변경·R2 교체 차단, 예약·복사 0건                |
 | [상담 FLOW 신청자료 R2 복사 실패·접근변경 재시도](FLOW_INTAKE_COPY_R2_FAILURE_ACCESS_RACE_2026_09_07.md)             | 목적지 객체 생성 전/후 실패·사건 삭제 404·불변 검토시각·동일 예약 복구                   |
 | [상담 FLOW 두 번째 R2 저장 실패 중 접근변경 경쟁](FLOW_SECOND_R2_WRITE_FAILURE_ACCESS_RACE_2026_09_07.md)            | 첫 객체 보존·두 번째 객체 생성 전/후 실패·pending 예약·정확 재시도                       |
