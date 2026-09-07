@@ -210,6 +210,9 @@ export async function POST(request: Request, context: Context) {
         true,
       );
       assertFlowLifecycleActive(reservationCheckedAccess.state, flow.caseId);
+      // Reservation creation is asynchronous D1 work. An intake original may
+      // change after the pre-reservation check; stop before copying its bytes.
+      if (imported) await recheckPreparedIntakeImport(flow, imported);
     }
     const upload = candidateUpload ? reservations.get('file') : undefined;
     const reservedAudioUpload = audioUpload
