@@ -788,6 +788,27 @@ async function deleteFlowFileLedgerFixture(db, table, fileId) {
     await db.prepare(flowLedgerNoDeleteTriggerSql[table]).run();
   }
 }
+async function withoutD1Triggers(db, names, action) {
+  const definitions = [];
+  for (const name of names) {
+    const row = await db
+      .prepare(
+        "SELECT sql FROM sqlite_schema WHERE type = 'trigger' AND name = ?1",
+      )
+      .bind(name)
+      .first();
+    assert.equal(typeof row?.sql, 'string', `${name} trigger must exist`);
+    definitions.push(row.sql);
+  }
+  await db.batch(
+    names.map((name) => db.prepare(`DROP TRIGGER IF EXISTS ${name}`)),
+  );
+  try {
+    return await action();
+  } finally {
+    await db.batch(definitions.map((sql) => db.prepare(sql)));
+  }
+}
 async function deleteConsultingFlowFixture(db, caseId) {
   await db.prepare('DROP TRIGGER IF EXISTS consulting_flows_no_delete').run();
   try {
@@ -4257,6 +4278,150 @@ try {
     false,
   );
   checks.push('orphan FLOW child ledger audit cleanup restores inventory');
+  const orphanReadyReservationId = 'inventory-orphan-flow-ready-reservation';
+  const orphanCompletionReceiptId = 'inventory-orphan-flow-completion-receipt';
+  await withoutD1Triggers(
+    db,
+    ['consulting_flow_upload_requests_insert_envelope_guard'],
+    async () =>
+      db
+        .prepare(`INSERT INTO consulting_flow_upload_requests
+          (case_id, actor_key, command_id, slot, fingerprint, file_id,
+            storage_key, original_name, content_type, size_bytes, purpose,
+            created_at, status)
+          VALUES ('runtime-own', 'admin:primary',
+            'orphan-ready-reservation-command', 'file', ?1, ?2, ?3, ?4,
+            'text/plain', 4, 'report', '2026-09-07T00:00:00.000Z', 'ready')`)
+        .bind(
+          'f'.repeat(64),
+          orphanReadyReservationId,
+          `consulting-flow/${orphanReadyReservationId}`,
+          `${orphanReadyReservationId}.txt`,
+        )
+        .run(),
+  );
+  await withoutD1Triggers(
+    db,
+    ['consulting_flow_upload_completions_insert_guard'],
+    async () =>
+      db
+        .prepare(`INSERT INTO consulting_flow_upload_completions
+          (file_id, command_id) VALUES (?1, 'orphan-completion-command')`)
+        .bind(orphanCompletionReceiptId)
+        .run(),
+  );
+  try {
+    const orphanReceiptInventoryResponse = await expect(
+      await call('/inventory?status=inconsistent', undefined, ownerHeaders),
+      200,
+      'orphan FLOW ready reservations and completions remain visible in native inventory',
+    );
+    assertPrivateAuthResponse(orphanReceiptInventoryResponse);
+    const orphanReceiptInventory = await orphanReceiptInventoryResponse.json();
+    const orphanReceiptItems = orphanReceiptInventory.items.filter(
+      (item) =>
+        item.source === 'flow' &&
+        [orphanReadyReservationId, orphanCompletionReceiptId].includes(item.id),
+    );
+    assert.equal(orphanReceiptItems.length, 2);
+    const orphanReceiptsById = Object.fromEntries(
+      orphanReceiptItems.map((item) => [item.id, item]),
+    );
+    assert.deepEqual(
+      {
+        fileName: orphanReceiptsById[orphanReadyReservationId].fileName,
+        title: orphanReceiptsById[orphanReadyReservationId].title,
+        category: orphanReceiptsById[orphanReadyReservationId].category,
+        sizeBytes: orphanReceiptsById[orphanReadyReservationId].sizeBytes,
+      },
+      {
+        fileName: `${orphanReadyReservationId}.txt`,
+        title: '상담 FLOW 완료 예약 원장 누락 첨부',
+        category: 'report',
+        sizeBytes: 4,
+      },
+    );
+    assert.deepEqual(
+      {
+        fileName: orphanReceiptsById[orphanCompletionReceiptId].fileName,
+        title: orphanReceiptsById[orphanCompletionReceiptId].title,
+        category: orphanReceiptsById[orphanCompletionReceiptId].category,
+        sizeBytes: orphanReceiptsById[orphanCompletionReceiptId].sizeBytes,
+      },
+      {
+        fileName: null,
+        title: '상담 FLOW 완료 영수증 고아 기록',
+        category: null,
+        sizeBytes: null,
+      },
+    );
+    for (const item of orphanReceiptItems) {
+      assert.equal(item.status, 'inconsistent');
+      assert.equal(item.flowLinked, false);
+      assert.equal(item.integrityProof, null);
+    }
+    assert.equal(
+      orphanReceiptInventory.integrityCoverage.unavailable,
+      afterOrphanChildCleanup.integrityCoverage.unavailable + 2,
+    );
+    assert.doesNotMatch(
+      JSON.stringify(orphanReceiptItems),
+      /consulting-flow\/|actor_key|fingerprint|orphan-completion-command/,
+    );
+    for (const fileId of [
+      orphanReadyReservationId,
+      orphanCompletionReceiptId,
+    ]) {
+      const orphanReceiptPresenceResponse = await expect(
+        await call(`/inventory/${fileId}`, undefined, ownerHeaders),
+        503,
+        'orphan FLOW receipt blocks native R2 presence trust',
+      );
+      assertPrivateAuthResponse(orphanReceiptPresenceResponse);
+      assert.match(
+        (await orphanReceiptPresenceResponse.json()).error,
+        /원장의 무결성/,
+      );
+    }
+    checks.push(
+      'orphan FLOW ready reservation and completion receipt stay unavailable without exposing receipt data',
+    );
+  } finally {
+    await withoutD1Triggers(
+      db,
+      [
+        'consulting_flow_upload_completions_no_delete',
+        'consulting_flow_upload_requests_no_delete',
+      ],
+      async () =>
+        db.batch([
+          db
+            .prepare(
+              'DELETE FROM consulting_flow_upload_completions WHERE file_id = ?1',
+            )
+            .bind(orphanCompletionReceiptId),
+          db
+            .prepare(
+              'DELETE FROM consulting_flow_upload_requests WHERE file_id = ?1',
+            )
+            .bind(orphanReadyReservationId),
+        ]),
+    );
+  }
+  const afterOrphanReceiptCleanup = await (
+    await expect(
+      await call('/inventory?status=all', undefined, ownerHeaders),
+      200,
+      'synthetic orphan FLOW receipts are removed after native audit',
+    )
+  ).json();
+  assert.equal(
+    afterOrphanReceiptCleanup.items.some((item) =>
+      [orphanReadyReservationId, orphanCompletionReceiptId].includes(item.id),
+    ),
+    false,
+  );
+  checks.push('orphan FLOW receipt audit cleanup restores inventory');
   const collisionCompanyKey = `company-source/${privateMimeFile.id}`;
   const collisionCompanyBytes = new TextEncoder().encode(
     'SYNTHETIC_COLLISION_COMPANY',

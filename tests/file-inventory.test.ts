@@ -21,7 +21,13 @@ import {
   mutateConsultingFlowFixture,
 } from './flow-root-fixture';
 import { deleteFlowFileLedgerFixture } from './flow-file-ledger-fixture';
-import { consultingFlowUploadRequestsNoDeleteTriggerSql } from '../db/schema';
+import {
+  consultingFlowUploadCompletionsInsertTriggerSql,
+  consultingFlowUploadCompletionsNoDeleteTriggerSql,
+  consultingFlowUploadRequestsCompletionTriggerSql,
+  consultingFlowUploadRequestsNoDeleteTriggerSql,
+  consultingFlowUploadRequestsReadyTriggerSql,
+} from '../db/schema';
 import {
   FLOW_ADMIN_COMMAND_ACTOR_KEY,
   FLOW_ADMIN_COMMAND_ACTOR_NAME,
@@ -1398,6 +1404,158 @@ void test('orphan FLOW child ledgers without an owner or payload stay visible on
       'consulting_flow_file_metadata',
     ] as const)
       await deleteFlowFileLedgerFixture(db, table, fileId);
+  }
+});
+
+void test('orphan FLOW ready reservations and completion receipts stay visible once and fail before R2 access', async () => {
+  const caseId = 'orphan-flow-receipt-case';
+  const readyId = 'orphan-flow-ready-reservation';
+  const completionId = 'orphan-flow-completion-receipt';
+  await seed(
+    [],
+    [
+      {
+        id: caseId,
+        company: 'FLOW 영수증 고아기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+    ],
+  );
+  const beforeReceipts = await page('?status=all');
+  const db = await flowDatabase();
+  await flowReservation(readyId, caseId, `member:${member.id}`);
+  await db.batch([
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flow_upload_requests_ready_guard',
+    ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flow_upload_requests_completion_guard',
+    ),
+  ]);
+  try {
+    await db
+      .prepare(
+        "UPDATE consulting_flow_upload_requests SET status = 'ready' WHERE file_id = ?1",
+      )
+      .bind(readyId)
+      .run();
+  } finally {
+    await db.batch([
+      db.prepare(consultingFlowUploadRequestsReadyTriggerSql),
+      db.prepare(consultingFlowUploadRequestsCompletionTriggerSql),
+    ]);
+  }
+  await db
+    .prepare(
+      'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_insert_guard',
+    )
+    .run();
+  try {
+    await db
+      .prepare(`INSERT INTO consulting_flow_upload_completions
+        (file_id, command_id) VALUES (?1, 'orphan-completion-command')`)
+      .bind(completionId)
+      .run();
+  } finally {
+    await db.prepare(consultingFlowUploadCompletionsInsertTriggerSql).run();
+  }
+  const bucket = companyFileBucket();
+  const originalHead = bucket.head.bind(bucket);
+  let headCalls = 0;
+  bucket.head = async (...args: Parameters<R2Bucket['head']>) => {
+    headCalls++;
+    return originalHead(...args);
+  };
+  try {
+    const inconsistent = await page('?status=inconsistent');
+    assert.equal(
+      inconsistent.integrityCoverage.unavailable,
+      beforeReceipts.integrityCoverage.unavailable + 2,
+    );
+    const receiptItems = inconsistent.items.filter(
+      (candidate) =>
+        candidate.source === 'flow' &&
+        (candidate.id === readyId || candidate.id === completionId),
+    );
+    assert.equal(receiptItems.length, 2);
+    assert.deepEqual(
+      receiptItems.map((candidate) => ({
+        id: candidate.id,
+        fileName: candidate.fileName,
+        title: candidate.title,
+        category: candidate.category,
+        sizeBytes: candidate.sizeBytes,
+        status: candidate.status,
+        flowLinked: candidate.flowLinked,
+        integrityProof: candidate.integrityProof,
+      })),
+      [
+        {
+          id: readyId,
+          fileName: `${readyId}.txt`,
+          title: '상담 FLOW 완료 예약 원장 누락 첨부',
+          category: 'report',
+          sizeBytes: 4,
+          status: 'inconsistent',
+          flowLinked: false,
+          integrityProof: null,
+        },
+        {
+          id: completionId,
+          fileName: null,
+          title: '상담 FLOW 완료 영수증 고아 기록',
+          category: null,
+          sizeBytes: null,
+          status: 'inconsistent',
+          flowLinked: false,
+          integrityProof: null,
+        },
+      ],
+    );
+    assert.doesNotMatch(
+      JSON.stringify(receiptItems),
+      /consulting-flow\/|actor_key|fingerprint|orphan-completion-command/,
+    );
+    for (const fileId of [readyId, completionId]) {
+      const response = await presence(request(), {
+        params: Promise.resolve({ id: fileId }),
+      });
+      assert.equal(response.status, 503, await response.clone().text());
+      assert.deepEqual(await response.json(), {
+        error: '저장된 상담 FLOW 첨부 원장의 무결성을 확인할 수 없습니다.',
+      });
+    }
+    assert.equal(headCalls, 0);
+  } finally {
+    bucket.head = originalHead;
+    await db.batch([
+      db.prepare(
+        'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_no_delete',
+      ),
+      db.prepare(
+        'DROP TRIGGER IF EXISTS consulting_flow_upload_requests_no_delete',
+      ),
+    ]);
+    try {
+      await db.batch([
+        db
+          .prepare(
+            'DELETE FROM consulting_flow_upload_completions WHERE file_id = ?1',
+          )
+          .bind(completionId),
+        db
+          .prepare(
+            'DELETE FROM consulting_flow_upload_requests WHERE file_id = ?1',
+          )
+          .bind(readyId),
+      ]);
+    } finally {
+      await db.batch([
+        db.prepare(consultingFlowUploadCompletionsNoDeleteTriggerSql),
+        db.prepare(consultingFlowUploadRequestsNoDeleteTriggerSql),
+      ]);
+    }
   }
 });
 

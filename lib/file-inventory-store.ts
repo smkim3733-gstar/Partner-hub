@@ -218,6 +218,10 @@ export async function listFileInventory(
       SELECT file_id FROM consulting_flow_file_object_integrity
       UNION
       SELECT file_id FROM consulting_flow_file_object_checksums
+    ), flow_receipt_ids AS (
+      SELECT file_id FROM consulting_flow_upload_requests WHERE status = 'ready'
+      UNION
+      SELECT file_id FROM consulting_flow_upload_completions
     ), flow_orphan_child_ledgers AS (
       SELECT ledger.file_id AS id,
         CASE WHEN typeof(metadata.original_name) = 'text'
@@ -245,6 +249,39 @@ export async function listFileInventory(
           WHERE owner.file_id = ledger.file_id)
         AND NOT EXISTS (SELECT 1 FROM flow_orphan_payloads orphan
           WHERE orphan.id = ledger.file_id)
+    ), flow_orphan_receipts AS (
+      SELECT receipt.file_id AS id,
+        CASE WHEN typeof(upload.original_name) = 'text'
+          AND length(upload.original_name) <= 500
+          THEN upload.original_name ELSE NULL END AS original_name,
+        CASE WHEN typeof(upload.purpose) = 'text'
+          AND length(upload.purpose) <= 200
+          THEN upload.purpose ELSE NULL END AS purpose,
+        CASE WHEN typeof(upload.size_bytes) = 'integer'
+          AND upload.size_bytes BETWEEN 0 AND 9007199254740991
+          THEN upload.size_bytes ELSE NULL END AS size_bytes,
+        CASE WHEN typeof(upload.created_at) = 'text'
+          AND length(upload.created_at) <= 80
+          AND julianday(upload.created_at) IS NOT NULL
+          THEN upload.created_at
+          ELSE '1970-01-01T00:00:00.000Z' END AS created_at,
+        CASE WHEN typeof(upload.case_id) = 'text'
+          AND length(upload.case_id) BETWEEN 1 AND 200
+          THEN upload.case_id ELSE NULL END AS case_id,
+        CASE WHEN upload.status = 'ready'
+          THEN '상담 FLOW 완료 예약 원장 누락 첨부'
+          ELSE '상담 FLOW 완료 영수증 고아 기록' END AS title
+      FROM flow_receipt_ids receipt
+      LEFT JOIN consulting_flow_upload_requests upload
+        ON upload.file_id = receipt.file_id
+      WHERE length(receipt.file_id) BETWEEN 1 AND 200
+        AND receipt.file_id NOT GLOB '*[^A-Za-z0-9_-]*'
+        AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners owner
+          WHERE owner.file_id = receipt.file_id)
+        AND NOT EXISTS (SELECT 1 FROM flow_orphan_payloads orphan
+          WHERE orphan.id = receipt.file_id)
+        AND NOT EXISTS (SELECT 1 FROM flow_child_ledger_ids ledger
+          WHERE ledger.file_id = receipt.file_id)
     ), flow_orphan_inventory AS (
       SELECT id, original_name, purpose, size_bytes, created_at, case_id,
         '상담 FLOW 소유 원장 누락 첨부' AS title
@@ -253,6 +290,9 @@ export async function listFileInventory(
       SELECT id, original_name, purpose, size_bytes, created_at, NULL,
         '상담 FLOW 소유·payload 누락 원장'
       FROM flow_orphan_child_ledgers
+      UNION ALL
+      SELECT id, original_name, purpose, size_bytes, created_at, case_id, title
+      FROM flow_orphan_receipts
     ), flow_owner_payload_bindings AS (
       SELECT owner.file_id, COUNT(binding.id) AS payload_count,
         COALESCE(SUM(CASE WHEN
@@ -629,6 +669,10 @@ export async function checkInventoryPresence(
         OR EXISTS (SELECT 1 FROM consulting_flow_file_object_integrity
           WHERE file_id = ?1)
         OR EXISTS (SELECT 1 FROM consulting_flow_file_object_checksums
+          WHERE file_id = ?1)
+        OR EXISTS (SELECT 1 FROM consulting_flow_upload_requests
+          WHERE file_id = ?1 AND status = 'ready')
+        OR EXISTS (SELECT 1 FROM consulting_flow_upload_completions
           WHERE file_id = ?1))
     UNION ALL SELECT 'flow', NULL, upload.storage_key, upload.content_type,
       upload.size_bytes, upload.file_id, upload.case_id, NULL
@@ -649,6 +693,8 @@ export async function checkInventoryPresence(
       AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_object_integrity
         WHERE file_id = upload.file_id)
       AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_object_checksums
+        WHERE file_id = upload.file_id)
+      AND NOT EXISTS (SELECT 1 FROM consulting_flow_upload_completions
         WHERE file_id = upload.file_id)
     LIMIT 2`)
     .bind(id)
