@@ -7,6 +7,7 @@
 | [다른 컴퓨터 개발 인수인계](CONTINUE_ON_ANOTHER_COMPUTER.md)                                                         | 현재 커밋·검증·Sites 배포 상태, 새 PC 시작 순서와 Git 제외 항목                          |
 | [순차 점검 1: 회수 저장 잠금](RECOVERY_LOCK_REVIEW_2026_08_31.md)                                                    | 응답 유실 후 편집 잠금 유지, 동일 요청 재시도, 최신 화면 확인                            |
 | [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)                                                                      | 현재 기능, 완료 범위, 연속 점검 목록과 사용자 결정 사항                                  |
+| [파일 재고 FLOW 완료 예약·영수증 결속 무결성](FILE_INVENTORY_FLOW_RECEIPT_BINDING_INTEGRITY_2026_09_07.md)           | ready 예약·완료 영수증과 소유·payload 증명의 정확 결속, 손상 시 R2 전 격리               |
 | [파일 재고 FLOW 완료 예약·영수증 고아 기록 가시성](FILE_INVENTORY_FLOW_ORPHAN_RECEIPT_VISIBILITY_2026_09_07.md)      | ready 예약·완료 영수증만 남은 파일의 단일 격리·증명 불가 집계·R2 전 차단                 |
 | [관리자 파일 재고 증명 원장 결속 무결성](FILE_INVENTORY_PROOF_LEDGER_BINDING_2026_09_07.md)                          | MIME·저장 키·FLOW payload 결속 검증, 손상·고아 원장의 증명 과대 집계 차단                |
 | [관리자 파일 재고 단일 D1 스냅샷 일관성](FILE_INVENTORY_SNAPSHOT_CONSISTENCY_2026_09_07.md)                          | 목록·체크섬 현황의 단일 SQLite 읽기, 동시 원장 추가 시 시점 혼합 차단                    |
