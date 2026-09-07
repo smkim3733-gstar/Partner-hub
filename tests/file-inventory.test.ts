@@ -2051,10 +2051,7 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
   );
   await completedFlowFile(fileId, caseId, undefined, caseId, 'source');
   const db = await flowDatabase();
-  const setReceiptField = async (
-    field: 'actor' | 'action' | 'targetId',
-    value: string | undefined,
-  ) => {
+  const setReceiptField = async (field: string, value: unknown) => {
     const row = await db
       .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
       .bind(caseId)
@@ -2316,6 +2313,31 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
     await setReceiptField('targetId', undefined);
     await setReceiptField('actor', actor);
     await setReceiptField('action', action);
+    await setReceiptField('actor', undefined);
+    await assertQuarantined(
+      /save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setReceiptField('actor', actor);
+    await setReceiptField('action', undefined);
+    await assertQuarantined(
+      /save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setReceiptField('action', action);
+    await setReceiptField('actor', 7);
+    await assertQuarantined(
+      /save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setReceiptField('actor', actor);
+    await setReceiptField('action', 7);
+    await assertQuarantined(
+      /save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setReceiptField('action', action);
+    await setReceiptField('forgedField', 'forged-receipt-extra-value');
+    await assertQuarantined(
+      /forgedField|forged-receipt-extra-value|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setReceiptField('forgedField', undefined);
     await setReceiptAndAuditAction('import_intake_source');
     await assertQuarantined(
       /import_intake_source|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
@@ -2348,6 +2370,7 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
     await setReceiptAndAuditAction(action);
     await setAuditAt(date);
     await setReceiptField('targetId', undefined);
+    await setReceiptField('forgedField', undefined);
     await db.batch([
       db.prepare(
         'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_no_delete',

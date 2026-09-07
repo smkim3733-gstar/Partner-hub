@@ -9297,7 +9297,7 @@ try {
     );
     assert.doesNotMatch(
       JSON.stringify(item),
-      /drifted-receipt-actor|forged-receipt-display-actor|forged-native-unexpected-target|forged-native-legacy-target|import_intake_source|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|"targetId"|consulting-flow\//,
+      /drifted-receipt-actor|forged-receipt-display-actor|forged-native-unexpected-target|forged-native-legacy-target|forged-native-extra-value|forgedField|import_intake_source|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|"targetId"|consulting-flow\//,
     );
     const presenceResponse = await expect(
       await call(`/inventory/${privateMimeFile.id}`, undefined, ownerHeaders),
@@ -9568,6 +9568,48 @@ try {
       'action',
       nativeFlowCommandReceipt.action,
     );
+  }
+  await mutateNativeFlowCommandReceipt('actor', undefined);
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW command receipt partial semantic fields stay inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW command receipt rejects partial semantic fields before native R2 presence trust',
+    );
+  } finally {
+    await mutateNativeFlowCommandReceipt(
+      'actor',
+      nativeFlowCommandReceipt.actor,
+    );
+  }
+  await mutateNativeFlowCommandReceipt('action', 7);
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW command receipt non-text semantic field stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW command receipt rejects non-text semantic fields before native R2 presence trust',
+    );
+  } finally {
+    await mutateNativeFlowCommandReceipt(
+      'action',
+      nativeFlowCommandReceipt.action,
+    );
+  }
+  await mutateNativeFlowCommandReceipt(
+    'forgedField',
+    'forged-native-extra-value',
+  );
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW command receipt unexpected field stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW command receipt rejects unexpected fields before native R2 presence trust',
+    );
+  } finally {
+    await mutateNativeFlowCommandReceipt('forgedField', undefined);
   }
   await mutateNativeFlowCommandReceiptAndAuditAction('save_source');
   try {

@@ -17,6 +17,7 @@ import {
   readFlow,
   readFlowFileObjectIntegrity,
 } from './consulting-flow-store';
+import { FLOW_OBJECT_KEYS } from './consulting-flow-shape';
 import { FlowError, type FlowFile } from './consulting-flow';
 import {
   flowUploadReceiptRules,
@@ -42,6 +43,13 @@ import { privateJsonResponse } from './private-response';
 
 const pageSize = 25;
 const sqlTextLiteral = (value: string) => `'${value.replaceAll("'", "''")}'`;
+const flowReceiptAllowedFieldsSql = FLOW_OBJECT_KEYS.receipt
+  .map(sqlTextLiteral)
+  .join(', ');
+const flowReceiptFieldEnvelopeSql = `NOT EXISTS (
+  SELECT 1 FROM json_each(receipt.value) field
+  WHERE field.key NOT IN (${flowReceiptAllowedFieldsSql})
+)`;
 const flowUploadIntakeColumns = [
   'upload.intake_file_id',
   'upload.intake_source_hash',
@@ -116,25 +124,28 @@ const flowReceiptTargetBindingSql = `(
     .join(' OR ')}
 )`;
 const flowReceiptAuditBindingSql = `(
-  (json_type(receipt.value, '$.actor') IS NULL
-    AND json_type(receipt.value, '$.action') IS NULL
-    AND json_type(receipt.value, '$.targetId') IS NULL)
-  OR (
-    json_type(receipt.value, '$.actor') = 'text'
-    AND json_type(receipt.value, '$.action') = 'text'
-    AND (SELECT COUNT(*) FROM json_each(
-        CASE WHEN json_valid(flow.payload) THEN flow.payload
-          ELSE '{"audit":[]}' END, '$.audit') audit
-      WHERE audit.type = 'object'
-        AND json_extract(audit.value, '$.id') = upload.command_id
-        AND json_extract(audit.value, '$.actor') =
-          json_extract(receipt.value, '$.actor')
-        AND json_extract(audit.value, '$.action') =
-          json_extract(receipt.value, '$.action')
-    AND json_extract(audit.value, '$.at') = upload.created_at) = 1
-    AND ${flowReceiptUploadBindingSql}
-    AND ${flowReceiptTargetEnvelopeSql}
-    AND ${flowReceiptTargetBindingSql}
+  ${flowReceiptFieldEnvelopeSql}
+  AND (
+    (json_type(receipt.value, '$.actor') IS NULL
+      AND json_type(receipt.value, '$.action') IS NULL
+      AND json_type(receipt.value, '$.targetId') IS NULL)
+    OR (
+      json_type(receipt.value, '$.actor') = 'text'
+      AND json_type(receipt.value, '$.action') = 'text'
+      AND (SELECT COUNT(*) FROM json_each(
+          CASE WHEN json_valid(flow.payload) THEN flow.payload
+            ELSE '{"audit":[]}' END, '$.audit') audit
+        WHERE audit.type = 'object'
+          AND json_extract(audit.value, '$.id') = upload.command_id
+          AND json_extract(audit.value, '$.actor') =
+            json_extract(receipt.value, '$.actor')
+          AND json_extract(audit.value, '$.action') =
+            json_extract(receipt.value, '$.action')
+      AND json_extract(audit.value, '$.at') = upload.created_at) = 1
+      AND ${flowReceiptUploadBindingSql}
+      AND ${flowReceiptTargetEnvelopeSql}
+      AND ${flowReceiptTargetBindingSql}
+    )
   )
 )`;
 type Row = {
