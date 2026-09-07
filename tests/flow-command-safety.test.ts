@@ -99,7 +99,11 @@ async function storeFlowFileBinding(
   return new Map([[file.id, flowFileObjectBinding(file, object)]]);
 }
 
-function addSyntheticCommandReceipt(flow: ConsultingFlow, commandId: string) {
+function addSyntheticCommandReceipt(
+  flow: ConsultingFlow,
+  commandId: string,
+  targetId?: string,
+) {
   const audit = flow.audit.find(
     (entry) => entry.id === commandId && entry.action !== 'ai_result',
   );
@@ -112,6 +116,7 @@ function addSyntheticCommandReceipt(flow: ConsultingFlow, commandId: string) {
       fingerprint: 'a'.repeat(64),
       actor: audit.actor,
       action: audit.action,
+      ...(targetId ? { targetId } : {}),
     },
   };
 }
@@ -2213,20 +2218,36 @@ void test('FLOW transcript commands bind the exact target job effect', async () 
   const stored = await transcriptJobFixture();
   const commandId = `transcript-job-effect-${++sequence}`;
   const at = new Date(Date.parse(stored.updatedAt) + 1).toISOString();
+  const command = {
+    type: 'save_transcript',
+    recordingId: stored.recordings.at(-1)!.id,
+    transcript: `${body} 확인된 보완 전사문`,
+    transcriptReviewed: true,
+    recordingConsent: true,
+    privacyMasked: true,
+  } as const;
+  const adminUser: PortalUser = {
+    id: 'stable-owner-subject',
+    email: adminEmail,
+    displayName: FLOW_ADMIN_COMMAND_ACTOR_NAME,
+    role: 'admin',
+    memberId: null,
+    memberName: null,
+    permissions: null,
+  };
+  const receipt = await flowCommandReceipt(adminUser, { command });
+  assert.equal(receipt.targetId, command.recordingId);
   const changed = applyFlowCommand(
     stored,
-    {
-      type: 'save_transcript',
-      recordingId: stored.recordings.at(-1)!.id,
-      transcript: `${body} 확인된 보완 전사문`,
-      transcriptReviewed: true,
-      recordingConsent: true,
-      privacyMasked: true,
-    },
+    command,
     { id: adminEmail, role: 'admin', name: FLOW_ADMIN_COMMAND_ACTOR_NAME },
     { commandId, now: at },
   );
-  addSyntheticCommandReceipt(changed, commandId);
+  addSyntheticCommandReceipt(changed, commandId, receipt.targetId);
+  assert.equal(
+    changed.commandReceipts![commandId]!.targetId,
+    command.recordingId,
+  );
   const target = changed.jobs.at(-1)!;
   assert.equal(target.status, 'queued');
   assert.equal(target.reason, '');
@@ -2254,6 +2275,53 @@ void test('FLOW transcript commands bind the exact target job effect', async () 
       .run(),
     /save transcript jobs are invalid/,
   );
+  const missingTarget = structuredClone(changed);
+  delete missingTarget.commandReceipts![commandId]!.targetId;
+  await assert.rejects(
+    commitFlow(stored, missingTarget),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        missingTarget.revision,
+        JSON.stringify(missingTarget),
+        missingTarget.updatedAt,
+        stored.caseId,
+        stored.revision,
+      )
+      .run(),
+    /(?:new command receipt target|save transcript target) is invalid/,
+  );
+  const forgedTarget = structuredClone(changed);
+  forgedTarget.commandReceipts![commandId]!.targetId =
+    'forged-recording-target';
+  await assert.rejects(
+    commitFlow(stored, forgedTarget),
+    (error) => error instanceof FlowError && error.status === 503,
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        `UPDATE consulting_flows
+        SET revision = ?1, payload = ?2, updated_at = ?3
+        WHERE case_id = ?4 AND revision = ?5`,
+      )
+      .bind(
+        forgedTarget.revision,
+        JSON.stringify(forgedTarget),
+        forgedTarget.updatedAt,
+        stored.caseId,
+        stored.revision,
+      )
+      .run(),
+    /save transcript target is invalid/,
+  );
   await commitFlow(stored, changed);
   assert.deepEqual(
     await readFlow(stored.caseId),
@@ -2280,7 +2348,11 @@ void test('FLOW transcript commands bind the exact target job effect', async () 
       now: new Date(Date.parse(failedStored.updatedAt) + 1).toISOString(),
     },
   );
-  addSyntheticCommandReceipt(corrected, retryId);
+  addSyntheticCommandReceipt(
+    corrected,
+    retryId,
+    failedStored.recordings.at(-1)!.id,
+  );
   assert.equal(corrected.jobs.at(-1)!.status, 'queued');
   assert.equal(corrected.jobs.at(-1)!.failureEvidence, undefined);
   assert.deepEqual(corrected.jobs.at(-1)!.failureEvidenceHistory, [

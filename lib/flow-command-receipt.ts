@@ -157,11 +157,14 @@ export async function flowCommandReceipt(
       input.command.type,
     ) && typeof input.command.meetingId === 'string'
       ? input.command.meetingId
-      : ['mark_request_sent', 'receive_document', 'review_document'].includes(
-            input.command.type,
-          ) && typeof input.command.requestId === 'string'
-        ? input.command.requestId
-        : undefined;
+      : input.command.type === 'save_transcript' &&
+          typeof input.command.recordingId === 'string'
+        ? input.command.recordingId
+        : ['mark_request_sent', 'receive_document', 'review_document'].includes(
+              input.command.type,
+            ) && typeof input.command.requestId === 'string'
+          ? input.command.requestId
+          : undefined;
   const fingerprints = await commandFingerprints(input);
   const receipt: ComputedFlowCommandReceiptWithDigests = {
     actorKey:

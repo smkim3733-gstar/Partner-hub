@@ -158,22 +158,32 @@ export const flowUploadReceiptRules = {
 
 type FlowUploadReceiptTargetRule = {
   collection: 'reports' | 'recordings';
-  suffix: 'report' | 'recording';
+  target:
+    | { kind: 'command_suffix'; suffix: 'report' | 'recording' }
+    | { kind: 'receipt' };
   slots: Partial<
-    Record<Exclude<FlowUploadSlot, 'document'>, 'fileId' | 'audioFileId'>
+    Record<
+      Exclude<FlowUploadSlot, 'document'>,
+      'fileId' | 'transcriptFileId' | 'audioFileId'
+    >
   >;
 };
 
 export const flowUploadReceiptTargetRules = {
   save_report: {
     collection: 'reports',
-    suffix: 'report',
+    target: { kind: 'command_suffix', suffix: 'report' },
     slots: { file: 'fileId' },
   },
   save_recording: {
     collection: 'recordings',
-    suffix: 'recording',
+    target: { kind: 'command_suffix', suffix: 'recording' },
     slots: { file: 'fileId', audio: 'audioFileId' },
+  },
+  save_transcript: {
+    collection: 'recordings',
+    target: { kind: 'receipt' },
+    slots: { file: 'transcriptFileId' },
   },
 } as const satisfies Partial<
   Record<keyof typeof flowUploadReceiptRules, FlowUploadReceiptTargetRule>

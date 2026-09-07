@@ -22,6 +22,8 @@ import {
   consultingFlowUploadRequestsTableSql,
   consultingFlowsImportIntakeSourceEffectTriggerSql,
   consultingFlowsInitialCommandInsertTriggerSql,
+  consultingFlowsNewCommandReceiptTargetTriggerSql,
+  consultingFlowsSaveTranscriptTargetTriggerSql,
 } from '../db/schema';
 
 const project = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -51,6 +53,10 @@ const effectMigrations = {
   start_aftercare: '0091_consulting_flow_start_aftercare_effect.sql',
 } as const satisfies Record<FlowAction, string>;
 
+const effectMigrationAdditions = {
+  save_transcript: ['0098_consulting_flow_save_transcript_target.sql'],
+} as const satisfies Partial<Record<FlowAction, readonly string[]>>;
+
 function triggerName(sql: string) {
   const match = sql.match(/CREATE TRIGGER IF NOT EXISTS ([a-z0-9_]+)/);
   assert.ok(match);
@@ -77,10 +83,16 @@ void test('every FLOW command has matching app, D1 and migration effect guards',
   assert.deepEqual(appActions, actions);
 
   for (const action of actions) {
-    const migration = await readFile(
-      path.join(project, 'drizzle', effectMigrations[action]),
-      'utf8',
-    );
+    const migration = (
+      await Promise.all(
+        [
+          effectMigrations[action],
+          ...(effectMigrationAdditions[
+            action as keyof typeof effectMigrationAdditions
+          ] ?? []),
+        ].map((name) => readFile(path.join(project, 'drizzle', name), 'utf8')),
+      )
+    ).join('\n');
     const triggers = FLOW_COMMAND_EXACT_EFFECT_TRIGGERS[action];
     assert.ok(triggers.length > 0);
     for (const sql of triggers) {
@@ -210,4 +222,30 @@ void test('FLOW intake source origin guard exactly exists in its additive migrat
     normalizedMigration.includes(`${normalizedTrigger};`),
     'intake source origin trigger is absent or drifted',
   );
+});
+
+void test('FLOW transcript receipt target guards exactly exist in their additive migration', async () => {
+  const migration = await readFile(
+    path.join(
+      project,
+      'drizzle',
+      '0098_consulting_flow_save_transcript_target.sql',
+    ),
+    'utf8',
+  );
+  const normalizedMigration = migration.replace(/\s+/g, ' ').trim();
+  assert.match(
+    normalizedMigration,
+    /^DROP TRIGGER IF EXISTS consulting_flows_new_command_receipt_target_guard;/,
+  );
+  for (const sql of [
+    consultingFlowsNewCommandReceiptTargetTriggerSql,
+    consultingFlowsSaveTranscriptTargetTriggerSql,
+  ]) {
+    const normalized = sql.replace(/\s+/g, ' ').trim().replace(/;$/, '');
+    assert.ok(
+      normalizedMigration.includes(`${normalized};`),
+      'transcript receipt target statement is absent or drifted',
+    );
+  }
 });

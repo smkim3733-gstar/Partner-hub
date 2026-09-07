@@ -67,15 +67,18 @@ const flowReceiptTargetActionsSql = Object.keys(flowUploadReceiptTargetRules)
 const flowReceiptTargetBindingSql = `(
   json_extract(receipt.value, '$.action') NOT IN (${flowReceiptTargetActionsSql})
   OR ${Object.entries(flowUploadReceiptTargetRules)
-    .map(
-      ([action, rule]) =>
-        `(json_extract(receipt.value, '$.action') = ${sqlTextLiteral(action)}
+    .map(([action, rule]) => {
+      const targetIdSql =
+        rule.target.kind === 'command_suffix'
+          ? `upload.command_id || '-${rule.target.suffix}'`
+          : `json_extract(receipt.value, '$.targetId')`;
+      return `(json_extract(receipt.value, '$.action') = ${sqlTextLiteral(action)}
           AND (SELECT COUNT(*) FROM json_each(
               CASE WHEN json_valid(flow.payload) THEN flow.payload
                 ELSE '{}' END, '$.${rule.collection}') target
             WHERE target.type = 'object'
               AND json_extract(target.value, '$.id') =
-                upload.command_id || '-${rule.suffix}'
+                ${targetIdSql}
               AND (${Object.entries(rule.slots)
                 .map(
                   ([slot, field]) =>
@@ -83,8 +86,8 @@ const flowReceiptTargetBindingSql = `(
                       AND json_extract(target.value, '$.${field}') =
                         upload.file_id)`,
                 )
-                .join(' OR ')})) = 1)`,
-    )
+                .join(' OR ')})) = 1)`;
+    })
     .join(' OR ')}
 )`;
 const flowReceiptAuditBindingSql = `(

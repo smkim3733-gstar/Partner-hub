@@ -641,6 +641,7 @@ const consultingFlowTransitionTriggerNames = [
   'consulting_flows_exclude_source_effect_guard',
   'consulting_flows_save_recording_effect_guard',
   'consulting_flows_save_transcript_jobs_guard',
+  'consulting_flows_save_transcript_target_guard',
   'consulting_flows_retry_job_effect_guard',
   'consulting_flows_jobs_transition_guard',
   'consulting_flows_success_evidence_guard',
@@ -5739,6 +5740,7 @@ try {
     fingerprint: '7'.repeat(64),
     actor: '김성민 대표',
     action: 'save_transcript',
+    targetId: validTranscriptEffectFlow.recordings.at(-1).id,
   };
   const forgedTranscriptEffectFlow = structuredClone(validTranscriptEffectFlow);
   forgedTranscriptEffectFlow.jobs[0].reason =
@@ -5761,6 +5763,28 @@ try {
   await assert.rejects(
     saveTranscriptEffectTransition(forgedTranscriptEffectFlow),
     /save transcript jobs are invalid/,
+  );
+  const missingTranscriptTargetFlow = structuredClone(
+    validTranscriptEffectFlow,
+  );
+  delete missingTranscriptTargetFlow.commandReceipts[
+    'native-transcript-job-effect'
+  ].targetId;
+  await assert.rejects(
+    saveTranscriptEffectTransition(missingTranscriptTargetFlow),
+    /(?:new command receipt target|save transcript target) is invalid/,
+  );
+  checks.push('FLOW native D1 requires transcript receipt target evidence');
+  const forgedTranscriptTargetFlow = structuredClone(validTranscriptEffectFlow);
+  forgedTranscriptTargetFlow.commandReceipts[
+    'native-transcript-job-effect'
+  ].targetId = 'forged-native-recording-target';
+  await assert.rejects(
+    saveTranscriptEffectTransition(forgedTranscriptTargetFlow),
+    /save transcript target is invalid/,
+  );
+  checks.push(
+    'FLOW native D1 binds transcript receipt to the latest recording',
   );
   await saveTranscriptEffectTransition(validTranscriptEffectFlow);
   checks.push(
@@ -9745,6 +9769,247 @@ try {
     );
     assert.equal(restored.item.integrityProof, 'sha256');
   }
+  const nativeTranscriptTargetFile = {
+    id: 'native-transcript-target-file',
+    key: 'consulting-flow/native-transcript-target-file',
+    name: 'native-transcript-target-file.txt',
+    contentType: 'text/plain',
+    bytes: new TextEncoder().encode('SYNTHETIC_TRANSCRIPT_TARGET'),
+    purpose: 'transcript',
+    createdAt: evidenceTimes[2],
+  };
+  const nativeTranscriptTargetCommandId =
+    'native-save-transcript-target-command';
+  const nativeTranscriptTargetFingerprint = 'a'.repeat(64);
+  const nativeTranscriptTargetRow = await db
+    .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+    .bind(recordingEffectCaseId)
+    .first();
+  assert.ok(nativeTranscriptTargetRow);
+  const nativeTranscriptTargetFlow = JSON.parse(
+    nativeTranscriptTargetRow.payload,
+  );
+  const nativeTranscriptTargetRecording =
+    nativeTranscriptTargetFlow.recordings.find(
+      (recording) => recording.id === 'native-save-recording-effect-recording',
+    );
+  assert.ok(nativeTranscriptTargetRecording);
+  nativeTranscriptTargetRecording.transcriptFileId =
+    nativeTranscriptTargetFile.id;
+  nativeTranscriptTargetFlow.files.push({
+    ...nativeTranscriptTargetFile,
+    size: nativeTranscriptTargetFile.bytes.byteLength,
+    bytes: undefined,
+  });
+  delete nativeTranscriptTargetFlow.files.at(-1).bytes;
+  nativeTranscriptTargetFlow.commandIds.push(nativeTranscriptTargetCommandId);
+  nativeTranscriptTargetFlow.commandReceipts[nativeTranscriptTargetCommandId] =
+    {
+      actorKey: 'admin:primary',
+      fingerprint: nativeTranscriptTargetFingerprint,
+      actor: '김성민 대표',
+      action: 'save_transcript',
+      targetId: nativeTranscriptTargetRecording.id,
+    };
+  nativeTranscriptTargetFlow.audit.push({
+    id: nativeTranscriptTargetCommandId,
+    at: evidenceTimes[2],
+    actor: '김성민 대표',
+    action: 'save_transcript',
+    detail: '전사문 보완 · 4차 생성 준비',
+  });
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    [JSON.stringify(nativeTranscriptTargetFlow), recordingEffectCaseId],
+  );
+  await bucket.put(
+    nativeTranscriptTargetFile.key,
+    nativeTranscriptTargetFile.bytes,
+    {
+      httpMetadata: {
+        contentType: nativeTranscriptTargetFile.contentType,
+      },
+    },
+  );
+  const nativeTranscriptTargetObject = await bucket.head(
+    nativeTranscriptTargetFile.key,
+  );
+  assert.ok(nativeTranscriptTargetObject);
+  await db.batch([
+    db
+      .prepare(`INSERT INTO consulting_flow_file_owners
+        (file_id, case_id, storage_key, created_at)
+        VALUES (?1, ?2, ?3, ?4)`)
+      .bind(
+        nativeTranscriptTargetFile.id,
+        recordingEffectCaseId,
+        nativeTranscriptTargetFile.key,
+        nativeTranscriptTargetFile.createdAt,
+      ),
+    db
+      .prepare(`INSERT INTO consulting_flow_file_metadata
+        (file_id, original_name, content_type, size_bytes, purpose)
+        VALUES (?1, ?2, ?3, ?4, 'transcript')`)
+      .bind(
+        nativeTranscriptTargetFile.id,
+        nativeTranscriptTargetFile.name,
+        nativeTranscriptTargetFile.contentType,
+        nativeTranscriptTargetFile.bytes.byteLength,
+      ),
+    db
+      .prepare(`INSERT INTO consulting_flow_file_object_integrity
+        (file_id, validation_mode, r2_etag, r2_content_type)
+        VALUES (?1, 'etag', ?2, ?3)`)
+      .bind(
+        nativeTranscriptTargetFile.id,
+        nativeTranscriptTargetObject.etag,
+        nativeTranscriptTargetFile.contentType,
+      ),
+    db
+      .prepare(`INSERT INTO consulting_flow_file_object_checksums
+        (file_id, sha256) VALUES (?1, ?2)`)
+      .bind(
+        nativeTranscriptTargetFile.id,
+        await sha256(nativeTranscriptTargetFile.bytes),
+      ),
+    db
+      .prepare(`INSERT INTO consulting_flow_upload_requests
+        (case_id, actor_key, command_id, slot, fingerprint, file_id,
+          storage_key, original_name, content_type, size_bytes, purpose,
+          created_at, status)
+        VALUES (?1, 'admin:primary', ?2, 'file', ?3, ?4, ?5, ?6, ?7,
+          ?8, 'transcript', ?9, 'pending')`)
+      .bind(
+        recordingEffectCaseId,
+        nativeTranscriptTargetCommandId,
+        nativeTranscriptTargetFingerprint,
+        nativeTranscriptTargetFile.id,
+        nativeTranscriptTargetFile.key,
+        nativeTranscriptTargetFile.name,
+        nativeTranscriptTargetFile.contentType,
+        nativeTranscriptTargetFile.bytes.byteLength,
+        nativeTranscriptTargetFile.createdAt,
+      ),
+  ]);
+  await db
+    .prepare(`INSERT INTO consulting_flow_upload_completions
+      (file_id, command_id) VALUES (?1, ?2)`)
+    .bind(nativeTranscriptTargetFile.id, nativeTranscriptTargetCommandId)
+    .run();
+  await db
+    .prepare(`UPDATE consulting_flow_upload_requests
+      SET status = 'ready' WHERE file_id = ?1`)
+    .bind(nativeTranscriptTargetFile.id)
+    .run();
+  const mutateNativeTranscriptTarget = async (kind, value) => {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind(recordingEffectCaseId)
+      .first();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    if (kind === 'receipt') {
+      if (value === undefined)
+        delete flow.commandReceipts[nativeTranscriptTargetCommandId].targetId;
+      else
+        flow.commandReceipts[nativeTranscriptTargetCommandId].targetId = value;
+    } else {
+      const recording = flow.recordings.find(
+        (candidate) =>
+          candidate.id === 'native-save-recording-effect-recording',
+      );
+      assert.ok(recording);
+      if (value === undefined) delete recording.transcriptFileId;
+      else recording.transcriptFileId = value;
+    }
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), recordingEffectCaseId],
+    );
+  };
+  const beforeNativeTranscriptTargetDrift =
+    await readNativeRecordingTargetInventoryItem(
+      'linked',
+      nativeTranscriptTargetFile.id,
+      'FLOW transcript receipt target is linked before synthetic native drift',
+    );
+  assert.equal(beforeNativeTranscriptTargetDrift.item.integrityProof, 'sha256');
+  const nativeTranscriptTargetDrifts = [
+    {
+      label: 'recording transcript file',
+      corrupt: () => mutateNativeTranscriptTarget('recording'),
+      restore: () =>
+        mutateNativeTranscriptTarget(
+          'recording',
+          nativeTranscriptTargetFile.id,
+        ),
+    },
+    {
+      label: 'receipt recording',
+      corrupt: () =>
+        mutateNativeTranscriptTarget(
+          'receipt',
+          'forged-native-transcript-target',
+        ),
+      restore: () =>
+        mutateNativeTranscriptTarget(
+          'receipt',
+          nativeTranscriptTargetRecording.id,
+        ),
+    },
+  ];
+  for (const drift of nativeTranscriptTargetDrifts) {
+    await drift.corrupt();
+    try {
+      const { inventory, item } = await readNativeRecordingTargetInventoryItem(
+        'inconsistent',
+        nativeTranscriptTargetFile.id,
+        `FLOW transcript ${drift.label} drift stays inconsistent in native inventory`,
+      );
+      assert.equal(item.status, 'inconsistent');
+      assert.equal(item.flowLinked, true);
+      assert.equal(item.integrityProof, null);
+      assert.equal(
+        inventory.integrityCoverage.sha256,
+        beforeNativeTranscriptTargetDrift.inventory.integrityCoverage.sha256 -
+          1,
+      );
+      assert.equal(
+        inventory.integrityCoverage.unavailable,
+        beforeNativeTranscriptTargetDrift.inventory.integrityCoverage
+          .unavailable + 1,
+      );
+      assert.doesNotMatch(
+        JSON.stringify(item),
+        /native-save-transcript-target-command|native-save-recording-effect-recording|admin:primary|"actorKey"|"fingerprint"|consulting-flow\//,
+      );
+      const presenceResponse = await expect(
+        await call(
+          `/inventory/${nativeTranscriptTargetFile.id}`,
+          undefined,
+          ownerHeaders,
+        ),
+        503,
+        `FLOW transcript ${drift.label} drift blocks native R2 presence trust`,
+      );
+      assertPrivateAuthResponse(presenceResponse);
+      assert.match((await presenceResponse.json()).error, /원장의 무결성/);
+      checks.push(
+        `FLOW native inventory binds save-transcript receipt to its ${drift.label} target`,
+      );
+    } finally {
+      await drift.restore();
+    }
+  }
+  const restoredNativeTranscriptTarget =
+    await readNativeRecordingTargetInventoryItem(
+      'linked',
+      nativeTranscriptTargetFile.id,
+      'FLOW transcript receipt target proof recovers after synthetic native drift cleanup',
+    );
+  assert.equal(restoredNativeTranscriptTarget.item.integrityProof, 'sha256');
   const mimeRetry = await expect(
     await callFlowFile(
       '/flow/runtime-own',

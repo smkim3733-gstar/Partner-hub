@@ -1489,6 +1489,7 @@ function assertFlowCommitTransition(
         ([
           'complete_meeting',
           'cancel_meeting',
+          'save_transcript',
           'mark_request_sent',
           'receive_document',
           'review_document',
@@ -2308,7 +2309,9 @@ function assertFlowCommitTransition(
         throw storedFlowIntegrityError();
     }
     if (action === 'save_transcript') {
+      const receipt = afterReceipts[commandId];
       const recordingId = after.recordings.at(-1)?.id;
+      if (receipt?.targetId !== recordingId) throw storedFlowIntegrityError();
       const targetIndex = before.jobs.findLastIndex(
         (job) => job.sourceRecordingId === recordingId,
       );

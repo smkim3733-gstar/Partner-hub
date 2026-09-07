@@ -118,7 +118,7 @@ async function completedFlowFile(
   caseId: string,
   ownerStorageKey?: string,
   ownerCaseId = caseId,
-  purpose: 'report' | 'source' | 'recording' = 'report',
+  purpose: 'report' | 'source' | 'recording' | 'transcript' = 'report',
   name = `${id}.txt`,
   contentType = 'text/plain',
 ) {
@@ -2799,6 +2799,249 @@ void test('completed FLOW recording uploads whose slot targets drift stay incons
             )
             .bind(fixture.fileId),
         ),
+      ]);
+    } finally {
+      await db.batch([
+        db.prepare(consultingFlowUploadCompletionsNoDeleteTriggerSql),
+        db.prepare(consultingFlowUploadRequestsNoDeleteTriggerSql),
+      ]);
+    }
+  }
+});
+
+void test('completed FLOW transcript upload whose receipt or recording target drifts stays inconsistent before R2 access', async () => {
+  const caseId = 'flow-transcript-target-drift-case';
+  const fileId = 'flow-transcript-target-drift';
+  const commandId = 'flow-transcript-target-command';
+  const recordingId = 'flow-transcript-target-recording';
+  const actorKey = FLOW_ADMIN_COMMAND_ACTOR_KEY;
+  const actor = FLOW_ADMIN_COMMAND_ACTOR_NAME;
+  const fingerprint = '9'.repeat(64);
+  await seed(
+    [],
+    [
+      {
+        id: caseId,
+        company: 'FLOW 전사문 영수증 대상 손상기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+    ],
+  );
+  await completedFlowFile(fileId, caseId, undefined, caseId, 'transcript');
+  const db = await flowDatabase();
+  const row = await db
+    .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+    .bind(caseId)
+    .first<{ payload: string }>();
+  assert.ok(row);
+  const flow = JSON.parse(row.payload);
+  const meetingId = 'flow-transcript-target-meeting';
+  flow.meetings = [
+    {
+      id: meetingId,
+      kind: 'first',
+      startsAt: '2026-08-30T22:00:00.000Z',
+      endsAt: '2026-08-30T23:00:00.000Z',
+      location: '격리 가상 상담실',
+      attendance: 'admin',
+      status: 'completed',
+      note: '',
+      createdBy: actor,
+      completedAt: date,
+    },
+  ];
+  flow.recordings = [
+    {
+      id: recordingId,
+      meetingId,
+      transcriptFileId: fileId,
+      transcript:
+        'FLOW 전사문 영수증과 실제 녹취 대상 파일 연결을 검증하는 가상 전사문입니다.',
+      transcriptReviewedAt: date,
+      transcriptReviewedBy: actorKey,
+      consentAt: date,
+      createdAt: date,
+    },
+  ];
+  flow.commandIds = [commandId];
+  flow.commandReceipts = {
+    [commandId]: {
+      actorKey,
+      fingerprint,
+      actor,
+      action: 'save_transcript',
+      targetId: recordingId,
+    },
+  };
+  flow.audit = [
+    {
+      id: commandId,
+      at: date,
+      actor,
+      action: 'save_transcript',
+      detail: '전사문 보완 · 4차 생성 준비',
+    },
+  ];
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    [JSON.stringify(flow), caseId],
+  );
+  const mutateTarget = async (
+    kind: 'receipt' | 'recording',
+    value?: string,
+  ) => {
+    const stored = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind(caseId)
+      .first<{ payload: string }>();
+    assert.ok(stored);
+    const current = JSON.parse(stored.payload);
+    if (kind === 'receipt') {
+      if (value === undefined)
+        delete current.commandReceipts[commandId].targetId;
+      else current.commandReceipts[commandId].targetId = value;
+    } else {
+      const recording = current.recordings.find(
+        (candidate: { id?: unknown }) => candidate.id === recordingId,
+      );
+      assert.ok(recording);
+      if (value === undefined) delete recording.transcriptFileId;
+      else recording.transcriptFileId = value;
+    }
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(current), caseId],
+    );
+  };
+  await db.batch([
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flow_upload_requests_insert_envelope_guard',
+    ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_insert_guard',
+    ),
+  ]);
+  try {
+    await db.batch([
+      db
+        .prepare(`INSERT INTO consulting_flow_upload_requests
+          (case_id, actor_key, command_id, slot, fingerprint, file_id,
+            storage_key, original_name, content_type, size_bytes, purpose,
+            created_at, status)
+          VALUES (?1, ?2, ?3, 'file', ?4, ?5, ?6, ?7,
+            'text/plain', 4, 'transcript', ?8, 'ready')`)
+        .bind(
+          caseId,
+          actorKey,
+          commandId,
+          fingerprint,
+          fileId,
+          `consulting-flow/${fileId}`,
+          `${fileId}.txt`,
+          date,
+        ),
+      db
+        .prepare(`INSERT INTO consulting_flow_upload_completions
+          (file_id, command_id) VALUES (?1, ?2)`)
+        .bind(fileId, commandId),
+    ]);
+  } finally {
+    await db.batch([
+      db.prepare(consultingFlowUploadRequestsInsertEnvelopeTriggerSql),
+      db.prepare(consultingFlowUploadCompletionsInsertTriggerSql),
+    ]);
+  }
+  const beforeDrift = await page('?status=linked');
+  assert.equal(
+    beforeDrift.items.find(
+      (item) => item.source === 'flow' && item.id === fileId,
+    )?.integrityProof,
+    'metadata',
+  );
+  const bucket = companyFileBucket();
+  const originalHead = bucket.head.bind(bucket);
+  let headCalls = 0;
+  bucket.head = async (...args: Parameters<R2Bucket['head']>) => {
+    headCalls++;
+    return originalHead(...args);
+  };
+  const drifts = [
+    {
+      label: 'recording transcript file',
+      corrupt: () => mutateTarget('recording'),
+      restore: () => mutateTarget('recording', fileId),
+    },
+    {
+      label: 'receipt recording',
+      corrupt: () => mutateTarget('receipt', 'forged-recording-target'),
+      restore: () => mutateTarget('receipt', recordingId),
+    },
+  ];
+  try {
+    for (const drift of drifts) {
+      await drift.corrupt();
+      const inconsistent = await page('?status=inconsistent');
+      assert.equal(
+        inconsistent.integrityCoverage.metadata,
+        beforeDrift.integrityCoverage.metadata - 1,
+      );
+      assert.equal(
+        inconsistent.integrityCoverage.unavailable,
+        beforeDrift.integrityCoverage.unavailable + 1,
+      );
+      const item = inconsistent.items.find(
+        (candidate) => candidate.source === 'flow' && candidate.id === fileId,
+      );
+      assert.ok(item, drift.label);
+      assert.equal(item.status, 'inconsistent');
+      assert.equal(item.flowLinked, true);
+      assert.equal(item.integrityProof, null);
+      assert.doesNotMatch(
+        JSON.stringify(item),
+        /flow-transcript-target-command|flow-transcript-target-recording|actor_key|fingerprint|consulting-flow\//,
+      );
+      const response = await presence(request(), {
+        params: Promise.resolve({ id: fileId }),
+      });
+      assert.equal(response.status, 503, await response.clone().text());
+      assert.match(await response.text(), /원장의 무결성/);
+      assert.equal(headCalls, 0);
+      await drift.restore();
+      const restored = await page('?status=linked');
+      assert.equal(
+        restored.items.find(
+          (candidate) => candidate.source === 'flow' && candidate.id === fileId,
+        )?.integrityProof,
+        'metadata',
+      );
+    }
+  } finally {
+    bucket.head = originalHead;
+    await mutateTarget('receipt', recordingId);
+    await mutateTarget('recording', fileId);
+    await db.batch([
+      db.prepare(
+        'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_no_delete',
+      ),
+      db.prepare(
+        'DROP TRIGGER IF EXISTS consulting_flow_upload_requests_no_delete',
+      ),
+    ]);
+    try {
+      await db.batch([
+        db
+          .prepare(
+            'DELETE FROM consulting_flow_upload_completions WHERE file_id = ?1',
+          )
+          .bind(fileId),
+        db
+          .prepare(
+            'DELETE FROM consulting_flow_upload_requests WHERE file_id = ?1',
+          )
+          .bind(fileId),
       ]);
     } finally {
       await db.batch([
