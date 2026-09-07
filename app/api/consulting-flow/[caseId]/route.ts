@@ -31,6 +31,7 @@ import {
   reserveFlowUploads,
 } from '@/lib/consulting-flow-store';
 import { privateJsonResponse } from '@/lib/private-response';
+import { r2ObjectSha256Hex, r2Sha256Bytes } from '@/lib/r2-checksum';
 import { uploadFileContentProblem } from '@/lib/upload-file-signature';
 
 export const dynamic = 'force-dynamic';
@@ -340,7 +341,7 @@ export async function POST(request: Request, context: Context) {
             object.size !== file.size ||
             object.httpMetadata?.contentType !== binding.contentType ||
             object.etag !== binding.etag ||
-            r2Sha256Hex(object) !== sha256
+            r2ObjectSha256Hex(object) !== sha256
           )
             throw new FlowError(
               '첨부파일 보관 상태가 변경되었습니다. 같은 자료로 다시 시도해 주세요.',
@@ -393,7 +394,7 @@ async function writeReservedFlowUpload(
         ? { etagMatches: existing.etag }
         : { etagDoesNotMatch: '*' },
       httpMetadata: { contentType: file.contentType },
-      sha256: sha256Bytes(sha256),
+      sha256: r2Sha256Bytes(sha256)!,
     });
     if (object) {
       if (!reservedR2ObjectMatches(file, object, sha256))
@@ -419,20 +420,6 @@ async function writeReservedFlowUpload(
   }
 }
 
-function sha256Bytes(value: string) {
-  return Uint8Array.from(value.match(/.{2}/g)!, (byte) =>
-    Number.parseInt(byte, 16),
-  );
-}
-
-function r2Sha256Hex(object: R2Object) {
-  const checksum = object.checksums?.sha256;
-  if (!checksum) return null;
-  return Array.from(new Uint8Array(checksum), (byte) =>
-    byte.toString(16).padStart(2, '0'),
-  ).join('');
-}
-
 function reservedR2ObjectMatches(
   file: FlowFile,
   object: R2Object,
@@ -442,6 +429,6 @@ function reservedR2ObjectMatches(
     object.key === file.key &&
     object.size === file.size &&
     object.httpMetadata?.contentType === file.contentType &&
-    r2Sha256Hex(object) === sha256
+    r2ObjectSha256Hex(object) === sha256
   );
 }

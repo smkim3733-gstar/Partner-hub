@@ -241,6 +241,56 @@ void test('lost upload response recovers identical metadata and file ID without 
   assert.equal((await readDuplicateRequestSummary()).totalSafeRetries, 1);
 });
 
+void test('conditional company R2 write preserves a replacement that wins after preflight and exact retry repairs it', async () => {
+  await seed();
+  const key = 'conditional-company-r2-write';
+  const sourceText = 'SYNTHETIC_DOCUMENT';
+  const replacementText = 'R'.repeat(
+    new TextEncoder().encode(sourceText).length,
+  );
+  const bucket = companyFileBucket();
+  const put = bucket.put.bind(bucket);
+  let storageKey = '';
+  let routePutAttempts = 0;
+  bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+    routePutAttempts++;
+    storageKey = String(args[0]);
+    await put(storageKey, replacementText, {
+      httpMetadata: { contentType: 'text/plain' },
+    });
+    return put(...args);
+  };
+  let rejected: Response;
+  try {
+    rejected = await upload(request(key, form(sourceText)));
+  } finally {
+    bucket.put = put;
+  }
+  assert.equal(routePutAttempts, 1);
+  assert.equal(rejected.status, 409, await rejected.clone().text());
+  assert.deepEqual(await rejected.json(), {
+    error:
+      '기업자료 원본 보관 상태가 변경되었습니다. 같은 파일로 다시 시도해 주세요.',
+  });
+  const pending = await rowFor(key);
+  assert.ok(pending);
+  assert.equal(pending.status, 'pending');
+  assert.equal(storageKey, `company-source/${pending.file_id}`);
+  assert.equal(await (await bucket.get(storageKey))?.text(), replacementText);
+
+  const saved = await stored(await upload(request(key, form(sourceText))));
+  assert.equal(saved.id, pending.file_id);
+  const object = await bucket.get(storageKey);
+  assert.equal(await object?.text(), sourceText);
+  assert.equal(
+    Array.from(
+      new Uint8Array(object?.checksums.sha256 ?? new ArrayBuffer(0)),
+      (byte) => byte.toString(16).padStart(2, '0'),
+    ).join(''),
+    await fileDigest(new TextEncoder().encode(sourceText).buffer),
+  );
+});
+
 void test('company upload stores registry MIME instead of browser MIME', async () => {
   await seed();
   const data = form();

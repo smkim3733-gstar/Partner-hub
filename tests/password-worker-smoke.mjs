@@ -2444,6 +2444,15 @@ try {
     `company-source/${normalizedFile.id}`,
   );
   assert.equal(normalizedFileHead.httpMetadata.contentType, 'text/plain');
+  assert.deepEqual(
+    new Uint8Array(normalizedFileHead.checksums.sha256),
+    new Uint8Array(
+      await crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode('SYNTHETIC_MIME_NORMALIZATION'),
+      ),
+    ),
+  );
   assert.equal(
     (
       await db
@@ -2623,6 +2632,7 @@ try {
   checks.push(
     'new company uploads bind registry MIME, native R2 ETag, storage key and immutable metadata in D1',
   );
+  checks.push('new company uploads store a native R2 SHA-256 checksum');
   checks.push('company file parent facts reject direct rewrite in native D1');
   checks.push(
     'company metadata ledger rejects direct rewrite and removal in native D1',

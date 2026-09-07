@@ -11,6 +11,7 @@ import type { PortalUser } from './portal-auth';
 import { fileDigest } from './file-upload-key';
 import { fileStateConflict, fileStateGuard } from './company-file-access';
 import { downloadContentType } from './download-content-type';
+import { r2ObjectSha256Hex, r2Sha256Bytes } from './r2-checksum';
 
 type UploadRecord = {
   file_id: string;
@@ -197,7 +198,12 @@ export async function storeCompanyUpload(
     await assertNotDeleted(db, bucket, record.file_id, false);
     const integrity = await readCompanyFileObjectIntegrity(saved);
     const object = await bucket.head(saved.storage_key);
-    if (!object || !companyFileObjectMatchesIntegrity(saved, object, integrity))
+    if (
+      !object ||
+      !companyFileObjectMatchesIntegrity(saved, object, integrity) ||
+      (object.checksums?.sha256 &&
+        r2ObjectSha256Hex(object) !== bytesFingerprint)
+    )
       throw new CompanyFileError(
         '기존 파일의 보관 상태를 확인해야 합니다.',
         409,
@@ -210,7 +216,17 @@ export async function storeCompanyUpload(
   const id = record.file_id;
   const storageKey = `company-source/${id}`;
   await authorize();
+  const sha256 = r2Sha256Bytes(bytesFingerprint);
+  if (!sha256)
+    throw new CompanyFileError(
+      '기업자료 원본 체크섬을 확인할 수 없습니다.',
+      503,
+    );
+  const existing = await bucket.head(storageKey);
   const object = await bucket.put(storageKey, bytes, {
+    onlyIf: existing
+      ? { etagMatches: existing.etag }
+      : { etagDoesNotMatch: '*' },
     httpMetadata: { contentType: metadata.contentType },
     customMetadata: {
       fileId: id,
@@ -218,7 +234,40 @@ export async function storeCompanyUpload(
         ? { recordingRightsConfirmedAt: record.created_at }
         : {}),
     },
+    sha256,
   });
+  let uploadObject: R2Object;
+  if (object) {
+    if (
+      !companyUploadObjectMatchesDigest(
+        object,
+        storageKey,
+        metadata,
+        bytesFingerprint,
+      )
+    )
+      throw new CompanyFileError(
+        '기업자료 원본을 보안 저장소에 안전하게 기록하지 못했습니다.',
+        503,
+      );
+    uploadObject = object;
+  } else {
+    const winner = await bucket.head(storageKey);
+    if (
+      !winner ||
+      !companyUploadObjectMatchesDigest(
+        winner,
+        storageKey,
+        metadata,
+        bytesFingerprint,
+      )
+    )
+      throw new CompanyFileError(
+        '기업자료 원본 보관 상태가 변경되었습니다. 같은 파일로 다시 시도해 주세요.',
+        409,
+      );
+    uploadObject = winner;
+  }
   const objectBinding = companyFileObjectBinding(
     {
       id,
@@ -226,7 +275,7 @@ export async function storeCompanyUpload(
       content_type: metadata.contentType,
       size_bytes: metadata.sizeBytes,
     },
-    object,
+    uploadObject,
   );
   // A prior explicit deletion wins even if authorization was revoked during R2.put.
   await assertNotDeleted(db, bucket, id, true);
@@ -364,13 +413,28 @@ export async function storeCompanyUpload(
   const storedObject = await bucket.head(row.storage_key);
   if (
     !storedObject ||
-    !companyFileObjectMatchesIntegrity(row, storedObject, integrity)
+    !companyFileObjectMatchesIntegrity(row, storedObject, integrity) ||
+    r2ObjectSha256Hex(storedObject) !== bytesFingerprint
   )
     throw new CompanyFileError('파일 저장 확인을 다시 시도해 주세요.', 503);
   await authorize();
   await assertNotDeleted(db, bucket, id, false);
   observe('safe_retry');
   return storedFileResult(row);
+}
+
+function companyUploadObjectMatchesDigest(
+  object: R2Object,
+  storageKey: string,
+  metadata: UploadMetadata,
+  sha256: string,
+) {
+  return (
+    object.key === storageKey &&
+    object.size === metadata.sizeBytes &&
+    object.httpMetadata?.contentType === metadata.contentType &&
+    r2ObjectSha256Hex(object) === sha256
+  );
 }
 
 async function assertNotDeleted(
