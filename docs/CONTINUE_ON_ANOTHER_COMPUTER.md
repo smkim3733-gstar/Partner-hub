@@ -6,16 +6,16 @@
 
 ## 현재 인수인계 지점
 
-- 최신 로컬 기능 커밋: `86ee366` (`fix: bind flow report receipt target`)
-- 최신 확인: `save_report`의 동작·목적·슬롯과 파일 원장은 정상이나 명령 기반 보고서의 `fileId`가 업로드 파일을 가리키지 않는 손상 상태
-- 연속 확인: 해당 파일을 `inconsistent`·`unavailable`로 격리하고 증명에서 제외하며 R2 `head` 전 503 차단; `${commandId}-report.fileId`와 완료 예약 `file_id` 결속
-- 검증: Node 회귀 검사 781개, 파일 재고 집중 회귀 26개, 격리 workerd/D1/R2 검사 600개, 추가형 마이그레이션 98개 2회, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
-- GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, 원격 `main`은 `ee40a91b5de4ef8fed06245ba2b636e623773b0c`; 로컬 버전 331 푸시는 명시 승인을 기다려 보류
+- 최신 로컬 기능 커밋: `63cf9b4` (`fix: bind flow recording receipt targets`)
+- 최신 확인: `save_recording`의 동작·목적·슬롯과 파일 원장은 정상이나 명령 기반 녹취의 `fileId` 또는 `audioFileId`가 해당 업로드 파일을 가리키지 않는 손상 상태
+- 연속 확인: 손상된 슬롯 파일만 `inconsistent`·`unavailable`로 격리하고 증명에서 제외하며 R2 `head` 전 503 차단; `${commandId}-recording`의 file/audio 대상과 완료 예약 결속
+- 검증: Node 회귀 검사 782개, 파일 재고 집중 회귀 27개, 격리 workerd/D1/R2 검사 609개, 추가형 마이그레이션 98개 2회, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
+- GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, 원격 `main`은 `ee40a91b5de4ef8fed06245ba2b636e623773b0c`; 로컬 버전 332 푸시는 명시 승인을 기다려 보류
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
 - 최신 Sites 저장 버전: 309, 소스 `66aa95462bf30470f15b8ba138682c6c62fed591`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–330은 더 완전한 로컬 후보인 버전 331로 대체한다.
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–331은 더 완전한 로컬 후보인 버전 332로 대체한다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -45,7 +45,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [파일 재고 FLOW 보고서 영수증 대상 결속](FILE_INVENTORY_FLOW_REPORT_RECEIPT_TARGET_BINDING_2026_09_08.md)을 확인한다.
+먼저 [파일 재고 FLOW 녹취 영수증 대상 결속](FILE_INVENTORY_FLOW_RECORDING_RECEIPT_TARGET_BINDING_2026_09_08.md)을 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
@@ -93,4 +93,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 최신 저장 버전은 309이고 공개 운영본은 버전 107이다. 버전 108–330은 버전 331로 대체해 배포하지 않는다. GitHub 반영에는 정확히 `버전 331 GitHub main 푸시 승인`, 버전 331의 Sites 소스 전송·버전 저장·공개 교체에는 정확히 `버전 331 Sites 소스 전송 및 공개 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 `save_recording` 영수증의 동작·목적·슬롯이 모두 맞아도 실제 녹취 기록의 `fileId` 또는 `audioFileId`가 해당 슬롯 업로드 파일을 가리키지 않는 손상 상태를 다음 순서로 감사한다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
+Sites 최신 저장 버전은 309이고 공개 운영본은 버전 107이다. 버전 108–331은 버전 332로 대체해 배포하지 않는다. GitHub 반영에는 정확히 `버전 332 GitHub main 푸시 승인`, 버전 332의 Sites 소스 전송·버전 저장·공개 교체에는 정확히 `버전 332 Sites 소스 전송 및 공개 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 `save_transcript` 영수증의 목적·슬롯과 대상 녹취 ID가 맞아도 실제 대상 녹취의 `transcriptFileId`가 업로드 파일을 가리키지 않는 손상 상태를 다음 순서로 감사한다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
