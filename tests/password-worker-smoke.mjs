@@ -9227,6 +9227,10 @@ try {
   checks.push('cross-source collision fixture is removed before receipt audit');
   const nativeFlowCommandReceipt =
     privateMimeFlow.commandReceipts[mimeCommand.commandId];
+  const nativeFlowCommandAudit = privateMimeFlow.audit.find(
+    (entry) => entry.id === mimeCommand.commandId,
+  );
+  assert.ok(nativeFlowCommandAudit);
   assert.equal(
     nativeFlowCommandReceipt.actorKey,
     nativeFlowReservation.actor_key,
@@ -9332,6 +9336,24 @@ try {
     );
     assert.ok(audit);
     audit.action = value;
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), 'runtime-own'],
+    );
+  };
+  const mutateNativeFlowCommandAuditAt = async (value) => {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind('runtime-own')
+      .first();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    const audit = flow.audit.find(
+      (entry) => entry.id === mimeCommand.commandId,
+    );
+    assert.ok(audit);
+    audit.at = value;
     await mutateConsultingFlowFixture(
       db,
       'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
@@ -9492,6 +9514,20 @@ try {
     await mutateNativeFlowCommandReceiptAndAuditAction(
       nativeFlowCommandReceipt.action,
     );
+  }
+  const forgedNativeFlowCommandAuditAt = new Date(
+    Date.parse(nativeFlowCommandAudit.at) + 1_000,
+  ).toISOString();
+  await mutateNativeFlowCommandAuditAt(forgedNativeFlowCommandAuditAt);
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW command audit timestamp drift stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW command audit timestamp drift is quarantined before native R2 presence trust',
+    );
+  } finally {
+    await mutateNativeFlowCommandAuditAt(nativeFlowCommandAudit.at);
   }
   await mutateNativeFlowCommandReceiptAndAuditAction('save_source');
   try {

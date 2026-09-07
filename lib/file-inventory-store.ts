@@ -117,7 +117,8 @@ const flowReceiptAuditBindingSql = `(
         AND json_extract(audit.value, '$.actor') =
           json_extract(receipt.value, '$.actor')
         AND json_extract(audit.value, '$.action') =
-          json_extract(receipt.value, '$.action')) = 1
+          json_extract(receipt.value, '$.action')
+        AND json_extract(audit.value, '$.at') = upload.created_at) = 1
     AND ${flowReceiptUploadBindingSql}
     AND ${flowReceiptTargetBindingSql}
   )
