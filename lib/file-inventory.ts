@@ -20,9 +20,9 @@ export const inventoryPendingAgeLabels = {
 } as const;
 export type InventoryPendingAge = keyof typeof inventoryPendingAgeLabels;
 export const inventoryIntegrityProofs = {
-  sha256: 'SHA-256 · ETag · MIME',
-  etag: '레거시 ETag · MIME',
-  metadata: '레거시 크기 · MIME',
+  sha256: 'D1 저장 시 SHA-256 · ETag · MIME 원장',
+  etag: 'D1 레거시 ETag · MIME 원장',
+  metadata: 'D1 레거시 크기 · MIME 원장',
 } as const;
 export type InventoryIntegrityProof = keyof typeof inventoryIntegrityProofs;
 export type InventoryIntegrityCoverage = Record<

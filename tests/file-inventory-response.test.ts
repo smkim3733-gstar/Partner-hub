@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import {
   FileInventoryResponseError,
   readFileInventoryPageResponse,
   readFileInventoryPresenceResponse,
 } from '../lib/file-inventory-response';
 import {
+  inventoryIntegrityProofs,
   inventoryPendingAge,
   inventoryPendingAgeLabels,
 } from '../lib/file-inventory';
@@ -68,6 +71,7 @@ void test('inventory page rejects wrong filters, duplicate IDs and malformed pag
     { ...page, items: [{ ...item, sizeBytes: -1 }] },
     { ...page, items: [{ ...item, source: 'private-ledger' }] },
     { ...page, items: [{ ...item, integrityProof: 'private-proof' }] },
+    { ...page, items: [{ ...item, id: 'x'.repeat(201) }] },
     { ...page, items: [{ ...item, createdAt: 'not-a-date' }] },
     { ...page, integrityCoverage: { ...page.integrityCoverage, sha256: -1 } },
     { ...page, integrityCoverage: { ...page.integrityCoverage, etag: 1.5 } },
@@ -84,6 +88,18 @@ void test('inventory page rejects wrong filters, duplicate IDs and malformed pag
       readFileInventoryPageResponse(Response.json(changed), 'unlinked'),
       /응답 형식이 올바르지 않습니다/,
     );
+
+  const maximumFlowIdPage = {
+    ...page,
+    items: [{ ...item, id: 'x'.repeat(200), source: 'flow' }],
+  };
+  assert.deepEqual(
+    await readFileInventoryPageResponse(
+      Response.json(maximumFlowIdPage),
+      'unlinked',
+    ),
+    maximumFlowIdPage,
+  );
 });
 
 void test('pending age uses fixed non-overlapping operational buckets', () => {
@@ -114,6 +130,26 @@ void test('pending age uses fixed non-overlapping operational buckets', () => {
     '1~3일',
     '3일 이상',
   ]);
+});
+
+void test('inventory UI distinguishes D1 proof ledgers from current R2 metadata checks', async () => {
+  assert.deepEqual(inventoryIntegrityProofs, {
+    sha256: 'D1 저장 시 SHA-256 · ETag · MIME 원장',
+    etag: 'D1 레거시 ETag · MIME 원장',
+    metadata: 'D1 레거시 크기 · MIME 원장',
+  });
+  const source = await readFile(
+    join(process.cwd(), 'components/admin-file-inventory.tsx'),
+    'utf8',
+  );
+  for (const phrase of [
+    'D1 저장 증명 원장 적용 현황',
+    '현재 R2 원본 확인',
+    '현재 R2 객체를 검사한 결과가 아닙니다.',
+    '현재 R2 객체 정보가 D1 SHA-256·ETag·MIME 원장과 일치 · 본문 미읽음',
+  ])
+    assert.match(source, new RegExp(phrase));
+  assert.doesNotMatch(source, /저장 원장 전체 무결성 증명|원본 무결성 확인/);
 });
 
 void test('presence response must match requested ID and size relationships', async () => {

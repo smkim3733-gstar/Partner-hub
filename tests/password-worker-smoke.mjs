@@ -3973,6 +3973,45 @@ try {
     /object checksum is durable/,
   );
   checks.push('new FLOW uploads bind native R2 ETag and MIME in D1');
+  const completedFlowInventoryResponse = await expect(
+    await call('/inventory?status=linked', undefined, ownerHeaders),
+    200,
+    'completed FLOW files remain visible in native D1 inventory',
+  );
+  assertPrivateAuthResponse(completedFlowInventoryResponse);
+  const completedFlowInventory = await completedFlowInventoryResponse.json();
+  const completedFlowInventoryItem = completedFlowInventory.items.find(
+    (item) => item.id === privateMimeFile.id,
+  );
+  assert.equal(completedFlowInventoryItem.source, 'flow');
+  assert.equal(completedFlowInventoryItem.flowLinked, true);
+  assert.equal(completedFlowInventoryItem.integrityProof, 'sha256');
+  assert.doesNotMatch(
+    JSON.stringify(completedFlowInventoryItem),
+    /storage_key|consulting-flow\//,
+  );
+  assert.ok(
+    !JSON.stringify(completedFlowInventoryItem).includes(
+      await sha256('SYNTHETIC_FLOW_MIME'),
+    ),
+  );
+  const completedFlowPresenceResponse = await expect(
+    await call(`/inventory/${privateMimeFile.id}`, undefined, ownerHeaders),
+    200,
+    'administrator checks completed FLOW R2 metadata without body disclosure',
+  );
+  assertPrivateAuthResponse(completedFlowPresenceResponse);
+  const completedFlowPresence = await completedFlowPresenceResponse.json();
+  assert.equal(completedFlowPresence.exists, true);
+  assert.equal(completedFlowPresence.sizeMatches, true);
+  assert.equal(completedFlowPresence.integrityMode, 'etag');
+  assert.equal(completedFlowPresence.integrityProof, 'sha256');
+  assert.equal(completedFlowPresence.integrityMatches, true);
+  assert.ok(
+    !JSON.stringify(completedFlowPresence).includes(
+      await sha256('SYNTHETIC_FLOW_MIME'),
+    ),
+  );
   const flowFileBytes = new TextEncoder().encode('SYNTHETIC_FLOW_MIME');
   await bucket.put(
     privateMimeFile.key,

@@ -464,7 +464,7 @@ void test('API query consumers remain routed through the shared bounded reader',
 void test('dynamic route IDs remain routed through the shared path boundary', async () => {
   const expected = [
     ['lib/consulting-flow-store.ts', 'readRouteParam(\n    caseId,'],
-    ['lib/file-inventory-store.ts', 'readRouteParam(id, 120,'],
+    ['lib/file-inventory-store.ts', 'readRouteParam(id, 200,'],
     ['lib/file-recovery-store.ts', 'readRouteParam(id, 120,'],
     ['app/api/files/[id]/route.ts', 'readRouteParam(rawId, 120,'],
     [

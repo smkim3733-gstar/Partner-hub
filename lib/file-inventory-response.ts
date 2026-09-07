@@ -64,8 +64,8 @@ function parseItem(value: unknown): InventoryItem | null {
   const item = asObject(value);
   if (
     !item ||
-    !boundedText(item.id, 120) ||
-    !/^[A-Za-z0-9_-]{1,120}$/.test(item.id as string) ||
+    !boundedText(item.id, 200) ||
+    !/^[A-Za-z0-9_-]{1,200}$/.test(item.id as string) ||
     typeof item.source !== 'string' ||
     !Object.hasOwn(inventorySources, item.source) ||
     !nullableText(item.fileName, 500) ||

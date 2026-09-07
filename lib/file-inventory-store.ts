@@ -11,7 +11,13 @@ import {
   CompanyFileError,
   type CompanyFileRow,
 } from './company-files';
-import { flowDatabase } from './consulting-flow-store';
+import {
+  flowDatabase,
+  flowFileObjectMatchesIntegrity,
+  readFlow,
+  readFlowFileObjectIntegrity,
+} from './consulting-flow-store';
+import { FlowError, type FlowFile } from './consulting-flow';
 import {
   FLOW_ADMIN_COMMAND_ACTOR_KEY,
   FLOW_ADMIN_COMMAND_ACTOR_NAME,
@@ -100,7 +106,7 @@ function parseQuery(url: URL) {
         typeof value.createdAt !== 'string' ||
         value.createdAt.length > 80 ||
         typeof value.id !== 'string' ||
-        !/^[A-Za-z0-9_-]{1,120}$/.test(value.id)
+        !/^[A-Za-z0-9_-]{1,200}$/.test(value.id)
       )
         throw new Error();
       cursor = value;
@@ -137,8 +143,17 @@ export async function listFileInventory(
     .prepare(`
     WITH document_refs AS (SELECT value AS id FROM json_each(?1)),
     flow_refs AS (SELECT DISTINCT json_extract(f.value, '$.intakeFileId') AS id
-      FROM consulting_flows c, json_each(c.payload, '$.files') f
-      WHERE json_extract(f.value, '$.intakeFileId') IS NOT NULL),
+      FROM consulting_flows c,
+        json_each(CASE WHEN json_valid(c.payload) THEN c.payload
+          ELSE '{"files":[]}' END, '$.files') f
+      WHERE json_type(f.value) = 'object'
+        AND json_type(f.value, '$.intakeFileId') = 'text'),
+    flow_file_refs AS (SELECT DISTINCT json_extract(f.value, '$.id') AS id
+      FROM consulting_flows c,
+        json_each(CASE WHEN json_valid(c.payload) THEN c.payload
+          ELSE '{"files":[]}' END, '$.files') f
+      WHERE json_type(f.value) = 'object'
+        AND json_type(f.value, '$.id') = 'text'),
     candidates AS (
       SELECT 'company' AS source_type, f.id, f.original_name, f.company, f.title, f.category, f.size_bytes,
         f.created_at, f.assigned_trainee, a.partner_member_id, f.uploaded_by_email,
@@ -173,14 +188,65 @@ export async function listFileInventory(
       WHERE NOT EXISTS (SELECT 1 FROM company_file_objects f WHERE f.id = u.file_id)
         AND (u.status <> 'deleted' OR u.file_id IN (SELECT id FROM document_refs) OR u.file_id IN (SELECT id FROM flow_refs))
       UNION ALL
+      SELECT 'flow', owner.file_id, metadata.original_name, NULL,
+        '상담 FLOW 보관 첨부', metadata.purpose, metadata.size_bytes,
+        owner.created_at, NULL, NULL, NULL, upload.actor_key, owner.case_id,
+        upload.status, CASE WHEN metadata.file_id IS NOT NULL THEN 1 ELSE 0 END,
+        CASE WHEN owner.storage_key = 'consulting-flow/' || owner.file_id
+          AND metadata.file_id IS NOT NULL
+          AND integrity.file_id IS NOT NULL
+          AND integrity.r2_content_type = metadata.content_type
+          AND (SELECT COUNT(*)
+            FROM consulting_flows flow,
+              json_each(CASE WHEN json_valid(flow.payload) THEN flow.payload
+                ELSE '{"files":[]}' END, '$.files') stored_file
+            WHERE flow.case_id = owner.case_id
+              AND json_type(stored_file.value) = 'object'
+              AND json_extract(stored_file.value, '$.id') = owner.file_id
+              AND json_extract(stored_file.value, '$.key') = owner.storage_key
+              AND json_extract(stored_file.value, '$.createdAt') = owner.created_at
+              AND json_extract(stored_file.value, '$.name') = metadata.original_name
+              AND json_extract(stored_file.value, '$.contentType') = metadata.content_type
+              AND json_extract(stored_file.value, '$.size') = metadata.size_bytes
+              AND json_extract(stored_file.value, '$.purpose') = metadata.purpose
+              AND json_extract(stored_file.value, '$.intakeFileId') IS metadata.intake_file_id
+              AND json_extract(stored_file.value, '$.intakeSourceHash') IS metadata.intake_source_hash
+              AND json_extract(stored_file.value, '$.sourceReviewedAt') IS metadata.source_reviewed_at
+              AND json_extract(stored_file.value, '$.sourceReviewedBy') IS metadata.source_reviewed_by) = 1
+          AND ((integrity.validation_mode = 'metadata'
+              AND integrity.r2_etag IS NULL AND checksum.file_id IS NULL)
+            OR (integrity.validation_mode = 'etag'
+              AND typeof(integrity.r2_etag) = 'text'
+              AND length(trim(integrity.r2_etag)) BETWEEN 1 AND 256
+              AND (checksum.file_id IS NULL OR
+                (typeof(checksum.sha256) = 'text' AND length(checksum.sha256) = 64
+                  AND checksum.sha256 NOT GLOB '*[^0-9a-f]*'))))
+          THEN 1 ELSE 0 END,
+        integrity.validation_mode, checksum.sha256
+      FROM consulting_flow_file_owners owner
+      LEFT JOIN consulting_flow_file_metadata metadata
+        ON metadata.file_id = owner.file_id
+      LEFT JOIN consulting_flow_file_object_integrity integrity
+        ON integrity.file_id = owner.file_id
+      LEFT JOIN consulting_flow_file_object_checksums checksum
+        ON checksum.file_id = owner.file_id
+      LEFT JOIN consulting_flow_upload_requests upload
+        ON upload.file_id = owner.file_id
+      UNION ALL
       SELECT 'flow', u.file_id, u.original_name, NULL, '상담 FLOW 미완료 첨부',
         u.purpose, u.size_bytes, u.created_at, NULL, NULL, NULL, u.actor_key,
         u.case_id, u.status, 0, 0, NULL, NULL
       FROM consulting_flow_upload_requests u
       WHERE u.status = 'pending'
+        AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners owner
+          WHERE owner.file_id = u.file_id)
     ), classified AS (
-      SELECT *, id IN (SELECT id FROM document_refs) AS document_linked,
-        id IN (SELECT id FROM flow_refs) AS flow_linked,
+      SELECT *,
+        source_type = 'company' AND id IN (SELECT id FROM document_refs)
+          AS document_linked,
+        ((source_type = 'company' AND id IN (SELECT id FROM flow_refs))
+          OR (source_type = 'flow' AND id IN (SELECT id FROM flow_file_refs)))
+          AS flow_linked,
         CASE WHEN has_object_integrity = 0 THEN NULL
           WHEN validation_mode = 'metadata' THEN 'metadata'
           WHEN checksum_sha256 IS NULL THEN 'etag'
@@ -189,7 +255,11 @@ export async function listFileInventory(
           WHEN upload_status = 'pending' THEN 'pending'
           WHEN has_metadata = 0 THEN 'inconsistent'
           WHEN has_object_integrity = 0 THEN 'inconsistent'
-          WHEN id IN (SELECT id FROM document_refs) OR id IN (SELECT id FROM flow_refs) THEN 'linked'
+          WHEN (source_type = 'company'
+              AND (id IN (SELECT id FROM document_refs)
+                OR id IN (SELECT id FROM flow_refs)))
+            OR (source_type = 'flow' AND id IN (SELECT id FROM flow_file_refs))
+            THEN 'linked'
           ELSE 'unlinked' END AS status
       FROM candidates
     ), paged AS (
@@ -392,17 +462,29 @@ export async function listFileInventory(
 export async function checkInventoryPresence(
   id: string,
 ): Promise<InventoryPresence> {
-  id = readRouteParam(id, 120, '파일 식별값을 확인해 주세요.');
+  id = readRouteParam(id, 200, '파일 식별값을 확인해 주세요.');
   const db = await inventoryDatabase();
   const rows = await db
-    .prepare(`SELECT 'company' AS source_type, f.id, f.storage_key, f.content_type, f.size_bytes, u.file_id
+    .prepare(`SELECT 'company' AS source_type, f.id, f.storage_key, f.content_type,
+      f.size_bytes, u.file_id, NULL AS case_id
     FROM company_file_objects f LEFT JOIN company_file_upload_requests u ON u.file_id = f.id WHERE f.id = ?1
-    UNION ALL SELECT 'company', NULL, 'company-source/' || file_id, NULL, NULL, file_id
+    UNION ALL SELECT 'company', NULL, 'company-source/' || file_id, NULL, NULL,
+      file_id, NULL
     FROM company_file_upload_requests
     WHERE file_id = ?1 AND NOT EXISTS (SELECT 1 FROM company_file_objects WHERE id = ?1)
-    UNION ALL SELECT 'flow', NULL, storage_key, content_type, size_bytes, file_id
-    FROM consulting_flow_upload_requests
-    WHERE file_id = ?1 AND status = 'pending' LIMIT 2`)
+    UNION ALL SELECT 'flow', owner.file_id, owner.storage_key,
+      metadata.content_type, metadata.size_bytes, owner.file_id, owner.case_id
+    FROM consulting_flow_file_owners owner
+    LEFT JOIN consulting_flow_file_metadata metadata
+      ON metadata.file_id = owner.file_id
+    WHERE owner.file_id = ?1
+    UNION ALL SELECT 'flow', NULL, upload.storage_key, upload.content_type,
+      upload.size_bytes, upload.file_id, upload.case_id
+    FROM consulting_flow_upload_requests upload
+    WHERE upload.file_id = ?1 AND upload.status = 'pending'
+      AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners owner
+        WHERE owner.file_id = upload.file_id)
+    LIMIT 2`)
     .bind(id)
     .all<{
       source_type: 'company' | 'flow';
@@ -411,6 +493,7 @@ export async function checkInventoryPresence(
       content_type: string | null;
       size_bytes: number | null;
       file_id: string | null;
+      case_id: string | null;
     }>();
   if (rows.results.length === 0)
     throw new CompanyFileError('확인할 파일 기록을 찾지 못했습니다.', 404);
@@ -438,7 +521,36 @@ export async function checkInventoryPresence(
       size_bytes: file.size_bytes,
     });
   }
-  const key = file?.storage_key ?? row.storage_key;
+  let flowFile: FlowFile | null = null;
+  let flowCaseId: string | null = null;
+  if (row.source_type === 'flow' && row.id !== null) {
+    if (row.case_id === null || row.storage_key !== `consulting-flow/${row.id}`)
+      throw new CompanyFileError(
+        '저장된 상담 FLOW 첨부 원장의 무결성을 확인할 수 없습니다.',
+        503,
+      );
+    let flow;
+    try {
+      flow = await readFlow(row.case_id);
+    } catch (error) {
+      if (error instanceof FlowError)
+        throw new CompanyFileError(
+          '저장된 상담 FLOW 첨부 원장의 무결성을 확인할 수 없습니다.',
+          503,
+        );
+      throw error;
+    }
+    const matches =
+      flow?.files.filter((candidate) => candidate.id === row.id) ?? [];
+    if (matches.length !== 1 || matches[0].key !== row.storage_key)
+      throw new CompanyFileError(
+        '저장된 상담 FLOW 첨부 원장의 무결성을 확인할 수 없습니다.',
+        503,
+      );
+    flowFile = matches[0];
+    flowCaseId = row.case_id;
+  }
+  const key = file?.storage_key ?? flowFile?.key ?? row.storage_key;
   if (!key)
     throw new CompanyFileError('확인할 파일 저장 위치가 없습니다.', 409);
   const object = await companyFileBucket().head(key);
@@ -460,15 +572,31 @@ export async function checkInventoryPresence(
         throw error;
       integrityMatches = false;
     }
+  } else if (object && flowFile && flowCaseId) {
+    try {
+      const integrity = await readFlowFileObjectIntegrity(flowCaseId, flowFile);
+      integrityMode = integrity.validationMode;
+      integrityProof = integrity.sha256 ? 'sha256' : integrity.validationMode;
+      integrityMatches = flowFileObjectMatchesIntegrity(
+        flowFile,
+        object,
+        integrity,
+      );
+    } catch (error) {
+      if (!(error instanceof FlowError) || error.status !== 503) throw error;
+      integrityMatches = false;
+    }
   }
+  const expectedSizeBytes =
+    file?.size_bytes ?? flowFile?.size ?? row.size_bytes;
   return {
     id,
     exists: Boolean(object),
     sizeBytes: object?.size ?? null,
-    expectedSizeBytes: file?.size_bytes ?? row.size_bytes,
+    expectedSizeBytes,
     sizeMatches:
-      object && (file?.size_bytes ?? row.size_bytes) !== null
-        ? object.size === (file?.size_bytes ?? row.size_bytes)
+      object && expectedSizeBytes !== null
+        ? object.size === expectedSizeBytes
         : null,
     integrityMode,
     integrityProof,

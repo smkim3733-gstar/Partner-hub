@@ -101,6 +101,51 @@ async function flowReservation(
     )
     .run();
 }
+async function completedFlowFile(id: string, caseId: string) {
+  const key = `consulting-flow/${id}`;
+  const storedFile = {
+    id,
+    key,
+    name: `${id}.txt`,
+    contentType: 'text/plain',
+    size: 4,
+    purpose: 'report',
+    createdAt: date,
+  };
+  await companyFileBucket().put(key, 'TEST', {
+    httpMetadata: { contentType: storedFile.contentType },
+  });
+  const flow = {
+    ...newConsultingFlow(caseId, '완료 FLOW 재고기업', member.id, member.name),
+    revision: 1,
+    updatedAt: date,
+    files: [storedFile],
+  };
+  const db = await flowDatabase();
+  await db
+    .prepare(
+      'INSERT INTO consulting_flows (case_id, partner_id, revision, payload, updated_at) VALUES (?1, ?2, 1, ?3, ?4)',
+    )
+    .bind(caseId, member.id, JSON.stringify(flow), date)
+    .run();
+  await db.batch([
+    db
+      .prepare(`INSERT INTO consulting_flow_file_owners
+        (file_id, case_id, storage_key, created_at)
+        VALUES (?1, ?2, ?3, ?4)`)
+      .bind(id, caseId, key, date),
+    db
+      .prepare(`INSERT INTO consulting_flow_file_metadata
+        (file_id, original_name, content_type, size_bytes, purpose)
+        VALUES (?1, ?2, 'text/plain', 4, 'report')`)
+      .bind(id, storedFile.name),
+    db
+      .prepare(`INSERT INTO consulting_flow_file_object_integrity
+        (file_id, validation_mode, r2_etag, r2_content_type)
+        VALUES (?1, 'metadata', NULL, 'text/plain')`)
+      .bind(id),
+  ]);
+}
 async function file(
   id: string,
   status?: 'pending' | 'ready' | 'deleted',
@@ -748,6 +793,22 @@ void test('pending-only reservations can be checked without inventing file metad
     ).status,
     400,
   );
+  assert.equal(
+    (
+      await presence(request(), {
+        params: Promise.resolve({ id: 'x'.repeat(200) }),
+      })
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await presence(request(), {
+        params: Promise.resolve({ id: 'x'.repeat(201) }),
+      })
+    ).status,
+    400,
+  );
 });
 
 void test('pending FLOW reservations expose safe inventory metadata and exact-size R2 presence only', async () => {
@@ -817,6 +878,84 @@ void test('pending FLOW reservations expose safe inventory metadata and exact-si
       checkedAt: date,
     },
   );
+});
+
+void test('completed FLOW files remain visible and support metadata-only R2 presence checks', async () => {
+  const caseId = 'completed-flow-inventory-case';
+  await seed(
+    [],
+    [
+      {
+        id: caseId,
+        company: '완료 FLOW 재고기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+    ],
+  );
+  await completedFlowFile('completed-flow-presence', caseId);
+  const linked = await page('?status=linked');
+  assert.deepEqual(linked.items, [
+    {
+      id: 'completed-flow-presence',
+      source: 'flow',
+      fileName: 'completed-flow-presence.txt',
+      company: '완료 FLOW 재고기업',
+      title: '상담 FLOW 보관 첨부',
+      category: 'report',
+      sizeBytes: 4,
+      createdAt: date,
+      assignedTrainee: member.name,
+      partnerMemberId: member.id,
+      uploader: '이전 계정 · 확인 필요',
+      caseId,
+      documentLinked: false,
+      flowLinked: true,
+      integrityProof: 'metadata',
+      status: 'linked',
+    },
+  ]);
+  const bucket = companyFileBucket();
+  const originalGet = bucket.get.bind(bucket);
+  let headCalls = 0;
+  const originalHead = bucket.head.bind(bucket);
+  bucket.get = async () => {
+    throw new Error('Inventory presence must not read FLOW file bodies');
+  };
+  bucket.head = async (...args: Parameters<R2Bucket['head']>) => {
+    headCalls++;
+    return originalHead(...args);
+  };
+  try {
+    const response = await presence(request(), {
+      params: Promise.resolve({ id: 'completed-flow-presence' }),
+    });
+    assert.equal(response.status, 200, await response.clone().text());
+    assert.deepEqual(
+      {
+        ...(await readFileInventoryPresenceResponse(
+          response,
+          'completed-flow-presence',
+        )),
+        checkedAt: date,
+      },
+      {
+        id: 'completed-flow-presence',
+        exists: true,
+        sizeBytes: 4,
+        expectedSizeBytes: 4,
+        sizeMatches: true,
+        integrityMode: 'metadata',
+        integrityProof: 'metadata',
+        integrityMatches: true,
+        checkedAt: date,
+      },
+    );
+    assert.equal(headCalls, 1);
+  } finally {
+    bucket.get = originalGet;
+    bucket.head = originalHead;
+  }
 });
 
 void test('refreshing the inventory reflects newly linked files without altering uploads or making deletion decisions', async () => {

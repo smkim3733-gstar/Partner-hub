@@ -42,6 +42,16 @@ function sizeLabel(value: number | null) {
     ? '크기 미확인'
     : `${value.toLocaleString('ko-KR')} bytes`;
 }
+function presenceIntegrityLabel(presence: InventoryPresence) {
+  if (presence.integrityMatches === false)
+    return ' · 현재 R2 객체 정보와 D1 저장 원장 불일치: 사용 중지·복구 필요';
+  if (!presence.integrityMatches) return '';
+  if (presence.integrityProof === 'sha256')
+    return ' · 현재 R2 객체 정보가 D1 SHA-256·ETag·MIME 원장과 일치 · 본문 미읽음';
+  if (presence.integrityProof === 'etag')
+    return ' · 현재 R2 객체 정보가 D1 레거시 ETag·MIME 원장과 일치 · 본문 미읽음';
+  return ' · 현재 R2 객체 정보가 D1 레거시 크기·MIME 원장과 일치 · 본문 미읽음';
+}
 export function AdminFileInventory(controls: RecoveryControls) {
   const [opened, setOpened] = useState(false);
   const [filter, setFilter] = useState<InventoryFilter>('unlinked');
@@ -159,9 +169,10 @@ export function AdminFileInventory(controls: RecoveryControls) {
             </div>
             <p className="rounded-lg bg-sky-50 p-3 text-sm leading-6 text-sky-950">
               <ShieldCheck className="mr-1 inline size-4" aria-hidden="true" />
-              연결 확인 필요는 삭제 가능 판정이 아닙니다. 목록은 DB 기록
-              기준이며, 원본 무결성 확인은 파일 본문을 읽지 않고 존재·크기·고정
-              MIME·ETag·SHA-256 원장을 조회합니다.
+              연결 확인 필요는 삭제 가능 판정이 아닙니다. 목록과 적용 현황은 D1
+              저장 원장 기준입니다. 현재 R2 원본 확인은 파일 본문을 읽지 않고
+              존재·크기·고정 MIME·ETag·저장 시 SHA-256 객체 정보만 원장과
+              대조합니다.
             </p>
             {busy && (
               <output className="block">보관 기록을 확인하고 있습니다.</output>
@@ -178,11 +189,11 @@ export function AdminFileInventory(controls: RecoveryControls) {
                   {dateLabel(page.checkedAt)} · 페이지당 최대 25건
                 </p>
                 <div
-                  aria-label="무결성 증명 적용 현황"
+                  aria-label="D1 저장 증명 원장 적용 현황"
                   className="rounded-xl border bg-muted/20 p-3"
                 >
                   <p className="text-xs font-bold">
-                    저장 원장 전체 무결성 증명{' '}
+                    D1 저장 증명 원장 적용 현황{' '}
                     {Object.values(page.integrityCoverage).reduce(
                       (sum, count) => sum + count,
                       0,
@@ -191,23 +202,29 @@ export function AdminFileInventory(controls: RecoveryControls) {
                   </p>
                   <dl className="mt-2 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
                     <div>
-                      <dt className="text-muted-foreground">SHA-256 적용</dt>
+                      <dt className="text-muted-foreground">
+                        저장 시 SHA-256 원장
+                      </dt>
                       <dd className="font-bold">
                         {page.integrityCoverage.sha256}건
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-muted-foreground">레거시 ETag</dt>
+                      <dt className="text-muted-foreground">
+                        레거시 ETag 원장
+                      </dt>
                       <dd>{page.integrityCoverage.etag}건</dd>
                     </div>
                     <div>
                       <dt className="text-muted-foreground">
-                        레거시 메타데이터
+                        레거시 메타데이터 원장
                       </dt>
                       <dd>{page.integrityCoverage.metadata}건</dd>
                     </div>
                     <div>
-                      <dt className="text-muted-foreground">증명 확인 필요</dt>
+                      <dt className="text-muted-foreground">
+                        D1 증명 원장 확인 필요
+                      </dt>
                       <dd
                         className={
                           page.integrityCoverage.unavailable
@@ -220,8 +237,8 @@ export function AdminFileInventory(controls: RecoveryControls) {
                     </div>
                   </dl>
                   <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                    R2 본문을 읽거나 레거시 체크섬을 추정하지 않은 D1 원장
-                    기준입니다.
+                    현재 R2 객체를 검사한 결과가 아닙니다. R2 본문을 읽거나
+                    레거시 체크섬을 추정하지 않습니다.
                   </p>
                 </div>
                 {!page.items.length ? (
@@ -299,7 +316,7 @@ export function AdminFileInventory(controls: RecoveryControls) {
                             </div>
                             <div>
                               <dt className="text-muted-foreground">
-                                무결성 증명
+                                D1 저장 증명 원장
                               </dt>
                               <dd>
                                 {item.integrityProof
@@ -308,7 +325,7 @@ export function AdminFileInventory(controls: RecoveryControls) {
                                     ]
                                   : item.status === 'pending'
                                     ? '저장 완료 전'
-                                    : '증명 원장 확인 필요'}
+                                    : 'D1 증명 원장 확인 필요'}
                               </dd>
                             </div>
                             <div>
@@ -359,13 +376,13 @@ export function AdminFileInventory(controls: RecoveryControls) {
                           >
                             {checking === item.id
                               ? '확인 중…'
-                              : '원본 무결성 확인'}
+                              : '현재 R2 원본 확인'}
                           </Button>
                           {presence && (
                             <output className="block text-xs leading-5">
                               {typeof presence === 'string'
                                 ? presence
-                                : `${presence.exists ? '원본 존재' : '원본 없음'} · ${sizeLabel(presence.sizeBytes)}${presence.sizeMatches === false ? ' · 기록과 크기 불일치: 사용 중지·복구 필요' : ''}${presence.integrityMatches === false ? ' · 객체 무결성 원장 불일치: 사용 중지·복구 필요' : presence.integrityMatches && presence.integrityProof === 'sha256' ? ' · SHA-256·ETag·MIME 무결성 확인' : presence.integrityMatches && presence.integrityProof === 'etag' ? ' · 기존 원본: ETag·MIME 확인' : presence.integrityMatches && presence.integrityProof === 'metadata' ? ' · 기존 원본: 크기·MIME만 확인' : ''} · ${dateLabel(presence.checkedAt)}`}
+                                : `${presence.exists ? '현재 R2 원본 존재' : '현재 R2 원본 없음'} · ${sizeLabel(presence.sizeBytes)}${presence.sizeMatches === false ? ' · D1 기록과 크기 불일치: 사용 중지·복구 필요' : ''}${presenceIntegrityLabel(presence)} · ${dateLabel(presence.checkedAt)}`}
                             </output>
                           )}
                           {item.status === 'unlinked' && (
