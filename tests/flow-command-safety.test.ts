@@ -5310,6 +5310,97 @@ void test('dual-slot FLOW final R2 proof rejects an audio replacement and exact 
   await assertFinalR2ReplacementRejectedAndRecoverable('dual');
 });
 
+void test('FLOW conditional R2 write cannot overwrite a replacement that wins after its preflight', async () => {
+  const stored = await fixture();
+  const command = {
+    type: 'save_report',
+    stage: 1,
+    body: `${body} 조건부 R2 쓰기 경쟁`,
+    fileConsent: true,
+  } as const;
+  const file = new File(
+    ['SYNTHETIC_CONDITIONAL_R2_ORIGINAL'],
+    'conditional-r2-original.txt',
+    { type: 'text/plain' },
+  );
+  const replacement = new TextEncoder().encode(
+    'SYNTHETIC_CONDITIONAL_R2_REPLACED',
+  );
+  assert.equal(replacement.byteLength, file.size);
+  const commandId = `conditional-r2-write-${++sequence}`;
+  const bucket = flowBucket();
+  const put = bucket.put.bind(bucket);
+  let injectedKey: string | undefined;
+  let routePutAttempts = 0;
+  bucket.put = async (...args: Parameters<R2Bucket['put']>) => {
+    routePutAttempts++;
+    injectedKey = args[0];
+    await put(injectedKey, replacement, {
+      httpMetadata: { contentType: file.type },
+    });
+    return put(...args);
+  };
+  let rejected: Response;
+  try {
+    rejected = await POST(
+      request(
+        stored.caseId,
+        command,
+        stored.revision,
+        commandId,
+        adminEmail,
+        file,
+      ),
+      context(stored.caseId),
+    );
+  } finally {
+    bucket.put = put;
+  }
+  assert.equal(routePutAttempts, 1);
+  assert.equal(rejected.status, 409, await rejected.clone().text());
+  assert.deepEqual(await rejected.json(), {
+    error:
+      '첨부파일 보관 상태가 변경되었습니다. 같은 자료로 다시 시도해 주세요.',
+  });
+  assert.deepEqual(await readFlow(stored.caseId), stored);
+  assert.ok(injectedKey);
+  assert.deepEqual(new Uint8Array(objects.get(injectedKey)), replacement);
+  const reservation = await (
+    await flowDatabase()
+  )
+    .prepare(
+      `SELECT status, storage_key
+      FROM consulting_flow_upload_requests
+      WHERE case_id = ?1 AND actor_key = ?2 AND command_id = ?3 AND slot = 'file'`,
+    )
+    .bind(stored.caseId, FLOW_ADMIN_COMMAND_ACTOR_KEY, commandId)
+    .first<{ status: string; storage_key: string }>();
+  assert.deepEqual(
+    { ...reservation },
+    {
+      status: 'pending',
+      storage_key: injectedKey,
+    },
+  );
+
+  const retry = await POST(
+    request(
+      stored.caseId,
+      command,
+      stored.revision,
+      commandId,
+      adminEmail,
+      file,
+    ),
+    context(stored.caseId),
+  );
+  assert.equal(retry.status, 200, await retry.clone().text());
+  assert.deepEqual(
+    new Uint8Array(objects.get(injectedKey)),
+    new Uint8Array(await file.arrayBuffer()),
+  );
+});
+
 void test('failed dual-slot FLOW commit preserves both reserved R2 objects for exact retry', async () => {
   const stored = await transcriptJobFixture(false, body);
   const command = {

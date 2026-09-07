@@ -129,7 +129,7 @@ void test('both upload routes validate content before durable storage', async ()
       source.lastIndexOf('uploadFileContentProblem') <
         Math.max(
           source.indexOf('storeCompanyUpload('),
-          source.indexOf('flowBucket().put('),
+          source.indexOf('bucket.put('),
         ),
     );
   }

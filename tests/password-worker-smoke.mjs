@@ -3774,6 +3774,16 @@ try {
   const privateMimeFile = privateMimeFlow.files.at(-1);
   const privateMimeHead = await bucket.head(privateMimeFile.key);
   assert.equal(privateMimeHead.httpMetadata.contentType, 'text/plain');
+  assert.deepEqual(
+    new Uint8Array(privateMimeHead.checksums.sha256),
+    new Uint8Array(
+      await crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode('SYNTHETIC_FLOW_MIME'),
+      ),
+    ),
+  );
+  checks.push('new FLOW upload stores a native R2 SHA-256 checksum');
   const nativeFlowReservation = await db
     .prepare(
       `SELECT reservation.status, reservation.fingerprint,

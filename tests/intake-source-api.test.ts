@@ -1331,7 +1331,11 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
     }
 
     const failedBeforeCommit = await failImportCopy(false);
-    assert.equal(failedBeforeCommit.status, 404);
+    assert.equal(
+      failedBeforeCommit.status,
+      404,
+      `failedBeforeCommit: ${await failedBeforeCommit.clone().text()}`,
+    );
     assert.deepEqual(await failedBeforeCommit.json(), {
       error: '해당 컨설팅 진행을 찾을 수 없습니다.',
     });
@@ -1354,7 +1358,11 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
     );
 
     const failedAfterCommit = await failImportCopy(true);
-    assert.equal(failedAfterCommit.status, 404);
+    assert.equal(
+      failedAfterCommit.status,
+      404,
+      `failedAfterCommit: ${await failedAfterCommit.clone().text()}`,
+    );
     assert.deepEqual(await failedAfterCommit.json(), {
       error: '해당 컨설팅 진행을 찾을 수 없습니다.',
     });

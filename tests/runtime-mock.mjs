@@ -5,6 +5,7 @@ sqlite.exec('PRAGMA foreign_keys = ON');
 export const objects = new Map();
 const objectMetadata = new Map();
 const objectEtags = new Map();
+const objectChecksums = new Map();
 const waitUntilTasks = [];
 let waitUntilFailure = false;
 let batchFailure = false;
@@ -158,11 +159,39 @@ export const env = {
             size: bytes.byteLength,
             etag: objectEtags.get(key),
             httpMetadata: objectMetadata.get(key),
+            checksums: objectChecksums.get(key) ?? {},
           }
         : null;
     },
     async put(key, body, options = {}) {
+      const currentEtag = objectEtags.get(key);
+      if (
+        (options.onlyIf?.etagMatches !== undefined &&
+          currentEtag !== options.onlyIf.etagMatches) ||
+        (options.onlyIf?.etagDoesNotMatch === '*' &&
+          currentEtag !== undefined) ||
+        (options.onlyIf?.etagDoesNotMatch !== undefined &&
+          options.onlyIf.etagDoesNotMatch !== '*' &&
+          currentEtag === options.onlyIf.etagDoesNotMatch)
+      )
+        return null;
       const bytes = await new Response(body).arrayBuffer();
+      const actualSha256 = createHash('sha256')
+        .update(new Uint8Array(bytes))
+        .digest();
+      const suppliedSha256 = options.sha256
+        ? options.sha256 instanceof ArrayBuffer
+          ? new Uint8Array(options.sha256)
+          : ArrayBuffer.isView(options.sha256)
+            ? new Uint8Array(
+                options.sha256.buffer,
+                options.sha256.byteOffset,
+                options.sha256.byteLength,
+              )
+            : new Uint8Array(Buffer.from(options.sha256, 'base64'))
+        : null;
+      if (suppliedSha256 && !actualSha256.equals(Buffer.from(suppliedSha256)))
+        throw new Error('synthetic R2 SHA-256 mismatch');
       objects.set(key, bytes);
       const headers = options.httpMetadata;
       const httpMetadata =
@@ -174,7 +203,11 @@ export const env = {
         .digest('hex');
       objectMetadata.set(key, httpMetadata);
       objectEtags.set(key, etag);
-      return { key, size: bytes.byteLength, etag, httpMetadata };
+      const checksums = suppliedSha256
+        ? { sha256: Uint8Array.from(suppliedSha256).buffer }
+        : {};
+      objectChecksums.set(key, checksums);
+      return { key, size: bytes.byteLength, etag, httpMetadata, checksums };
     },
     async get(key) {
       const bytes = objects.get(key);
@@ -184,6 +217,7 @@ export const env = {
         size: bytes.byteLength,
         etag: objectEtags.get(key),
         httpMetadata: objectMetadata.get(key),
+        checksums: objectChecksums.get(key) ?? {},
         body: new Response(bytes).body,
         async text() {
           return new TextDecoder().decode(bytes);
@@ -197,6 +231,7 @@ export const env = {
       objects.delete(key);
       objectMetadata.delete(key);
       objectEtags.delete(key);
+      objectChecksums.delete(key);
     },
   },
 };

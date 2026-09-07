@@ -75,6 +75,11 @@ export type ComputedFlowCommandReceipt = {
   /** Used only to resume matching commands saved before filename/MIME normalization. */
   legacyFingerprints?: readonly string[];
 };
+export type ComputedFlowCommandReceiptWithDigests =
+  ComputedFlowCommandReceipt & {
+    fileSha256?: string;
+    audioSha256?: string;
+  };
 
 export const FLOW_ADMIN_COMMAND_ACTOR_NAME = '김성민 대표';
 
@@ -86,7 +91,8 @@ async function commandFingerprints(
   },
   includeLegacy = true,
 ): Promise<
-  Pick<ComputedFlowCommandReceipt, 'fingerprint' | 'legacyFingerprints'>
+  Pick<ComputedFlowCommandReceipt, 'fingerprint' | 'legacyFingerprints'> &
+    Pick<ComputedFlowCommandReceiptWithDigests, 'fileSha256' | 'audioSha256'>
 > {
   const command = canonical(input.command);
   const file = await attachment(input.file);
@@ -104,7 +110,11 @@ async function commandFingerprints(
       }),
     );
   const fingerprint = await fingerprintFor(file?.name, audio?.name, false);
-  if (!includeLegacy) return { fingerprint };
+  const attachmentDigests = {
+    ...(file ? { fileSha256: file.digest } : {}),
+    ...(audio ? { audioSha256: audio.digest } : {}),
+  };
+  if (!includeLegacy) return { fingerprint, ...attachmentDigests };
   const legacyFingerprints = new Set<string>();
   for (const fileName of file?.legacyNames ?? [undefined]) {
     for (const audioName of audio?.legacyNames ?? [undefined]) {
@@ -120,6 +130,7 @@ async function commandFingerprints(
   }
   return {
     fingerprint,
+    ...attachmentDigests,
     ...(legacyFingerprints.size > 0
       ? { legacyFingerprints: [...legacyFingerprints] }
       : {}),
@@ -139,7 +150,8 @@ export async function flowCommandRetryKey(
 export async function flowCommandReceipt(
   user: PortalUser,
   input: { command: FlowCommand; file?: File; audio?: File },
-): Promise<ComputedFlowCommandReceipt> {
+  options?: { includeAttachmentDigests?: boolean },
+): Promise<ComputedFlowCommandReceipt | ComputedFlowCommandReceiptWithDigests> {
   const targetId =
     ['complete_meeting', 'cancel_meeting', 'record_contract'].includes(
       input.command.type,
@@ -150,14 +162,24 @@ export async function flowCommandReceipt(
           ) && typeof input.command.requestId === 'string'
         ? input.command.requestId
         : undefined;
-  return {
+  const fingerprints = await commandFingerprints(input);
+  const receipt: ComputedFlowCommandReceiptWithDigests = {
     actorKey:
       user.role === 'admin'
         ? FLOW_ADMIN_COMMAND_ACTOR_KEY
         : `member:${user.memberId}`,
     ...(targetId ? { targetId } : {}),
-    ...(await commandFingerprints(input)),
+    fingerprint: fingerprints.fingerprint,
+    ...(fingerprints.legacyFingerprints
+      ? { legacyFingerprints: fingerprints.legacyFingerprints }
+      : {}),
   };
+  if (options?.includeAttachmentDigests) {
+    if (fingerprints.fileSha256) receipt.fileSha256 = fingerprints.fileSha256;
+    if (fingerprints.audioSha256)
+      receipt.audioSha256 = fingerprints.audioSha256;
+  }
+  return receipt;
 }
 export function isFlowCommandRetry(
   flow: ConsultingFlow,

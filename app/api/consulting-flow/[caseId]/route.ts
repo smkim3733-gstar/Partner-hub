@@ -15,6 +15,7 @@ import {
   FlowCommandReceiptError,
   flowCommandReceipt,
   isFlowCommandRetry,
+  type ComputedFlowCommandReceiptWithDigests,
 } from '@/lib/flow-command-receipt';
 import { scheduleDuplicateRequestMetric } from '@/lib/duplicate-request-metrics';
 import {
@@ -56,6 +57,7 @@ export async function POST(request: Request, context: Context) {
     string,
     ReturnType<typeof flowFileObjectBinding>
   >();
+  const fileSha256Bindings = new Map<string, string>();
   try {
     assertSameOrigin(request);
     const initial = await loadFlowAccess(
@@ -64,7 +66,9 @@ export async function POST(request: Request, context: Context) {
     );
     assertFlowLifecycleActive(initial.state, initial.flow.caseId);
     const input = await parseFlowRequest(request);
-    const receipt = await flowCommandReceipt(initial.user, input);
+    const receipt = (await flowCommandReceipt(initial.user, input, {
+      includeAttachmentDigests: true,
+    })) as ComputedFlowCommandReceiptWithDigests;
     const { flow, user, state } = await recheckFlowAccess(
       request,
       initial.flow,
@@ -243,9 +247,12 @@ export async function POST(request: Request, context: Context) {
     const writeUpload = async (
       file: FlowFile,
       body: Parameters<R2Bucket['put']>[1],
+      sha256: string | undefined,
     ) => {
       try {
-        return await writeReservedFlowUpload(file, body);
+        const binding = await writeReservedFlowUpload(file, body, sha256);
+        fileSha256Bindings.set(file.id, sha256!);
+        return binding;
       } catch (error) {
         // R2 can fail before commit or after an ambiguous object commit. Check
         // current access before telling the actor to retry the reserved write.
@@ -262,7 +269,7 @@ export async function POST(request: Request, context: Context) {
     if (imported) {
       fileObjectBindings.set(
         upload!.id,
-        await writeUpload(upload!, imported.bytes),
+        await writeUpload(upload!, imported.bytes, imported.storageSha256),
       );
       // The original can change while R2 writes the already-reviewed bytes.
       // Preserve the reservation/object, but never commit a stale source copy.
@@ -271,7 +278,7 @@ export async function POST(request: Request, context: Context) {
     if (upload && input.file) {
       fileObjectBindings.set(
         upload.id,
-        await writeUpload(upload, input.file.stream()),
+        await writeUpload(upload, input.file.stream(), receipt.fileSha256),
       );
     }
     if (reservedAudioUpload && input.audio) {
@@ -288,7 +295,11 @@ export async function POST(request: Request, context: Context) {
       }
       fileObjectBindings.set(
         reservedAudioUpload.id,
-        await writeUpload(reservedAudioUpload, input.audio.stream()),
+        await writeUpload(
+          reservedAudioUpload,
+          input.audio.stream(),
+          receipt.audioSha256,
+        ),
       );
     }
     const access = await recheckFlowAccess(
@@ -308,7 +319,8 @@ export async function POST(request: Request, context: Context) {
         .filter((file): file is FlowFile => file !== undefined)
         .map(async (file) => {
           const binding = fileObjectBindings.get(file.id);
-          if (!binding)
+          const sha256 = fileSha256Bindings.get(file.id);
+          if (!binding || !sha256)
             throw new FlowError(
               '첨부파일 보관 증빙을 확인할 수 없습니다. 자료를 다시 등록해 주세요.',
               503,
@@ -327,7 +339,8 @@ export async function POST(request: Request, context: Context) {
             object.key !== file.key ||
             object.size !== file.size ||
             object.httpMetadata?.contentType !== binding.contentType ||
-            object.etag !== binding.etag
+            object.etag !== binding.etag ||
+            r2Sha256Hex(object) !== sha256
           )
             throw new FlowError(
               '첨부파일 보관 상태가 변경되었습니다. 같은 자료로 다시 시도해 주세요.',
@@ -365,12 +378,38 @@ export async function POST(request: Request, context: Context) {
 async function writeReservedFlowUpload(
   file: FlowFile,
   body: Parameters<R2Bucket['put']>[1],
+  sha256: string | undefined,
 ) {
   try {
-    const object = await flowBucket().put(file.key, body, {
+    if (!sha256 || !/^[0-9a-f]{64}$/.test(sha256))
+      throw new FlowError(
+        '첨부파일의 보관 체크섬을 확인할 수 없습니다. 자료를 다시 등록해 주세요.',
+        503,
+      );
+    const bucket = flowBucket();
+    const existing = await bucket.head(file.key);
+    const object = await bucket.put(file.key, body, {
+      onlyIf: existing
+        ? { etagMatches: existing.etag }
+        : { etagDoesNotMatch: '*' },
       httpMetadata: { contentType: file.contentType },
+      sha256: sha256Bytes(sha256),
     });
-    return flowFileObjectBinding(file, object);
+    if (object) {
+      if (!reservedR2ObjectMatches(file, object, sha256))
+        throw new FlowError(
+          '첨부파일을 보안 저장소에 안전하게 기록하지 못했습니다.',
+          503,
+        );
+      return flowFileObjectBinding(file, object);
+    }
+    const winner = await bucket.head(file.key);
+    if (winner && reservedR2ObjectMatches(file, winner, sha256))
+      return flowFileObjectBinding(file, winner);
+    throw new FlowError(
+      '첨부파일 보관 상태가 변경되었습니다. 같은 자료로 다시 시도해 주세요.',
+      409,
+    );
   } catch (error) {
     if (error instanceof FlowError) throw error;
     throw new FlowError(
@@ -378,4 +417,31 @@ async function writeReservedFlowUpload(
       503,
     );
   }
+}
+
+function sha256Bytes(value: string) {
+  return Uint8Array.from(value.match(/.{2}/g)!, (byte) =>
+    Number.parseInt(byte, 16),
+  );
+}
+
+function r2Sha256Hex(object: R2Object) {
+  const checksum = object.checksums?.sha256;
+  if (!checksum) return null;
+  return Array.from(new Uint8Array(checksum), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('');
+}
+
+function reservedR2ObjectMatches(
+  file: FlowFile,
+  object: R2Object,
+  sha256: string,
+) {
+  return (
+    object.key === file.key &&
+    object.size === file.size &&
+    object.httpMetadata?.contentType === file.contentType &&
+    r2Sha256Hex(object) === sha256
+  );
 }

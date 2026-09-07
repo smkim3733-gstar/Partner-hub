@@ -317,9 +317,14 @@ export async function prepareIntakeImport(
     sourceReviewedAt: now,
     sourceReviewedBy: user.memberId || user.id,
   };
+  const storageDigest = await crypto.subtle.digest('SHA-256', bytes);
+  const storageSha256 = Array.from(new Uint8Array(storageDigest), (b) =>
+    b.toString(16).padStart(2, '0'),
+  ).join('');
   return {
     file,
     bytes,
+    storageSha256,
     category: source.file.category,
     sourceSnapshot: source.sourceSnapshot,
   };
