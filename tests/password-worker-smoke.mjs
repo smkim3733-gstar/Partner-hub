@@ -9266,7 +9266,7 @@ try {
     );
     assert.doesNotMatch(
       JSON.stringify(item),
-      /drifted-receipt-actor|forged-receipt-display-actor|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|consulting-flow\//,
+      /drifted-receipt-actor|forged-receipt-display-actor|import_intake_source|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|consulting-flow\//,
     );
     const presenceResponse = await expect(
       await call(`/inventory/${privateMimeFile.id}`, undefined, ownerHeaders),
@@ -9310,6 +9310,63 @@ try {
       'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
       [JSON.stringify(flow), 'runtime-own'],
     );
+  };
+  const mutateNativeFlowFilePurpose = async (purpose) => {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind('runtime-own')
+      .first();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    const file = flow.files.find((entry) => entry.id === privateMimeFile.id);
+    assert.ok(file);
+    file.purpose = purpose;
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), 'runtime-own'],
+    );
+    const triggerNames = [
+      'consulting_flow_file_metadata_lifecycle_guard',
+      'consulting_flow_upload_requests_lifecycle_guard',
+    ];
+    const triggers = (
+      await db
+        .prepare(
+          `SELECT name, sql FROM sqlite_master
+          WHERE type = 'trigger' AND name IN (?1, ?2)`,
+        )
+        .bind(...triggerNames)
+        .all()
+    ).results;
+    assert.deepEqual(
+      new Set(triggers.map((trigger) => trigger.name)),
+      new Set(triggerNames),
+    );
+    await db.batch(
+      triggerNames.map((name) => db.prepare(`DROP TRIGGER IF EXISTS ${name}`)),
+    );
+    try {
+      await db.batch([
+        db
+          .prepare(
+            'UPDATE consulting_flow_file_metadata SET purpose = ?1 WHERE file_id = ?2',
+          )
+          .bind(purpose, privateMimeFile.id),
+        db
+          .prepare(
+            'UPDATE consulting_flow_upload_requests SET purpose = ?1 WHERE file_id = ?2',
+          )
+          .bind(purpose, privateMimeFile.id),
+      ]);
+    } finally {
+      await db.batch(
+        triggers.map((trigger) => {
+          assert.equal(typeof trigger.sql, 'string');
+          return db.prepare(trigger.sql);
+        }),
+      );
+    }
   };
   await mutateNativeFlowCommandReceipt(
     'actorKey',
@@ -9386,6 +9443,36 @@ try {
       'FLOW coordinated receipt and audit action drift cannot bypass native upload purpose binding',
     );
   } finally {
+    await mutateNativeFlowCommandReceiptAndAuditAction(
+      nativeFlowCommandReceipt.action,
+    );
+  }
+  await mutateNativeFlowCommandReceiptAndAuditAction('save_source');
+  try {
+    await mutateNativeFlowFilePurpose('source');
+    const nativeManualSource = await readNativeFlowReceiptInventoryItem(
+      'linked',
+      'manual source receipt remains linked without intake provenance',
+    );
+    assert.equal(nativeManualSource.item.integrityProof, 'sha256');
+    await mutateNativeFlowCommandReceiptAndAuditAction('import_intake_source');
+    try {
+      await assertNativeFlowReceiptIdentityDriftQuarantined(
+        'FLOW intake action without source provenance stays inconsistent in native inventory',
+      );
+      checks.push(
+        'FLOW native inventory binds intake action to complete source provenance before R2 trust',
+      );
+    } finally {
+      await mutateNativeFlowCommandReceiptAndAuditAction('save_source');
+    }
+    const restoredNativeManualSource = await readNativeFlowReceiptInventoryItem(
+      'linked',
+      'manual source proof recovers after intake action cleanup',
+    );
+    assert.equal(restoredNativeManualSource.item.integrityProof, 'sha256');
+  } finally {
+    await mutateNativeFlowFilePurpose(privateMimeFile.purpose);
     await mutateNativeFlowCommandReceiptAndAuditAction(
       nativeFlowCommandReceipt.action,
     );

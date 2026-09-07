@@ -27,13 +27,41 @@ import {
 
 void test('consulting flow upload policy owns purpose and command-specific formats', () => {
   assert.deepEqual(flowUploadReceiptRules, {
-    save_source: { purpose: 'source', slots: ['file'] },
-    import_intake_source: { purpose: 'source', slots: ['file'] },
-    save_report: { purpose: 'report', slots: ['file'] },
-    save_recording: { purpose: 'recording', slots: ['file', 'audio'] },
-    save_transcript: { purpose: 'transcript', slots: ['file'] },
-    receive_document: { purpose: 'requested_document', slots: ['file'] },
-    record_contract: { purpose: 'signed_contract', slots: ['file'] },
+    save_source: {
+      purpose: 'source',
+      slots: ['file'],
+      intakeProvenance: 'absent',
+    },
+    import_intake_source: {
+      purpose: 'source',
+      slots: ['file'],
+      intakeProvenance: 'required',
+    },
+    save_report: {
+      purpose: 'report',
+      slots: ['file'],
+      intakeProvenance: 'absent',
+    },
+    save_recording: {
+      purpose: 'recording',
+      slots: ['file', 'audio'],
+      intakeProvenance: 'absent',
+    },
+    save_transcript: {
+      purpose: 'transcript',
+      slots: ['file'],
+      intakeProvenance: 'absent',
+    },
+    receive_document: {
+      purpose: 'requested_document',
+      slots: ['file'],
+      intakeProvenance: 'absent',
+    },
+    record_contract: {
+      purpose: 'signed_contract',
+      slots: ['file'],
+      intakeProvenance: 'absent',
+    },
   });
   assert.equal(flowUploadPurpose({ type: 'save_source' }), 'source');
   assert.equal(flowUploadPurpose({ type: 'unknown' }), undefined);

@@ -39,12 +39,23 @@ import { privateJsonResponse } from './private-response';
 
 const pageSize = 25;
 const sqlTextLiteral = (value: string) => `'${value.replaceAll("'", "''")}'`;
+const flowUploadIntakeColumns = [
+  'upload.intake_file_id',
+  'upload.intake_source_hash',
+  'upload.source_reviewed_at',
+  'upload.source_reviewed_by',
+] as const;
+const flowUploadIntakeBindingSql = (mode: 'absent' | 'required') =>
+  flowUploadIntakeColumns
+    .map((column) => `${column} IS ${mode === 'required' ? 'NOT ' : ''}NULL`)
+    .join(' AND ');
 const flowReceiptUploadBindingSql = `(${Object.entries(flowUploadReceiptRules)
   .map(
     ([action, rule]) =>
       `(json_extract(receipt.value, '$.action') = ${sqlTextLiteral(action)}
         AND upload.purpose = ${sqlTextLiteral(rule.purpose)}
-        AND upload.slot IN (${rule.slots.map(sqlTextLiteral).join(', ')}))`,
+        AND upload.slot IN (${rule.slots.map(sqlTextLiteral).join(', ')})
+        AND ${flowUploadIntakeBindingSql(rule.intakeProvenance)})`,
   )
   .join(' OR ')})`;
 const flowReceiptAuditBindingSql = `(

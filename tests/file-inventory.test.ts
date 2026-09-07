@@ -22,10 +22,12 @@ import {
 } from './flow-root-fixture';
 import { deleteFlowFileLedgerFixture } from './flow-file-ledger-fixture';
 import {
+  consultingFlowFileMetadataLifecycleTriggerSql,
   consultingFlowUploadCompletionsInsertTriggerSql,
   consultingFlowUploadCompletionsNoDeleteTriggerSql,
   consultingFlowUploadRequestsCompletionTriggerSql,
   consultingFlowUploadRequestsInsertEnvelopeTriggerSql,
+  consultingFlowUploadRequestsLifecycleTriggerSql,
   consultingFlowUploadRequestsNoDeleteTriggerSql,
   consultingFlowUploadRequestsReadyTriggerSql,
 } from '../db/schema';
@@ -116,6 +118,7 @@ async function completedFlowFile(
   caseId: string,
   ownerStorageKey?: string,
   ownerCaseId = caseId,
+  purpose: 'report' | 'source' = 'report',
 ) {
   const key = `consulting-flow/${id}`;
   const storedFile = {
@@ -124,7 +127,7 @@ async function completedFlowFile(
     name: `${id}.txt`,
     contentType: 'text/plain',
     size: 4,
-    purpose: 'report',
+    purpose,
     createdAt: date,
   };
   await companyFileBucket().put(key, 'TEST', {
@@ -152,8 +155,8 @@ async function completedFlowFile(
     db
       .prepare(`INSERT INTO consulting_flow_file_metadata
         (file_id, original_name, content_type, size_bytes, purpose)
-        VALUES (?1, ?2, 'text/plain', 4, 'report')`)
-      .bind(id, storedFile.name),
+        VALUES (?1, ?2, 'text/plain', 4, ?3)`)
+      .bind(id, storedFile.name, purpose),
     db
       .prepare(`INSERT INTO consulting_flow_file_object_integrity
         (file_id, validation_mode, r2_etag, r2_content_type)
@@ -2019,14 +2022,14 @@ void test('completed FLOW receipt actor and fingerprint drift stay inconsistent 
   }
 });
 
-void test('completed FLOW receipt display actor, action and upload-purpose drift stay inconsistent and fail before R2 access', async () => {
+void test('completed FLOW receipt semantics, upload purpose and intake provenance drift stay inconsistent before R2 access', async () => {
   const caseId = 'flow-receipt-semantics-drift-case';
   const fileId = 'flow-receipt-semantics-drift';
   const commandId = 'flow-receipt-semantics-command';
   const actorKey = FLOW_ADMIN_COMMAND_ACTOR_KEY;
   const fingerprint = 'f'.repeat(64);
   const actor = FLOW_ADMIN_COMMAND_ACTOR_NAME;
-  const action = 'save_report';
+  const action = 'save_source';
   await seed(
     [],
     [
@@ -2038,7 +2041,7 @@ void test('completed FLOW receipt display actor, action and upload-purpose drift
       },
     ],
   );
-  await completedFlowFile(fileId, caseId);
+  await completedFlowFile(fileId, caseId, undefined, caseId, 'source');
   const db = await flowDatabase();
   const setReceiptField = async (field: 'actor' | 'action', value: string) => {
     const row = await db
@@ -2073,6 +2076,81 @@ void test('completed FLOW receipt display actor, action and upload-purpose drift
       [JSON.stringify(flow), caseId],
     );
   };
+  const setIntakeProvenance = async (present: boolean) => {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind(caseId)
+      .first<{ payload: string }>();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    const file = flow.files.find(
+      (candidate: { id?: unknown }) => candidate.id === fileId,
+    );
+    assert.ok(file);
+    const values = present
+      ? {
+          intakeFileId: 'flow-receipt-intake-origin',
+          intakeSourceHash: '1'.repeat(64),
+          sourceReviewedAt: date,
+          sourceReviewedBy: actorKey,
+        }
+      : null;
+    for (const field of [
+      'intakeFileId',
+      'intakeSourceHash',
+      'sourceReviewedAt',
+      'sourceReviewedBy',
+    ] as const) {
+      if (values) file[field] = values[field];
+      else delete file[field];
+    }
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), caseId],
+    );
+    await db.batch([
+      db.prepare(
+        'DROP TRIGGER IF EXISTS consulting_flow_file_metadata_lifecycle_guard',
+      ),
+      db.prepare(
+        'DROP TRIGGER IF EXISTS consulting_flow_upload_requests_lifecycle_guard',
+      ),
+    ]);
+    try {
+      await db.batch([
+        db
+          .prepare(`UPDATE consulting_flow_file_metadata
+            SET intake_file_id = ?1, intake_source_hash = ?2,
+              source_reviewed_at = ?3, source_reviewed_by = ?4
+            WHERE file_id = ?5`)
+          .bind(
+            values?.intakeFileId ?? null,
+            values?.intakeSourceHash ?? null,
+            values?.sourceReviewedAt ?? null,
+            values?.sourceReviewedBy ?? null,
+            fileId,
+          ),
+        db
+          .prepare(`UPDATE consulting_flow_upload_requests
+            SET intake_file_id = ?1, intake_source_hash = ?2,
+              source_reviewed_at = ?3, source_reviewed_by = ?4
+            WHERE file_id = ?5`)
+          .bind(
+            values?.intakeFileId ?? null,
+            values?.intakeSourceHash ?? null,
+            values?.sourceReviewedAt ?? null,
+            values?.sourceReviewedBy ?? null,
+            fileId,
+          ),
+      ]);
+    } finally {
+      await db.batch([
+        db.prepare(consultingFlowFileMetadataLifecycleTriggerSql),
+        db.prepare(consultingFlowUploadRequestsLifecycleTriggerSql),
+      ]);
+    }
+  };
   const row = await db
     .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
     .bind(caseId)
@@ -2089,7 +2167,7 @@ void test('completed FLOW receipt display actor, action and upload-purpose drift
       at: date,
       actor,
       action,
-      detail: '보고서 저장',
+      detail: '1차 분석용 근거자료 저장',
     },
   ];
   await mutateConsultingFlowFixture(
@@ -2113,7 +2191,7 @@ void test('completed FLOW receipt display actor, action and upload-purpose drift
             storage_key, original_name, content_type, size_bytes, purpose,
             created_at, status)
           VALUES (?1, ?2, ?3, 'file', ?4, ?5, ?6, ?7,
-            'text/plain', 4, 'report', ?8, 'ready')`)
+            'text/plain', 4, 'source', ?8, 'ready')`)
         .bind(
           caseId,
           actorKey,
@@ -2179,15 +2257,34 @@ void test('completed FLOW receipt display actor, action and upload-purpose drift
       /위조된 표시 행위자|save_report|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
     );
     await setReceiptField('actor', actor);
-    await setReceiptField('action', 'save_source');
+    await setReceiptField('action', 'save_report');
     await assertQuarantined(
       /save_source|save_report|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
     );
     await setReceiptField('action', action);
-    await setReceiptAndAuditAction('save_source');
+    await setReceiptAndAuditAction('save_report');
     await assertQuarantined(
       /save_source|save_report|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
     );
+    await setReceiptAndAuditAction(action);
+    await setReceiptAndAuditAction('import_intake_source');
+    await assertQuarantined(
+      /import_intake_source|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setIntakeProvenance(true);
+    const imported = await page('?status=linked');
+    assert.equal(
+      imported.items.find(
+        (item) => item.source === 'flow' && item.id === fileId,
+      )?.integrityProof,
+      'metadata',
+    );
+    await setReceiptAndAuditAction('save_source');
+    await assertQuarantined(
+      /import_intake_source|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setReceiptAndAuditAction('import_intake_source');
+    await setIntakeProvenance(false);
     await setReceiptAndAuditAction(action);
     const restored = await page('?status=linked');
     assert.equal(
