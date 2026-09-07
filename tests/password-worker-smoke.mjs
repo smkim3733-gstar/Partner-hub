@@ -9266,7 +9266,7 @@ try {
     );
     assert.doesNotMatch(
       JSON.stringify(item),
-      /drifted-receipt-actor|admin:primary|"actorKey"|"fingerprint"|consulting-flow\//,
+      /drifted-receipt-actor|forged-receipt-display-actor|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|consulting-flow\//,
     );
     const presenceResponse = await expect(
       await call(`/inventory/${privateMimeFile.id}`, undefined, ownerHeaders),
@@ -9329,13 +9329,43 @@ try {
       nativeFlowCommandReceipt.fingerprint,
     );
   }
+  await mutateNativeFlowCommandReceipt('actor', 'forged-receipt-display-actor');
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW command receipt display actor drift stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW command receipt display actor drift is quarantined before native R2 presence trust',
+    );
+  } finally {
+    await mutateNativeFlowCommandReceipt(
+      'actor',
+      nativeFlowCommandReceipt.actor,
+    );
+  }
+  await mutateNativeFlowCommandReceipt('action', 'save_source');
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW command receipt action drift stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW command receipt action drift is quarantined before native R2 presence trust',
+    );
+  } finally {
+    await mutateNativeFlowCommandReceipt(
+      'action',
+      nativeFlowCommandReceipt.action,
+    );
+  }
   const restoredNativeFlowReceiptIdentity =
     await readNativeFlowReceiptInventoryItem(
       'linked',
-      'FLOW receipt identity proof recovers after synthetic native drift cleanup',
+      'FLOW receipt identity and semantics proof recovers after synthetic native drift cleanup',
     );
   assert.equal(restoredNativeFlowReceiptIdentity.item.integrityProof, 'sha256');
-  checks.push('FLOW receipt actor and fingerprint proof resumes after cleanup');
+  checks.push(
+    'FLOW receipt actor, action, actor key and fingerprint proof resumes after cleanup',
+  );
   const mimeRetry = await expect(
     await callFlowFile(
       '/flow/runtime-own',

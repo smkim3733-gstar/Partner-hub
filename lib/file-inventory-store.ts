@@ -37,6 +37,23 @@ import { readRouteParam, RouteParamError } from './request-path';
 import { privateJsonResponse } from './private-response';
 
 const pageSize = 25;
+const flowReceiptAuditBindingSql = `(
+  (json_type(receipt.value, '$.actor') IS NULL
+    AND json_type(receipt.value, '$.action') IS NULL)
+  OR (
+    json_type(receipt.value, '$.actor') = 'text'
+    AND json_type(receipt.value, '$.action') = 'text'
+    AND (SELECT COUNT(*) FROM json_each(
+        CASE WHEN json_valid(flow.payload) THEN flow.payload
+          ELSE '{"audit":[]}' END, '$.audit') audit
+      WHERE audit.type = 'object'
+        AND json_extract(audit.value, '$.id') = upload.command_id
+        AND json_extract(audit.value, '$.actor') =
+          json_extract(receipt.value, '$.actor')
+        AND json_extract(audit.value, '$.action') =
+          json_extract(receipt.value, '$.action')) = 1
+  )
+)`;
 type Row = {
   source_type: InventoryItem['source'];
   id: string;
@@ -351,6 +368,7 @@ export async function listFileInventory(
                   AND receipt.type = 'object'
                   AND json_extract(receipt.value, '$.actorKey') = upload.actor_key
                   AND json_extract(receipt.value, '$.fingerprint') = upload.fingerprint
+                  AND ${flowReceiptAuditBindingSql}
                 ) = 1)
         THEN 1 ELSE 0 END AS receipt_valid
       FROM consulting_flow_file_owners owner
@@ -727,6 +745,7 @@ export async function checkInventoryPresence(
                   AND receipt.type = 'object'
                   AND json_extract(receipt.value, '$.actorKey') = upload.actor_key
                   AND json_extract(receipt.value, '$.fingerprint') = upload.fingerprint
+                  AND ${flowReceiptAuditBindingSql}
                 ) = 1)
         THEN 1 ELSE 0 END AS receipt_valid
       FROM consulting_flow_file_owners owner

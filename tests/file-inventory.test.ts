@@ -2019,6 +2019,193 @@ void test('completed FLOW receipt actor and fingerprint drift stay inconsistent 
   }
 });
 
+void test('completed FLOW receipt display actor and action drift stay inconsistent and fail before R2 access', async () => {
+  const caseId = 'flow-receipt-semantics-drift-case';
+  const fileId = 'flow-receipt-semantics-drift';
+  const commandId = 'flow-receipt-semantics-command';
+  const actorKey = FLOW_ADMIN_COMMAND_ACTOR_KEY;
+  const fingerprint = 'f'.repeat(64);
+  const actor = FLOW_ADMIN_COMMAND_ACTOR_NAME;
+  const action = 'save_report';
+  await seed(
+    [],
+    [
+      {
+        id: caseId,
+        company: 'FLOW 영수증 의미 손상기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+    ],
+  );
+  await completedFlowFile(fileId, caseId);
+  const db = await flowDatabase();
+  const setReceiptField = async (field: 'actor' | 'action', value: string) => {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind(caseId)
+      .first<{ payload: string }>();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    flow.commandReceipts[commandId][field] = value;
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), caseId],
+    );
+  };
+  const row = await db
+    .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+    .bind(caseId)
+    .first<{ payload: string }>();
+  assert.ok(row);
+  const flow = JSON.parse(row.payload);
+  flow.commandIds = [commandId];
+  flow.commandReceipts = {
+    [commandId]: { actorKey, fingerprint, actor, action },
+  };
+  flow.audit = [
+    {
+      id: commandId,
+      at: date,
+      actor,
+      action,
+      detail: '보고서 저장',
+    },
+  ];
+  await mutateConsultingFlowFixture(
+    db,
+    'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+    [JSON.stringify(flow), caseId],
+  );
+  await db.batch([
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flow_upload_requests_insert_envelope_guard',
+    ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_insert_guard',
+    ),
+  ]);
+  try {
+    await db.batch([
+      db
+        .prepare(`INSERT INTO consulting_flow_upload_requests
+          (case_id, actor_key, command_id, slot, fingerprint, file_id,
+            storage_key, original_name, content_type, size_bytes, purpose,
+            created_at, status)
+          VALUES (?1, ?2, ?3, 'file', ?4, ?5, ?6, ?7,
+            'text/plain', 4, 'report', ?8, 'ready')`)
+        .bind(
+          caseId,
+          actorKey,
+          commandId,
+          fingerprint,
+          fileId,
+          `consulting-flow/${fileId}`,
+          `${fileId}.txt`,
+          date,
+        ),
+      db
+        .prepare(`INSERT INTO consulting_flow_upload_completions
+          (file_id, command_id) VALUES (?1, ?2)`)
+        .bind(fileId, commandId),
+    ]);
+  } finally {
+    await db.batch([
+      db.prepare(consultingFlowUploadRequestsInsertEnvelopeTriggerSql),
+      db.prepare(consultingFlowUploadCompletionsInsertTriggerSql),
+    ]);
+  }
+  const beforeDrift = await page('?status=linked');
+  const beforeItem = beforeDrift.items.find(
+    (item) => item.source === 'flow' && item.id === fileId,
+  );
+  assert.ok(beforeItem);
+  assert.equal(beforeItem.integrityProof, 'metadata');
+  const bucket = companyFileBucket();
+  const originalHead = bucket.head.bind(bucket);
+  let headCalls = 0;
+  bucket.head = async (...args: Parameters<R2Bucket['head']>) => {
+    headCalls++;
+    return originalHead(...args);
+  };
+  const assertQuarantined = async (secret: RegExp) => {
+    const inconsistent = await page('?status=inconsistent');
+    assert.equal(
+      inconsistent.integrityCoverage.metadata,
+      beforeDrift.integrityCoverage.metadata - 1,
+    );
+    assert.equal(
+      inconsistent.integrityCoverage.unavailable,
+      beforeDrift.integrityCoverage.unavailable + 1,
+    );
+    const item = inconsistent.items.find(
+      (candidate) => candidate.source === 'flow' && candidate.id === fileId,
+    );
+    assert.ok(item);
+    assert.equal(item.status, 'inconsistent');
+    assert.equal(item.flowLinked, true);
+    assert.equal(item.integrityProof, null);
+    assert.doesNotMatch(JSON.stringify(item), secret);
+    const response = await presence(request(), {
+      params: Promise.resolve({ id: fileId }),
+    });
+    assert.equal(response.status, 503, await response.clone().text());
+    assert.match(await response.text(), /원장의 무결성/);
+    assert.equal(headCalls, 0);
+  };
+  try {
+    await setReceiptField('actor', '위조된 표시 행위자');
+    await assertQuarantined(
+      /위조된 표시 행위자|save_report|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setReceiptField('actor', actor);
+    await setReceiptField('action', 'save_source');
+    await assertQuarantined(
+      /save_source|save_report|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setReceiptField('action', action);
+    const restored = await page('?status=linked');
+    assert.equal(
+      restored.items.find(
+        (item) => item.source === 'flow' && item.id === fileId,
+      )?.integrityProof,
+      'metadata',
+    );
+  } finally {
+    bucket.head = originalHead;
+    await setReceiptField('actor', actor);
+    await setReceiptField('action', action);
+    await db.batch([
+      db.prepare(
+        'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_no_delete',
+      ),
+      db.prepare(
+        'DROP TRIGGER IF EXISTS consulting_flow_upload_requests_no_delete',
+      ),
+    ]);
+    try {
+      await db.batch([
+        db
+          .prepare(
+            'DELETE FROM consulting_flow_upload_completions WHERE file_id = ?1',
+          )
+          .bind(fileId),
+        db
+          .prepare(
+            'DELETE FROM consulting_flow_upload_requests WHERE file_id = ?1',
+          )
+          .bind(fileId),
+      ]);
+    } finally {
+      await db.batch([
+        db.prepare(consultingFlowUploadCompletionsNoDeleteTriggerSql),
+        db.prepare(consultingFlowUploadRequestsNoDeleteTriggerSql),
+      ]);
+    }
+  }
+});
+
 void test('completed FLOW files with only one upload receipt stay inconsistent and fail before R2 access', async () => {
   const reservationCaseId = 'flow-ready-only-receipt-case';
   const reservationFileId = 'flow-ready-only-receipt';
