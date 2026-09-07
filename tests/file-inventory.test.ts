@@ -1827,6 +1827,198 @@ void test('completed FLOW reservation metadata and completion command drift stay
   }
 });
 
+void test('completed FLOW receipt actor and fingerprint drift stay inconsistent and fail before R2 access', async () => {
+  const actorCaseId = 'flow-receipt-actor-drift-case';
+  const actorFileId = 'flow-receipt-actor-drift';
+  const actorCommandId = 'flow-receipt-actor-command';
+  const fingerprintCaseId = 'flow-receipt-fingerprint-drift-case';
+  const fingerprintFileId = 'flow-receipt-fingerprint-drift';
+  const fingerprintCommandId = 'flow-receipt-fingerprint-command';
+  const actorKey = FLOW_ADMIN_COMMAND_ACTOR_KEY;
+  const fingerprint = 'd'.repeat(64);
+  await seed(
+    [],
+    [
+      {
+        id: actorCaseId,
+        company: 'FLOW 영수증 행위자 손상기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+      {
+        id: fingerprintCaseId,
+        company: 'FLOW 영수증 지문 손상기업',
+        trainee: member.name,
+        partnerMemberId: member.id,
+      },
+    ],
+  );
+  await completedFlowFile(actorFileId, actorCaseId);
+  await completedFlowFile(fingerprintFileId, fingerprintCaseId);
+  const db = await flowDatabase();
+  for (const [caseId, commandId] of [
+    [actorCaseId, actorCommandId],
+    [fingerprintCaseId, fingerprintCommandId],
+  ] as const) {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind(caseId)
+      .first<{ payload: string }>();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    flow.commandIds = [commandId];
+    flow.commandReceipts = {
+      [commandId]: { actorKey, fingerprint },
+    };
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), caseId],
+    );
+  }
+  await db.batch([
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flow_upload_requests_insert_envelope_guard',
+    ),
+    db.prepare(
+      'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_insert_guard',
+    ),
+  ]);
+  try {
+    await db.batch(
+      [
+        [actorCaseId, actorCommandId, actorFileId],
+        [fingerprintCaseId, fingerprintCommandId, fingerprintFileId],
+      ].flatMap(([caseId, commandId, fileId]) => [
+        db
+          .prepare(`INSERT INTO consulting_flow_upload_requests
+            (case_id, actor_key, command_id, slot, fingerprint, file_id,
+              storage_key, original_name, content_type, size_bytes, purpose,
+              created_at, status)
+            VALUES (?1, ?2, ?3, 'file', ?4, ?5, ?6, ?7,
+              'text/plain', 4, 'report', ?8, 'ready')`)
+          .bind(
+            caseId,
+            actorKey,
+            commandId,
+            fingerprint,
+            fileId,
+            `consulting-flow/${fileId}`,
+            `${fileId}.txt`,
+            date,
+          ),
+        db
+          .prepare(`INSERT INTO consulting_flow_upload_completions
+            (file_id, command_id) VALUES (?1, ?2)`)
+          .bind(fileId, commandId),
+      ]),
+    );
+  } finally {
+    await db.batch([
+      db.prepare(consultingFlowUploadRequestsInsertEnvelopeTriggerSql),
+      db.prepare(consultingFlowUploadCompletionsInsertTriggerSql),
+    ]);
+  }
+  const beforeDrift = await page('?status=linked');
+  assert.equal(
+    beforeDrift.items.filter((item) =>
+      [actorFileId, fingerprintFileId].includes(item.id),
+    ).length,
+    2,
+  );
+  for (const [caseId, commandId, field, value] of [
+    [actorCaseId, actorCommandId, 'actorKey', 'member:drifted-receipt-actor'],
+    [fingerprintCaseId, fingerprintCommandId, 'fingerprint', 'e'.repeat(64)],
+  ] as const) {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind(caseId)
+      .first<{ payload: string }>();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    flow.commandReceipts[commandId][field] = value;
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), caseId],
+    );
+  }
+  const bucket = companyFileBucket();
+  const originalHead = bucket.head.bind(bucket);
+  let headCalls = 0;
+  bucket.head = async (...args: Parameters<R2Bucket['head']>) => {
+    headCalls++;
+    return originalHead(...args);
+  };
+  try {
+    const inconsistent = await page('?status=inconsistent');
+    assert.equal(
+      inconsistent.integrityCoverage.metadata,
+      beforeDrift.integrityCoverage.metadata - 2,
+    );
+    assert.equal(
+      inconsistent.integrityCoverage.unavailable,
+      beforeDrift.integrityCoverage.unavailable + 2,
+    );
+    const driftItems = inconsistent.items.filter(
+      (item) =>
+        item.source === 'flow' &&
+        [actorFileId, fingerprintFileId].includes(item.id),
+    );
+    assert.equal(driftItems.length, 2);
+    for (const item of driftItems) {
+      assert.equal(item.status, 'inconsistent');
+      assert.equal(item.flowLinked, true);
+      assert.equal(item.integrityProof, null);
+    }
+    assert.doesNotMatch(
+      JSON.stringify(driftItems),
+      /flow-receipt-(actor|fingerprint)-command|admin:primary|drifted-receipt-actor|e{64}|"actorKey"|"fingerprint"|actor_key|consulting-flow\//,
+    );
+    for (const fileId of [actorFileId, fingerprintFileId]) {
+      const response = await presence(request(), {
+        params: Promise.resolve({ id: fileId }),
+      });
+      assert.equal(response.status, 503, await response.clone().text());
+      assert.match(await response.text(), /원장의 무결성/);
+    }
+    assert.equal(headCalls, 0);
+  } finally {
+    bucket.head = originalHead;
+    await db.batch([
+      db.prepare(
+        'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_no_delete',
+      ),
+      db.prepare(
+        'DROP TRIGGER IF EXISTS consulting_flow_upload_requests_no_delete',
+      ),
+    ]);
+    try {
+      await db.batch([
+        ...[actorFileId, fingerprintFileId].map((fileId) =>
+          db
+            .prepare(
+              'DELETE FROM consulting_flow_upload_completions WHERE file_id = ?1',
+            )
+            .bind(fileId),
+        ),
+        ...[actorFileId, fingerprintFileId].map((fileId) =>
+          db
+            .prepare(
+              'DELETE FROM consulting_flow_upload_requests WHERE file_id = ?1',
+            )
+            .bind(fileId),
+        ),
+      ]);
+    } finally {
+      await db.batch([
+        db.prepare(consultingFlowUploadCompletionsNoDeleteTriggerSql),
+        db.prepare(consultingFlowUploadRequestsNoDeleteTriggerSql),
+      ]);
+    }
+  }
+});
+
 void test('completed FLOW files with only one upload receipt stay inconsistent and fail before R2 access', async () => {
   const reservationCaseId = 'flow-ready-only-receipt-case';
   const reservationFileId = 'flow-ready-only-receipt';

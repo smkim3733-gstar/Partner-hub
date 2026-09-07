@@ -3881,7 +3881,7 @@ try {
   checks.push('new FLOW upload stores a native R2 SHA-256 checksum');
   const nativeFlowReservation = await db
     .prepare(
-      `SELECT reservation.status, reservation.fingerprint,
+      `SELECT reservation.status, reservation.actor_key, reservation.fingerprint,
         reservation.file_id, reservation.storage_key,
         reservation.original_name, completion.command_id AS completed_command_id,
         reservation.content_type, reservation.size_bytes, reservation.purpose
@@ -3894,6 +3894,7 @@ try {
     .bind('runtime-own', mimeCommand.commandId)
     .first();
   assert.equal(nativeFlowReservation.status, 'ready');
+  assert.equal(nativeFlowReservation.actor_key, 'admin:primary');
   assert.equal(
     nativeFlowReservation.completed_command_id,
     mimeCommand.commandId,
@@ -9191,6 +9192,150 @@ try {
     Object.keys(privateMimeFlow.commandReceipts[mimeCommand.commandId]).sort(),
     ['action', 'actor', 'actorKey', 'fingerprint'],
   );
+  await db
+    .prepare('DELETE FROM company_file_objects WHERE id = ?1')
+    .bind(privateMimeFile.id)
+    .run();
+  await bucket.delete(collisionCompanyKey);
+  checks.push('cross-source collision fixture is removed before receipt audit');
+  const nativeFlowCommandReceipt =
+    privateMimeFlow.commandReceipts[mimeCommand.commandId];
+  assert.equal(
+    nativeFlowCommandReceipt.actorKey,
+    nativeFlowReservation.actor_key,
+  );
+  assert.equal(
+    nativeFlowCommandReceipt.fingerprint,
+    nativeFlowReservation.fingerprint,
+  );
+  const readNativeFlowReceiptInventoryItem = async (status, label) => {
+    let path = `/inventory?status=${status}`;
+    const cursors = new Set();
+    while (true) {
+      const response = await expect(
+        await call(path, undefined, ownerHeaders),
+        200,
+        label,
+      );
+      assertPrivateAuthResponse(response);
+      const inventory = await response.json();
+      const item = inventory.items.find(
+        (candidate) =>
+          candidate.source === 'flow' && candidate.id === privateMimeFile.id,
+      );
+      if (item) return { inventory, item };
+      assert.equal(
+        typeof inventory.nextCursor,
+        'string',
+        `${label} must include the target FLOW file`,
+      );
+      assert.ok(
+        !cursors.has(inventory.nextCursor),
+        `${label} cursor must advance`,
+      );
+      cursors.add(inventory.nextCursor);
+      path = `/inventory?status=${status}&cursor=${encodeURIComponent(inventory.nextCursor)}`;
+    }
+  };
+  const beforeNativeFlowReceiptIdentityDrift =
+    await readNativeFlowReceiptInventoryItem(
+      'linked',
+      'FLOW receipt identity proof is linked before synthetic native drift',
+    );
+  assert.equal(
+    beforeNativeFlowReceiptIdentityDrift.item.integrityProof,
+    'sha256',
+  );
+  const assertNativeFlowReceiptIdentityDriftQuarantined = async (label) => {
+    const { inventory, item } = await readNativeFlowReceiptInventoryItem(
+      'inconsistent',
+      label,
+    );
+    assert.equal(item.status, 'inconsistent');
+    assert.equal(item.flowLinked, true);
+    assert.equal(item.integrityProof, null);
+    assert.equal(
+      inventory.integrityCoverage.sha256,
+      beforeNativeFlowReceiptIdentityDrift.inventory.integrityCoverage.sha256 -
+        1,
+    );
+    assert.equal(
+      inventory.integrityCoverage.unavailable,
+      beforeNativeFlowReceiptIdentityDrift.inventory.integrityCoverage
+        .unavailable + 1,
+    );
+    assert.doesNotMatch(
+      JSON.stringify(item),
+      /drifted-receipt-actor|admin:primary|"actorKey"|"fingerprint"|consulting-flow\//,
+    );
+    const presenceResponse = await expect(
+      await call(`/inventory/${privateMimeFile.id}`, undefined, ownerHeaders),
+      503,
+      `${label} blocks native R2 presence trust`,
+    );
+    assertPrivateAuthResponse(presenceResponse);
+    assert.match((await presenceResponse.json()).error, /원장의 무결성/);
+  };
+  const mutateNativeFlowCommandReceipt = async (field, value) => {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind('runtime-own')
+      .first();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    assert.ok(flow.commandReceipts[mimeCommand.commandId]);
+    flow.commandReceipts[mimeCommand.commandId][field] = value;
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), 'runtime-own'],
+    );
+  };
+  await mutateNativeFlowCommandReceipt(
+    'actorKey',
+    'member:drifted-receipt-actor',
+  );
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW command receipt actor drift stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW command receipt actor drift is quarantined before native R2 presence trust',
+    );
+  } finally {
+    await mutateNativeFlowCommandReceipt(
+      'actorKey',
+      nativeFlowCommandReceipt.actorKey,
+    );
+  }
+  const driftedReceiptFingerprint =
+    nativeFlowReservation.fingerprint === '0'.repeat(64)
+      ? '1'.repeat(64)
+      : '0'.repeat(64);
+  await mutateNativeFlowCommandReceipt(
+    'fingerprint',
+    driftedReceiptFingerprint,
+  );
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW command receipt fingerprint drift stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW command receipt fingerprint drift is quarantined before native R2 presence trust',
+    );
+  } finally {
+    await mutateNativeFlowCommandReceipt(
+      'fingerprint',
+      nativeFlowCommandReceipt.fingerprint,
+    );
+  }
+  const restoredNativeFlowReceiptIdentity =
+    await readNativeFlowReceiptInventoryItem(
+      'linked',
+      'FLOW receipt identity proof recovers after synthetic native drift cleanup',
+    );
+  assert.equal(restoredNativeFlowReceiptIdentity.item.integrityProof, 'sha256');
+  checks.push('FLOW receipt actor and fingerprint proof resumes after cleanup');
   const mimeRetry = await expect(
     await callFlowFile(
       '/flow/runtime-own',
