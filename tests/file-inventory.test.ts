@@ -2051,14 +2051,18 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
   );
   await completedFlowFile(fileId, caseId, undefined, caseId, 'source');
   const db = await flowDatabase();
-  const setReceiptField = async (field: 'actor' | 'action', value: string) => {
+  const setReceiptField = async (
+    field: 'actor' | 'action' | 'targetId',
+    value: string | undefined,
+  ) => {
     const row = await db
       .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
       .bind(caseId)
       .first<{ payload: string }>();
     assert.ok(row);
     const flow = JSON.parse(row.payload);
-    flow.commandReceipts[commandId][field] = value;
+    if (value === undefined) delete flow.commandReceipts[commandId][field];
+    else flow.commandReceipts[commandId][field] = value;
     await mutateConsultingFlowFixture(
       db,
       'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
@@ -2298,6 +2302,11 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
       /2026-08-31T00:00:01.000Z|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
     );
     await setAuditAt(date);
+    await setReceiptField('targetId', 'forged-unexpected-receipt-target');
+    await assertQuarantined(
+      /forged-unexpected-receipt-target|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setReceiptField('targetId', undefined);
     await setReceiptAndAuditAction('import_intake_source');
     await assertQuarantined(
       /import_intake_source|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
@@ -2329,6 +2338,7 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
     await setReceiptField('actor', actor);
     await setReceiptAndAuditAction(action);
     await setAuditAt(date);
+    await setReceiptField('targetId', undefined);
     await db.batch([
       db.prepare(
         'DROP TRIGGER IF EXISTS consulting_flow_upload_completions_no_delete',

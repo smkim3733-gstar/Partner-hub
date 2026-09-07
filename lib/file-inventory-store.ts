@@ -64,6 +64,18 @@ const flowReceiptUploadBindingSql = `(${Object.entries(flowUploadReceiptRules)
 const flowReceiptTargetActionsSql = Object.keys(flowUploadReceiptTargetRules)
   .map(sqlTextLiteral)
   .join(', ');
+const flowReceiptExplicitTargetActionsSql = Object.entries(
+  flowUploadReceiptTargetRules,
+)
+  .filter(([, rule]) => rule.target.kind === 'receipt')
+  .map(([action]) => sqlTextLiteral(action))
+  .join(', ');
+const flowReceiptTargetEnvelopeSql = `(
+  (json_extract(receipt.value, '$.action') IN (${flowReceiptExplicitTargetActionsSql})
+    AND json_type(receipt.value, '$.targetId') = 'text')
+  OR (json_extract(receipt.value, '$.action') NOT IN (${flowReceiptExplicitTargetActionsSql})
+    AND json_type(receipt.value, '$.targetId') IS NULL)
+)`;
 const flowReceiptTargetBindingSql = `(
   json_extract(receipt.value, '$.action') NOT IN (${flowReceiptTargetActionsSql})
   OR ${Object.entries(flowUploadReceiptTargetRules)
@@ -118,8 +130,9 @@ const flowReceiptAuditBindingSql = `(
           json_extract(receipt.value, '$.actor')
         AND json_extract(audit.value, '$.action') =
           json_extract(receipt.value, '$.action')
-        AND json_extract(audit.value, '$.at') = upload.created_at) = 1
+    AND json_extract(audit.value, '$.at') = upload.created_at) = 1
     AND ${flowReceiptUploadBindingSql}
+    AND ${flowReceiptTargetEnvelopeSql}
     AND ${flowReceiptTargetBindingSql}
   )
 )`;

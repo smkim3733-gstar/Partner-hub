@@ -9297,7 +9297,7 @@ try {
     );
     assert.doesNotMatch(
       JSON.stringify(item),
-      /drifted-receipt-actor|forged-receipt-display-actor|import_intake_source|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|consulting-flow\//,
+      /drifted-receipt-actor|forged-receipt-display-actor|forged-native-unexpected-target|import_intake_source|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|"targetId"|consulting-flow\//,
     );
     const presenceResponse = await expect(
       await call(`/inventory/${privateMimeFile.id}`, undefined, ownerHeaders),
@@ -9315,7 +9315,9 @@ try {
     assert.ok(row);
     const flow = JSON.parse(row.payload);
     assert.ok(flow.commandReceipts[mimeCommand.commandId]);
-    flow.commandReceipts[mimeCommand.commandId][field] = value;
+    if (value === undefined)
+      delete flow.commandReceipts[mimeCommand.commandId][field];
+    else flow.commandReceipts[mimeCommand.commandId][field] = value;
     await mutateConsultingFlowFixture(
       db,
       'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
@@ -9528,6 +9530,20 @@ try {
     );
   } finally {
     await mutateNativeFlowCommandAuditAt(nativeFlowCommandAudit.at);
+  }
+  await mutateNativeFlowCommandReceipt(
+    'targetId',
+    'forged-native-unexpected-target',
+  );
+  try {
+    await assertNativeFlowReceiptIdentityDriftQuarantined(
+      'FLOW command receipt unexpected target stays inconsistent in native inventory',
+    );
+    checks.push(
+      'FLOW command receipt rejects unexpected target before native R2 presence trust',
+    );
+  } finally {
+    await mutateNativeFlowCommandReceipt('targetId', undefined);
   }
   await mutateNativeFlowCommandReceiptAndAuditAction('save_source');
   try {
