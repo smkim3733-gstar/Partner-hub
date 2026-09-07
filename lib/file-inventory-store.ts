@@ -17,7 +17,11 @@ import {
   readFlow,
   readFlowFileObjectIntegrity,
 } from './consulting-flow-store';
-import { FLOW_OBJECT_KEYS, FLOW_TEXT_LIMITS } from './consulting-flow-shape';
+import {
+  FLOW_FIELD_LIMITS,
+  FLOW_OBJECT_KEYS,
+  FLOW_TEXT_LIMITS,
+} from './consulting-flow-shape';
 import { FlowError, type FlowFile } from './consulting-flow';
 import {
   flowUploadReceiptRules,
@@ -69,6 +73,14 @@ const flowAuditDetailEnvelopeSql = `CASE
       BETWEEN 1 AND ${FLOW_TEXT_LIMITS.auditDetail}
     AND ${nonBlankSqlText(flowAuditDetailSql)}
     AND ${wellFormedUnicodeSql(flowAuditDetailSql)}
+  ELSE 0 END = 1`;
+const flowReceiptActorSql = "json_extract(receipt.value, '$.actor')";
+const flowReceiptActorEnvelopeSql = `CASE
+  WHEN json_type(receipt.value, '$.actor') = 'text'
+  THEN length(${flowReceiptActorSql})
+      BETWEEN 1 AND ${FLOW_FIELD_LIMITS.actor}
+    AND ${nonBlankSqlText(flowReceiptActorSql)}
+    AND ${wellFormedUnicodeSql(flowReceiptActorSql)}
   ELSE 0 END = 1`;
 const flowUploadIntakeColumns = [
   'upload.intake_file_id',
@@ -150,7 +162,7 @@ const flowReceiptAuditBindingSql = `(
       AND json_type(receipt.value, '$.action') IS NULL)
       AND json_type(receipt.value, '$.targetId') IS NULL)
     OR (
-      ((json_type(receipt.value, '$.actor') = 'text'
+      ((${flowReceiptActorEnvelopeSql}
         AND json_type(receipt.value, '$.action') = 'text')
         AND (
           (SELECT COUNT(*) FROM json_each(

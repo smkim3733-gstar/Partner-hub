@@ -9297,7 +9297,7 @@ try {
     );
     assert.doesNotMatch(
       JSON.stringify(item),
-      /drifted-receipt-actor|forged-receipt-display-actor|forged-native-unexpected-target|forged-native-legacy-target|forged-native-extra-value|forged-native-audit-extra-value|forged-native-audit-detail|forged-native-audit-malformed-unicode|forgedField|import_intake_source|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|"targetId"|consulting-flow\//,
+      /drifted-receipt-actor|forged-receipt-display-actor|forged-native-audit-actor|forged-native-unexpected-target|forged-native-legacy-target|forged-native-extra-value|forged-native-audit-extra-value|forged-native-audit-detail|forged-native-audit-malformed-unicode|forgedField|import_intake_source|save_source|admin:primary|"actorKey"|"fingerprint"|"actor"|"action"|"targetId"|consulting-flow\//,
     );
     const presenceResponse = await expect(
       await call(`/inventory/${privateMimeFile.id}`, undefined, ownerHeaders),
@@ -9338,6 +9338,26 @@ try {
     );
     assert.ok(audit);
     audit.action = value;
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), 'runtime-own'],
+    );
+  };
+  const mutateNativeFlowCommandReceiptAndAuditActor = async (value) => {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind('runtime-own')
+      .first();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    assert.ok(flow.commandReceipts[mimeCommand.commandId]);
+    flow.commandReceipts[mimeCommand.commandId].actor = value;
+    const audit = flow.audit.find(
+      (entry) => entry.id === mimeCommand.commandId,
+    );
+    assert.ok(audit);
+    audit.actor = value;
     await mutateConsultingFlowFixture(
       db,
       'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
@@ -9508,6 +9528,25 @@ try {
       'actor',
       nativeFlowCommandReceipt.actor,
     );
+  }
+  for (const [value, label] of [
+    [' \t\n\u00a0\u3000\ufeff', 'blank'],
+    [`forged-native-audit-actor-${'가'.repeat(201)}`, 'overlong'],
+    [`forged-native-audit-actor\ud800`, 'malformed Unicode'],
+  ]) {
+    await mutateNativeFlowCommandReceiptAndAuditActor(value);
+    try {
+      await assertNativeFlowReceiptIdentityDriftQuarantined(
+        `FLOW command receipt and audit ${label} actor stay inconsistent in native inventory`,
+      );
+      checks.push(
+        `FLOW command receipt rejects ${label} actor before native R2 presence trust`,
+      );
+    } finally {
+      await mutateNativeFlowCommandReceiptAndAuditActor(
+        nativeFlowCommandReceipt.actor,
+      );
+    }
   }
   await mutateNativeFlowCommandReceipt('action', 'save_source');
   try {

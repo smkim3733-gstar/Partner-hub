@@ -35,6 +35,7 @@ import {
   FLOW_ADMIN_COMMAND_ACTOR_KEY,
   FLOW_ADMIN_COMMAND_ACTOR_NAME,
 } from '../lib/flow-command-receipt';
+import { FLOW_FIELD_LIMITS } from '../lib/consulting-flow-shape';
 
 const owner = 'seedy@sites.test';
 const member = {
@@ -2086,6 +2087,25 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
       [JSON.stringify(flow), caseId],
     );
   };
+  const setReceiptAndAuditActor = async (value: string) => {
+    const row = await db
+      .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
+      .bind(caseId)
+      .first<{ payload: string }>();
+    assert.ok(row);
+    const flow = JSON.parse(row.payload);
+    flow.commandReceipts[commandId].actor = value;
+    const audit = flow.audit.find(
+      (entry: { id?: unknown }) => entry.id === commandId,
+    );
+    assert.ok(audit);
+    audit.actor = value;
+    await mutateConsultingFlowFixture(
+      db,
+      'UPDATE consulting_flows SET payload = ?1 WHERE case_id = ?2',
+      [JSON.stringify(flow), caseId],
+    );
+  };
   const setAuditAt = async (value: string) => {
     const row = await db
       .prepare('SELECT payload FROM consulting_flows WHERE case_id = ?1')
@@ -2304,6 +2324,21 @@ void test('completed FLOW receipt semantics, upload purpose and intake provenanc
       /위조된 표시 행위자|save_report|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
     );
     await setReceiptField('actor', actor);
+    await setReceiptAndAuditActor(' \t\n\u00a0\u3000\ufeff');
+    await assertQuarantined(
+      /save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setReceiptAndAuditActor(
+      `forged-overlong-audit-actor-${'가'.repeat(FLOW_FIELD_LIMITS.actor + 1)}`,
+    );
+    await assertQuarantined(
+      /forged-overlong-audit-actor|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setReceiptAndAuditActor(`forged-malformed-audit-actor\ud800`);
+    await assertQuarantined(
+      /forged-malformed-audit-actor|save_source|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
+    );
+    await setReceiptAndAuditActor(actor);
     await setReceiptField('action', 'save_report');
     await assertQuarantined(
       /save_source|save_report|flow-receipt-semantics-command|actor_key|fingerprint|consulting-flow\//,
