@@ -6,16 +6,16 @@
 
 ## 현재 인수인계 지점
 
-- 최신 기능 커밋: `2260dc38cd77bd1eb0a66b7958e8c29e91f31c69` (`fix(inventory): bind flow completion receipts`)
-- 최신 확인: 정상 FLOW 파일 원장과 어긋난 `ready` 예약 메타데이터 또는 완료 영수증 명령 ID 손상 상태
-- 연속 확인: `inconsistent`·`unavailable` 격리, 증명 제외, 비밀 영수증 값 비노출, R2 `head` 전 503 차단과 복구 후 SHA-256 증명 복귀
-- 검증: Node 회귀 검사 776개, 격리 workerd/D1/R2 검사 564개, 추가형 마이그레이션 98개 2회, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
+- 최신 기능 커밋: `c91ee730da11d97e60e495f5103a03c484c63018` (`fix(inventory): quarantine partial flow uploads`)
+- 최신 확인: FLOW 소유·payload·증명 원장과 함께 예약만 `pending`으로 남은 부분 완료 손상 상태
+- 연속 확인: `inconsistent`·`unavailable` 격리, 증명 제외, R2 `head` 전 503 차단, 정상 pending-only 유지와 복구 후 SHA-256 증명 복귀
+- 검증: Node 회귀 검사 777개, 격리 workerd/D1/R2 검사 567개, 추가형 마이그레이션 98개 2회, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
 - GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, `main`에 최신 기능 반영
 - 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
 - 현재 공개 운영본: 버전 107
 - 최신 Sites 저장 버전: 309, 소스 `66aa95462bf30470f15b8ba138682c6c62fed591`
-- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–323은 더 완전한 로컬 후보인 버전 324로 대체한다.
+- 운영 상태: 서버 오류 로그 개인정보 보완본 버전 107이 공개 운영 중이다. 버전 108–324는 더 완전한 로컬 후보인 버전 325로 대체한다.
 - 자동 개발: 현재 Codex 작업에 30분 간격 반복 실행이 활성화돼 있다. 이 설정은 저장소가 아니라 현재 앱 작업에 속하므로 다른 컴퓨터나 새 작업에서는 다시 설정해야 한다.
 - 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
 
@@ -45,7 +45,7 @@ node tests/password-worker-smoke.mjs
 
 ## 이어서 읽을 문서
 
-먼저 [파일 재고 FLOW 완료 예약·영수증 결속 무결성](FILE_INVENTORY_FLOW_RECEIPT_BINDING_INTEGRITY_2026_09_07.md)을 확인한다.
+먼저 [파일 재고 FLOW 부분 완료 pending 격리](FILE_INVENTORY_FLOW_PENDING_OWNER_QUARANTINE_2026_09_07.md)를 확인한다.
 
 1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
 2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
@@ -93,4 +93,4 @@ Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로
 
 ## 다음 작업 경계
 
-Sites 최신 저장 버전은 309이고 공개 운영본은 버전 107이다. 버전 108–323은 버전 324로 대체해 배포하지 않는다. 버전 324의 Sites 소스 전송·버전 저장·공개 교체는 정확한 `버전 324 Sites 소스 전송 및 공개 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 `pending` 예약과 소유·payload·증명 원장이 함께 남은 불가능한 부분 완료 상태를 단순 업로드 대기로 완화 표시하지 않고 `inconsistent`로 격리하는지 다음 순서로 감사한다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
+Sites 최신 저장 버전은 309이고 공개 운영본은 버전 107이다. 버전 108–324는 버전 325로 대체해 배포하지 않는다. 버전 325의 Sites 소스 전송·버전 저장·공개 교체는 정확한 `버전 325 Sites 소스 전송 및 공개 운영 배포 승인`이 필요하다. 30분 간격 자동 개발은 활성 상태로 소유·payload·증명 원장이 정상인 상태에서 `ready` 예약만 남거나 완료 영수증만 남은 한쪽 영수증 손상도 일관되게 격리하는지 다음 순서로 감사한다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
