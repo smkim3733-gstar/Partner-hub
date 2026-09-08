@@ -13,6 +13,7 @@ import {
   CLAUDE_FLOW_PROJECT_INSTRUCTION,
 } from '@/lib/claude-flow';
 import { PortalAccessError, requirePortalUser } from '@/lib/portal-auth';
+import { isAnthropicExternalProcessingEnabled } from '@/lib/anthropic-runtime-policy';
 import { readPortalState } from '@/lib/portal-state';
 import { CompanyFileError } from '@/lib/company-files';
 import { stepZeroPreflight } from '@/lib/step-zero-preflight';
@@ -37,6 +38,7 @@ export const dynamic = 'force-dynamic';
 type AiRuntimeEnvironment = {
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_MODEL?: string;
+  ANTHROPIC_EXTERNAL_PROCESSING_ENABLED?: string;
 };
 
 type StepZeroRequest = {
@@ -223,6 +225,12 @@ export async function POST(request: Request) {
     }
 
     const runtime = env as unknown as AiRuntimeEnvironment;
+    if (!isAnthropicExternalProcessingEnabled(runtime)) {
+      return privateJsonResponse(
+        { error: '외부 AI 처리 정책이 중지되어 있습니다.' },
+        { status: 503 },
+      );
+    }
     const apiKey = runtime.ANTHROPIC_API_KEY?.trim();
     const model = runtime.ANTHROPIC_MODEL?.trim();
     if (

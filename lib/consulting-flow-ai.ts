@@ -32,6 +32,7 @@ import {
   readFlow,
 } from '@/lib/consulting-flow-store';
 import { readAnthropicMessageResponse } from '@/lib/anthropic-message-response';
+import { isAnthropicExternalProcessingEnabled } from '@/lib/anthropic-runtime-policy';
 import {
   FLOW_AI_EVIDENCE_LIMITS,
   FLOW_TEXT_LIMITS,
@@ -211,6 +212,10 @@ async function generate(
   beforeRequest: () => Promise<void>,
 ) {
   const runtime = flowEnvironment();
+  if (!isAnthropicExternalProcessingEnabled(runtime))
+    throw new FlowError(
+      '외부 AI 처리 정책이 중지되어 있습니다. 수동 보고서 등록은 이용할 수 있습니다.',
+    );
   if (!runtime.ANTHROPIC_API_KEY)
     throw new FlowError(
       'Claude API 키가 연결되지 않았습니다. 수동 보고서 등록은 이용할 수 있습니다.',

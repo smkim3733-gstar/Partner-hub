@@ -137,6 +137,7 @@ import {
 import { MAX_AI_SOURCE_BYTES } from '@/lib/intake-source-policy';
 import { MAX_TRANSCRIPT_FILE_BYTES } from '@/lib/transcript-policy';
 import { uploadFileFormat } from '@/lib/upload-file-formats';
+import { isAnthropicExternalProcessingEnabled } from '@/lib/anthropic-runtime-policy';
 import {
   FLOW_ADMIN_COMMAND_ACTOR_KEY,
   FLOW_ADMIN_COMMAND_ACTOR_NAME,
@@ -157,6 +158,7 @@ export function flowEnvironment() {
     AI_SOURCE_FILES?: R2Bucket;
     ANTHROPIC_API_KEY?: string;
     ANTHROPIC_MODEL?: string;
+    ANTHROPIC_EXTERNAL_PROCESSING_ENABLED?: string;
   };
 }
 let flowDatabaseInitialization: Promise<void> | undefined;
@@ -3111,6 +3113,7 @@ export function flowReadiness() {
   const e = flowEnvironment();
   return {
     aiConnected: Boolean(e.ANTHROPIC_API_KEY),
+    externalProcessingEnabled: isAnthropicExternalProcessingEnabled(e),
     model: e.ANTHROPIC_MODEL || 'claude-opus-5',
     transcriptionConnected: false,
   };

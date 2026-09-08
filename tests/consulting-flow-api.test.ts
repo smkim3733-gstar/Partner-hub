@@ -444,11 +444,15 @@ void nodeTest(
     const final = (await responseData(failed)).flow;
     assert.equal(final.jobs.at(-1)?.status, 'failed');
     assert.equal(final.reports.length, 1);
-    const runtime = env as unknown as { ANTHROPIC_API_KEY?: string };
+    const runtime = env as unknown as {
+      ANTHROPIC_API_KEY?: string;
+      ANTHROPIC_EXTERNAL_PROCESSING_ENABLED?: string;
+    };
     const originalFetch = globalThis.fetch;
     let calls = 0;
     let providerFailure = true;
     runtime.ANTHROPIC_API_KEY = 'test-only-not-a-real-key';
+    runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED = 'true';
     globalThis.fetch = async (input, init) => {
       assert.equal(input, 'https://api.anthropic.com/v1/messages');
       assert.ok(typeof init?.body === 'string');
@@ -716,6 +720,7 @@ void nodeTest(
     } finally {
       globalThis.fetch = originalFetch;
       delete runtime.ANTHROPIC_API_KEY;
+      delete runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED;
     }
     const closedState = (await readPortalState()) as Omit<
       typeof source,

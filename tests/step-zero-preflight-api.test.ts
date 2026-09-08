@@ -193,9 +193,11 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
   const runtime = env as unknown as {
     ANTHROPIC_API_KEY?: string;
     ANTHROPIC_MODEL?: string;
+    ANTHROPIC_EXTERNAL_PROCESSING_ENABLED?: string;
   };
   const oldKey = runtime.ANTHROPIC_API_KEY;
   const oldModel = runtime.ANTHROPIC_MODEL;
+  const oldExternalProcessing = runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED;
   const oldFetch = globalThis.fetch;
   let externalCalls = 0;
   const modelResponse = () =>
@@ -227,6 +229,7 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
     );
   runtime.ANTHROPIC_API_KEY = 'synthetic-step-zero-key';
   runtime.ANTHROPIC_MODEL = 'synthetic-step-zero-model';
+  runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED = 'true';
   globalThis.fetch = async (_input, init) => {
     assert.ok(init?.signal instanceof AbortSignal);
     assert.equal(init.signal.aborted, false);
@@ -385,6 +388,13 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
     );
 
     await writePortalState(state());
+    runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED = 'false';
+    assert.equal(
+      (await POST(request('step-zero-external-processing-disabled'))).status,
+      503,
+    );
+    assert.equal(externalCalls, 0, 'disabled policy must fail before fetch');
+    runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED = 'true';
     for (const [requestId, invalidModel] of [
       ['step-zero-oversized-model', 'm'.repeat(201)],
       ['step-zero-unsafe-model', 'model\u0001name'],
@@ -555,6 +565,7 @@ void test('Step 0 rechecks exact stored evidence and all consents before externa
   } finally {
     runtime.ANTHROPIC_API_KEY = oldKey;
     runtime.ANTHROPIC_MODEL = oldModel;
+    runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED = oldExternalProcessing;
     globalThis.fetch = oldFetch;
   }
 });

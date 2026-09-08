@@ -11,7 +11,11 @@ export type ConsultingFlowMutationPayload = JsonRecord & {
 export type ConsultingFlowReadPayload = ConsultingFlowMutationPayload & {
   role: 'admin' | 'partner';
   canUpload: boolean;
-  readiness: { aiConnected: boolean; model: string };
+  readiness: {
+    aiConnected: boolean;
+    externalProcessingEnabled: boolean;
+    model: string;
+  };
 };
 
 export type ConsultingFlowStateRefreshResult =
@@ -94,6 +98,7 @@ export async function readConsultingFlowStateResponse(
     typeof payload.canUpload !== 'boolean' ||
     !readiness ||
     typeof readiness.aiConnected !== 'boolean' ||
+    typeof readiness.externalProcessingEnabled !== 'boolean' ||
     typeof readiness.model !== 'string'
   ) {
     throw new ConsultingFlowResponseError(

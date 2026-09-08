@@ -30,6 +30,7 @@ void test('preflight is read-only, excludes archived originals and never exposes
   });
   const runtime = flowEnvironment();
   const key = runtime.ANTHROPIC_API_KEY;
+  const externalProcessing = runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED;
   const oldFetch = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async () => {
@@ -37,6 +38,7 @@ void test('preflight is read-only, excludes archived originals and never exposes
     throw new Error('External network forbidden in preflight');
   };
   runtime.ANTHROPIC_API_KEY = 'synthetic-preflight-secret';
+  runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED = 'true';
   try {
     const original = structuredClone(flow);
     const result = await inspectFirstReport(flow);
@@ -77,6 +79,14 @@ void test('preflight is read-only, excludes archived originals and never exposes
       false,
     );
     runtime.ANTHROPIC_API_KEY = 'synthetic-preflight-secret';
+    runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED = 'false';
+    assert.equal(
+      (await inspectFirstReport(flow)).checks.find(
+        (check) => check.id === 'externalProcessing',
+      )?.passed,
+      false,
+    );
+    runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED = 'true';
     flow.jobs.push({
       id: 'pending',
       stage: 1,
@@ -92,6 +102,7 @@ void test('preflight is read-only, excludes archived originals and never exposes
     );
   } finally {
     runtime.ANTHROPIC_API_KEY = key;
+    runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED = externalProcessing;
     globalThis.fetch = oldFetch;
   }
 });

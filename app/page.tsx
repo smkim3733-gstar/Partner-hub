@@ -791,7 +791,6 @@ function BrandMark() {
     </div>
   );
 }
-
 function PrimaryButton({
   children,
   className = '',
@@ -1023,8 +1022,8 @@ function DiagnosisPreflight({
       (preparedInput.field === 'consent' ? pilotConsentRef : pilotContextRef).current?.focus();
       return;
     }
-    if (!integrationReadiness?.generationEnabled) {
-      setGenerationError('Anthropic API 키와 Claude 모델 연결이 필요합니다.');
+    if (!integrationReadiness?.generationEnabled || !integrationReadiness.externalProcessingEnabled) {
+      setGenerationError(integrationReadiness?.generationEnabled ? '운영 외부 AI 처리 정책이 중지되어 있습니다.' : 'Anthropic API 키와 Claude 모델 연결이 필요합니다.');
       return;
     }
     if (selected.level !== 'A' || !selected.company.includes('(가상)')) {
@@ -1088,7 +1087,7 @@ function DiagnosisPreflight({
         <CardHeader className="border-b border-slate-100">
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
             <div><CardTitle>Claude 상담 FLOW 연동 준비</CardTitle><CardDescription className="mt-1">Claude 웹 프로젝트를 직접 호출하지 않고, 확인된 지침을 서버 프롬프트로 이식해 Anthropic API로 연결합니다.</CardDescription></div>
-            <Pill tone={integrationReadiness?.generationEnabled ? 'green' : integrationStatus === 'error' ? 'red' : 'amber'}>{integrationReadiness?.generationEnabled ? '생성 준비완료' : integrationStatus === 'error' ? '상태 확인 오류' : integrationStatus === 'loading' ? '확인 중' : '연결 준비중'}</Pill>
+            <Pill tone={integrationReadiness?.generationEnabled && integrationReadiness.externalProcessingEnabled ? 'green' : integrationStatus === 'error' ? 'red' : 'amber'}>{integrationReadiness?.generationEnabled && integrationReadiness.externalProcessingEnabled ? '생성 준비완료' : integrationStatus === 'error' ? '상태 확인 오류' : integrationStatus === 'loading' ? '확인 중' : '연결·정책 준비중'}</Pill>
           </div>
         </CardHeader>
         <CardContent className="py-5">
@@ -1102,6 +1101,7 @@ function DiagnosisPreflight({
                   { label: 'Anthropic API 키', ready: Boolean(integrationReadiness?.apiKeyConfigured), readyText: '보안 연결됨', waitText: '연결 필요' },
                   { label: '사용 모델', ready: Boolean(integrationReadiness?.modelConfigured), readyText: integrationReadiness?.model ?? '모델 지정됨', waitText: '모델 지정 필요' },
                   { label: '기업 원본파일 저장소', ready: Boolean(integrationReadiness?.sourceStorageConfigured), readyText: '격리 저장소 연결됨', waitText: '저장소 연결 필요' },
+                  { label: '운영 외부 AI 처리', ready: Boolean(integrationReadiness?.externalProcessingEnabled), readyText: '활성', waitText: '중지' },
                 ].map((item) => (
                   <div key={item.label} className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
                     <div className="flex items-center justify-between gap-2"><p className="text-xs font-bold text-slate-500">{item.label}</p><span className={`grid size-7 place-items-center rounded-full ${item.ready ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{item.ready ? <Check className="size-4" aria-hidden="true" /> : <Clock3 className="size-4" aria-hidden="true" />}</span></div>
@@ -1211,7 +1211,7 @@ function DiagnosisPreflight({
             <CardHeader className="border-b border-slate-100">
               <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
                 <div><CardTitle>가상기업 Step 0 사전가설 시험</CardTitle><CardDescription className="mt-1">실제 고객자료를 사용하지 않고 Claude 상담 FLOW의 첫 단계만 생성합니다.</CardDescription></div>
-                <Pill tone={stepZeroRun?.caseId === selected.caseId ? 'green' : integrationReadiness?.generationEnabled ? 'blue' : 'amber'}>{stepZeroRun?.caseId === selected.caseId ? '저장된 초안 있음' : integrationReadiness?.generationEnabled ? '실행 가능' : 'API 연결 대기'}</Pill>
+                <Pill tone={stepZeroRun?.caseId === selected.caseId ? 'green' : integrationReadiness?.generationEnabled && integrationReadiness.externalProcessingEnabled ? 'blue' : 'amber'}>{stepZeroRun?.caseId === selected.caseId ? '저장된 초안 있음' : integrationReadiness?.generationEnabled && integrationReadiness.externalProcessingEnabled ? '실행 가능' : '연결·정책 대기'}</Pill>
               </div>
             </CardHeader>
             <CardContent className="space-y-5 py-5">

@@ -192,6 +192,8 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
   };
   const environment = flowEnvironment();
   const previousKey = environment.ANTHROPIC_API_KEY;
+  const previousExternalProcessing =
+    environment.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED;
   try {
     const originalText =
       '가상 대표의 초기 전화상담입니다. 연락처 010-1234-5678이며 현재자본금과 증자 목표는 증빙을 확인해야 합니다.';
@@ -1518,6 +1520,7 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
     );
     permitFakeAI = true;
     environment.ANTHROPIC_API_KEY = 'synthetic-test-only';
+    environment.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED = 'true';
     const generated = await run(request(`${endpoint}/run`, {}), context);
     assert.equal(generated.status, 200, await generated.clone().text());
     flow = ((await generated.json()) as { flow: ConsultingFlow }).flow;
@@ -1542,5 +1545,7 @@ void test('intake files -> reviewed private copies -> R2 copy retry -> only expl
   } finally {
     globalThis.fetch = originalFetch;
     environment.ANTHROPIC_API_KEY = previousKey;
+    environment.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED =
+      previousExternalProcessing;
   }
 });

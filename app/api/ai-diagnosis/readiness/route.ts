@@ -5,6 +5,7 @@ import {
   CLAUDE_FLOW_MIGRATION_SUMMARY,
 } from '@/lib/claude-flow';
 import { PortalAccessError, requirePortalUser } from '@/lib/portal-auth';
+import { isAnthropicExternalProcessingEnabled } from '@/lib/anthropic-runtime-policy';
 import { readPortalState } from '@/lib/portal-state';
 import { privateJsonResponse } from '@/lib/private-response';
 import { AI_DIAGNOSIS_RUN_FIELD_LIMITS } from '@/lib/storage-limits';
@@ -15,6 +16,7 @@ export const dynamic = 'force-dynamic';
 type AiRuntimeEnvironment = {
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_MODEL?: string;
+  ANTHROPIC_EXTERNAL_PROCESSING_ENABLED?: string;
   AI_SOURCE_FILES?: R2Bucket;
 };
 
@@ -48,6 +50,8 @@ export async function GET(request: Request) {
       Array.from(model).length <= AI_DIAGNOSIS_RUN_FIELD_LIMITS.model,
     );
     const sourceStorageConfigured = Boolean(runtime.AI_SOURCE_FILES);
+    const externalProcessingEnabled =
+      isAnthropicExternalProcessingEnabled(runtime);
     const generationEnabled =
       apiKeyConfigured && modelConfigured && sourceStorageConfigured;
 
@@ -62,13 +66,16 @@ export async function GET(request: Request) {
       model: modelConfigured ? model : null,
       sourceStorageConfigured,
       generationEnabled,
+      externalProcessingEnabled,
       nextAction: !apiKeyConfigured
         ? 'Anthropic API 키 연결 필요'
         : !modelConfigured
           ? '사용 모델 지정 필요'
           : !sourceStorageConfigured
             ? '기업 원본파일 저장소 연결 필요'
-            : '가상 1건으로 Step 0 생성 시험 가능',
+            : !externalProcessingEnabled
+              ? '외부 AI 처리 정책 활성화 필요'
+              : '가상 1건으로 Step 0 생성 시험 가능',
     });
   } catch (error) {
     const accessResponse = accessErrorResponse(error);

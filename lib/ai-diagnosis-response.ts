@@ -19,6 +19,7 @@ export type AiIntegrationReadiness = {
   model: string | null;
   sourceStorageConfigured: boolean;
   generationEnabled: boolean;
+  externalProcessingEnabled: boolean;
   nextAction: string;
 };
 
@@ -90,6 +91,7 @@ export async function readAiIntegrationReadinessResponse(
     payload.modelConfigured !== (payload.model !== null) ||
     typeof payload.sourceStorageConfigured !== 'boolean' ||
     typeof payload.generationEnabled !== 'boolean' ||
+    typeof payload.externalProcessingEnabled !== 'boolean' ||
     payload.generationEnabled !==
       (payload.apiKeyConfigured &&
         payload.modelConfigured &&
@@ -110,6 +112,7 @@ export async function readAiIntegrationReadinessResponse(
     model: payload.model as string | null,
     sourceStorageConfigured: payload.sourceStorageConfigured,
     generationEnabled: payload.generationEnabled,
+    externalProcessingEnabled: payload.externalProcessingEnabled,
     nextAction: payload.nextAction as string,
   };
 }

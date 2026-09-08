@@ -159,6 +159,7 @@ void test('admin-only preflight is non-mutating and generation rechecks files af
   assert.equal(policyResponse.status, 200, await policyResponse.clone().text());
   const runtime = flowEnvironment();
   const key = runtime.ANTHROPIC_API_KEY;
+  const externalProcessing = runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED;
   const oldFetch = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async () => {
@@ -166,6 +167,7 @@ void test('admin-only preflight is non-mutating and generation rechecks files af
     throw new Error('No external calls allowed');
   };
   runtime.ANTHROPIC_API_KEY = 'synthetic-preflight-test-key';
+  runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED = 'true';
   try {
     const before = await readFlow(caseId);
     assert.ok(before);
@@ -237,6 +239,7 @@ void test('admin-only preflight is non-mutating and generation rechecks files af
     );
   } finally {
     runtime.ANTHROPIC_API_KEY = key;
+    runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED = externalProcessing;
     globalThis.fetch = oldFetch;
   }
 });

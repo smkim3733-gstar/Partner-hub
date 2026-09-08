@@ -257,9 +257,12 @@ void test('DOCX review -> private files -> one mocked fourth report; audio-only 
   }
   const runtime = env as unknown as Record<string, unknown>;
   const previousKey = runtime.ANTHROPIC_API_KEY;
+  const previousExternalProcessing =
+    runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED;
   const previousFetch = globalThis.fetch;
   let calls = 0;
   runtime.ANTHROPIC_API_KEY = 'local-mock-not-a-real-key';
+  runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED = 'true';
   globalThis.fetch = async (input, options) => {
     calls++;
     assert.equal(input, 'https://api.anthropic.com/v1/messages');
@@ -350,5 +353,10 @@ void test('DOCX review -> private files -> one mocked fourth report; audio-only 
     globalThis.fetch = previousFetch;
     if (previousKey === undefined) delete runtime.ANTHROPIC_API_KEY;
     else runtime.ANTHROPIC_API_KEY = previousKey;
+    if (previousExternalProcessing === undefined)
+      delete runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED;
+    else
+      runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED =
+        previousExternalProcessing;
   }
 });

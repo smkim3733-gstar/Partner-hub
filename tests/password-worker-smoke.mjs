@@ -28,9 +28,11 @@ import { GET as getDraft, PUT as saveDraft, DELETE as deleteDraft } from '@/app/
 import { GET as getInventory } from '@/app/api/admin/file-inventory/route';
 import { GET as getInventoryPresence } from '@/app/api/admin/file-inventory/[id]/presence/route';
 import { GET as previewRecovery, POST as recoverOriginal } from '@/app/api/admin/file-inventory/[id]/recovery/route';
+import { GET as getAiReadiness } from '@/app/api/ai-diagnosis/readiness/route';
+import { GET as getStepZero, POST as postStepZero } from '@/app/api/ai-diagnosis/step-zero/route';
 export default { async fetch(request) {
   const pathname = new URL(request.url).pathname;
-  const routes = { 'POST /signup': registerPassword, 'POST /login': loginPassword, 'POST /logout': logoutPassword, 'POST /setup': setupPassword, 'POST /issue': createPasswordLink, 'POST /chatgpt-register': registerChatGPT, 'GET /state': getState, 'PUT /save': saveState, 'POST /partners': createPartner, 'POST /files': uploadFile, 'GET /draft': getDraft, 'PUT /draft': saveDraft, 'DELETE /draft': deleteDraft };
+  const routes = { 'POST /signup': registerPassword, 'POST /login': loginPassword, 'POST /logout': logoutPassword, 'POST /setup': setupPassword, 'POST /issue': createPasswordLink, 'POST /chatgpt-register': registerChatGPT, 'GET /state': getState, 'PUT /save': saveState, 'POST /partners': createPartner, 'POST /files': uploadFile, 'GET /draft': getDraft, 'PUT /draft': saveDraft, 'DELETE /draft': deleteDraft, 'GET /ai-readiness': getAiReadiness, 'GET /step-zero': getStepZero, 'POST /step-zero': postStepZero };
   if (pathname === '/inventory' && request.method === 'GET') return getInventory(request);
   if (pathname.startsWith('/recovery/') && ['GET', 'POST'].includes(request.method)) return (request.method === 'GET' ? previewRecovery : recoverOriginal)(request, { params: Promise.resolve({ id: pathname.slice(10) }) });
   if (pathname.startsWith('/inventory/') && request.method === 'GET') return getInventoryPresence(request, { params: Promise.resolve({ id: pathname.slice(11) }) });
@@ -1614,6 +1616,46 @@ try {
     ownerHeaders['oai-authenticated-user-id'],
   );
   checks.push('owner access stores only a hashed stable ChatGPT identity');
+  await expect(
+    await call('/ai-readiness'),
+    401,
+    'anonymous AI readiness denial',
+  );
+  const readinessResponse = await expect(
+    await call('/ai-readiness', undefined, ownerHeaders),
+    200,
+    'owner reads fail-closed AI readiness',
+  );
+  assertPrivateAuthResponse(readinessResponse);
+  const readiness = await readinessResponse.json();
+  assert.equal(readiness.generationEnabled, false);
+  assert.equal(readiness.externalProcessingEnabled, false);
+  assert.equal(readiness.apiKeyConfigured, false);
+  const outboundBeforeStepZero = outboundRequests;
+  const emptyStepZero = await expect(
+    await call('/step-zero?caseId=runtime-no-run', undefined, ownerHeaders),
+    200,
+    'owner reads empty Step 0 result',
+  );
+  assertPrivateAuthResponse(emptyStepZero);
+  assert.deepEqual(await emptyStepZero.json(), { run: null });
+  await expect(
+    await call(
+      '/step-zero',
+      {
+        requestId: 'runtime-step-zero-invalid',
+        caseId: 'runtime-no-run',
+        company: '가상기업 (가상)',
+        pilotContext: '짧음',
+        pilotMode: true,
+        consentConfirmed: true,
+      },
+      ownerHeaders,
+    ),
+    400,
+    'Step 0 rejects invalid input before external processing',
+  );
+  assert.equal(outboundRequests, outboundBeforeStepZero);
   const originBaseline = await (
     await call('/state', undefined, ownerHeaders)
   ).json();

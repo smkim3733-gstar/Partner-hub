@@ -69,6 +69,14 @@ export async function inspectFirstReport(
         : '위의 기업별 AI 자동생성 설정에서 자료 처리 권한·마스킹·비용을 확인한 뒤 허용해 주세요.',
     },
     {
+      id: 'externalProcessing',
+      ...reportPreflightCheckDefinitions.externalProcessing,
+      passed: runtime.externalProcessingEnabled,
+      detail: runtime.externalProcessingEnabled
+        ? '운영 환경에서 외부 AI 처리가 활성화되어 있습니다.'
+        : '운영 외부 AI 처리 정책이 중지되어 있습니다. 수동 보고서 등록은 계속 이용할 수 있습니다.',
+    },
+    {
       id: 'key',
       ...reportPreflightCheckDefinitions.key,
       passed: runtime.aiConnected,

@@ -342,7 +342,11 @@ export function ConsultingWorkflow({
   const [flow, setFlow] = useState<ConsultingFlow | null>(null);
   const [role, setRole] = useState<'admin' | 'partner'>('partner');
   const [canUpload, setCanUpload] = useState(false);
-  const [readiness, setReadiness] = useState({ aiConnected: false, model: '' });
+  const [readiness, setReadiness] = useState({
+    aiConnected: false,
+    externalProcessingEnabled: false,
+    model: '',
+  });
   const [section, setSection] = useState<Section>('reports');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -1714,6 +1718,9 @@ export function ConsultingWorkflow({
                 ? '키 연결됨 (실제 호출 결과는 별도 확인)'
                 : '연결 필요'}{' '}
               · 모델 {readiness.model}
+              <br />
+              운영 외부 AI 처리:{' '}
+              {readiness.externalProcessingEnabled ? '활성' : '중지'}
               <br />이 기업의 자동생성: {flow.ai.enabled ? '허용' : '중지'} ·
               음성 자동전사: 미연결
               <br />

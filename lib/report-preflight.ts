@@ -30,6 +30,7 @@ export const reportPreflightCheckDefinitions = {
   composition: { label: '분석자료 구성', target: 'sources' },
   sources: { label: '저장 파일·텍스트 점검', target: 'sources' },
   policy: { label: '기업별 외부 AI·비용 승인', target: 'policy' },
+  externalProcessing: { label: '운영 외부 AI 처리 정책', target: 'policy' },
   key: { label: 'API 키 설정', target: 'policy' },
   phase: { label: '진행 단계', target: 'workflow' },
 } as const;

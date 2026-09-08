@@ -22,6 +22,7 @@ const readinessPayload = {
   model: null,
   sourceStorageConfigured: true,
   generationEnabled: false,
+  externalProcessingEnabled: false,
   nextAction: 'Anthropic API 키 연결 필요',
 };
 const run = {
@@ -70,6 +71,7 @@ void test('real readiness and latest-run routes pass client response guards', as
   );
 
   assert.equal(typeof readinessResult.generationEnabled, 'boolean');
+  assert.equal(typeof readinessResult.externalProcessingEnabled, 'boolean');
   assert.equal(runResult.run, null);
   for (const query of [
     '?caseId=first&caseId=second',
@@ -102,6 +104,7 @@ void test('readiness cannot enable generation with inconsistent prerequisites', 
     { ...readinessPayload, modelConfigured: true },
     { ...readinessPayload, instructionVersion: '' },
     { ...readinessPayload, apiKeyConfigured: 'yes' },
+    { ...readinessPayload, externalProcessingEnabled: 'yes' },
   ])
     await assert.rejects(
       readAiIntegrationReadinessResponse(Response.json(body)),

@@ -21,7 +21,11 @@ void test('FLOW state response requires flow, role, upload permission and readin
       flow,
       role: 'partner',
       canUpload: true,
-      readiness: { aiConnected: false, model: '' },
+      readiness: {
+        aiConnected: false,
+        externalProcessingEnabled: false,
+        model: '',
+      },
     }),
   );
 
@@ -78,19 +82,31 @@ void test('latest FLOW state refresh wins when successful responses arrive out o
   const first = refresh.refresh(() => firstResponse);
   const secondFlow = { ...flow, revision: 2 };
   const second = await refresh.refresh(() =>
-    Promise.resolve(Response.json({
-      flow: secondFlow,
+    Promise.resolve(
+      Response.json({
+        flow: secondFlow,
+        role: 'admin',
+        canUpload: true,
+        readiness: {
+          aiConnected: false,
+          externalProcessingEnabled: false,
+          model: '',
+        },
+      }),
+    ),
+  );
+  finishFirst(
+    Response.json({
+      flow: { ...flow, revision: 1 },
       role: 'admin',
       canUpload: true,
-      readiness: { aiConnected: false, model: '' },
-    })),
+      readiness: {
+        aiConnected: false,
+        externalProcessingEnabled: false,
+        model: '',
+      },
+    }),
   );
-  finishFirst(Response.json({
-    flow: { ...flow, revision: 1 },
-    role: 'admin',
-    canUpload: true,
-    readiness: { aiConnected: false, model: '' },
-  }));
 
   assert.equal(second.current && second.payload.flow.revision, 2);
   assert.deepEqual(await first, { current: false });
@@ -104,12 +120,18 @@ void test('obsolete FLOW state refresh failure cannot replace a newer success', 
   });
   const first = refresh.refresh(() => firstResponse);
   const second = await refresh.refresh(() =>
-    Promise.resolve(Response.json({
-      flow,
-      role: 'partner',
-      canUpload: false,
-      readiness: { aiConnected: false, model: '' },
-    })),
+    Promise.resolve(
+      Response.json({
+        flow,
+        role: 'partner',
+        canUpload: false,
+        readiness: {
+          aiConnected: false,
+          externalProcessingEnabled: false,
+          model: '',
+        },
+      }),
+    ),
   );
   failFirst(new Error('obsolete network failure'));
 

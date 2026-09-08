@@ -325,9 +325,11 @@ void test('FLOW stops a queued model request when the caller is suspended during
     get = bucket.get.bind(bucket),
     runtime = env as unknown as Record<string, unknown>;
   const previousKey = runtime.ANTHROPIC_API_KEY,
+    previousExternalProcessing = runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED,
     fetch = globalThis.fetch;
   let calls = 0;
   runtime.ANTHROPIC_API_KEY = 'SYNTHETIC_NOT_A_REAL_KEY';
+  runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED = 'true';
   globalThis.fetch = async () => {
     calls++;
     return Response.json(
@@ -362,6 +364,11 @@ void test('FLOW stops a queued model request when the caller is suspended during
     globalThis.fetch = fetch;
     if (previousKey === undefined) delete runtime.ANTHROPIC_API_KEY;
     else runtime.ANTHROPIC_API_KEY = previousKey;
+    if (previousExternalProcessing === undefined)
+      delete runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED;
+    else
+      runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED =
+        previousExternalProcessing;
   }
 });
 
@@ -370,9 +377,12 @@ void test('FLOW rejects a decorated oversized AI result without leaving the job 
 
   const runtime = env as unknown as Record<string, unknown>;
   const previousKey = runtime.ANTHROPIC_API_KEY;
+  const previousExternalProcessing =
+    runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED;
   const previousFetch = globalThis.fetch;
   let calls = 0;
   runtime.ANTHROPIC_API_KEY = 'SYNTHETIC_NOT_A_REAL_KEY';
+  runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED = 'true';
   globalThis.fetch = async () => {
     calls++;
     return Response.json(
@@ -407,6 +417,11 @@ void test('FLOW rejects a decorated oversized AI result without leaving the job 
     globalThis.fetch = previousFetch;
     if (previousKey === undefined) delete runtime.ANTHROPIC_API_KEY;
     else runtime.ANTHROPIC_API_KEY = previousKey;
+    if (previousExternalProcessing === undefined)
+      delete runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED;
+    else
+      runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED =
+        previousExternalProcessing;
   }
 });
 
