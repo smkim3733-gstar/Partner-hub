@@ -9118,8 +9118,8 @@ try {
   const outboundBeforeCapacityRun = outboundRequests;
   await expect(
     await call('/flow-run/runtime-own', {}, ownerHeaders),
-    409,
-    'FLOW AI result capacity is rejected before an external request',
+    503,
+    'FLOW external-processing policy stops a capacity-bound job before claim or request',
   );
   assert.equal(outboundRequests, outboundBeforeCapacityRun);
   assert.equal(
@@ -9254,7 +9254,7 @@ try {
     'FLOW detail resumes after the native D1 payload identity is restored',
   );
   checks.push(
-    'FLOW D1 row identity, timestamp, structure, collection field, hidden field length and semantics, reference, state-evidence and resource-ceiling guards protect detail ACL, dashboard projection and AI result capacity',
+    'FLOW D1 row identity, timestamp, structure, collection field, hidden field length and semantics, reference, state-evidence and resource-ceiling guards protect detail ACL and dashboard projection; external-processing policy stops queued AI work before claim',
   );
   await restoreConsultingFlowTransitionGuards(db);
   assert.deepEqual(
