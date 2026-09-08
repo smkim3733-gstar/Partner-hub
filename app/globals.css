@@ -49,6 +49,8 @@
 }
 
 :root {
+  --color-slate-400: #526176;
+  --color-slate-500: #475569;
   --font-sans-system: Pretendard, 'Noto Sans KR', 'Apple SD Gothic Neo', Inter, system-ui, sans-serif;
   --background: #f5f7fa;
   --foreground: #0f172a;
@@ -85,6 +87,8 @@
 }
 
 .dark {
+  --color-slate-400: #b8c4d4;
+  --color-slate-500: #a8b7ca;
   --background: #0b1726;
   --foreground: #edf4fa;
   --card: #12253a;
