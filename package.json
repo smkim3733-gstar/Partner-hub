@@ -12,7 +12,10 @@
     "lint": "oxlint",
     "format": "oxfmt",
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
-    "test": "node --import ./tests/register.mjs --test tests/*.test.ts"
+    "test": "node --import ./tests/register.mjs --test tests/*.test.ts",
+    "test:workerd": "node tests/password-worker-smoke.mjs",
+    "test:all": "pnpm test && pnpm run test:workerd",
+    "verify": "pnpm run typecheck && pnpm run lint && pnpm run test:all && pnpm run build"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",
@@ -55,5 +58,6 @@
     "vite": "8.2.2",
     "wrangler": "4.127.0"
   },
-  "type": "module"
+  "type": "module",
+  "packageManager": "pnpm@11.19.0"
 }
