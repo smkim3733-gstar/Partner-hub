@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "release": {
+    "name": "Partner Hub v343",
+    "tag": "v343",
+    "releasedAt": "2026-09-08",
+    "sourceCommit": "5e8e4bad517891fcbc74a09f9f262d675ac30afe",
+    "featureCommit": "ed2050c595afa908b9a4b25233512405b81ec28c",
+    "documentationCommit": "b4ba7c25b39ae9b350e33dbb957326b40c2966ba"
+  },
+  "sites": {
+    "projectId": "appgprj_6a92514801988191b79eb9bd314e3fcd",
+    "versionNumber": 310,
+    "versionId": "appgprj_6a92514801988191b79eb9bd314e3fcd~appgver_ced45f9cf9d88191b6aa57a936bc2a18",
+    "sourceCommit": "5e8e4bad517891fcbc74a09f9f262d675ac30afe",
+    "publicUrl": "https://keve-partner-hub.smkim3733.chatgpt.site",
+    "archive": {
+      "format": "tar",
+      "contentHash": "sha256:76d160a25a6e7079dbf42a857bb943f49f4ea32c340e5c1cad2a4a3118ea7eda",
+      "sizeBytes": 4792320,
+      "fileCount": 226
+    }
+  },
+  "localCandidate": {
+    "path": "outputs/release/partner-hub-v343.tar.gz",
+    "sha256": "74ea818fe65e3bf8607e7872e83d410f8d4ec8b80a6760eb15e20490220e9af1",
+    "sizeBytes": 1698866,
+    "archiveEntries": 244
+  },
+  "validation": {
+    "nodeTests": 786,
+    "workerdD1R2Checks": 683,
+    "migrations": 99,
+    "migrationReplayCount": 2,
+    "typecheck": "passed",
+    "lint": "passed",
+    "productionBuild": "passed",
+    "publicPageChecks": 3,
+    "anonymousApiDenials": 4
+  },
+  "notes": [
+    "The Git tag identifies the exact source commit used by Sites version 310.",
+    "The local candidate archive is intentionally excluded from Git; its hash is verified when the file is present.",
+    "The Sites archive hash describes the server-stored deployment archive and is distinct from the local gzip candidate hash.",
+    "Commits after the release source may contain documentation or operational-hardening changes and are not part of v343."
+  ]
+}
