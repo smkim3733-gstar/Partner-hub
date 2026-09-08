@@ -16,6 +16,7 @@ import {
   uploadFileFormat,
   type UploadFileExtension,
 } from '../lib/upload-file-formats';
+import { readPortalUiSource } from './portal-ui-source';
 
 void test('one registry owns upload signatures and fixed MIME values', () => {
   const expected = {
@@ -61,7 +62,7 @@ void test('file input accept values derive from registered extensions', async ()
     '.pdf,.jpg,.jpeg,.png,.xlsx,.xls,.docx,.txt,.mp3,.m4a,.wav',
   );
   assert.equal(MAX_COMPANY_FILE_MEGABYTES, 25);
-  const page = await readFile(join(process.cwd(), 'app/page.tsx'), 'utf8');
+  const page = await readPortalUiSource();
   assert.match(page, /accept=\{companyPortalFileAccept\}/);
   assert.doesNotMatch(
     page,

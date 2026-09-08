@@ -15,6 +15,7 @@ import {
   safeFileName,
   type ApplicationAttachment,
 } from '../lib/company-file-policy';
+import { readPortalUiSource } from './portal-ui-source';
 
 const makeFile = (name: string, body = '가상 파일 본문') =>
   new File([body], name, { lastModified: 12345 });
@@ -180,12 +181,12 @@ void test('attachment deduplication follows normalized names and actual bytes', 
   assert.notEqual(distinct.files[0].fingerprint, distinct.files[1].fingerprint);
 });
 
-void test('application submission stays locked while attachment bytes are checked', () => {
+void test('application submission stays locked while attachment bytes are checked', async () => {
   const picker = readFileSync(
     join(process.cwd(), 'components/application-attachments.tsx'),
     'utf8',
   );
-  const page = readFileSync(join(process.cwd(), 'app/page.tsx'), 'utf8');
+  const page = await readPortalUiSource();
   assert.match(picker, /onBusyChange\(true\)/);
   assert.match(picker, /onBusyChange\(false\)/);
   assert.match(page, /attachmentBusyRef\.current/);

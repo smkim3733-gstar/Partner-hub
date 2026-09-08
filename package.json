@@ -17,8 +17,9 @@
     "test:all": "pnpm test && pnpm run test:workerd",
     "dev:e2e": "vinext dev --host 127.0.0.1",
     "test:e2e": "playwright test",
+    "bundle:verify": "node scripts/verify-client-bundle.mjs",
     "release:verify": "node scripts/verify-release-manifest.mjs",
-    "verify": "pnpm run release:verify && pnpm run typecheck && pnpm run lint && pnpm run test:all && pnpm run test:e2e && pnpm run build"
+    "verify": "pnpm run release:verify && pnpm run typecheck && pnpm run lint && pnpm run test:all && pnpm run test:e2e && pnpm run build && pnpm run bundle:verify"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

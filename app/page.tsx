@@ -89,7 +89,7 @@ import { ApplicationDetailFields, ApplicationDetailsSummary } from '@/components
 import { applicationServices, applicationCompanyMaxLength, emptyApplicationDetails, parseApplicationDetails, ApplicationDetailsError, type ApplicationDetails, type ApplicationField } from '@/lib/application-details';
 /* oxlint-disable next/no-html-link-for-pages -- Sites authentication routes require native top-level navigation. */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Bell,
@@ -138,10 +138,6 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { hasDuplicateLoginEmail, isValidLoginEmail } from '@/lib/member-email';
-import { ConsultingWorkflow } from '@/components/consulting-workflow';
-import { ApplicationAttachments } from '@/components/application-attachments';
-import { AdminPartnerRegistration } from '@/components/admin-partner-registration';
-import { AdminFileInventory } from '@/components/admin-file-inventory';
 import { FileRecoveryNote } from '@/components/file-recovery-note';
 import type { RecoveryControls } from '@/lib/file-recovery';
 import { applyPartnerAccountSettingsDraft, createPartnerAccountSettingsDraft, partnerAccountSettingsChanged, partnerTypes, partnerTypeSelectionProblem, togglePartnerAccountPermission, type PartnerAccountSettingsDraft, type PartnerType, type PartnerAccount as TraineeMember, type PartnerRegistrationResult } from '@/lib/partner-registration';
@@ -174,6 +170,7 @@ import {
   portalTaskNeedsAttention,
   portalTaskNotificationCount,
 } from '@/lib/portal-task-notifications';
+
 import {
   PORTAL_TASK_COMPANY_MAX_LENGTH,
   PORTAL_TASK_DUE_MAX_LENGTH,
@@ -183,6 +180,27 @@ import {
   emptyPortalTaskClassification,
   type PortalTaskKind,
 } from '@/lib/portal-task-draft';
+
+const ConsultingWorkflow = lazy(() =>
+  import('@/components/consulting-workflow').then((module) => ({
+    default: module.ConsultingWorkflow,
+  })),
+);
+const ApplicationAttachments = lazy(() =>
+  import('@/components/application-attachments').then((module) => ({
+    default: module.ApplicationAttachments,
+  })),
+);
+const AdminPartnerRegistration = lazy(() =>
+  import('@/components/admin-partner-registration').then((module) => ({
+    default: module.AdminPartnerRegistration,
+  })),
+);
+const AdminFileInventory = lazy(() =>
+  import('@/components/admin-file-inventory').then((module) => ({
+    default: module.AdminFileInventory,
+  })),
+);
 
 type View =
   | 'admin'
@@ -4299,6 +4317,7 @@ export default function Home() {
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
           {saveError && <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800"><p className="font-bold">변경사항 저장 확인 필요</p><p>{saveError}</p><p className="mt-1">입력은 현재 화면에 남아 있습니다. 새로고침하지 말고 연결을 확인한 뒤 다시 저장해 주세요. 로그인 만료 시 같은 계정으로 새 탭에서 로그인한 후 돌아오세요.</p><div className="mt-3 flex flex-wrap gap-3"><SecondaryButton onClick={() => { void saveQueue.flush().catch(() => {}); }} disabled={dataStatus === 'saving' || applicationPending}>변경사항 다시 저장</SecondaryButton><a className="inline-flex min-h-11 items-center underline" href="/account" target="_blank" rel="noopener noreferrer">새 탭에서 로그인</a><a className="inline-flex min-h-11 items-center underline" href="/" target="_blank" rel="noopener noreferrer">새 탭에서 최신 운영 내용 확인</a></div></div>}
+          <Suspense fallback={<Card><CardContent className="py-8"><output className="block">화면을 안전하게 불러오는 중입니다.</output></CardContent></Card>}>
           {view === 'admin' ? <AdminDashboard onOpenCase={openCase} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} cases={cases} documents={companyDocuments} tasks={tasks} members={members} storage={storage} saveConflicts={saveConflicts} applicationFunnel={applicationFunnel} duplicateRequests={duplicateRequests} jointAnalysisConfirmation={jointAnalysisConfirmation} documentReviewWait={documentReviewWait} supportRequests={supportRequests} pipelineDropoff={pipelineDropoff} /> : null}
           {view === 'pipeline' ? <PipelineBoard cases={cases} setCases={setCases} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} onOpenCase={openCase} /> : null}
           {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee} · {item.id.slice(-8)}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <><ApplicationDetailsSummary details={selectedCase.applicationDetails} /><ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /></> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
@@ -4363,6 +4382,7 @@ export default function Home() {
           {view === 'case' ? cases.length ? <CaseDetail key={selectedCase.id} caseItem={selectedCase} timeline={selectedCaseTimeline} documents={companyDocuments} allCases={cases} members={members} onWorkflow={() => navigate('workflow')} onConsult={() => navigate(selectedCase.flowManaged ? 'workflow' : 'consultation')} onDocuments={() => navigate(selectedCase.flowManaged ? 'workflow' : 'documents')} onSetDocumentDueDates={requestDocumentDueDateChange} onQuoteContract={() => navigate('workflow')} canFileUpload={canFileUpload} canQuoteContract={isAdmin || Boolean(currentMember?.permissions.quoteContract)} /> : <Card><CardContent className="py-8"><p className="font-bold text-slate-900">등록된 진행이 없습니다.</p><p className="mt-2 text-sm text-slate-600">새 협업신청을 접수한 뒤 진행 기록을 확인할 수 있습니다.</p><PrimaryButton className="mt-5" onClick={() => navigate('application')}>새 협업신청</PrimaryButton></CardContent></Card> : null}
           {view === 'consultation' ? cases.length ? <ConsultationForm key={selectedCase.id} number={Math.max(1, consultationNumber)} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={saveConsultation} /> : <Card><CardContent className="py-8">상담을 등록할 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card> : null}
           {view === 'documents' ? cases.length ? <DocumentRequest key={selectedCase.id} caseItem={selectedCase} requestNumber={selectedCaseTimeline.filter((item) => item.type === '서류').length + 1} outstandingNames={companyDocuments.filter(document => recordBelongsToCase(document, document.assignedTrainee, selectedCase, cases, members) && document.category === '요청서류' && (document.status === '요청중' || document.status === '보완필요')).map(document => document.title)} onCancel={() => navigate('case')} onSave={saveDocumentRequest} /> : <Card><CardContent className="py-8">서류를 요청할 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card> : null}
+          </Suspense>
         </main>
       </div>
 
