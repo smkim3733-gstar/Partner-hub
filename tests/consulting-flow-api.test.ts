@@ -410,7 +410,7 @@ void nodeTest(
     );
     assert.equal(ran.status, 200);
     assert.equal((await responseData(ran)).flow.reports.length, 1);
-    // Explicitly enabled, but the isolated runtime has no key: failure is saved, not fabricated success.
+    // Explicitly enabled, but the isolated runtime has no key: the queued job is preserved.
     flow = (
       await responseData(
         await command('api-case', flow, {
@@ -440,9 +440,16 @@ void nodeTest(
       request('/api/consulting-flow/api-case/run', {}),
       context('api-case'),
     );
-    assert.equal(failed.status, 200);
-    const final = (await responseData(failed)).flow;
-    assert.equal(final.jobs.at(-1)?.status, 'failed');
+    assert.equal(failed.status, 503);
+    const final = (
+      await responseData(
+        await GET(
+          request('/api/consulting-flow/api-case'),
+          context('api-case'),
+        ),
+      )
+    ).flow;
+    assert.equal(final.jobs.at(-1)?.status, 'queued');
     assert.equal(final.reports.length, 1);
     const runtime = env as unknown as {
       ANTHROPIC_API_KEY?: string;
@@ -485,15 +492,7 @@ void nodeTest(
       );
     };
     try {
-      flow = (
-        await responseData(
-          await command('api-case', final, {
-            type: 'retry_job',
-            jobId: final.jobs.at(-1)!.id,
-            costConsent: true,
-          }),
-        )
-      ).flow;
+      flow = final;
       const providerFailed = await run(
         request('/api/consulting-flow/api-case/run', {}),
         context('api-case'),
