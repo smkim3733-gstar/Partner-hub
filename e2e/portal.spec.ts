@@ -8,6 +8,20 @@ async function expectAccessible(page: Page) {
   expect(accessibility.violations).toEqual([]);
 }
 
+async function signInWithSyntheticState(page: Page) {
+  await page.goto('/signin-with-chatgpt?return_to=/');
+  const baselineChoice = page.getByRole('button', {
+    name: '가상 예시 데이터 선택',
+  });
+  await baselineChoice
+    .waitFor({ state: 'visible', timeout: 5_000 })
+    .catch(() => {});
+  if (await baselineChoice.isVisible()) await baselineChoice.click();
+  await expect(
+    page.getByRole('heading', { name: '오늘의 협업 진행현황' }),
+  ).toBeVisible({ timeout: 10_000 });
+}
+
 test.beforeEach(async ({ page }) => {
   await page.route('https://api.anthropic.com/**', (route) => route.abort());
 });
@@ -29,15 +43,7 @@ test('logged-in administrator can navigate the dashboard without accessibility v
       );
   });
 
-  await page.goto('/signin-with-chatgpt?return_to=/');
-  const baselineChoice = page.getByRole('button', {
-    name: '가상 예시 데이터 선택',
-  });
-  await baselineChoice.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => {});
-  if (await baselineChoice.isVisible()) await baselineChoice.click();
-  await expect(
-    page.getByRole('heading', { name: '오늘의 협업 진행현황' }),
-  ).toBeVisible({ timeout: 10_000 });
+  await signInWithSyntheticState(page);
   await expect(page.getByText('김성민 대표').first()).toBeVisible();
 
   await expectAccessible(page);
@@ -71,4 +77,28 @@ test('logged-in administrator can navigate the dashboard without accessibility v
     unexpectedWrites.every((request) => request === 'PUT /api/state'),
   ).toBe(true);
   expect(unexpectedWrites.length).toBeLessThanOrEqual(1);
+});
+
+test('a failed deferred chunk keeps the portal shell and a safe recovery path', async ({
+  page,
+}) => {
+  let abortedChunks = 0;
+  await page.route(/consulting-workflow/i, (route) => {
+    abortedChunks++;
+    return route.abort();
+  });
+
+  await signInWithSyntheticState(page);
+  await page.getByRole('button', { name: '상담 FLOW · 보고서' }).click();
+
+  await expect(
+    page.getByRole('alert').filter({
+      hasText: '상담 FLOW · 보고서 화면을 불러오지 못했습니다.',
+    }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('link', { name: '새 탭에서 최신 화면 열기' }),
+  ).toHaveAttribute('target', '_blank');
+  await expect(page.getByRole('navigation', { name: '주요 메뉴' })).toBeVisible();
+  expect(abortedChunks).toBeGreaterThan(0);
 });

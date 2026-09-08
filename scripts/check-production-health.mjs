@@ -34,7 +34,7 @@ for (const check of checks) {
   const url = new URL(check.path, baseUrl);
   const response = await fetch(url, {
     method: 'GET',
-    redirect: 'follow',
+    redirect: 'manual',
     signal: AbortSignal.timeout(10_000),
     headers: {
       accept: check.browser ? 'text/html' : 'application/json',

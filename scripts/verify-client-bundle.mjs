@@ -10,7 +10,9 @@ const chunkDirectory = join(
   'chunks',
 );
 const maximumPageBytes = 450 * 1024;
-const pageChunks = (await readdir(chunkDirectory)).filter((name) =>
+const maximumTotalChunkBytes = 1_280 * 1024;
+const chunkNames = await readdir(chunkDirectory);
+const pageChunks = chunkNames.filter((name) =>
   /^page-[\w-]+\.js$/.test(name),
 );
 
@@ -26,6 +28,18 @@ if (size > maximumPageBytes) {
   );
 }
 
+const javaScriptChunks = chunkNames.filter((name) => name.endsWith('.js'));
+const totalChunkBytes = (
+  await Promise.all(
+    javaScriptChunks.map(async (name) => (await stat(join(chunkDirectory, name))).size),
+  )
+).reduce((total, chunkBytes) => total + chunkBytes, 0);
+if (totalChunkBytes > maximumTotalChunkBytes) {
+  throw new Error(
+    `Client chunks total ${totalChunkBytes} bytes; limit is ${maximumTotalChunkBytes} bytes.`,
+  );
+}
+
 console.log(
-  `Client page bundle verified: ${pageChunk} ${size} bytes / ${maximumPageBytes} bytes.`,
+  `Client bundles verified: ${pageChunk} ${size}/${maximumPageBytes} bytes; total ${totalChunkBytes}/${maximumTotalChunkBytes} bytes.`,
 );

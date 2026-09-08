@@ -42,6 +42,7 @@ import { PortalDialog } from '@/components/portal-dialog';
 import { DialogClose } from '@/components/ui/dialog';
 import { PortalNavigationButton } from '@/components/portal-navigation';
 import { PortalCaseSearchForm } from '@/components/portal-case-search-form';
+import { DeferredPanel } from '@/components/deferred-panel';
 import { Sheet, SheetClose, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { applyCaseAssignmentDraft, assignmentMemberId, assignmentDisplayName, createCaseAssignmentDraft, type CaseAssignmentDraft } from '@/lib/assignment-display';
 import { commitPortalTask } from '@/lib/portal-task-commit';
@@ -89,7 +90,7 @@ import { ApplicationDetailFields, ApplicationDetailsSummary } from '@/components
 import { applicationServices, applicationCompanyMaxLength, emptyApplicationDetails, parseApplicationDetails, ApplicationDetailsError, type ApplicationDetails, type ApplicationField } from '@/lib/application-details';
 /* oxlint-disable next/no-html-link-for-pages -- Sites authentication routes require native top-level navigation. */
 
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   Bell,
@@ -2630,7 +2631,7 @@ function DocumentCenter({
         action={<PrimaryButton disabled={recoveryControls.recoveryBusy} onClick={openUploadDialog}><Upload className="size-4" aria-hidden="true" /> 자료 등록</PrimaryButton>}
       />
 
-      {isAdmin && <AdminFileInventory {...recoveryControls} recoveryDisabled={recoveryControls.recoveryDisabled || uploading || uploadOpen} />}
+      {isAdmin && <DeferredPanel label="원본 보관 현황"><AdminFileInventory {...recoveryControls} recoveryDisabled={recoveryControls.recoveryDisabled || uploading || uploadOpen} /></DeferredPanel>}
       <fieldset disabled={recoveryControls.recoveryBusy} className="min-w-0"><legend className="sr-only">기업자료 관리</legend>
       <section aria-label="자료 제출현황 요약" className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
@@ -2850,7 +2851,7 @@ function AccessManagement({
         action={<div className="flex flex-wrap items-center gap-2"><Pill tone={members.some((member) => ['승인대기', '초대대기'].includes(member.status)) ? 'amber' : 'green'}>승인대기 {members.filter((member) => ['승인대기', '초대대기'].includes(member.status)).length}명</Pill><SecondaryButton disabled={registrationBusy} onClick={() => window.location.reload()}><RefreshCw className="size-4" aria-hidden="true" /> 신청목록 새로고침</SecondaryButton></div>}
       />
 
-      <AdminPartnerRegistration disabled={registrationDisabled} onBusyChange={setRegistrationBusy} onRegistered={result => { onRegistered(result); setQuery(result.member.email); setStatusFilter('전체'); }} />
+      <DeferredPanel label="관리자 파트너 직접등록"><AdminPartnerRegistration disabled={registrationDisabled} onBusyChange={setRegistrationBusy} onRegistered={result => { onRegistered(result); setQuery(result.member.email); setStatusFilter('전체'); }} /></DeferredPanel>
       <fieldset disabled={registrationBusy} className="min-w-0">
       <legend className="sr-only">기존 파트너 관리</legend>
       <section aria-label="파트너 계정 요약" className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -3271,7 +3272,7 @@ function ApplicationForm({
 
           {step === 4 ? (
             <div className="space-y-6">
-              {canUpload ? <ApplicationAttachments value={selectedFiles} disabled={submitting} onBusyChange={busy => { attachmentBusyRef.current = busy; setAttachmentBusy(busy); }} onChange={files => { setSelectedFiles(files); if (files.length) setMissingAttachments(false); setUploadConsent(false); setRecordingConsent(false); setSubmitError(''); }} /> : <p className="rounded-xl border p-4 text-sm">현재 계정에는 파일 업로드 권한이 없습니다. 자료 없이 협업신청을 접수하거나 대표님에게 권한을 요청해 주세요.</p>}
+              {canUpload ? <DeferredPanel label="첨부자료 선택"><ApplicationAttachments value={selectedFiles} disabled={submitting} onBusyChange={busy => { attachmentBusyRef.current = busy; setAttachmentBusy(busy); }} onChange={files => { setSelectedFiles(files); if (files.length) setMissingAttachments(false); setUploadConsent(false); setRecordingConsent(false); setSubmitError(''); }} /></DeferredPanel> : <p className="rounded-xl border p-4 text-sm">현재 계정에는 파일 업로드 권한이 없습니다. 자료 없이 협업신청을 접수하거나 대표님에게 권한을 요청해 주세요.</p>}
               {selectedFiles.some(item => item.category === '상담녹취') && <label className="flex min-h-11 items-start gap-3 rounded-xl border border-primary/25 bg-primary/5 p-4 text-sm leading-6"><input type="checkbox" checked={recordingConsent} disabled={submitting} onChange={event => { setRecordingConsent(event.target.checked); setSubmitError(''); }} className="mt-1 size-4 shrink-0 accent-primary" /><span>녹취자료의 저장·내부 검토·담당 파트너 공유에 필요한 권한을 확인했습니다. 외부 AI 분석은 별도 동의·대표 검토 후 진행합니다. (녹취자료 첨부 시 필수)</span></label>}
 
               <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-5">
@@ -4317,10 +4318,9 @@ export default function Home() {
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
           {saveError && <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800"><p className="font-bold">변경사항 저장 확인 필요</p><p>{saveError}</p><p className="mt-1">입력은 현재 화면에 남아 있습니다. 새로고침하지 말고 연결을 확인한 뒤 다시 저장해 주세요. 로그인 만료 시 같은 계정으로 새 탭에서 로그인한 후 돌아오세요.</p><div className="mt-3 flex flex-wrap gap-3"><SecondaryButton onClick={() => { void saveQueue.flush().catch(() => {}); }} disabled={dataStatus === 'saving' || applicationPending}>변경사항 다시 저장</SecondaryButton><a className="inline-flex min-h-11 items-center underline" href="/account" target="_blank" rel="noopener noreferrer">새 탭에서 로그인</a><a className="inline-flex min-h-11 items-center underline" href="/" target="_blank" rel="noopener noreferrer">새 탭에서 최신 운영 내용 확인</a></div></div>}
-          <Suspense fallback={<Card><CardContent className="py-8"><output className="block">화면을 안전하게 불러오는 중입니다.</output></CardContent></Card>}>
           {view === 'admin' ? <AdminDashboard onOpenCase={openCase} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} cases={cases} documents={companyDocuments} tasks={tasks} members={members} storage={storage} saveConflicts={saveConflicts} applicationFunnel={applicationFunnel} duplicateRequests={duplicateRequests} jointAnalysisConfirmation={jointAnalysisConfirmation} documentReviewWait={documentReviewWait} supportRequests={supportRequests} pipelineDropoff={pipelineDropoff} /> : null}
           {view === 'pipeline' ? <PipelineBoard cases={cases} setCases={setCases} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} onOpenCase={openCase} /> : null}
-          {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee} · {item.id.slice(-8)}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <><ApplicationDetailsSummary details={selectedCase.applicationDetails} /><ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /></> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
+          {view === 'workflow' ? <div className="space-y-6"><div className="flex flex-wrap items-end justify-between gap-4"><label className="grid min-w-0 flex-1 gap-2 text-sm font-semibold sm:max-w-xl">진행 기업 선택<select className={inputClass} value={cases.some(item => item.id === selectedCaseId) ? selectedCaseId : cases[0]?.id ?? ''} onChange={event => setSelectedCaseId(event.target.value)}>{cases.length ? cases.map(item => <option key={item.id} value={item.id}>{item.company} · {item.trainee} · {item.id.slice(-8)}</option>) : <option value="">담당 진행 없음</option>}</select></label>{cases.length > 0 && <SecondaryButton onClick={() => navigate('case')}>기존 진행 기록 보기</SecondaryButton>}</div>{cases.length ? <><ApplicationDetailsSummary details={selectedCase.applicationDetails} /><DeferredPanel label="상담 FLOW · 보고서"><ConsultingWorkflow key={selectedCase.id} caseId={selectedCase.id} onUpdated={() => void refreshFlowProjection()} /></DeferredPanel></> : <Card><CardContent>등록된 담당 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card>}</div> : null}
           {view === 'schedule' ? <SchedulePage schedule={schedule} onNewConsultation={() => navigate(cases.length ? 'consultation' : 'application')} notify={notify} audience={isAdmin ? scheduleAudience : 'trainee'} onAudienceChange={setScheduleAudience} canPreviewAdmin={isAdmin} traineeName={traineeName} /> : null}
           {view === 'tasks' ? <WorkManagement key={taskFilterRequest.id} tasks={tasks} setTasks={setTasks} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} initialFilter={taskFilterRequest.filter} notify={notify} /> : null}
           {view === 'files' ? <DocumentCenter documents={companyDocuments} setDocuments={setCompanyDocuments} members={members} isAdmin={isAdmin} currentName={traineeName} currentMemberId={currentUser.memberId} currentUserId={currentUser.id} recoveryControls={{ recoveryBusy: fileRecoveryBusy, recoveryDisabled: dataStatus !== 'saved' || fileRecoveryBusy || applicationPending || applicationDirty, beginRecovery: beginFileRecovery, finishRecovery: finishFileRecovery }} notify={notify} /> : null}
@@ -4382,7 +4382,6 @@ export default function Home() {
           {view === 'case' ? cases.length ? <CaseDetail key={selectedCase.id} caseItem={selectedCase} timeline={selectedCaseTimeline} documents={companyDocuments} allCases={cases} members={members} onWorkflow={() => navigate('workflow')} onConsult={() => navigate(selectedCase.flowManaged ? 'workflow' : 'consultation')} onDocuments={() => navigate(selectedCase.flowManaged ? 'workflow' : 'documents')} onSetDocumentDueDates={requestDocumentDueDateChange} onQuoteContract={() => navigate('workflow')} canFileUpload={canFileUpload} canQuoteContract={isAdmin || Boolean(currentMember?.permissions.quoteContract)} /> : <Card><CardContent className="py-8"><p className="font-bold text-slate-900">등록된 진행이 없습니다.</p><p className="mt-2 text-sm text-slate-600">새 협업신청을 접수한 뒤 진행 기록을 확인할 수 있습니다.</p><PrimaryButton className="mt-5" onClick={() => navigate('application')}>새 협업신청</PrimaryButton></CardContent></Card> : null}
           {view === 'consultation' ? cases.length ? <ConsultationForm key={selectedCase.id} number={Math.max(1, consultationNumber)} caseItem={selectedCase} onCancel={() => navigate('case')} onSave={saveConsultation} /> : <Card><CardContent className="py-8">상담을 등록할 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card> : null}
           {view === 'documents' ? cases.length ? <DocumentRequest key={selectedCase.id} caseItem={selectedCase} requestNumber={selectedCaseTimeline.filter((item) => item.type === '서류').length + 1} outstandingNames={companyDocuments.filter(document => recordBelongsToCase(document, document.assignedTrainee, selectedCase, cases, members) && document.category === '요청서류' && (document.status === '요청중' || document.status === '보완필요')).map(document => document.title)} onCancel={() => navigate('case')} onSave={saveDocumentRequest} /> : <Card><CardContent className="py-8">서류를 요청할 진행이 없습니다. 먼저 협업신청을 접수해 주세요.</CardContent></Card> : null}
-          </Suspense>
         </main>
       </div>
 

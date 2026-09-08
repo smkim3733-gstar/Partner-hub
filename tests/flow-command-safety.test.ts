@@ -319,6 +319,41 @@ async function transcriptJobFixture(failed = false, transcript = '') {
   return (await readFlow(prepared.caseId))!;
 }
 
+void test('FLOW policy stop preserves a queued job before claim', async () => {
+  const queued = await queuedReportFixture(false);
+  const storedBeforeRun = await readFlow(queued.caseId);
+  const runtime = env as unknown as Record<string, unknown>;
+  const previousKey = runtime.ANTHROPIC_API_KEY;
+  const previousExternalProcessing =
+    runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED;
+  const previousFetch = globalThis.fetch;
+  let calls = 0;
+  runtime.ANTHROPIC_API_KEY = 'SYNTHETIC_NOT_A_REAL_KEY';
+  runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED = 'false';
+  globalThis.fetch = async () => {
+    calls++;
+    throw new Error('external request must remain blocked');
+  };
+  try {
+    const response = await run(
+      request(queued.caseId, {}, 0, undefined, adminEmail),
+      context(queued.caseId),
+    );
+    assert.equal(response.status, 503);
+    assert.equal(calls, 0);
+    assert.deepEqual(await readFlow(queued.caseId), storedBeforeRun);
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousKey === undefined) delete runtime.ANTHROPIC_API_KEY;
+    else runtime.ANTHROPIC_API_KEY = previousKey;
+    if (previousExternalProcessing === undefined)
+      delete runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED;
+    else
+      runtime.ANTHROPIC_EXTERNAL_PROCESSING_ENABLED =
+        previousExternalProcessing;
+  }
+});
+
 void test('FLOW stops a queued model request when the caller is suspended during source preparation', async () => {
   const queued = await queuedReportFixture(true);
   const bucket = flowBucket(),

@@ -46,6 +46,10 @@ type BinaryBlock = {
   source: { type: 'base64'; media_type: string; data: string };
 };
 type Block = TextBlock | BinaryBlock;
+type FlowAiRuntime = {
+  apiKey: string;
+  requestedModel: string;
+};
 class FlowProviderResponseError extends FlowError {
   constructor(
     message: string,
@@ -69,6 +73,29 @@ function providerResponseError(
     observedAt: new Date().toISOString(),
     ...(providerRequestId ? { providerRequestId } : {}),
   });
+}
+function configuredFlowAiRuntime(): FlowAiRuntime {
+  const environment = flowEnvironment();
+  if (!isAnthropicExternalProcessingEnabled(environment))
+    throw new FlowError(
+      '외부 AI 처리 정책이 중지되어 있습니다. 수동 보고서 등록은 이용할 수 있습니다.',
+      503,
+    );
+  if (!environment.ANTHROPIC_API_KEY)
+    throw new FlowError(
+      'Claude API 키가 연결되지 않았습니다. 수동 보고서 등록은 이용할 수 있습니다.',
+      503,
+    );
+  const requestedModel = environment.ANTHROPIC_MODEL?.trim() || 'claude-opus-5';
+  if (
+    !isWellFormedFlowText(requestedModel) ||
+    flowTextLength(requestedModel) > FLOW_AI_EVIDENCE_LIMITS.model
+  )
+    throw new FlowError('Claude 모델 설정을 확인해 주세요.', 503);
+  return {
+    apiKey: environment.ANTHROPIC_API_KEY,
+    requestedModel,
+  };
 }
 function invalidTextCharacters(value: string) {
   for (const character of value) {
@@ -210,22 +237,9 @@ async function generate(
   flow: ConsultingFlow,
   job: FlowJob,
   beforeRequest: () => Promise<void>,
+  aiRuntime: FlowAiRuntime,
 ) {
-  const runtime = flowEnvironment();
-  if (!isAnthropicExternalProcessingEnabled(runtime))
-    throw new FlowError(
-      '외부 AI 처리 정책이 중지되어 있습니다. 수동 보고서 등록은 이용할 수 있습니다.',
-    );
-  if (!runtime.ANTHROPIC_API_KEY)
-    throw new FlowError(
-      'Claude API 키가 연결되지 않았습니다. 수동 보고서 등록은 이용할 수 있습니다.',
-    );
-  const requestedModel = runtime.ANTHROPIC_MODEL?.trim() || 'claude-opus-5';
-  if (
-    !isWellFormedFlowText(requestedModel) ||
-    flowTextLength(requestedModel) > FLOW_AI_EVIDENCE_LIMITS.model
-  )
-    throw new FlowError('Claude 모델 설정을 확인해 주세요.');
+  const { apiKey, requestedModel } = aiRuntime;
   const content = await buildAnalysisSourceBlocks(flow, job);
   content.push({
     type: 'text',
@@ -235,7 +249,7 @@ async function generate(
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
-      'x-api-key': runtime.ANTHROPIC_API_KEY,
+      'x-api-key': apiKey,
       'anthropic-version': '2023-06-01',
       'content-type': 'application/json',
     },
@@ -319,6 +333,7 @@ export async function runNextFlowJob(
 ) {
   const job = flow.jobs.find((j) => j.status === 'queued');
   if (!job) return flow;
+  const aiRuntime = configuredFlowAiRuntime();
   const lease = new Date().toISOString();
   const claimed = claimFlowJob(flow, job.id, lease);
   await commitFlow(flow, claimed, await authorize());
@@ -344,7 +359,7 @@ export async function runNextFlowJob(
           '생성 승인 또는 근거 버전이 변경되어 외부 요청을 중지했습니다.',
           409,
         );
-    });
+    }, aiRuntime);
     body = generated.body;
     evidence = generated.evidence;
   } catch (e) {
