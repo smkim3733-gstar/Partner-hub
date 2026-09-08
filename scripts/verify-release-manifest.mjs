@@ -6,6 +6,9 @@ import { basename, resolve } from 'node:path';
 const root = process.cwd();
 const releasesDirectory = resolve(root, 'releases');
 const requestedManifest = process.argv[2];
+if (!requestedManifest && !existsSync(releasesDirectory)) {
+  throw new Error('No releases directory found.');
+}
 const manifestPaths = requestedManifest
   ? [resolve(root, requestedManifest)]
   : readdirSync(releasesDirectory)
@@ -50,6 +53,14 @@ function verifyManifest(manifestPath) {
   requireValue(
     /^sha256:[0-9a-f]{64}$/.test(manifest.sites?.archive?.contentHash),
     `${label}: invalid Sites archive hash.`,
+  );
+  requireValue(
+    typeof manifest.localCandidate?.path === 'string' &&
+      manifest.localCandidate.path.length > 0 &&
+      /^[0-9a-f]{64}$/.test(manifest.localCandidate.sha256) &&
+      Number.isSafeInteger(manifest.localCandidate.sizeBytes) &&
+      manifest.localCandidate.sizeBytes > 0,
+    `${label}: missing or invalid local candidate descriptor.`,
   );
 
   requireValue(
