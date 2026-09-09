@@ -4,11 +4,13 @@
 
 사용자 선택에 따라 현재 이전 대상은 **Vercel Next.js + Supabase PostgreSQL/비공개 Storage**다. 작업 브랜치는 `codex/supabase-migration`이며, 아래 Turso/Blob 기록은 이전 단계의 검증 기록이다. 현재 완료 범위와 미완료 항목은 [Supabase 이전 현황](SUPABASE_MIGRATION.md)을 따른다.
 
+**최신 추가 검사:** 공개 Supabase Storage 서버의 실제 응답 규격과 연결 코드를 대조했다. 현재 소스의 `bucket_id` 검사는 유지하며, 서버가 `If-Match`를 강제하지 않아도 기존 응답 ETag/길이/해시 검사가 변경된 파일을 거절함을 독립 회귀검사 6개로 확인했다. 신규·기존 Storage 집중검사 12개, 전체 직렬 회귀검사 **1027/1027**(실패/건너뜀 0건, 약 304초), TypeScript·lint·변경 파일 서식 검사를 통과했다. 로그는 `work/supabase-storage-contract-final-tests.log`다. 앱 동작·SQL·운영 데이터·키는 변경하지 않았으며 실제 서비스 연결 검증은 여전히 별도다.
+
 **실제 Storage 준비 추가 완료:** 기존 Supabase 로그인 세션을 확인하고 대시보드에서 `partner-hub-private`을 생성했다. 원격 재조회로 비공개, 25MiB(26214400바이트), MIME `application/octet-stream`을 확인했다. 버킷 객체·명단·FLOW·기업 파일·버전·전송 예약은 각각 0행이며, 업무 38개 표와 `storage.objects`의 RLS를 유지한다. 실제 업로드/DB 접속/배포 시험은 미완료다. 연결 화면에서 확인한 트랜잭션 풀러 주소를 `.env.example`의 주석에 기록했고 DB 비밀번호 재설정·새 키 생성은 하지 않았다. 비밀키 화면 자동 저장은 보안 검토에서 차단되어 우회하지 않았으며, 기존 Secret key의 Git 제외 `.env.local` 저장 승인과 실제 DB 비밀번호가 필요하다. 운영·main·기존 사용자 파일은 변경하지 않았다.
 
-최신 추가 작업은 [기존 Sites 데이터 이전 사전 검사](SITES_DATA_MIGRATION_PREFLIGHT.md)다. 실제 원본 목록 30개와 구형 신원 결속 표를 확인했다. 긴 `portal_state` 본문은 조회 도구에서 잘리므로 백업으로 사용하지 않았다. 동결된 독립 SQLite 사본에 대한 읽기 전용 검사/복원 사본 비교 CLI와 합성 회귀검사 **15개**를 추가했다. JSON 원문·큰 정수·타입·해시·스키마 누락·잘못된 날짜/파일 경로를 검사하고, 임의 SQL 실행·WAL 사본·인증 원문 출력·자동 이관/삭제는 제공하지 않는다. 실제 운영 백업·Supabase 복원은 아직 미완료이며 원본 D1/R2 전체 사본이 필요하다.
+앞선 추가 작업은 [기존 Sites 데이터 이전 사전 검사](SITES_DATA_MIGRATION_PREFLIGHT.md)다. 실제 원본 목록 30개와 구형 신원 결속 표를 확인했다. 긴 `portal_state` 본문은 조회 도구에서 잘리므로 백업으로 사용하지 않았다. 동결된 독립 SQLite 사본에 대한 읽기 전용 검사/복원 사본 비교 CLI와 합성 회귀검사 **15개**를 추가했다. JSON 원문·큰 정수·타입·해시·스키마 누락·잘못된 날짜/파일 경로를 검사하고, 임의 SQL 실행·WAL 사본·인증 원문 출력·자동 이관/삭제는 제공하지 않는다. 실제 운영 백업·Supabase 복원은 아직 미완료이며 원본 D1/R2 전체 사본이 필요하다.
 
-최신 전체 검사 **1021/1021**, 실패/건너뜀 0건이다(`work/sites-snapshot-final-tests.log`, 직렬 실행 약 311초). Supabase Next.js 빌드·비활성 HTTP 123건·인증/비밀키 경계, Sites 빌드·번들 한도와 Next 타입 재생성 후 TypeScript·lint·변경 파일 서식 검사도 통과했다. 빌드 로그는 `work/sites-snapshot-next-build.log`, `work/sites-snapshot-sites-build.log`다. 아래 1006건은 직전 직접 전송 단계의 기록이다.
+직전 전체 검사 **1021/1021**, 실패/건너뜀 0건이다(`work/sites-snapshot-final-tests.log`, 직렬 실행 약 311초). 당시 Supabase Next.js 빌드·비활성 HTTP 123건·인증/비밀키 경계, Sites 빌드·번들 한도와 Next 타입 재생성 후 TypeScript·lint·변경 파일 서식 검사도 통과했다. 빌드 로그는 `work/sites-snapshot-next-build.log`, `work/sites-snapshot-sites-build.log`다. 이번 응답 규격 검사는 실행 로직 변경이 없어 빌드를 재실행하지 않았다. 아래 1006건은 이전 직접 전송 단계의 기록이다.
 
 Supabase MCP 연결, 서버 전용 38개 테이블 적용, 실제 PostgreSQL 롤백·RLS 검사, 관리자/파트너 독립 인증, 명단·초안·기업 파일·AI Step 0 원장, 상담 FLOW 루트·운영 통계·관리자 파일 재고/복구에 이어 **브라우저 직접 업로드와 완료 API를 기존 업무 저장에 연결했다.** 실제 PostgreSQL 엔진·독립 인증·Storage HTTP/버전 원장 어댑터를 결합해 검사한다. 시험의 파일 바이트와 AI 제공자는 모의 구성으로 실제 Supabase Storage·Anthropic 네트워크 검증은 아니다.
 

@@ -6,6 +6,13 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 
 ## 2026-09-10 현재 완료
 
+### 공개 Storage 서버 응답 규격 대조와 독립 회귀검사
+
+- Supabase Storage 공개 소스 `7d7757dc971ed83e6d8bcc42a61497428b7a84a0`을 기준으로 HTTP 응답 규격을 대조했다. [InfoRenderer](https://github.com/supabase/storage/blob/7d7757dc971ed83e6d8bcc42a61497428b7a84a0/src/storage/renderer/info.ts)는 `bucket_id`를 반환하므로 버킷 일치 검사를 완화하지 않았다. 이 공개 커밋이 현재 프로젝트에 배포된 버전이라는 의미는 아니다.
+- [AssetRenderer](https://github.com/supabase/storage/blob/7d7757dc971ed83e6d8bcc42a61497428b7a84a0/src/storage/renderer/asset.ts)는 `If-Match`를 저장소 백엔드에 전달하지 않는다. 따라서 요청 헤더만으로 조건부 읽기가 보장된다고 간주하지 않는다. 기존 앱의 실제 응답 ETag·길이·MIME·압축 여부 및 스트림 길이/SHA-256 검증을 유지하고, 해당 이유를 코드 주석에 기록했다. ETag가 앱의 SHA-256과 같아야 한다는 가정도 추가하지 않았다.
+- 기존 업무용 모의 저장소와 별도로 `tests/supabase-storage-http-contract.test.ts`에 6개 검사를 추가했다. 불일치 ETag인데도 HTTP 200을 돌려주는 제공자, 응답 본문 취소, 잘린/초과/손상된 바이트, multipart 형태의 불투명 ETag, 누락된 버킷/권한 거절을 파일 부재로 오인하지 않는 경계를 확인했다. [공개 Renderer의 400/NoSuchKey 응답](https://github.com/supabase/storage/blob/7d7757dc971ed83e6d8bcc42a61497428b7a84a0/src/storage/renderer/renderer.ts)도 별도 검사했다.
+- 신규 6개와 기존 Storage 6개 집중검사 **12/12**, 전체 직렬 회귀검사 **1027/1027**(실패/건너뜀 0건, 약 304초), TypeScript·lint·변경 파일 서식 검사를 통과했다. 전체 로그는 `work/supabase-storage-contract-final-tests.log`다. 이번 변경은 테스트·주석·문서뿐이며 실제 앱 로직, 적용 SQL, 비밀키, 운영 데이터, 배포 설정을 바꾸지 않았다. 실행 로직 변경이 없어 Next/Sites 빌드를 다시 실행하지 않았고 직전 빌드 증거는 아래 1021건 단계에 남겼다. **공개 소스와 합성 HTTP 검사이며 실제 프로젝트의 업로드·DB 연결 검증을 대신하지 않는다.**
+
 ### 실제 비공개 Storage 버킷 생성과 DB 연결 화면 확인
 
 - 기존 Supabase 대시보드의 로그인 세션과 정확한 프로젝트를 확인했다. MCP 재로그인이나 새 API 키 생성은 하지 않았다. 비밀키가 포함된 전체 화면의 로컬 내보내기는 보안 검토에서 차단됐다. 우회하지 않고, 기존 Secret key 하나만 Git 제외 `.env.local`에 저장하는 별도 승인을 요청했다. 실제 `.env.local`과 프로세스의 앱용 키/DB 연결값은 아직 없다.

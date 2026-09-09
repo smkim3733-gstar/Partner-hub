@@ -142,6 +142,9 @@ export function createSupabaseStorageHttp(
     )
       return supabaseStorageFailure();
     await assertPrivateBucket();
+    // Supabase's AssetRenderer does not currently forward If-Match to its
+    // backend. Treat it as advisory: compare the actual response below and
+    // verify streamed bytes against the caller's independently stored SHA-256.
     const response = await request(
       `/object/authenticated/${storageBucket}/${expected.path}`,
       {
