@@ -7,6 +7,7 @@ import { analysisDone, preparationDone, documentsDone, signingPreparationDone, d
   type ConsultingFlow, type FlowActor, type FlowCommand, type FlowFile } from '../lib/consulting-flow';
 import { postgresFixture } from './supabase-postgres-fixture';
 import { manualFlowCommand, manualFlowScenario, manualFlowStamp, type ManualFlowTransition } from './supabase-flow-manual-fixture';
+import { flowUploadPurpose } from '../lib/consulting-flow-upload-policy';
 
 type Engine = Awaited<ReturnType<typeof postgresFixture>>['engine'];
 const admin: FlowActor = { id: 'synthetic-admin', role: 'admin', name: '김성민 대표' };
@@ -230,7 +231,7 @@ void test('real recording branches support audio-only, two files, transcript upl
   assert.equal(flow.recordings.at(-1)!.fileId,flow.recordings.at(-1)!.audioFileId);
   assert.match(flow.jobs.at(-1)!.reason,/전사문 대기/);
   flow = await check(flow,{type:'save_transcript',recordingId:flow.recordings.at(-1)!.id,transcript:body,recordingConsent:true,privacyMasked:true},
-    attachment('branch-transcript-file','recording','synthetic.txt',later));
+    attachment('branch-transcript-file',flowUploadPurpose({type:'save_transcript'})!,'synthetic.txt',later));
   const job = flow.jobs.at(-1)!;
   job.status = 'failed'; job.reason = '합성 실패'; // Synthetic prior internal-result state; not a write through production guards.
   const failed = await check(flow,{type:'save_transcript',recordingId:flow.recordings.at(-1)!.id,transcript:`${body} 보완`,recordingConsent:true,privacyMasked:true});

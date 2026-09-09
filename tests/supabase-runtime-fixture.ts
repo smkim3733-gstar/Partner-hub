@@ -7,8 +7,8 @@ import { flushWaitUntil } from './runtime-mock.mjs';
 // Select actual standalone auth, retaining only the runtime binding seam.
 register('./supabase-auth-loader.mjs', import.meta.url);
 export const postgresTestOrigin = 'https://postgres-runtime.example.test';
-export async function postgresRuntimeFixture(t: TestContext) {
-  const fixture = await postgresFixture();
+export async function postgresRuntimeFixture(t: TestContext, options: { flowRoot?: boolean } = {}) {
+  const fixture = await postgresFixture(options);
   const runtime = env as unknown as { DB: D1Database };
   const oldDb = runtime.DB;
   const config = {

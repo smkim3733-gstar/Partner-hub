@@ -168,8 +168,8 @@ export async function flowDatabase() {
   const db = flowEnvironment().DB;
   if (!db) throw new FlowError('진행 저장소가 연결되지 않았습니다.', 503);
   if (isPostgresDatabase(db)) {
-    // Intentionally absent until the FULL root/schema/query port is ready.
-    // Do not let a cached SQLite initialization expose partially ported writes.
+    // Check native root + deferred file-ledger guards independently of cached
+    // SQLite initialization. Runtime never creates PostgreSQL schema.
     await db.prepare('SELECT partner_hub.assert_consulting_flow_schema() AS ready').first();
     return db;
   }
@@ -1096,7 +1096,9 @@ export async function readFlow(caseId: string): Promise<ConsultingFlow | null> {
         'SELECT case_id, partner_id, revision, updated_at, payload FROM consulting_flows WHERE case_id = ?1',
       )
       .bind(caseId),
-    database.prepare(flowFileOwnershipViolationSql(true)).bind(caseId),
+    database.prepare(isPostgresDatabase(database)
+      ? 'SELECT 1 AS invalid FROM consulting_flows WHERE case_id = ?1 AND NOT partner_hub.flow_file_ledgers_valid(payload::json) LIMIT 1'
+      : flowFileOwnershipViolationSql(true)).bind(caseId),
   ]);
   const row = (batch[0] as D1Result<StoredFlowRow>).results[0];
   if ((batch[1] as D1Result<{ invalid: number }>).results.length > 0)
@@ -1110,6 +1112,19 @@ export async function stateWithConsultingFlows(raw: unknown) {
       503,
     );
   const database = await flowDatabase();
+  if (isPostgresDatabase(database)) {
+    const [violations, projectedRows] = await database.batch([
+      database.prepare('SELECT 1 AS invalid FROM consulting_flows WHERE NOT partner_hub.flow_file_ledgers_valid(payload::json) LIMIT 1'),
+      database.prepare(`SELECT case_id, partner_id, revision, updated_at,
+        partner_hub.flow_dashboard_payload(payload::json) AS payload FROM consulting_flows`),
+    ]);
+    if (violations.results.length > 0) throw storedFlowIntegrityError();
+    const projected = projectFlowState(raw, (projectedRows as D1Result<StoredFlowRow>).results
+      .map((row) => storedFlowFromRow(row, undefined, true)));
+    if (projected !== null && !hasPortalStateStructure(projected))
+      throw new FlowError('저장된 운영 데이터 구조를 확인할 수 없습니다. 관리자 복구가 필요합니다.', 503);
+    return projected;
+  }
   const batch = await database.batch([
     database.prepare(hiddenFlowSemanticViolationSql),
     database.prepare(flowAiSuccessEvidenceViolationSql),
@@ -2651,13 +2666,14 @@ export async function commitFlow(
       413,
     );
   const db = await flowDatabase();
+  const stateEquality = isPostgresDatabase(db) ? 'IS NOT DISTINCT FROM' : 'IS';
   const initialCommandTransition =
     before.revision === 0 && after.commandIds.length > before.commandIds.length;
   const initialFlowWrite = initialCommandTransition
     ? db
         .prepare(
           `INSERT INTO consulting_flows (case_id, partner_id, revision, payload, updated_at)
-          SELECT ?1, ?2, ?3, ?4, ?5 WHERE (?6 = 0 OR (SELECT payload FROM portal_state WHERE id = '${portalStateId}') IS ?7)
+          SELECT ?1, ?2, ?3, ?4, ?5 WHERE (?6 = 0 OR (SELECT payload FROM portal_state WHERE id = '${portalStateId}') ${stateEquality} ?7)
           ON CONFLICT(case_id) DO NOTHING`,
         )
         .bind(
@@ -2675,7 +2691,7 @@ export async function commitFlow(
       ? db
           .prepare(
             `INSERT INTO consulting_flows (case_id, partner_id, revision, payload, updated_at)
-            SELECT ?1, ?2, ?3, ?4, ?5 WHERE (?6 = 0 OR (SELECT payload FROM portal_state WHERE id = '${portalStateId}') IS ?7)
+            SELECT ?1, ?2, ?3, ?4, ?5 WHERE (?6 = 0 OR (SELECT payload FROM portal_state WHERE id = '${portalStateId}') ${stateEquality} ?7)
             ON CONFLICT(case_id) DO NOTHING`,
           )
           .bind(
@@ -2690,7 +2706,7 @@ export async function commitFlow(
       : db
           .prepare(
             `UPDATE consulting_flows SET revision = ?1, payload = ?2, updated_at = ?3 WHERE case_id = ?4 AND revision = ?5
-            AND (?6 = 0 OR (SELECT payload FROM portal_state WHERE id = '${portalStateId}') IS ?7)`,
+            AND (?6 = 0 OR (SELECT payload FROM portal_state WHERE id = '${portalStateId}') ${stateEquality} ?7)`,
           )
           .bind(
             after.revision,

@@ -7,7 +7,7 @@ import {
 
 // Real, in-memory PostgreSQL engine. No credentials or external connections.
 // PGlite serializes its single connection: this is NOT multi-session race QA.
-export async function postgresFixture() {
+export async function postgresFixture(options: { flowRoot?: boolean } = {}) {
   const engine = await PGlite.create({ parsers: { 20: (value) => BigInt(value) } });
   let lastQueryError: unknown;
   try {
@@ -27,6 +27,9 @@ export async function postgresFixture() {
       '0011_consulting_flow_command_boundaries.sql',
       '0012_consulting_flow_source_ai_effects.sql',
       '0013_consulting_flow_business_effects.sql',
+      '0014_consulting_flow_transcript_purpose.sql',
+      '0015_consulting_flow_domain.sql',
+      ...(options.flowRoot ? ['0016_consulting_flow_root.sql'] : []),
     ]) {
       await engine.exec(await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), 'utf8'));
     }
@@ -49,7 +52,11 @@ export async function postgresFixture() {
     const db = createSupabasePostgresDatabase({
       ...executor(engine),
       async begin(callback) {
-        return engine.transaction((transaction) => callback(executor(transaction)));
+        return engine.transaction((transaction) => callback(executor(transaction))).catch((error: unknown) => {
+          // Deferred constraints can fail at COMMIT, outside executor.query.
+          lastQueryError = error;
+          throw error;
+        });
       },
     });
     return { engine, db, lastQueryError: () => lastQueryError, close: () => engine.close() };
