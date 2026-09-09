@@ -130,7 +130,7 @@ export async function storeCompanyUpload(
             AND NOT EXISTS (
               SELECT 1 FROM company_file_upload_requests
               WHERE owner_key = ?3 AND request_key = ?1
-            ) AND ${fileStateGuard('?5')}`)
+            ) AND ${fileStateGuard('?5', db)}`)
           .bind(
             requestKey,
             fingerprint,
@@ -145,7 +145,7 @@ export async function storeCompanyUpload(
   await db
     .prepare(`INSERT INTO company_file_upload_requests
     (owner_key, request_key, fingerprint, file_id, created_at, status)
-    SELECT ?1, ?2, ?3, ?4, ?5, 'pending' WHERE ${fileStateGuard('?6')}
+    SELECT ?1, ?2, ?3, ?4, ?5, 'pending' WHERE ${fileStateGuard('?6', db)}
     ON CONFLICT(owner_key, request_key) DO NOTHING`)
     .bind(
       owner,
@@ -293,7 +293,7 @@ export async function storeCompanyUpload(
        uploaded_by_user_id, uploaded_by_email, content_type, size_bytes, created_at)
       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12
       WHERE EXISTS (SELECT 1 FROM company_file_upload_requests WHERE file_id = ?1 AND status = 'pending')
-      AND ${fileStateGuard('?13')}
+      AND ${fileStateGuard('?13', db)}
       ON CONFLICT(id) DO NOTHING`)
       .bind(
         id,
@@ -401,7 +401,7 @@ export async function storeCompanyUpload(
         AND storage_key = ?5)
       AND EXISTS (SELECT 1 FROM company_file_objects f WHERE f.id = ?1
         AND ${companyFileMetadataIntegrityGuardSql})
-      AND ${fileStateGuard('?4')}`)
+      AND ${fileStateGuard('?4', db)}`)
       .bind(
         id,
         objectBinding.etag,

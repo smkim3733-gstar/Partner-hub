@@ -16,7 +16,9 @@ import {
   currentFileAccess,
   fileStateConflict,
   fileStateGuard,
+  fileUnlinkedGuard,
 } from '@/lib/company-file-access';
+import { isPostgresDatabase } from '@/lib/database-dialect';
 import { isCrossSiteRequest } from '@/lib/request-origin';
 import { readRouteParam, RouteParamError } from '@/lib/request-path';
 import {
@@ -80,7 +82,9 @@ export async function GET(
       throw new CompanyFileError('담당기업 자료만 내려받을 수 있습니다.', 403);
     }
 
-    const deleted = await companyFileDatabase()
+    const db = companyFileDatabase();
+    const nullSafeComparison = isPostgresDatabase(db) ? 'IS NOT DISTINCT FROM' : 'IS';
+    const deleted = await db
       .prepare(
         "SELECT file_id FROM company_file_upload_requests WHERE file_id = ?1 AND status = 'deleted'",
       )
@@ -118,17 +122,17 @@ export async function GET(
           '담당기업 자료만 내려받을 수 있습니다.',
           403,
         );
-      const available = await companyFileDatabase()
+      const available = await db
         .prepare(`SELECT f.id FROM company_file_objects f
         LEFT JOIN company_file_assignments a ON a.file_id = f.id
         WHERE f.id = ?1 AND f.storage_key = ?2 AND f.size_bytes = ?3
-        AND a.partner_member_id IS ?4 AND f.assigned_trainee = ?5
+        AND a.partner_member_id ${nullSafeComparison} ?4 AND f.assigned_trainee = ?5
         AND NOT EXISTS (SELECT 1 FROM company_file_upload_requests u WHERE u.file_id = f.id AND u.status = 'deleted')
         AND EXISTS (SELECT 1 FROM company_file_object_integrity integrity
           WHERE integrity.file_id = f.id AND integrity.validation_mode = ?6
-          AND integrity.r2_etag IS ?7 AND integrity.r2_content_type = ?8)
+          AND integrity.r2_etag ${nullSafeComparison} ?7 AND integrity.r2_content_type = ?8)
         AND ${companyFileMetadataIntegrityGuardSql}
-        AND ${fileStateGuard('?9')}`)
+        AND ${fileStateGuard('?9', db)}`)
         .bind(
           id,
           row.storage_key,
@@ -184,6 +188,7 @@ export async function DELETE(
     const { id: rawId } = await context.params;
     const id = readRouteParam(rawId, 120, '기업자료 식별값을 확인해 주세요.');
     const db = companyFileDatabase();
+    const nullSafeComparison = isPostgresDatabase(db) ? 'IS NOT DISTINCT FROM' : 'IS';
     await ensureCompanyFileTables(db);
     const row = await findCompanyFile(id);
     const access = await currentFileAccess(request, currentUser);
@@ -225,7 +230,7 @@ export async function DELETE(
 
     // Authorize the durable deletion decision against the same state, including
     // legacy files without an upload ledger. A linked portal card also blocks
-    // deletion inside this D1 decision. R2 failure leaves the tombstone.
+    // deletion inside this database decision. Storage failure leaves the tombstone.
     const decision = await db
       .prepare(`INSERT INTO company_file_upload_requests
         (owner_key, request_key, fingerprint, file_id, created_at, status)
@@ -233,13 +238,12 @@ export async function DELETE(
         FROM company_file_objects f
         JOIN company_file_storage_keys object_key ON object_key.file_id = f.id
         LEFT JOIN company_file_assignments a ON a.file_id = f.id
-        WHERE f.id = ?2 AND f.storage_key = ?3 AND a.partner_member_id IS ?4
+        WHERE f.id = ?2 AND f.storage_key = ?3 AND a.partner_member_id ${nullSafeComparison} ?4
         AND f.assigned_trainee = ?5 AND f.uploaded_by_user_id = ?6
         AND object_key.storage_key = f.storage_key
         AND ${companyFileMetadataIntegrityGuardSql}
-        AND NOT EXISTS (SELECT 1 FROM json_each(?7, '$.companyDocuments') document
-          WHERE json_extract(document.value, '$.storageFileId') = f.id)
-        AND ${fileStateGuard('?7')}
+        AND ${fileUnlinkedGuard('?7', db)}
+        AND ${fileStateGuard('?7', db)}
         ON CONFLICT(file_id) DO UPDATE SET status = 'deleted'`)
       .bind(
         `legacy-delete:${id}`,
@@ -261,7 +265,7 @@ export async function DELETE(
     }
     await companyFileBucket().delete(row.storage_key);
     // One guarded parent deletion keeps the immutable ledgers and object row in
-    // one SQLite decision. Foreign-key cascades remove every child ledger only
+    // one database decision. Foreign-key cascades remove every child ledger only
     // after both the storage key and full metadata ledger still match.
     const cleanup = await db
       .prepare(`DELETE FROM company_file_objects AS f

@@ -9,11 +9,16 @@ import {
 import { PortalAccessError, type PortalUser } from './portal-auth';
 import { FlowError } from './consulting-flow';
 import { draftCaseId } from './application-draft';
+import { isPostgresDatabase } from './database-dialect';
 
 export const draftOwnerKey = (user: PortalUser) =>
   user.role === 'admin' ? `admin:${user.email}` : `member:${user.memberId}`;
 export async function applicationDraftDatabase() {
   const db = (env as unknown as { DB: D1Database }).DB;
+  if (isPostgresDatabase(db)) {
+    await db.prepare('SELECT partner_hub.assert_draft_schema() AS ready').first();
+    return db;
+  }
   await db.batch([
     db.prepare(applicationDraftsTableSql),
     db.prepare(applicationDraftsIdentityTriggerSql),

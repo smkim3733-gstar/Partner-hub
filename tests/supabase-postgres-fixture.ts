@@ -18,6 +18,8 @@ export async function postgresFixture() {
       '0003_authentication.sql',
       '0004_portal_state.sql',
       '0005_password_link_metrics.sql',
+      '0006_application_drafts.sql',
+      '0007_company_file_ledgers.sql',
     ]) {
       await engine.exec(await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), 'utf8'));
     }

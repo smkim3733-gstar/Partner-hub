@@ -5,6 +5,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { portalStateId } from '../db/schema';
 import { PORTAL_STATE_LIMIT_BYTES } from '../lib/pilot-readiness';
+import { ensureCompanyFileTables } from '../lib/company-files';
 import {
   mutatePortalState,
   readPortalState,
@@ -34,6 +35,19 @@ async function sourceFiles(directory: string): Promise<string[]> {
   );
   return nested.flat();
 }
+
+void test('initial SQLite portal CAS applies original provenance to the proposed payload', async () => {
+  const db = (env as unknown as { DB: D1Database }).DB;
+  await ensureCompanyFileTables(db);
+  await assert.rejects(
+    mutatePortalState(() => ({ ...seed(), companyDocuments: [{ storageFileId: 'missing-original' }] }),
+      undefined, undefined, () => ['company_document_file_provenance']),
+    { kind: 'cas_exhausted' },
+  );
+  assert.equal(await readPortalState(), null);
+  await mutatePortalState(seed, undefined, undefined, () => ['company_document_file_provenance']);
+  assert.deepEqual(await readPortalState(), seed());
+});
 
 void test('portal state keeps one fixed durable D1 root', async () => {
   const initial = seed();

@@ -1,6 +1,6 @@
 import {
   companyFileBucket,
-  companyFileIntakeFilterSql,
+  companyFileIntakeFilter,
   companyFileDatabase,
   companyFileObjectMatchesIntegrity,
   ensureCompanyFileTables,
@@ -153,7 +153,7 @@ export async function listIntakeSources(flow: ConsultingFlow) {
     WHERE company = ?1 AND ((a.partner_member_id <> '' AND a.partner_member_id = ?3)
       OR (a.file_id IS NULL AND assigned_trainee = ?2))
       AND (c.file_id IS NULL OR c.case_id = ?4)
-      AND ${companyFileIntakeFilterSql}
+      AND ${companyFileIntakeFilter(db)}
     ORDER BY created_at DESC, f.id DESC LIMIT 101
   `)
     .bind(flow.company, flow.partnerName, flow.partnerId, flow.caseId)

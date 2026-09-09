@@ -6,9 +6,23 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 
 ## 2026-09-09 현재 완료
 
-### 인증·기본 명단 PostgreSQL 이식
+### 초안·기업 원본파일 PostgreSQL 이식
 
-- 원격 Supabase에 `authentication` (`20260909110358`), `portal_state` (`20260909110412`), `password_link_metrics` (`20260909110426`)를 추가 적용했다. 전체 서버 전용 테이블은 15개다. 관리자 계정이나 실제 업무 명단은 생성·이관하지 않았다.
+- 원격 Supabase에 `application_drafts` (`20260909113623`), `company_file_ledgers` (`20260909113630`)를 적용했다. 서버 전용 테이블은 총 24개이며 실제 계정·업무 자료·Storage 바이트는 생성하거나 이관하지 않았다.
+- 초안은 소유 계정, 정확한 다음 revision, 현재 draft ID, 삭제 후 재사용 금지, 영구 삭제 기록을 유지한다. PostgreSQL에서는 요청 중 DDL 대신 `assert_draft_schema()`를 확인한다. 실제 비밀번호 인증과 초안 HTTP 경로로 계정 격리·동일 요청 재시도·오래된 초안 제출 거절을 검사했다.
+- 기업 파일의 변경 불가 원본 메타데이터와 6개 하위 원장, 영구 업로드 영수증을 이식했다. 부모 삭제만 하위 원장을 연쇄 삭제하며 영수증은 남는다. `pending→ready→deleted`의 단방향 상태와 삭제 재시도, 기존 request key 이전 규칙을 보존한다. 레거시 행에 소유 계정·체크섬·사건 연결을 임의로 채우지 않았다.
+- 기존 integrity CHECK가 `etag` 모드에서 NULL ETag를 허용하던 SQL의 UNKNOWN 허점을 새 빈 대상 스키마에서 닫았다. `metadata` 모드의 NULL ETag와 소유 원장이 없는 레거시 이름 접근은 유지한다. 브라우저 역할 접근과 서버 역할의 TRUNCATE 권한은 열지 않았다.
+- 업로드 저장 함수, 파일 다운로드·삭제 경로, 신청 원본 선택 필터와 명단 저장 내부의 원본 연결 검사에 PostgreSQL 분기를 추가했다. 명단 CAS는 JSON 동등성이 아닌 정확한 텍스트를 비교한다. 문서 배열 형식이 잘못된 경우 삭제를 허용하지 않는다.
+- 최초 명단 CAS의 바인딩 순서를 후속 저장과 통일해 원본 검사가 식별자가 아닌 제안 payload를 검사하도록 수정했다. PostgreSQL 최초 INSERT의 text/jsonb 파라미터 추론 충돌도 명시적 text 캐스트로 해결했다. SQLite와 PostgreSQL 모두 최초 저장 회귀검사를 추가했다.
+- 전체 회귀검사 927개를 통과한 뒤 레거시 NULL 원장 다운로드·삭제, 파일 조회 도중 계정 정지, SQLite 최초 저장 검사 3개를 추가해 각각 통과했다. PostgreSQL 파일 통합 7개, 초안 2개, 원격 롤백 SQL 로컬 실행 1개를 포함한다. TypeScript·lint와 Supabase Next.js 프로덕션 빌드·비활성 API HTTP 123건을 통과했다.
+- 기존 Sites 빌드와 클라이언트 번들 검사도 통과했다. 페이지 380,725/460,800바이트, 전체 1,043,435/1,310,720바이트다. Sites·Vercel 운영 배포는 실행하지 않았다.
+- 실제 Supabase에서 `tests/supabase-draft-file-rollback.sql`로 초안 수명주기, 원장 변경·직접 삭제 금지, 트랜잭션 롤백, 부모 연쇄 삭제, 영수증 보존, RLS·권한을 검사했다. 모든 합성 변경을 롤백한 뒤 새 9개 테이블 각각 0행임을 별도 확인했다. 기존 업무 데이터가 존재하면 실행을 거절하는 초기 대상 전용 검사다.
+- 최신 보안 진단은 24개 서버 전용 RLS 테이블의 `rls_enabled_no_policy` INFO만 반환했다. 이는 브라우저 접근 정책을 열지 않은 의도된 상태이며 전체 앱 보안 완료 판정이 아니다.
+- 파일 통합검사의 DB는 실제 PostgreSQL 엔진인 PGlite, 바이트 저장소는 메모리 R2 대체물이다. **Supabase Storage HTTP·브라우저 직접 전송·전체 `/api/files` 업로드 HTTP 경로 검증은 아직 아니다.** 해당 경로에 결합되는 FLOW 스키마/쿼리 이식, 다중 DB 세션 경쟁, 실제 Supavisor·Storage 연결 검사가 남았다. 스키마 준비 함수도 전체 제약조건 해시 검증을 대체하지 않는다.
+
+### 앞서 완료한 인증·기본 명단 PostgreSQL 이식
+
+- 원격 Supabase에 `authentication` (`20260909110358`), `portal_state` (`20260909110412`), `password_link_metrics` (`20260909110426`)를 추가 적용했다. 이 단계의 서버 전용 테이블은 15개였다. 관리자 계정이나 실제 업무 명단은 생성·이관하지 않았다.
 - 관리자 최초 설정·로그인·세션 교체·만료·로그아웃·운영자 비밀번호 복구, 파트너 가입·승인 후 로그인·일회용 비밀번호 재설정·접근 철회 SQL을 PostgreSQL에서 실행했다. 기존 Sites SQL은 DB별 분기로 보존한다.
 - 모든 PostgreSQL 요청/batch는 첫 데이터 쿼리 전에 `SERIALIZABLE` 격리를 설정한다. 동시 변경 충돌은 전체 트랜잭션 실패로 처리하며, 결과 불명인 쓰기를 자동 재실행하지 않는다. `bigint`는 안전한 JavaScript 정수 범위만 수용하고 범위 초과를 거절한다.
 - 명단은 원문 JSON 텍스트를 유지해 정확한 CAS 비교를 보존한다. 고정 루트 ID, JSON 객체, UTF-8 900,000바이트 상한, UTC 밀리초 시각, 루트 삭제 금지와 로그인 통계의 30분 집계 규칙을 이식했다. PostgreSQL 멤버 조회는 중복 ID 및 문자열이 아닌 ID·이메일·상태를 거절한다.
@@ -17,7 +31,7 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 - 테스트 전용 PGlite 0.5.8에서 실제 PostgreSQL 엔진·저장 SQL·마이그레이션을 실행했다. 비밀번호 처리 통합검사는 합성 환경값과 메모리 DB를 사용하며 실제 Supavisor·Storage 네트워크 연결은 사용하지 않는다. PGlite는 단일 연결이므로 독립 세션 간 경합 시험을 대체하지 않는다.
 - 전체 테스트 918개와 추가 원격 인증 롤백 SQL 로컬 재검증 1개를 통과했다. TypeScript·lint·Supabase Next 프로덕션 빌드와 비활성 API 경계 HTTP 123건, 기존 Sites 빌드도 통과했다.
 - 실제 Supabase에서 `tests/supabase-auth-rollback.sql`을 실행해 RLS/권한·복구 중복 영수증 실패의 원자적 롤백·기록 삭제 금지·명단 보호·로그인 집계 간격을 확인했다. 별도 후속 조회에서 관리자·세션·복구 기록·명단·로그인 통계가 모두 0행임을 확인했다. 이 SQL은 기존 계정·명단이 있으면 실행을 거절하는 초기 대상 전용 검사다.
-- 최신 보안 진단은 서버 전용 RLS 테이블 15개의 `rls_enabled_no_policy` INFO만 반환했다. 브라우저 역할 접근을 열지 않는 의도된 상태이며 전체 앱 보안 검증 완료를 의미하지 않는다.
+- 당시 보안 진단은 서버 전용 RLS 테이블 15개의 `rls_enabled_no_policy` INFO만 반환했다. 브라우저 역할 접근을 열지 않는 의도된 상태이며 전체 앱 보안 검증 완료를 의미하지 않는다.
 
 ### 앞서 완료한 Storage 기반
 
@@ -77,8 +91,8 @@ SUPABASE_STORAGE_BUCKET=partner-hub-private
 
 ## 다음 자동 진행 순서
 
-1. 남은 AI·초안·FLOW·파일 원장 테이블/인덱스/무결성 함수·트리거 이식
-2. 남은 업무 쿼리 파일을 PostgreSQL 문법으로 이식하고 원자적 batch/CAS 회귀검사
+1. 남은 AI·FLOW 및 FLOW 전용 파일 원장 테이블/인덱스/무결성 함수·트리거 이식
+2. 남은 업무·관리자 파일 재고 쿼리를 PostgreSQL 문법으로 이식하고 원자적 batch/CAS 회귀검사
 3. 실제 Supavisor 연결·독립 다중 세션 경합·최종 스키마 무결성 검증
 4. 구현된 Storage 어댑터·임시 서명을 업로드 예약/완료 API와 연결하고 세션·권한 재검증, 대용량 다운로드, 보존 기한 정리 구현
 5. 이미 검증한 인증 흐름에 업로드/다운로드·관리자 원격 CLI를 결합해 실제 저장소 통합검사

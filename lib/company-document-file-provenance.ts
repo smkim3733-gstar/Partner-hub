@@ -8,6 +8,7 @@ import {
   readCompanyFileObjectIntegrity,
   type CompanyFileRow,
 } from './company-files';
+import { isPostgresDatabase } from './database-dialect';
 
 type IntegrityRecord = Record<string, unknown>;
 type ProvenanceRow = CompanyFileRow & {
@@ -158,3 +159,46 @@ NOT EXISTS (
             AND length(integrity.r2_etag) BETWEEN 1 AND 256))
     )
 )`;
+
+export function companyDocumentFileProvenanceCommitCondition(db: D1Database) {
+  if (!isPostgresDatabase(db)) return companyDocumentFileProvenanceCommitConditionSql;
+  const documents = (parameter: string) => `(${parameter}::text::jsonb -> 'companyDocuments')`;
+  const shape = (parameter: string) =>
+    `COALESCE(jsonb_typeof(${documents(parameter)}), 'missing') IN ('missing', 'array')`;
+  const array = (parameter: string) =>
+    `CASE WHEN jsonb_typeof(${documents(parameter)}) = 'array' THEN ${documents(parameter)} ELSE '[]'::jsonb END`;
+  // Missing optional IDs and JSON null represent no ledger row, but numbers or
+  // booleans must not be coerced into string identifiers. Compare sizes as JSON
+  // numbers without casting untrusted JSON text to bigint.
+  return `${shape('?1')} AND ${shape('?4')} AND NOT EXISTS (
+    SELECT 1 FROM jsonb_array_elements(${array('?1')}) proposed
+    WHERE jsonb_typeof(proposed.value -> 'storageFileId') = 'string'
+      AND NOT EXISTS (
+        SELECT 1 FROM jsonb_array_elements(${array('?4')}) current
+        WHERE current.value -> 'storageFileId' = proposed.value -> 'storageFileId'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM company_file_objects f
+        LEFT JOIN company_file_assignments a ON a.file_id = f.id
+        LEFT JOIN company_file_case_links c ON c.file_id = f.id
+        LEFT JOIN company_file_upload_requests u ON u.file_id = f.id
+        JOIN company_file_object_integrity integrity ON integrity.file_id = f.id
+        WHERE f.id = proposed.value ->> 'storageFileId'
+          AND ${companyFileMetadataIntegrityGuardSql}
+          AND to_jsonb(f.original_name) = proposed.value -> 'fileName'
+          AND to_jsonb(f.size_bytes) = proposed.value -> 'fileSize'
+          AND to_jsonb(f.company) = proposed.value -> 'company'
+          AND to_jsonb(f.category) = proposed.value -> 'category'
+          AND COALESCE(jsonb_typeof(proposed.value -> 'partnerMemberId'), 'null') IN ('null', 'string')
+          AND a.partner_member_id IS NOT DISTINCT FROM (proposed.value ->> 'partnerMemberId')
+          AND COALESCE(jsonb_typeof(proposed.value -> 'caseId'), 'null') IN ('null', 'string')
+          AND c.case_id IS NOT DISTINCT FROM (proposed.value ->> 'caseId')
+          AND (a.partner_member_id IS NOT NULL OR to_jsonb(f.assigned_trainee) = proposed.value -> 'assignedTrainee')
+          AND (u.status IS NULL OR u.status = 'ready')
+          AND integrity.r2_content_type = f.content_type
+          AND ((integrity.validation_mode = 'metadata' AND integrity.r2_etag IS NULL)
+            OR (integrity.validation_mode = 'etag' AND integrity.r2_etag IS NOT NULL
+              AND length(integrity.r2_etag) BETWEEN 1 AND 256))
+      )
+  )`;
+}

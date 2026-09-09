@@ -1,4 +1,5 @@
 import { env } from '@/lib/platform-runtime';
+import { isPostgresDatabase } from './database-dialect';
 
 import {
   companyFileAssignmentsNoDirectDeleteTriggerSql,
@@ -115,6 +116,10 @@ export function companyFileBucket() {
 }
 
 export async function ensureCompanyFileTables(db: D1Database) {
+  if (isPostgresDatabase(db)) {
+    await db.prepare('SELECT partner_hub.assert_company_file_schema() AS ready').first();
+    return;
+  }
   await db.batch([
     db.prepare(companyFileObjectsTableSql),
     db.prepare(companyFileObjectsNoUpdateTriggerSql),
@@ -381,6 +386,20 @@ export const companyFileIntakeFilterSql = `
       AND json_extract(d.value, '$.caseId') = c.case_id))
 `;
 
+export function companyFileIntakeFilter(db: D1Database) {
+  if (!isPostgresDatabase(db)) return companyFileIntakeFilterSql;
+  return `NOT EXISTS (SELECT 1 FROM company_file_upload_requests u WHERE u.file_id = f.id AND u.status = 'deleted')
+    AND ${companyFileMetadataIntegrityGuardSql}
+    AND (c.case_id IS NULL OR c.case_id NOT LIKE 'case-draft-%'
+      OR NOT EXISTS (SELECT 1 FROM company_file_upload_requests u WHERE u.file_id = f.id)
+      OR EXISTS (SELECT 1 FROM portal_state p, jsonb_array_elements(
+        CASE WHEN jsonb_typeof(p.payload::jsonb -> 'companyDocuments') = 'array'
+          THEN p.payload::jsonb -> 'companyDocuments' ELSE '[]'::jsonb END) d(value)
+        WHERE p.id = '${portalStateId}' AND jsonb_typeof(d.value -> 'storageFileId') = 'string'
+          AND jsonb_typeof(d.value -> 'caseId') = 'string'
+          AND d.value ->> 'storageFileId' = f.id AND d.value ->> 'caseId' = c.case_id))`;
+}
+
 export async function isCompanyFileIntakeVisible(id: string) {
   const db = companyFileDatabase();
   await ensureCompanyFileTables(db);
@@ -388,7 +407,7 @@ export async function isCompanyFileIntakeVisible(id: string) {
     await db
       .prepare(`SELECT f.id FROM company_file_objects f
     LEFT JOIN company_file_case_links c ON c.file_id = f.id
-    WHERE f.id = ?1 AND ${companyFileIntakeFilterSql}`)
+    WHERE f.id = ?1 AND ${companyFileIntakeFilter(db)}`)
       .bind(id)
       .first(),
   );

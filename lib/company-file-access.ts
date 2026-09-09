@@ -2,6 +2,7 @@ import { portalStateId } from '@/db/schema';
 import { CompanyFileError } from './company-files';
 import { requirePortalUser, type PortalUser } from './portal-auth';
 import { readPortalStateSnapshot } from './portal-state';
+import { isPostgresDatabase } from './database-dialect';
 
 export async function currentFileAccess(
   request: Request,
@@ -21,9 +22,26 @@ export async function currentFileAccess(
   return { ...snapshot, user };
 }
 
-// IS also compares NULL, preserving the existing administrator bootstrap path.
-export function fileStateGuard(payloadParameter: string) {
-  return `(SELECT payload FROM portal_state WHERE id = '${portalStateId}') IS ${payloadParameter}`;
+// Compare exact text, including NULL for administrator bootstrap. JSONB equality
+// would incorrectly treat differently serialized snapshots as the same revision.
+export function fileStateGuard(payloadParameter: string, db: D1Database) {
+  const comparison = isPostgresDatabase(db) ? 'IS NOT DISTINCT FROM' : 'IS';
+  return `(SELECT payload FROM portal_state WHERE id = '${portalStateId}') ${comparison} ${payloadParameter}`;
+}
+
+export function fileUnlinkedGuard(payloadParameter: string, db: D1Database) {
+  if (!isPostgresDatabase(db))
+    return `NOT EXISTS (SELECT 1 FROM json_each(${payloadParameter}, '$.companyDocuments') document
+      WHERE json_extract(document.value, '$.storageFileId') = f.id)`;
+  const documents = `(${payloadParameter}::jsonb -> 'companyDocuments')`;
+  // A missing field contains no links. A malformed field must deny deletion,
+  // not silently become an empty array inside NOT EXISTS. NULL is bootstrap.
+  return `(${payloadParameter}::text IS NULL OR (
+    COALESCE(jsonb_typeof(${documents}), 'missing') IN ('missing', 'array')
+    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements(
+      CASE WHEN jsonb_typeof(${documents}) = 'array' THEN ${documents} ELSE '[]'::jsonb END
+    ) document WHERE document.value ->> 'storageFileId' = f.id)
+  ))`;
 }
 
 export function fileStateConflict() {

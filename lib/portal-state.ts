@@ -33,7 +33,7 @@ import {
 } from '@/db/schema';
 import { PORTAL_STATE_LIMIT_BYTES } from '@/lib/pilot-readiness';
 import type { PortalConflictKind } from '@/lib/portal-conflict-metrics';
-import { companyDocumentFileProvenanceCommitConditionSql } from '@/lib/company-document-file-provenance';
+import { companyDocumentFileProvenanceCommitCondition } from '@/lib/company-document-file-provenance';
 
 type PortalStateRow = {
   payload: string;
@@ -152,10 +152,10 @@ export type PortalStateCommitCondition = 'company_document_file_provenance';
 
 const portalStateCommitConditionSql: Record<
   PortalStateCommitCondition,
-  string
+  (db: D1Database) => string
 > = {
   company_document_file_provenance:
-    companyDocumentFileProvenanceCommitConditionSql,
+    companyDocumentFileProvenanceCommitCondition,
 };
 
 /** Retry against the latest state instead of replacing a concurrently saved member list. */
@@ -190,7 +190,7 @@ export async function mutatePortalState<T>(
     const updatedAt = new Date().toISOString();
     const guard = requiredDraft?.();
     const conditionSql = [...new Set(commitConditions?.() ?? [])]
-      .map((condition) => `AND (${portalStateCommitConditionSql[condition]})`)
+      .map((condition) => `AND (${portalStateCommitConditionSql[condition](db)})`)
       .join(' ');
     const write = guard
       ? db
@@ -216,9 +216,9 @@ export async function mutatePortalState<T>(
             .bind(payload, updatedAt, portalStateId, row.payload)
         : db
             .prepare(
-              `INSERT INTO portal_state (id, payload, updated_at) SELECT ?1, ?2, ?3 WHERE ${isPostgresDatabase(db) ? 'CAST(?4 AS text)' : '?4'} IS NULL ${conditionSql} ON CONFLICT(id) DO NOTHING`,
+              `INSERT INTO portal_state (payload, updated_at, id) SELECT ?1, ?2, ?3 WHERE ${isPostgresDatabase(db) ? 'CAST(?4 AS text)' : '?4'} IS NULL ${conditionSql} ON CONFLICT(id) DO NOTHING`,
             )
-            .bind(portalStateId, payload, updatedAt, null);
+            .bind(payload, updatedAt, portalStateId, null);
     const result =
       effects.length > 0
         ? (await db.batch([write, ...effects]))[0]
