@@ -13,6 +13,8 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 - `.env.example`을 Supabase 대상 기준으로 바꿨다. 실제 비밀번호와 Secret key는 소스에 넣지 않는다.
 - 브라우저 역할 `anon`/`authenticated`가 접근할 수 없는 `partner_hub` 스키마 기반 마이그레이션을 시작했다.
 - 설정 모듈의 정상·실패 닫힘 검사를 Node 내장 TypeScript 실행으로 통과했다.
+- D1 번호형 바인딩과 결과 형식을 보존하는 PostgreSQL 어댑터 골격을 추가했다. batch는 단일 트랜잭션과 `SET LOCAL search_path`를 사용한다.
+- 아직 이식하지 않은 SQLite JSON/DDL/`IS ?n` 문장은 네트워크 요청 전에 거절한다. 바인딩·트랜잭션·실패 닫힘 검사를 통과했다.
 
 ## 발견한 호환성 경계
 
@@ -46,7 +48,7 @@ SUPABASE_STORAGE_BUCKET=partner-hub-private
 ## 다음 자동 진행 순서
 
 1. PostgreSQL 최종 테이블·인덱스·무결성 함수/트리거 이식
-2. 번호형 바인딩과 D1 결과 형식을 보존하는 PostgreSQL 서버 어댑터 구현
+2. PostgreSQL 서버 어댑터를 Supavisor 클라이언트에 연결하고 실제 트랜잭션 회귀검사
 3. 21개 DB 쿼리 파일을 PostgreSQL 문법으로 이식하고 원자적 batch/CAS 회귀검사
 4. Supabase 비공개 Storage 어댑터와 서명 업로드 완료 검증 구현
 5. 관리자 초기화·로그인·가입 승인·업로드/다운로드 통합검사
