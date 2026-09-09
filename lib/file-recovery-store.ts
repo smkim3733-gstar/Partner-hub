@@ -23,6 +23,8 @@ import type { RecoveryPreview } from './file-recovery';
 import { PORTAL_STATE_LIMIT_BYTES } from './pilot-readiness';
 import { readRouteParam, RouteParamError } from './request-path';
 import { privateJsonResponse } from './private-response';
+import { isPostgresDatabase } from './database-dialect';
+import { postgresInventoryPresenceSql } from './file-inventory-postgres';
 
 type RecordValue = Record<string, unknown>;
 type RecoveryState = {
@@ -86,6 +88,27 @@ async function inspect(id: string, state: RecoveryState) {
   )
     return reject('자료종류를 확인해야 합니다.');
   const db = companyFileDatabase();
+  if (isPostgresDatabase(db)) {
+    if (file.storage_key !== `company-source/${file.id}`)
+      throw new CompanyFileError(
+        '저장된 기업자료 원본 위치를 확인할 수 없습니다.',
+        503,
+      );
+    // The UI also disables colliding IDs, but direct API requests must enforce
+    // the same company/FLOW identity boundary before inspecting private bytes.
+    await flowDatabase();
+    const candidates = await db
+      .prepare(postgresInventoryPresenceSql)
+      .bind(id)
+      .all<{ source_type: string }>();
+    if (
+      candidates.results.length !== 1 ||
+      candidates.results[0].source_type !== 'company'
+    )
+      return reject(
+        '같은 파일 식별값의 보관 기록이 둘 이상입니다. 기존 기록을 먼저 확인해 주세요.',
+      );
+  }
   const ledger = await db
     .prepare(
       'SELECT status FROM company_file_upload_requests WHERE file_id = ?1',
@@ -114,11 +137,12 @@ async function inspect(id: string, state: RecoveryState) {
     return reject(
       '원본과 신청의 기업명·담당 계정이 다릅니다. 다른 신청으로 옮기지 않습니다.',
     );
-  const flow = await (
-    await flowDatabase()
-  )
+  const flowDb = await flowDatabase();
+  const flow = await flowDb
     .prepare(
-      "SELECT revision, partner_id, json_extract(payload, '$.company') AS company FROM consulting_flows WHERE case_id = ?1",
+      isPostgresDatabase(flowDb)
+        ? "SELECT revision, partner_id, payload::jsonb->>'company' AS company FROM consulting_flows WHERE case_id = ?1"
+        : "SELECT revision, partner_id, json_extract(payload, '$.company') AS company FROM consulting_flows WHERE case_id = ?1",
     )
     .bind(file.case_id)
     .first<FlowSummary>();
@@ -159,12 +183,13 @@ async function inspect(id: string, state: RecoveryState) {
   return { file, uploadStatus, flow, integrity, preview };
 }
 async function hasFlowReference(id: string) {
+  const db = await flowDatabase();
   return Boolean(
-    await (
-      await flowDatabase()
-    )
+    await db
       .prepare(
-        "SELECT c.case_id FROM consulting_flows c, json_each(c.payload, '$.files') f WHERE json_extract(f.value, '$.intakeFileId') = ?1 LIMIT 1",
+        isPostgresDatabase(db)
+          ? "SELECT c.case_id FROM consulting_flows c, jsonb_array_elements(c.payload::jsonb->'files') f(value) WHERE f.value->>'intakeFileId' = ?1 LIMIT 1"
+          : "SELECT c.case_id FROM consulting_flows c, json_each(c.payload, '$.files') f WHERE json_extract(f.value, '$.intakeFileId') = ?1 LIMIT 1",
       )
       .bind(id)
       .first(),
@@ -319,9 +344,11 @@ export async function recoverFile(request: Request, id: string) {
     return reject(
       '확인 중 운영 데이터가 변경되었습니다. 최신 내용을 다시 확인해 주세요.',
     );
-  // One conditional D1 write: no new R2 object or reassignment, and no partial
+  // One conditional database write: no new object or reassignment, and no partial
   // document/timeline save if deletion, case ownership or flow changes race us.
-  const result = await companyFileDatabase()
+  const db = companyFileDatabase();
+  const postgres = isPostgresDatabase(db);
+  const result = await db
     .prepare(`UPDATE portal_state SET payload = ?1, updated_at = ?2
     WHERE id = ?3 AND payload = ?4
       AND EXISTS (SELECT 1 FROM company_file_objects f
@@ -331,12 +358,29 @@ export async function recoverFile(request: Request, id: string) {
           AND a.partner_member_id = ?12 AND c.case_id = ?13
           AND ${companyFileMetadataIntegrityGuardSql})
       AND COALESCE((SELECT status FROM company_file_upload_requests WHERE file_id = ?5), 'legacy') = ?14
-      AND ((?15 IS NULL AND NOT EXISTS (SELECT 1 FROM consulting_flows WHERE case_id = ?13))
-        OR EXISTS (SELECT 1 FROM consulting_flows WHERE case_id = ?13 AND revision = ?15 AND partner_id = ?12 AND json_extract(payload, '$.company') = ?8))
+      AND ((${postgres ? '?15::bigint' : '?15'} IS NULL AND NOT EXISTS (SELECT 1 FROM consulting_flows WHERE case_id = ?13))
+        OR EXISTS (SELECT 1 FROM consulting_flows WHERE case_id = ?13 AND revision = ?15 AND partner_id = ?12 AND ${postgres ? "payload::jsonb->>'company'" : "json_extract(payload, '$.company')"} = ?8))
       AND EXISTS (SELECT 1 FROM company_file_object_integrity integrity
         WHERE integrity.file_id = ?5 AND integrity.validation_mode = ?16
-          AND integrity.r2_etag IS ?17 AND integrity.r2_content_type = ?18)
-      AND NOT EXISTS (SELECT 1 FROM consulting_flows c, json_each(c.payload, '$.files') f WHERE json_extract(f.value, '$.intakeFileId') = ?5)`)
+          AND integrity.r2_etag ${postgres ? 'IS NOT DISTINCT FROM' : 'IS'} ?17 AND integrity.r2_content_type = ?18)
+      AND NOT EXISTS (${
+        postgres
+          ? "SELECT 1 FROM consulting_flows c, jsonb_array_elements(c.payload::jsonb->'files') f(value) WHERE f.value->>'intakeFileId' = ?5"
+          : "SELECT 1 FROM consulting_flows c, json_each(c.payload, '$.files') f WHERE json_extract(f.value, '$.intakeFileId') = ?5"
+      })${
+        postgres
+          ? `
+      AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners WHERE file_id = ?5)
+      AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_metadata WHERE file_id = ?5)
+      AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_object_integrity WHERE file_id = ?5)
+      AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_object_checksums WHERE file_id = ?5)
+      AND NOT EXISTS (SELECT 1 FROM consulting_flow_upload_requests WHERE file_id = ?5)
+      AND NOT EXISTS (SELECT 1 FROM consulting_flow_upload_completions WHERE file_id = ?5)
+      AND NOT EXISTS (SELECT 1 FROM consulting_flows c,
+        jsonb_array_elements(c.payload::jsonb->'files') f(value)
+        WHERE f.value->>'id' = ?5 AND jsonb_typeof(f.value->'key') = 'string')`
+          : ''
+      }`)
     .bind(
       payload,
       now,

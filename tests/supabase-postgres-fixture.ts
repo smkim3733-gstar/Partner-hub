@@ -8,7 +8,9 @@ import {
 // Real, in-memory PostgreSQL engine. No credentials or external connections.
 // PGlite serializes its single connection: this is NOT multi-session race QA.
 export async function postgresFixture(options: { flowRoot?: boolean } = {}) {
-  const engine = await PGlite.create({ parsers: { 20: (value) => BigInt(value) } });
+  const engine = await PGlite.create({
+    parsers: { 20: (value) => BigInt(value) },
+  });
   let lastQueryError: unknown;
   try {
     await engine.exec(`CREATE ROLE anon; CREATE ROLE authenticated;
@@ -31,18 +33,28 @@ export async function postgresFixture(options: { flowRoot?: boolean } = {}) {
       '0015_consulting_flow_domain.sql',
       ...(options.flowRoot ? ['0016_consulting_flow_root.sql'] : []),
       '0017_portal_operational_metrics.sql',
+      '0018_file_inventory_read_helpers.sql',
     ]) {
-      await engine.exec(await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), 'utf8'));
+      await engine.exec(
+        await readFile(
+          new URL(`../supabase/migrations/${name}`, import.meta.url),
+          'utf8',
+        ),
+      );
     }
-    function executor(connection: Pick<PGlite, 'query'>): SupabasePostgresExecutor {
+    function executor(
+      connection: Pick<PGlite, 'query'>,
+    ): SupabasePostgresExecutor {
       return {
         async unsafe(query, parameters = []) {
-          const result = await connection.query<Record<string, unknown>>(query, [...parameters]).catch((error: unknown) => {
-            // Synthetic, in-memory test diagnostics only. Production adapter
-            // intentionally redacts PostgreSQL query/parameter error details.
-            lastQueryError = error;
-            throw error;
-          });
+          const result = await connection
+            .query<Record<string, unknown>>(query, [...parameters])
+            .catch((error: unknown) => {
+              // Synthetic, in-memory test diagnostics only. Production adapter
+              // intentionally redacts PostgreSQL query/parameter error details.
+              lastQueryError = error;
+              throw error;
+            });
           return Object.assign(result.rows, {
             command: /^\s*(\w+)/.exec(query)?.[1].toUpperCase(),
             count: result.affectedRows ?? result.rows.length,
@@ -53,14 +65,21 @@ export async function postgresFixture(options: { flowRoot?: boolean } = {}) {
     const db = createSupabasePostgresDatabase({
       ...executor(engine),
       async begin(callback) {
-        return engine.transaction((transaction) => callback(executor(transaction))).catch((error: unknown) => {
-          // Deferred constraints can fail at COMMIT, outside executor.query.
-          lastQueryError = error;
-          throw error;
-        });
+        return engine
+          .transaction((transaction) => callback(executor(transaction)))
+          .catch((error: unknown) => {
+            // Deferred constraints can fail at COMMIT, outside executor.query.
+            lastQueryError = error;
+            throw error;
+          });
       },
     });
-    return { engine, db, lastQueryError: () => lastQueryError, close: () => engine.close() };
+    return {
+      engine,
+      db,
+      lastQueryError: () => lastQueryError,
+      close: () => engine.close(),
+    };
   } catch (error) {
     await engine.close();
     throw error;

@@ -6,6 +6,18 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 
 ## 2026-09-10 현재 완료
 
+### 관리자 파일 재고·원본 존재 확인·문서 연결 복구
+
+- `0018_file_inventory_read_helpers.sql`을 원격 `20260909162113`으로 적용했다. 안전한 JSON 파싱과 중복 키 확인을 위한 읽기 전용 함수 두 개만 추가했다. `SECURITY INVOKER`와 고정 `search_path`를 사용하고 PUBLIC/브라우저 역할의 실행 권한을 회수했다. 테이블은 서버 전용 RLS 37개 그대로이며 기존 `0001`~`0017`은 변경하지 않았다. 적용 파일 SHA-256: `84F0148D53580A6E0DEACC249D1A2F5380230B4DE4246CF0A2D69875E6787BA1`.
+- `lib/file-inventory-postgres.ts`에 PostgreSQL 전용 목록/존재 SQL을 구현했다. SQLite SQL을 문자열 치환하지 않으며 사용자 필터/커서는 바인딩한다. 동일한 CTE로 파일 소유권·메타데이터·무결성·체크섬·예약/완료 영수증·FLOW payload와 명령/감사/대상을 확인한다. 목록에는 본문·전사문·저장 키·해시·토큰을 노출하지 않는다.
+- 원장 일부나 소유권이 사라져도 payload/하위 원장/완료 영수증의 고아 항목을 한 번씩 유지한다. 손상된 JSON과 중복 키는 조회 전체를 중단하거나 고아 파일을 숨기지 않는다. 기업/FLOW 같은 ID 충돌은 두 항목 모두 불일치·증명 없음으로 표시한다. 다섯 상태·25개 커서 페이지·필터와 독립적인 전체 저장 증명 집계를 유지한다.
+- 현재 원본 확인은 기존 관리자 권한과 파일 원장 검사를 유지하고 `head` 정보만 비교한다. 영수증 행위자/지문/대상/감사 상세 또는 파일 슬롯이 변조되면 저장소를 조회하기 전에 차단한다. PostgreSQL 기업 파일의 비표준 저장 키는 목록에서 불일치로 표시하고 존재 확인/복구는 차단한다. 기존 사용자 키를 자동 재작성하지 않으며 별도 이관 사전검증이 필요하다.
+- 문서 연결 복구의 PostgreSQL JSON/NULL 비교와 최종 조건부 갱신을 연결했다. 명시 확인·사유·관리자 신원·정확한 사건/파일 버전·안정 담당 ID·활성 담당자·기존 참조 부재를 다시 검사한다. 직접 API 호출에서도 ID 충돌을 원본 조회 전에 거절하고 최종 갱신에서 FLOW 소유/메타데이터/무결성/체크섬/예약/완료 및 payload 참조를 재확인한다. 문서와 감사 이력은 함께 저장되며 정확한 재시도는 한 번만 기록된다. 바이트 삭제나 담당자 재배정은 하지 않는다. 기존 PostgreSQL 어댑터는 모든 작업을 SERIALIZABLE 트랜잭션으로 수행하지만 독립 세션 경합 실증은 별도다.
+- 새 네이티브 집중검사 7개가 실제 독립 관리자/파트너 로그인, 21종 실제 FLOW 명령과 첨부, metadata-only/NULL ETag 레거시, 실패 롤백/재시도/오래된 최종 CAS, 모든 주요 영수증 변조, 원장 누락/JSON 손상/충돌/페이지 경계를 검사한다. 전체 **996/996**, 건너뜀 0건으로 통과했다(`work/supabase-0018-final-tests.log`, 약 166초, `--test-concurrency=2`). PGlite는 실제 PostgreSQL 엔진이지만 단일 연결이며 Storage 바이트는 모의 객체다.
+- 원격에서 앱이 내보내는 실제 목록/존재 SQL을 `service_role`로 실행했다. 빈 목록/존재 결과와 합성 metadata-only 기업 파일의 미연결 목록/집계를 확인하고 모든 시험 쓰기를 롤백했다. 후속 조회의 기업 파일·FLOW·명단·관리자·Storage 버전은 각각 0행이고 새 함수의 `anon`/`authenticated` 실행 권한도 0건이다. 보안 진단은 의도된 서버 전용 [RLS 정책 없음 INFO](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy) 37건뿐이며 경고/오류는 없었다. 실제 Storage 바이트나 운영 계정을 만들지 않았다.
+- Supabase Next.js 프로덕션 빌드·비활성 API HTTP 123건·인증/비밀키 번들 경계(`work/supabase-0018-next-build.log`), 기존 Sites 빌드(`work/supabase-0018-sites-build.log`), 번들 한도(페이지 380725/460800, 총 1043430/1310720바이트), Sites 빌드 후 Next.js 타입 재생성과 TypeScript·lint를 통과했다. UI는 저장 원장과 현재 원본의 제공자 중립 문구를 쓰며 본문 검증과 존재 확인을 구분한다.
+- **다음:** 대용량 직접 전송 API 통합, 실제 Supavisor/Storage·독립 세션 경합, 비표준 키/날짜 및 역사 자료 이관/롤백, Vercel 배포 검증. 운영 백엔드는 `PARTNER_HUB_BACKEND_ENABLED=0`이며 기존 Sites 운영과 공개 배포는 변경하지 않았다.
+
 ### 중복·충돌·복구 및 관리자 진행 통계 연결
 
 - `0017_portal_operational_metrics.sql`을 원격 `20260909154846`으로 적용했다. 기존 `0001`~`0016`은 수정하지 않았다. 중복 요청·저장 충돌·익명 복구 영수증·복구 집계의 네 테이블을 추가해 서버 전용 RLS 테이블은 총 37개다. `anon`과 `authenticated`의 스키마 접근은 없고, 새 함수도 `SECURITY INVOKER`와 고정 `search_path`를 사용한다.
@@ -17,7 +29,7 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 - Next.js 프로덕션 빌드·비활성 API HTTP 123건·인증 및 비밀키 번들 경계, 기존 Sites 빌드, 번들 한도(페이지 380725/460800, 총 1043437/1310720바이트), Next.js 타입 재생성 후 TypeScript·lint가 통과했다. 실제 배포나 운영 데이터 이관은 하지 않았다.
 - 최종 전체 검사는 **989/989**, 누락/건너뜀 0건이다(`work/supabase-0017-bounded-tests.log`, 약 145초). 처음 전체 실행에서는 새 테스트의 정적 import가 모의 인증을 먼저 불러오는 문제가 있어 실제 인증 로더 등록 후 동적 import로 수정했다. 후속 기본 병렬 실행은 Node/V8 `Fatal process out of memory: Zone`으로 한 테스트 프로세스가 중단됐다. `node --import ./tests/register.mjs --test --test-concurrency=2 tests/*.test.ts`로 동시 메모리 사용을 줄인 최종 실행은 정상 종료했다. 앱 보호 장치나 테스트 기대값을 완화하지 않았으며, 후속 전체 검사도 이 동시 실행 수를 사용한다.
 - 적용 파일 SHA-256: `EF55FD71290FB1EC4490E81505260B35CB3351ABA86FBEC1743F07A4C291CE51`.
-- **다음:** 관리자 파일 재고/존재 확인/복구 SQL 이식, 대용량 직접 전송 통합, 실제 Supavisor/Storage 연결, 역사 자료 이관/롤백과 Vercel 배포 검증. 백엔드 기본 비활성은 유지한다.
+- **0017 시점의 다음 항목:** 관리자 파일 재고/존재 확인/복구 SQL(위 `0018`에서 연결), 대용량 직접 전송 통합, 실제 Supavisor/Storage 연결, 역사 자료 이관/롤백과 Vercel 배포 검증. 백엔드 기본 비활성은 유지한다.
 
 ### FLOW 루트 저장·조회·대시보드와 독립 인증 HTTP 연결
 
@@ -210,7 +222,7 @@ SUPABASE_STORAGE_BUCKET=partner-hub-private
 
 ## 다음 자동 진행 순서
 
-1. 관리자 파일 재고·존재 확인·복구 쿼리를 PostgreSQL로 이식(중복/충돌/복구 및 진행 통계는 `0017`에서 연결 완료)
+1. 대용량 직접 전송 API·예약/완료·세션 재검사 통합(운영 통계는 `0017`, 관리자 파일 재고·존재 확인·복구 쿼리는 `0018`에서 연결 완료)
 2. 실제 운영 인증·FLOW·파일·진행판을 결합한 남은 API와 원자적 batch/CAS 회귀검사 확대
 3. 실제 Supavisor 연결·독립 다중 세션 경합·최종 스키마 무결성 검증
 4. 구현된 Storage 어댑터·임시 서명을 업로드 예약/완료 API와 연결하고 세션·권한 재검증, 대용량 다운로드, 보존 기한 정리 구현

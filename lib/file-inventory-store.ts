@@ -44,6 +44,11 @@ import {
 import { QueryRequestError, readSingleQueryParam } from './request-query';
 import { readRouteParam, RouteParamError } from './request-path';
 import { privateJsonResponse } from './private-response';
+import { isPostgresDatabase } from './database-dialect';
+import {
+  postgresInventoryListSql,
+  postgresInventoryPresenceSql,
+} from './file-inventory-postgres';
 
 const pageSize = 25;
 const sqlTextLiteral = (value: string) => `'${value.replaceAll("'", "''")}'`;
@@ -300,7 +305,10 @@ export async function listFileInventory(
   // Only IDs and selected metadata leave SQL. Do not load transcripts, reports,
   // request fingerprints, private object keys or an entire R2 bucket into the UI.
   const queryRows = await db
-    .prepare(`
+    .prepare(
+      isPostgresDatabase(db)
+        ? postgresInventoryListSql
+        : `
     WITH document_refs AS (SELECT value AS id FROM json_each(?1)),
     flow_refs AS (SELECT DISTINCT json_extract(f.value, '$.intakeFileId') AS id
       FROM consulting_flows c,
@@ -722,7 +730,8 @@ export async function listFileInventory(
       sha256, etag, metadata, unavailable
     FROM coverage
     ORDER BY row_kind DESC, created_at DESC, id DESC, source_type DESC
-  `)
+  `,
+    )
     .bind(
       JSON.stringify(documentIds(state)),
       filter,
@@ -841,7 +850,10 @@ export async function checkInventoryPresence(
   id = readRouteParam(id, 200, '파일 식별값을 확인해 주세요.');
   const db = await inventoryDatabase();
   const rows = await db
-    .prepare(`WITH flow_owner_receipt_binding AS (
+    .prepare(
+      isPostgresDatabase(db)
+        ? postgresInventoryPresenceSql
+        : `WITH flow_owner_receipt_binding AS (
       SELECT owner.file_id, CASE
         WHEN upload.file_id IS NULL AND completion.file_id IS NULL THEN 1
         WHEN upload.file_id IS NOT NULL
@@ -958,7 +970,8 @@ export async function checkInventoryPresence(
         WHERE file_id = upload.file_id)
       AND NOT EXISTS (SELECT 1 FROM consulting_flow_upload_completions
         WHERE file_id = upload.file_id)
-    LIMIT 2`)
+    LIMIT 2`,
+    )
     .bind(id)
     .all<{
       source_type: 'company' | 'flow';
@@ -979,6 +992,16 @@ export async function checkInventoryPresence(
       409,
     );
   const row = rows.results[0];
+  if (
+    isPostgresDatabase(db) &&
+    row.source_type === 'company' &&
+    row.id !== null &&
+    row.storage_key !== `company-source/${row.id}`
+  )
+    throw new CompanyFileError(
+      '저장된 기업자료 원본 위치를 확인할 수 없습니다.',
+      503,
+    );
   let file: CompanyFileRow | null = null;
   if (
     row.source_type === 'company' &&

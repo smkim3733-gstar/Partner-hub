@@ -158,26 +158,29 @@ void test('pending age uses fixed non-overlapping operational buckets', () => {
   ]);
 });
 
-void test('inventory UI distinguishes D1 proof ledgers from current R2 metadata checks', async () => {
+void test('inventory UI distinguishes provider-neutral proof ledgers from current object metadata checks', async () => {
   assert.deepEqual(inventoryIntegrityProofs, {
-    sha256: 'D1 저장 시 SHA-256 · ETag · MIME 원장',
-    etag: 'D1 레거시 ETag · MIME 원장',
-    metadata: 'D1 레거시 크기 · MIME 원장',
+    sha256: '저장 시 SHA-256 · ETag · MIME 원장',
+    etag: '레거시 ETag · MIME 원장',
+    metadata: '레거시 크기 · MIME 원장',
   });
   const source = await readFile(
     join(process.cwd(), 'components/admin-file-inventory.tsx'),
     'utf8',
   );
   for (const phrase of [
-    'D1 저장 증명 원장 적용 현황',
-    '현재 R2 원본 확인',
-    '현재 R2 객체를 검사한 결과가 아닙니다.',
-    '현재 R2 객체 정보가 D1 SHA-256·ETag·MIME 원장과 일치 · 본문 미읽음',
-    'ID 충돌 · R2 확인 중지',
+    '저장 증명 원장 적용 현황',
+    '현재 원본 확인',
+    '현재 저장소 객체를 검사한 결과가 아닙니다.',
+    '현재 객체 정보가 저장 시 SHA-256·ETag·MIME 원장과 일치 · 본문 미읽음',
+    'ID 충돌 · 원본 확인 중지',
     '자동 복구를 중지했습니다.',
   ])
     assert.match(source, new RegExp(phrase));
-  assert.doesNotMatch(source, /저장 원장 전체 무결성 증명|원본 무결성 확인/);
+  assert.doesNotMatch(
+    source,
+    /저장 원장 전체 무결성 증명|원본 무결성 확인|\bD1\b|\bR2\b/,
+  );
 });
 
 void test('presence response must match requested ID and size relationships', async () => {
