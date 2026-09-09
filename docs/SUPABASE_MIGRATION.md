@@ -6,6 +6,20 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 
 ## 2026-09-10 현재 완료
 
+### 실제 비공개 Storage 버킷 생성과 DB 연결 화면 확인
+
+- 기존 Supabase 대시보드의 로그인 세션과 정확한 프로젝트를 확인했다. MCP 재로그인이나 새 API 키 생성은 하지 않았다. 비밀키가 포함된 전체 화면의 로컬 내보내기는 보안 검토에서 차단됐다. 우회하지 않고, 기존 Secret key 하나만 Git 제외 `.env.local`에 저장하는 별도 승인을 요청했다. 실제 `.env.local`과 프로세스의 앱용 키/DB 연결값은 아직 없다.
+- Supabase 대시보드에서 `partner-hub-private` 버킷을 생성했다. **`public=false`, `file_size_limit=26214400`, `allowed_mime_types=["application/octet-stream"]`**를 원격 읽기 전용 SQL로 다시 확인했다. Storage 테이블을 SQL로 직접 생성·수정하지 않았다. 공개/회원 업로드 정책을 추가하지 않았으며 `storage.objects` RLS는 활성이고 해당 정책은 0개다.
+- 생성 후 버킷 객체, 포털 명단, FLOW, 기업 파일, Storage 버전, 직접 전송 예약은 각각 0행이다. 업무 테이블 38개 모두 RLS를 유지한다. 기존 Sites 운영과 원본 데이터는 변경하지 않았다. **버킷 설정 완료이며 앱의 실제 Storage HTTP 전송·Supavisor 접속·Vercel 배포 검증 완료가 아니다.**
+- Vercel용 `Transaction pooler`를 선택한 연결 화면에서 호스트 `aws-0-ap-southeast-1.pooler.supabase.com`, 포트 `6543`, 사용자 `postgres.yievsveuxjnbygatvjtb`, DB `postgres`를 확인했다. DB 비밀번호는 `[YOUR-PASSWORD]` 자리표시자이므로 실제 값 입력이 필요하다. 비밀번호를 재설정하거나 새 DB 계정을 만들지 않았다. 연결 화면을 사용자에게 열어두고 `.env.example`에는 공개 연결 구조만 기록했다.
+- 이번 변경은 실제 빈 버킷과 설정 안내뿐이다. 앱 코드·적용 마이그레이션·의존성은 그대로이며 직전 소스 검증은 아래 1021건을 따른다. 파일 정리 코드는 아직 추가하지 않았다. 실제 연결을 확보한 뒤 임시 파일과 복구 원본을 분리해 검증한다.
+
+#### 보존·정리 경계
+
+- 앱 제출 만료 10분과 Storage 서명의 유효기간은 다르다. `0019`의 `retain_until`(등록 후 133분)이 지나지 않은 staging은 삭제 대상이 아니다. 만료 여부만으로 실제 업로드 중단·최종 원본 복구·삭제 완료까지 증명했다고 간주하지 않는다.
+- 최종 `partner-hub/objects/v1/` 객체, 불변 Storage 버전, tombstone 이전 버전, 실패/경쟁 쓰기의 미참조 원본은 자동 삭제하지 않는다. 백업·이관/롤백 증거와 명시적인 보존 정책을 먼저 확정해야 한다.
+- 물리 삭제는 [Supabase Storage API](https://supabase.com/docs/guides/storage/management/delete-objects)로만 수행한다. DB 메타데이터 삭제는 파일 삭제를 대신하지 않으며 Storage의 물리 삭제는 복구할 수 없다. 이번 작업에서는 파일/예약/원장을 삭제하지 않았다.
+
 ### 기존 Sites 데이터의 읽기 전용 이전·복원 사전 검사
 
 - 원본 Sites DB 목록 30개를 확인했고 누락/잘림은 없었다. 그러나 `portal_state` 행 본문은 `truncated_values=1`로 잘려 반환됐다. 조회가 끝났다는 표시를 무손실 백업 증거로 사용하지 않았다. 구형 `portal_chatgpt_member_bindings`를 포함한 모든 원본 표를 보존 대상으로 등록했다.
@@ -248,7 +262,7 @@ SUPABASE_STORAGE_BUCKET=partner-hub-private
 1. 원본 전체 D1/R2 사본 확보 후 읽기 전용 사전검사 도구를 실제 자료에 실행하고, 원장/바이트 대조·역사 FLOW 이관/복원 경로 검증(현재는 합성 SQLite 검사 도구만 완료)
 2. 만료 staging·미참조 최종 객체·불변 버전의 보존/정리 절차와 안전한 재시도 검증
 3. 실제 Supavisor 연결·독립 다중 세션 경합·최종 스키마 무결성 검증
-4. 비공개 버킷 생성 및 실제 Storage 서명/CORS·최대 크기·대용량 다운로드 검증; 필요 시 TUS 재개 전송 연결
+4. 생성한 비공개 버킷에서 실제 Storage 서명/CORS·최대 크기·대용량 다운로드 검증; 필요 시 TUS 재개 전송 연결
 5. 독립 인증·FLOW·파일·진행판·관리자 원격 CLI를 실제 저장소와 결합한 통합검사
 6. Vercel Preview에서 업로드/다운로드 한도·시간·권한·비밀키 경계 검사 후 기존 자료 전환/롤백 검증
 7. 검증된 브랜치의 main 반영 및 Vercel 운영 결과 확인(현재 main/운영은 변경하지 않음)
@@ -262,6 +276,8 @@ SUPABASE_STORAGE_BUCKET=partner-hub-private
 - Vercel 프로덕션 도메인
 
 실제 값은 Vercel 환경변수 또는 Git에서 제외된 로컬 `.env.local`에 등록한다. MCP 접속 승인과 애플리케이션 실행용 자격증명은 별개다. `0019` 검사 종료 시 `.env.local`과 프로세스의 두 Supabase 자격증명은 없었고, `storage.buckets`에서 `partner-hub-private`을 조회한 결과도 없었다. 실제 Storage HTTP 업로드와 앱의 Supavisor 연결은 아직 검증하지 않았다. 해당 연결값과 Vercel 주소 입력을 요청했으며 그동안 코드·사전검증 작업을 계속할 수 있다.
+
+이후 위 최신 단계에서 비공개 버킷을 실제 생성했다. 버킷 부재는 해소됐지만 앱용 Secret key 저장 승인, DB 비밀번호/연결값, Vercel 주소 및 원본 D1/R2 전체 백업은 여전히 필요하다. 기존 Secret key를 읽어 `.env.local`에 저장하는 승인만 요청한 상태이며, 새 키/권한을 임의로 생성하거나 DB 비밀번호를 자동 재설정하지 않는다.
 
 ## 공식 기준 문서
 

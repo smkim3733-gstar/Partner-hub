@@ -4,6 +4,8 @@
 
 사용자 선택에 따라 현재 이전 대상은 **Vercel Next.js + Supabase PostgreSQL/비공개 Storage**다. 작업 브랜치는 `codex/supabase-migration`이며, 아래 Turso/Blob 기록은 이전 단계의 검증 기록이다. 현재 완료 범위와 미완료 항목은 [Supabase 이전 현황](SUPABASE_MIGRATION.md)을 따른다.
 
+**실제 Storage 준비 추가 완료:** 기존 Supabase 로그인 세션을 확인하고 대시보드에서 `partner-hub-private`을 생성했다. 원격 재조회로 비공개, 25MiB(26214400바이트), MIME `application/octet-stream`을 확인했다. 버킷 객체·명단·FLOW·기업 파일·버전·전송 예약은 각각 0행이며, 업무 38개 표와 `storage.objects`의 RLS를 유지한다. 실제 업로드/DB 접속/배포 시험은 미완료다. 연결 화면에서 확인한 트랜잭션 풀러 주소를 `.env.example`의 주석에 기록했고 DB 비밀번호 재설정·새 키 생성은 하지 않았다. 비밀키 화면 자동 저장은 보안 검토에서 차단되어 우회하지 않았으며, 기존 Secret key의 Git 제외 `.env.local` 저장 승인과 실제 DB 비밀번호가 필요하다. 운영·main·기존 사용자 파일은 변경하지 않았다.
+
 최신 추가 작업은 [기존 Sites 데이터 이전 사전 검사](SITES_DATA_MIGRATION_PREFLIGHT.md)다. 실제 원본 목록 30개와 구형 신원 결속 표를 확인했다. 긴 `portal_state` 본문은 조회 도구에서 잘리므로 백업으로 사용하지 않았다. 동결된 독립 SQLite 사본에 대한 읽기 전용 검사/복원 사본 비교 CLI와 합성 회귀검사 **15개**를 추가했다. JSON 원문·큰 정수·타입·해시·스키마 누락·잘못된 날짜/파일 경로를 검사하고, 임의 SQL 실행·WAL 사본·인증 원문 출력·자동 이관/삭제는 제공하지 않는다. 실제 운영 백업·Supabase 복원은 아직 미완료이며 원본 D1/R2 전체 사본이 필요하다.
 
 최신 전체 검사 **1021/1021**, 실패/건너뜀 0건이다(`work/sites-snapshot-final-tests.log`, 직렬 실행 약 311초). Supabase Next.js 빌드·비활성 HTTP 123건·인증/비밀키 경계, Sites 빌드·번들 한도와 Next 타입 재생성 후 TypeScript·lint·변경 파일 서식 검사도 통과했다. 빌드 로그는 `work/sites-snapshot-next-build.log`, `work/sites-snapshot-sites-build.log`다. 아래 1006건은 직전 직접 전송 단계의 기록이다.

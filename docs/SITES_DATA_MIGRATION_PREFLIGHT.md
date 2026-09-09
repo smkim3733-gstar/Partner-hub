@@ -71,7 +71,7 @@ node scripts/check-sites-snapshot.mjs compare backups/sites-source.sqlite backup
 2. 이 도구로 동결 사본을 검사한다. 스키마 차이와 비표준 키/날짜는 원본을 보존한 상태로 별도 이관 명세에 남긴다.
 3. 파일별 실제 길이·SHA-256, 소유권·원장·업무 참조·예약·삭제 이력을 대조한다. R2 ETag와 Supabase의 새 ETag가 같다고 가정하지 않는다. 최종 객체/버전 포인터 생성은 Storage API와 기존 원장 규칙을 통해 처리한다.
 4. 격리된 Supabase 대상에서 역사 FLOW 포함 이관/복원 경로를 시험한다. 건수와 변환 전후 불변식, 실패 후 재실행·부분 쓰기 롤백을 검증한다. 이 SQLite 비교 도구로 PostgreSQL 복원 완료를 대체하지 않는다.
-5. 자격증명·비공개 버킷·권한을 설정하고 실제 Supavisor 독립 세션, Storage 전송, Vercel Preview를 검증한다. 아직 앱용 Secret key·DB 풀러 URL·Vercel 주소가 로컬에 없으며 실제 연결 검증은 미완료다.
+5. 자격증명·비공개 버킷·권한을 설정하고 실제 Supavisor 독립 세션, Storage 전송, Vercel Preview를 검증한다. 2026-09-10 비공개 버킷 생성과 25MiB 제한은 실제 확인했다. 아직 앱용 Secret key·DB 비밀번호 포함 풀러 URL·Vercel 주소가 로컬에 없으며 실제 연결 검증은 미완료다.
 6. 검증을 통과한 후 쓰기 동결·최종 증분/재내보내기·절체를 수행한다. 절체 뒤 새 데이터가 생겼다면 이전 DB로 되돌리는 것만으로 롤백이 되지 않는다. 역방향 증분/새 데이터 보존 방안을 확정하기 전 자동 전환하지 않는다.
 
 사본과 보고서는 개인 정보 및 인증 해시를 포함하거나 그 지문을 가진다. `.gitignore`의 `backups/` 또는 별도 접근 제한 저장소를 사용하고 Git·공개 첨부·공개 CI 로그에 넣지 않는다. Git 제외는 암호화나 접근 통제를 대신하지 않는다.
