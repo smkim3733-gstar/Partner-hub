@@ -1,4 +1,5 @@
 import { env, waitUntil } from '@/lib/platform-runtime';
+import { isPostgresDatabase } from '@/lib/database-dialect';
 
 import {
   portalConflictReceiptsExpiryIndexSql,
@@ -31,10 +32,7 @@ export type PortalConflictSource =
   | 'state_save'
   | 'public_registration'
   | 'admin_partner_registration';
-export type PortalConflictActorRole =
-  | 'admin'
-  | 'partner'
-  | 'unauthenticated';
+export type PortalConflictActorRole = 'admin' | 'partner' | 'unauthenticated';
 
 type RecoverableKind = Exclude<PortalConflictKind, 'capacity'>;
 type ConflictMetric = {
@@ -138,16 +136,32 @@ async function tokenHash(token: string) {
 }
 
 async function ensureRecoveryTables(db: D1Database) {
+  if (isPostgresDatabase(db)) {
+    await db
+      .prepare('SELECT partner_hub.assert_portal_metrics_schema() AS ready')
+      .first();
+    return;
+  }
   await db.prepare(portalConflictReceiptsTableSql).run();
   await db.prepare(portalConflictReceiptsExpiryIndexSql).run();
   await db.prepare(portalConflictRecoveryStatsTableSql).run();
+}
+
+async function ensureConflictTable(db: D1Database) {
+  if (isPostgresDatabase(db)) {
+    await db
+      .prepare('SELECT partner_hub.assert_portal_metrics_schema() AS ready')
+      .first();
+    return;
+  }
+  await db.prepare(portalSaveConflictStatsTableSql).run();
 }
 
 export async function recordPortalSaveConflict(metric: ConflictMetric) {
   if (metric.kind === 'capacity') return false;
   const occurredAt = metric.occurredAt ?? new Date().toISOString();
   const db = database();
-  await db.prepare(portalSaveConflictStatsTableSql).run();
+  await ensureConflictTable(db);
   await db
     .prepare(`
       INSERT INTO portal_save_conflict_stats
@@ -196,7 +210,8 @@ export async function issuePortalConflictReceipt(
   if (metric.kind === 'capacity') return null;
   const startedAt = metric.occurredAt ?? new Date().toISOString();
   const startedTime = new Date(startedAt).getTime();
-  if (!Number.isFinite(startedTime)) throw new Error('Invalid conflict timestamp.');
+  if (!Number.isFinite(startedTime))
+    throw new Error('Invalid conflict timestamp.');
   const token = randomToken();
   const hash = await tokenHash(token);
   const bucketDate = koreanDate(startedAt);
@@ -229,12 +244,7 @@ export async function issuePortalConflictReceipt(
         ON CONFLICT(bucket_date, source, kind, actor_role) DO UPDATE SET
           issued_count = portal_conflict_recovery_stats.issued_count + 1
       `)
-      .bind(
-        bucketDate,
-        metric.source,
-        metric.kind,
-        metric.actorRole,
-      ),
+      .bind(bucketDate, metric.source, metric.kind, metric.actorRole),
     db
       .prepare(
         'DELETE FROM portal_conflict_receipts WHERE expires_at <= ?1 AND token_hash <> ?2',
@@ -266,10 +276,20 @@ export async function consumePortalConflictReceipt({
   if (!PORTAL_CONFLICT_RECEIPT_PATTERN.test(token)) return false;
   const recoveredAt = occurredAt ?? new Date().toISOString();
   const recoveredTime = new Date(recoveredAt).getTime();
-  if (!Number.isFinite(recoveredTime)) throw new Error('Invalid recovery timestamp.');
+  if (!Number.isFinite(recoveredTime))
+    throw new Error('Invalid recovery timestamp.');
   const hash = await tokenHash(token);
   const db = database();
   await ensureRecoveryTables(db);
+  if (isPostgresDatabase(db)) {
+    const result = await db
+      .prepare(
+        'SELECT partner_hub.consume_portal_conflict_receipt(?1, ?2, ?3, ?4) AS consumed',
+      )
+      .bind(hash, source, actorRole, recoveredTime)
+      .first<{ consumed: number }>();
+    return result?.consumed === 1;
+  }
   const claimed = await db
     .prepare(`
       UPDATE portal_conflict_receipts
@@ -331,7 +351,8 @@ export function schedulePortalConflictRecovery(input: {
   source: PortalConflictSource;
   actorRole: PortalConflictActorRole;
 }) {
-  if (!input.token || !PORTAL_CONFLICT_RECEIPT_PATTERN.test(input.token)) return;
+  if (!input.token || !PORTAL_CONFLICT_RECEIPT_PATTERN.test(input.token))
+    return;
   try {
     waitUntil(
       consumePortalConflictReceipt({
@@ -360,7 +381,7 @@ export async function readPortalSaveConflictSummary(
   const cutoffDate = koreanDate(new Date(cutoffTime).toISOString());
   const currentDate = koreanDate(now);
   const db = database();
-  await db.prepare(portalSaveConflictStatsTableSql).run();
+  await ensureConflictTable(db);
   await ensureRecoveryTables(db);
   const [conflicts, recoveries] = await Promise.all([
     db
@@ -399,7 +420,8 @@ export async function readPortalSaveConflictSummary(
       grouped.set(key, { ...row });
       continue;
     }
-    current.issued_count = Number(current.issued_count) + Number(row.issued_count);
+    current.issued_count =
+      Number(current.issued_count) + Number(row.issued_count);
     current.recovered_count =
       Number(current.recovered_count) + Number(row.recovered_count);
     current.under_1m_count =

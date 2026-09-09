@@ -1,6 +1,7 @@
 import { env, waitUntil } from '@/lib/platform-runtime';
 
 import { portalDuplicateRequestStatsTableSql } from '@/db/schema';
+import { isPostgresDatabase } from '@/lib/database-dialect';
 
 export const duplicateRequestSources = [
   'flow_command',
@@ -46,6 +47,16 @@ function database(): D1Database {
   return binding;
 }
 
+async function ensureMetricsTable(db: D1Database) {
+  if (isPostgresDatabase(db)) {
+    await db
+      .prepare('SELECT partner_hub.assert_portal_metrics_schema() AS ready')
+      .first();
+    return;
+  }
+  await db.prepare(portalDuplicateRequestStatsTableSql).run();
+}
+
 function koreanDate(iso: string) {
   const time = new Date(iso).getTime();
   if (!Number.isFinite(time))
@@ -69,7 +80,7 @@ export async function recordDuplicateRequestMetric(
   const occurredAt = metric.occurredAt ?? new Date().toISOString();
   const db = database();
   // Observability availability must never become a dependency of business data.
-  await db.prepare(portalDuplicateRequestStatsTableSql).run();
+  await ensureMetricsTable(db);
   await db
     .prepare(`
       INSERT INTO portal_duplicate_request_stats
@@ -109,7 +120,7 @@ export async function readDuplicateRequestSummary(
   const cutoffDate = koreanDate(new Date(cutoffTime).toISOString());
   const currentDate = koreanDate(now);
   const db = database();
-  await db.prepare(portalDuplicateRequestStatsTableSql).run();
+  await ensureMetricsTable(db);
   const result = await db
     .prepare(`
       SELECT source, outcome, SUM(event_count) AS event_count

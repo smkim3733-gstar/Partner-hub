@@ -6,6 +6,19 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 
 ## 2026-09-10 현재 완료
 
+### 중복·충돌·복구 및 관리자 진행 통계 연결
+
+- `0017_portal_operational_metrics.sql`을 원격 `20260909154846`으로 적용했다. 기존 `0001`~`0016`은 수정하지 않았다. 중복 요청·저장 충돌·익명 복구 영수증·복구 집계의 네 테이블을 추가해 서버 전용 RLS 테이블은 총 37개다. `anon`과 `authenticated`의 스키마 접근은 없고, 새 함수도 `SECURITY INVOKER`와 고정 `search_path`를 사용한다.
+- PostgreSQL 경로는 요청 중 SQLite DDL을 실행하지 않고 적용된 스키마를 확인한다. 한국 날짜·1~30일 집계·기존 집계 차원·용량 충돌 제외 규칙을 유지한다. 사용자·회사·파일·요청 키·원문은 집계에 추가하지 않았다.
+- 복구 영수증은 원문 토큰 대신 SHA-256 해시만 저장하며, 발급과 분모 증가가 하나의 트랜잭션이다. PostgreSQL에서는 영수증 소비·복구 건수/시간 구간 증가·만료 정리를 한 함수 호출로 처리한다. 중간 실패는 영수증 삭제까지 롤백해 재시도를 보존한다. 출처/역할 결속·한 번만 소비·정확한 24시간 만료·동일 차원 5건 미만의 시간 구간 비공개를 유지한다. 영수증은 통계용이며 업무 승인이나 사용자 인증을 대신하지 않는다.
+- `readConsultingFlowMetricRows`도 PostgreSQL 전용 축약 SQL에 연결했다. 1차 상담 완료·최신 1차 보고서·공동 분석 확인·서류 접수/검토에 필요한 필드만 반환하며 보고서 본문·전사문·저장 키·명령 영수증은 반환하지 않는다. 기존 Sites SQL은 유지했다.
+- 집중 검사 10개가 통과했다. 독립 관리자/파트너 로그인 후 실제 FLOW 명령 재시도와 `/api/state`까지 검증하여 중복 요청 집계가 더 이상 조용히 실패하지 않고, 관리자 집계가 `null`로 대체되지 않으며 파트너 응답에는 포함되지 않음을 확인했다. 원자적 실패 주입, 소비 재시도, 만료 경계, 시간 구간, RLS/권한, 스키마 미준비 시 업무 응답 보존도 검사했다. PGlite는 단일 연결이며 독립 PostgreSQL 세션 경합 검증은 아직 아니다.
+- 원격 `tests/supabase-metrics-rollback.sql` 검사는 `service_role`로 시험 집계·잘못된 역할 거절·정상 소비·재사용 거절을 실행하고 전부 롤백했다. 후속 조회에서 통계 네 테이블과 FLOW·명단·관리자·기업 파일·Storage 버전은 각각 0행이었다. 보안 진단은 서버 전용 설계에 따른 [RLS 정책 없음 INFO](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy) 37건이며 경고/오류는 없었다.
+- Next.js 프로덕션 빌드·비활성 API HTTP 123건·인증 및 비밀키 번들 경계, 기존 Sites 빌드, 번들 한도(페이지 380725/460800, 총 1043437/1310720바이트), Next.js 타입 재생성 후 TypeScript·lint가 통과했다. 실제 배포나 운영 데이터 이관은 하지 않았다.
+- 최종 전체 검사는 **989/989**, 누락/건너뜀 0건이다(`work/supabase-0017-bounded-tests.log`, 약 145초). 처음 전체 실행에서는 새 테스트의 정적 import가 모의 인증을 먼저 불러오는 문제가 있어 실제 인증 로더 등록 후 동적 import로 수정했다. 후속 기본 병렬 실행은 Node/V8 `Fatal process out of memory: Zone`으로 한 테스트 프로세스가 중단됐다. `node --import ./tests/register.mjs --test --test-concurrency=2 tests/*.test.ts`로 동시 메모리 사용을 줄인 최종 실행은 정상 종료했다. 앱 보호 장치나 테스트 기대값을 완화하지 않았으며, 후속 전체 검사도 이 동시 실행 수를 사용한다.
+- 적용 파일 SHA-256: `EF55FD71290FB1EC4490E81505260B35CB3351ABA86FBEC1743F07A4C291CE51`.
+- **다음:** 관리자 파일 재고/존재 확인/복구 SQL 이식, 대용량 직접 전송 통합, 실제 Supavisor/Storage 연결, 역사 자료 이관/롤백과 Vercel 배포 검증. 백엔드 기본 비활성은 유지한다.
+
 ### FLOW 루트 저장·조회·대시보드와 독립 인증 HTTP 연결
 
 - `0016_consulting_flow_root.sql`을 원격 `20260909152346`으로 적용했다. 기존 `0001`~`0015` 파일은 수정하지 않았다. 서버 전용 `consulting_flows`를 추가해 총 33개 테이블이며, `assert_consulting_flow_schema()`가 루트·파일 원장 및 지연 제약의 준비 상태를 확인한다. 이는 전체 서비스나 외부 연결의 준비 완료 판정이 아니다.
@@ -18,7 +31,7 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 - Next.js 프로덕션 빌드·비활성 API HTTP 123건과 기존 Sites 빌드가 통과했다. 번들 크기는 페이지 380725/460800, 총 1043437/1310720바이트다. Sites 빌드 후 Next.js 타입을 재생성하고 TypeScript·lint도 통과했다. 최종 전체 로그는 `work/supabase-0016-final-tests.log`다. 초기 집중 실행에서 Node/V8 Wasm 종료가 한 번 더 발생했으며 원인은 확정하지 않았다. 재실행 및 984개 최종 실행은 정상 종료했다.
 - `tests/supabase-flow-root-rollback.sql`을 로컬에서 검증한 다음 원격 실행했다. 합성 기준행과 명령의 실제 트리거·원문 보존·미승인 업무 변경 거절·브라우저 권한을 확인하고, **ROLLBACK 전에 `SET CONSTRAINTS ALL IMMEDIATE`로 지연 제약도 실제 검사**했다. 전부 롤백한 후 FLOW·파일 소유권·명단·관리자·기업 파일·Storage 버전이 각각 0행임을 별도 조회했다. 보안 진단은 의도된 서버 전용 [RLS 정책 없음 INFO](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy) 33건이며 경고/오류는 없었다.
 - 적용 파일 SHA-256: `55E57348A31DD7CE7A1710DA0B60D379F9B5CBF16E16137A7CD430E5328FBAC4`.
-- **남은 항목:** 관리자 파일 재고와 중복/충돌 통계, 대용량 직접 전송 통합, 실제 Supavisor/Storage 연결, 역사 자료 이관/롤백, Vercel 배포 검증. 중복 재시도 HTTP는 정상이나 `duplicate-request` 통계 기록은 아직 미이식되어 테스트에서 경고가 남는다. 앱의 백엔드는 기본 비활성(`PARTNER_HUB_BACKEND_ENABLED=0`)이며 실제 운영 사용자/업무 자료는 만들지 않았다.
+- **0016 시점의 남은 항목:** 관리자 파일 재고와 중복/충돌 통계, 대용량 직접 전송 통합, 실제 Supavisor/Storage 연결, 역사 자료 이관/롤백, Vercel 배포 검증. 이때 남았던 중복 요청 통계 경고는 위 `0017` 연결로 해결했다. 앱의 백엔드는 기본 비활성(`PARTNER_HUB_BACKEND_ENABLED=0`)이며 실제 운영 사용자/업무 자료는 만들지 않았다.
 
 ### 로컬 검증 환경 복구 기록
 
@@ -197,7 +210,7 @@ SUPABASE_STORAGE_BUCKET=partner-hub-private
 
 ## 다음 자동 진행 순서
 
-1. 중복 요청·저장 충돌/복구 통계와 관리자 파일 재고 쿼리를 PostgreSQL로 이식
+1. 관리자 파일 재고·존재 확인·복구 쿼리를 PostgreSQL로 이식(중복/충돌/복구 및 진행 통계는 `0017`에서 연결 완료)
 2. 실제 운영 인증·FLOW·파일·진행판을 결합한 남은 API와 원자적 batch/CAS 회귀검사 확대
 3. 실제 Supavisor 연결·독립 다중 세션 경합·최종 스키마 무결성 검증
 4. 구현된 Storage 어댑터·임시 서명을 업로드 예약/완료 API와 연결하고 세션·권한 재검증, 대용량 다운로드, 보존 기한 정리 구현

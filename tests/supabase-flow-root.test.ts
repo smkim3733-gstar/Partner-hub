@@ -17,6 +17,8 @@ import { claimFlowJob, finishFlowJob } from '../lib/consulting-flow-jobs';
 import { hasProjectedConsultingFlowStructure } from '../lib/consulting-flow-shape';
 import { PORTAL_OWNER_EMAIL } from '../lib/member-email';
 import { provisionStandaloneAdmin } from '../lib/standalone-admin-store';
+import { flushWaitUntil } from './runtime-mock.mjs';
+import { readDuplicateRequestSummary } from '../lib/duplicate-request-metrics';
 
 const { commitFlow, readFlow, stateWithConsultingFlows, flowDatabase } =
   await import('../lib/consulting-flow-store');
@@ -27,6 +29,9 @@ const { loginPassword, registerPassword } =
 const { GET, POST } = await import('../app/api/consulting-flow/[caseId]/route');
 const { GET: download } =
   await import('../app/api/consulting-flow/[caseId]/files/[fileId]/route');
+const { GET: getState } = await import('../app/api/state/route');
+const { readConsultingFlowMetricRows } =
+  await import('../lib/consulting-flow-metrics');
 const admin: FlowActor = {
   id: 'synthetic-admin',
   role: 'admin',
@@ -143,6 +148,39 @@ void test('native FLOW root executes the full 21-command application workflow wi
     flow.files.length,
   );
   assert.equal(await flowDatabase(), f.db);
+  const metrics = await readConsultingFlowMetricRows();
+  assert.equal(metrics.length, 1);
+  const { request_metrics_json, ...summary } = metrics[0];
+  assert.deepEqual(summary, {
+    case_id: flow.caseId,
+    first_completed_at:
+      flow.meetings
+        .filter(
+          (meeting) =>
+            meeting.kind === 'first' && meeting.status === 'completed',
+        )
+        .map((meeting) => meeting.completedAt)
+        .filter((at): at is string => typeof at === 'string')
+        .sort((left, right) => left.localeCompare(right))[0] ?? null,
+    analysis_report_id: flow.analysis.reportId ?? null,
+    analysis_admin_at: flow.analysis.adminAt ?? null,
+    analysis_partner_at: flow.analysis.partnerAt ?? null,
+    latest_stage1_report_id:
+      flow.reports.filter((report) => report.stage === 1).at(-1)?.id ?? null,
+  });
+  assert.deepEqual(
+    JSON.parse(String(request_metrics_json)),
+    flow.requests.map((request) => ({
+      status: request.status,
+      hasFile: request.fileId ? 1 : 0,
+      receivedAt: request.receivedAt ?? null,
+      reviewedAt: request.reviewedAt ?? null,
+    })),
+  );
+  assert.doesNotMatch(
+    raw(metrics),
+    /sourceText|transcript|storageKey|fingerprint|commandReceipts|consulting-flow\//,
+  );
 });
 
 void test('native root rejects forged receipts, hidden business rewrites and malformed direct inserts', async (t) => {
@@ -497,6 +535,33 @@ void test('native PostgreSQL FLOW HTTP binds standalone sessions, partner assign
   await status(await POST(request(path, input, partnerCookie), context), 403);
   await status(await POST(request(path, input, ownerCookie), context), 200);
   await status(await POST(request(path, input, ownerCookie), context), 200);
+  await flushWaitUntil();
+  assert.equal((await readDuplicateRequestSummary()).totalSafeRetries, 1);
+  const adminState = (await (
+    await status(
+      await getState(request('/api/state', undefined, ownerCookie)),
+      200,
+    )
+  ).json()) as Record<string, unknown> & {
+    duplicateRequests: { totalSafeRetries: number };
+  };
+  assert.equal(adminState.duplicateRequests.totalSafeRetries, 1);
+  for (const key of [
+    'saveConflicts',
+    'applicationFunnel',
+    'jointAnalysisConfirmation',
+    'documentReviewWait',
+  ]) {
+    assert.ok(adminState[key], `${key} must not silently fall back to null`);
+  }
+  const partnerState = (await (
+    await status(
+      await getState(request('/api/state', undefined, partnerCookie)),
+      200,
+    )
+  ).json()) as Record<string, unknown>;
+  assert.equal(Object.hasOwn(partnerState, 'duplicateRequests'), false);
+  assert.equal(Object.hasOwn(partnerState, 'saveConflicts'), false);
   const stored = await readFlow('http-native-flow');
   assert.ok(stored);
   assert.equal(

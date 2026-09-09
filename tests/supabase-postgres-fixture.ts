@@ -30,6 +30,7 @@ export async function postgresFixture(options: { flowRoot?: boolean } = {}) {
       '0014_consulting_flow_transcript_purpose.sql',
       '0015_consulting_flow_domain.sql',
       ...(options.flowRoot ? ['0016_consulting_flow_root.sql'] : []),
+      '0017_portal_operational_metrics.sql',
     ]) {
       await engine.exec(await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), 'utf8'));
     }
