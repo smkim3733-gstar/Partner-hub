@@ -4,7 +4,11 @@
 
 사용자 선택에 따라 현재 이전 대상은 **Vercel Next.js + Supabase PostgreSQL/비공개 Storage**다. 작업 브랜치는 `codex/supabase-migration`이며, 아래 Turso/Blob 기록은 이전 단계의 검증 기록이다. 현재 완료 범위와 미완료 항목은 [Supabase 이전 현황](SUPABASE_MIGRATION.md)을 따른다.
 
-Supabase MCP 연결, 서버 전용 25개 테이블 적용, 실제 PostgreSQL 롤백·RLS 검사, 파일 Storage 어댑터, 관리자/파트너 인증·명단·로그인 통계·초안·기업 파일·AI Step 0 원장 SQL 이식을 완료했다. 전체 회귀검사 934개와 TypeScript·lint를 통과했다. Step 0은 실제 PostgreSQL 엔진·독립 관리자 인증·파일 원장을 결합해 중복 호출 방지와 생성 중 동의 철회를 검사했다. Storage 바이트와 AI 제공자는 모의 객체이며 실제 Supabase Storage·Anthropic 네트워크 검증은 아니다. 남은 FLOW 명령/AI 작업 상태·FLOW 파일 원장/관리자 재고·충돌 통계 SQL 이식, 직접 파일 전송 API 통합, 실제 Supavisor/Storage 연결과 운영 데이터 이관·Vercel 배포는 미완료다. 실제 관리자·업무 명단은 아직 만들지 않았으며 기존 Sites 운영은 유지한다.
+Supabase MCP 연결, 서버 전용 25개 테이블 적용, 실제 PostgreSQL 롤백·RLS 검사, 파일 Storage 어댑터, 관리자/파트너 인증·명단·로그인 통계·초안·기업 파일·AI Step 0 원장 SQL 이식을 완료했다. Step 0은 실제 PostgreSQL 엔진·독립 관리자 인증·파일 원장을 결합해 중복 호출 방지와 생성 중 동의 철회를 검사했다. Storage 바이트와 AI 제공자는 모의 객체이며 실제 Supabase Storage·Anthropic 네트워크 검증은 아니다.
+
+FLOW 핵심 보호 함수 7개를 추가 이식해 원격 `20260909122615`로 적용했다. 명령/감사/영수증의 이력 보존, AI 작업 상태와 실패 증거 보존, 최신 녹취·보고서 출처를 기존 SQLite 트리거와 대조했다. 로컬 집중검사 6개와 원격 순수 함수·권한 검사를 통과했다. **FLOW 루트 테이블과 쓰기 API는 아직 열지 않았다.** 명령별 정확한 변경 효과·도메인/AI 증거 의미·권위 있는 행위자 확인·FLOW 파일 원장/관리자 재고·충돌 통계 SQL, 직접 파일 전송 API 통합, 실제 Supavisor/Storage 연결과 운영 데이터 이관·Vercel 배포는 미완료다. 실제 관리자·업무 명단은 아직 만들지 않았으며 기존 Sites 운영은 유지한다.
+
+최신 검증: 전체 회귀검사 940개, TypeScript·lint, Supabase Next.js 프로덕션 빌드와 비활성 API HTTP 123건, 기존 Sites 빌드·번들 제한 검사 통과. 원격 보안 진단은 서버 전용 RLS 테이블 25개의 의도된 INFO만 반환했다. 전환 완료나 공개 배포 완료 판정은 아니다.
 
 ## 2026-09-09 Vercel 저장소 전환
 
