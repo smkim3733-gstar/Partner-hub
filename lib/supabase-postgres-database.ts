@@ -92,7 +92,7 @@ function translateNumberedParameters(sql: string, parameters: unknown[]) {
   return output;
 }
 
-function postgresValue(value: unknown): D1DatabaseValue {
+function postgresValue(value: unknown): unknown {
   if (
     value === null ||
     typeof value === 'string' ||
@@ -100,7 +100,7 @@ function postgresValue(value: unknown): D1DatabaseValue {
     value instanceof ArrayBuffer ||
     ArrayBuffer.isView(value)
   )
-    return value as D1DatabaseValue;
+    return value;
   if (typeof value === 'bigint') {
     const number = Number(value);
     if (Number.isSafeInteger(number)) return number;
@@ -122,7 +122,11 @@ function result<T>(
       ? (rows.count ?? converted.length)
       : 0;
   if (!Number.isSafeInteger(changes) || changes < 0) invalid();
-  return { success: true, results: converted, meta: { changes } };
+  return {
+    success: true,
+    results: converted,
+    meta: { changes },
+  } as D1Result<T>;
 }
 
 /**
