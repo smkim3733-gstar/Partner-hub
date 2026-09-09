@@ -1,5 +1,7 @@
 import { env } from '@/lib/platform-runtime';
-import { portalPasswordSchemaSql, portalStateId } from '@/db/schema';
+import { portalStateId } from '@/db/schema';
+import { passwordSchemaStatements } from './password-schema';
+import { portalMemberExistsSql } from './portal-member-sql';
 import { normalizeLoginEmail } from '@/lib/member-email';
 import { tokenHash } from '@/lib/password-crypto';
 import { isCrossSiteRequest } from '@/lib/request-origin';
@@ -18,7 +20,7 @@ export class PasswordError extends Error {
 export async function passwordDatabase() {
   const db = (env as unknown as { DB?: D1Database }).DB;
   if (!db) throw new PasswordError('계정 저장소를 사용할 수 없습니다.', 503);
-  await db.batch(portalPasswordSchemaSql.map((sql) => db.prepare(sql)));
+  await db.batch(passwordSchemaStatements(db));
   return db;
 }
 export function assertPasswordOrigin(request: Request) {
@@ -221,7 +223,7 @@ export function chatGPTMemberBindingStatements(
   createdAt: string,
 ) {
   return [
-    ...portalPasswordSchemaSql.map((sql) => db.prepare(sql)),
+    ...passwordSchemaStatements(db),
     db
       .prepare(`INSERT INTO portal_chatgpt_identity_bindings
         (subject_type, subject_id, user_key, created_at, updated_at)
@@ -249,12 +251,7 @@ export async function claimChatGPTMemberBinding(
     .prepare(`INSERT INTO portal_chatgpt_identity_bindings
       (subject_type, subject_id, user_key, created_at, updated_at)
       SELECT 'member', ?1, ?2, ?3, ?3
-      WHERE EXISTS (SELECT 1 FROM portal_state s, json_each(s.payload, '$.members') m
-        WHERE s.id = ?4 AND json_extract(m.value, '$.id') = ?1
-        AND (SELECT COUNT(*) FROM json_each(s.payload, '$.members') all_m
-          WHERE json_extract(all_m.value, '$.id') = ?1) = 1
-        AND lower(trim(json_extract(m.value, '$.email'))) = ?5
-        AND json_extract(m.value, '$.status') = '활성')
+      WHERE ${portalMemberExistsSql(db, { state: '?4', member: '?1', email: '?5', status: 'active' })}
       ON CONFLICT DO NOTHING`)
     .bind(memberId, key, now, portalStateId, normalizeLoginEmail(email))
     .run();
@@ -386,7 +383,7 @@ export function passwordAccessRevocationStatements(
     return [];
   const committed = `EXISTS (SELECT 1 FROM portal_state WHERE id = ?2 AND payload = ?3)`;
   return [
-    ...portalPasswordSchemaSql.map((sql) => db.prepare(sql)),
+    ...passwordSchemaStatements(db),
     ...sessionMemberIds.map((memberId) =>
       db
         .prepare(

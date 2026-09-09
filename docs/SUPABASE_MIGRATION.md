@@ -6,6 +6,21 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 
 ## 2026-09-09 현재 완료
 
+### 인증·기본 명단 PostgreSQL 이식
+
+- 원격 Supabase에 `authentication` (`20260909110358`), `portal_state` (`20260909110412`), `password_link_metrics` (`20260909110426`)를 추가 적용했다. 전체 서버 전용 테이블은 15개다. 관리자 계정이나 실제 업무 명단은 생성·이관하지 않았다.
+- 관리자 최초 설정·로그인·세션 교체·만료·로그아웃·운영자 비밀번호 복구, 파트너 가입·승인 후 로그인·일회용 비밀번호 재설정·접근 철회 SQL을 PostgreSQL에서 실행했다. 기존 Sites SQL은 DB별 분기로 보존한다.
+- 모든 PostgreSQL 요청/batch는 첫 데이터 쿼리 전에 `SERIALIZABLE` 격리를 설정한다. 동시 변경 충돌은 전체 트랜잭션 실패로 처리하며, 결과 불명인 쓰기를 자동 재실행하지 않는다. `bigint`는 안전한 JavaScript 정수 범위만 수용하고 범위 초과를 거절한다.
+- 명단은 원문 JSON 텍스트를 유지해 정확한 CAS 비교를 보존한다. 고정 루트 ID, JSON 객체, UTF-8 900,000바이트 상한, UTC 밀리초 시각, 루트 삭제 금지와 로그인 통계의 30분 집계 규칙을 이식했다. PostgreSQL 멤버 조회는 중복 ID 및 문자열이 아닌 ID·이메일·상태를 거절한다.
+- 요청 중 PostgreSQL DDL을 실행하지 않는다. 인증·명단은 사전 적용된 스키마의 테이블/RLS/필수 트리거 유무를 확인한다. 이 확인은 전체 스키마 해시·모든 제약조건 무결성 감사와 동일하지 않다. AI·파일·초안 스키마까지 준비되었다고 판정하지 않는다.
+- `admin:vercel:check`, `admin:vercel`, `admin:vercel:recover` 운영자 경로에 Supabase 연결 분기를 추가했다. 비밀번호는 기존 대화형 입력을 사용하며 공개 초기화 API·기본 비밀번호는 없다. 실제 자격증명이 없으므로 원격 운영자 CLI 접속은 아직 검증하지 않았다.
+- 테스트 전용 PGlite 0.5.8에서 실제 PostgreSQL 엔진·저장 SQL·마이그레이션을 실행했다. 비밀번호 처리 통합검사는 합성 환경값과 메모리 DB를 사용하며 실제 Supavisor·Storage 네트워크 연결은 사용하지 않는다. PGlite는 단일 연결이므로 독립 세션 간 경합 시험을 대체하지 않는다.
+- 전체 테스트 918개와 추가 원격 인증 롤백 SQL 로컬 재검증 1개를 통과했다. TypeScript·lint·Supabase Next 프로덕션 빌드와 비활성 API 경계 HTTP 123건, 기존 Sites 빌드도 통과했다.
+- 실제 Supabase에서 `tests/supabase-auth-rollback.sql`을 실행해 RLS/권한·복구 중복 영수증 실패의 원자적 롤백·기록 삭제 금지·명단 보호·로그인 집계 간격을 확인했다. 별도 후속 조회에서 관리자·세션·복구 기록·명단·로그인 통계가 모두 0행임을 확인했다. 이 SQL은 기존 계정·명단이 있으면 실행을 거절하는 초기 대상 전용 검사다.
+- 최신 보안 진단은 서버 전용 RLS 테이블 15개의 `rls_enabled_no_policy` INFO만 반환했다. 브라우저 역할 접근을 열지 않는 의도된 상태이며 전체 앱 보안 검증 완료를 의미하지 않는다.
+
+### 앞서 완료한 Storage 기반
+
 - Supabase MCP로 프로젝트 URL과 빈 업무 스키마를 확인했다. MCP 재로그인은 현재 필요하지 않다.
 - 손상된 개발 의존성을 lockfile 버전으로 재설치했다. 이전 폴더는 로컬 `node_modules/.recovery-20260909`에 보존했다.
 - Supabase Next.js 런타임의 DB 타입 오류와 빌드 선택자 거절 오류를 수정하고, 요청 시점에만 DB·Storage 클라이언트를 구성하도록 연결했다.
@@ -14,8 +29,7 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 - 브라우저 직접 업로드용 서명은 임시 `staging` 경로에만 발급하도록 구현했다. 실제 화면·업로드 예약·완료 처리·세션 재검사 연결은 아직 남아 있다.
 - 원격 Supabase에 `partner_hub_private_schema` (`20260909102118`), `storage_object_versions` (`20260909102136`)를 적용했다. 기존 Sites D1/R2와 운영 데이터는 변경하지 않았다.
 - 실제 PostgreSQL에서 비공개 스키마 권한, RLS, 조건부 생성·교체, 오래된 삭제 거절, 외래 키, 원장 수정·삭제 금지, 원자적 롤백을 검증했다. 시험 종료 후 두 원장 테이블 모두 0행임을 별도 확인했다. 재실행 SQL은 `tests/supabase-storage-rollback.sql`에 있다.
-- Supabase 보안 진단은 정책 없는 RLS 테이블 3개의 INFO만 반환했다. 서버 전용 테이블을 브라우저에 개방하지 않는 의도된 상태다.
-- 전체 회귀검사 905건 통과 후 최신 Supabase 검사 17건과 Vercel 접속 주소 검사 5건을 통과했다. TypeScript와 lint, Supabase 모드 Next.js 프로덕션 빌드, 실제 로컬 프로덕션 서버의 HTTP 123건과 서버 비밀정보 번들 유출 검사도 통과했다. 기존 Sites 빌드·클라이언트 번들 제한 검사도 통과했다. HTTP 검사는 백엔드 비활성 상태의 보호 경계 검증이며, 업무 API가 Supabase에서 정상 작동한다는 증거는 아니다.
+- 이 기반 단계에서는 전체 회귀검사 905건 통과 후 Supabase 검사 17건과 Vercel 접속 주소 검사 5건을 통과했다. 기존 Sites 빌드·클라이언트 번들 제한 검사도 통과했다. 최신 수치는 위 인증 이식 절을 따른다. HTTP 123건은 백엔드 비활성 상태의 보호 경계 검증이며, 모든 업무 API가 Supabase에서 정상 작동한다는 증거는 아니다.
 - `pnpm run test:next:supabase`와 Supabase 전용 GitHub CI 작업을 추가했다. 실제 자격증명 없이 합성 값만 사용한다.
 
 이하 항목은 이 단계 이전에 완료한 기반 작업이다.
@@ -63,17 +77,17 @@ SUPABASE_STORAGE_BUCKET=partner-hub-private
 
 ## 다음 자동 진행 순서
 
-1. PostgreSQL 최종 테이블·인덱스·무결성 함수/트리거 이식
-2. PostgreSQL 서버 어댑터를 Supavisor 클라이언트에 연결하고 실제 트랜잭션 회귀검사
-3. 21개 DB 쿼리 파일을 PostgreSQL 문법으로 이식하고 원자적 batch/CAS 회귀검사
+1. 남은 AI·초안·FLOW·파일 원장 테이블/인덱스/무결성 함수·트리거 이식
+2. 남은 업무 쿼리 파일을 PostgreSQL 문법으로 이식하고 원자적 batch/CAS 회귀검사
+3. 실제 Supavisor 연결·독립 다중 세션 경합·최종 스키마 무결성 검증
 4. 구현된 Storage 어댑터·임시 서명을 업로드 예약/완료 API와 연결하고 세션·권한 재검증, 대용량 다운로드, 보존 기한 정리 구현
-5. 관리자 초기화·로그인·가입 승인·업로드/다운로드 통합검사
+5. 이미 검증한 인증 흐름에 업로드/다운로드·관리자 원격 CLI를 결합해 실제 저장소 통합검사
 6. Supabase에 남은 업무 스키마 마이그레이션 적용, 비공개 버킷 생성 후 Vercel Preview 연결
 7. 기존 운영 데이터 백업·변환·복원 대조 및 전환/롤백 검증
 
 ## 현재 외부 입력 필요 시점
 
-코드·오프라인 검사는 계속 진행 가능하다. 실제 Supabase 적용 및 Vercel 연결 단계에는 다음 값이 각 서비스의 비밀 저장소에 필요하다.
+코드·오프라인 검사 및 MCP를 통한 스키마 적용은 계속 진행 가능하다. 앱의 실제 DB/Storage 연결과 Vercel 배포 단계에는 다음 값이 각 서비스의 비밀 저장소에 필요하다.
 
 - Supabase DB 비밀번호가 포함된 트랜잭션 풀러 연결 문자열
 - Supabase 신형 Secret key
@@ -88,3 +102,6 @@ SUPABASE_STORAGE_BUCKET=partner-hub-private
 - [PostgreSQL Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security)
 - [Storage 접근 제어](https://supabase.com/docs/guides/storage/security/access-control)
 - [Storage 스키마 변경 금지 원칙](https://supabase.com/docs/guides/storage/schema/design)
+- [PostgreSQL 트랜잭션 격리](https://www.postgresql.org/docs/18/transaction-iso.html)
+- [postgres.js 정수 타입 설정](https://github.com/porsager/postgres)
+- [PGlite 테스트 엔진 API](https://pglite.dev/docs/api)

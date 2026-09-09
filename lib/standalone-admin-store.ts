@@ -150,7 +150,7 @@ export async function readStandaloneAdminIdentity(
 ): Promise<StandaloneAdminIdentity | null> {
   if (!token || !/^[a-f0-9]{64}$/.test(token)) return null;
   return db
-    .prepare(`SELECT a.id, a.email, a.display_name AS displayName
+    .prepare(`SELECT a.id, a.email, a.display_name AS "displayName"
     FROM standalone_admin_sessions s JOIN standalone_admin_accounts a
     ON a.id = s.admin_id AND a.credential_version = s.credential_version
     WHERE s.token_hash = ?1 AND s.issued_at <= ?2 AND s.expires_at > ?2

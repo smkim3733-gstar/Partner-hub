@@ -4,6 +4,7 @@ import {
   standaloneAdminRevocationStatements,
 } from '@/lib/platform-admin-auth';
 import { readPortalState } from '@/lib/portal-state';
+import { portalMemberExistsSql } from './portal-member-sql';
 import { requirePortalUser, PortalAccessError } from '@/lib/portal-auth';
 import {
   defaultPartnerPermissions,
@@ -229,12 +230,7 @@ export const loginPassword = passwordHandler(async (request) => {
         SELECT ?1, ?2, ?3, ?4, ?5
         WHERE EXISTS (SELECT 1 FROM portal_password_accounts a
           WHERE a.member_id = ?2 AND a.email = ?3 AND a.credential_version = ?4)
-          AND EXISTS (SELECT 1 FROM portal_state s, json_each(s.payload, '$.members') m
-          WHERE s.id = ?6 AND json_extract(m.value, '$.id') = ?2
-          AND (SELECT COUNT(*) FROM json_each(s.payload, '$.members') all_m
-            WHERE json_extract(all_m.value, '$.id') = ?2) = 1
-          AND lower(trim(json_extract(m.value, '$.email'))) = ?3
-          AND json_extract(m.value, '$.status') = '활성')`,
+          AND ${portalMemberExistsSql(db, { state: '?6', member: '?2', email: '?3', status: 'active' })}`,
       )
       .bind(
         tokenHash(token),
@@ -324,24 +320,14 @@ export const createPasswordLink = passwordHandler(async (request) => {
     db
       .prepare(
         `DELETE FROM portal_password_links WHERE (member_id = ?1 OR expires_at <= ?2)
-        AND EXISTS (SELECT 1 FROM portal_state s, json_each(s.payload, '$.members') m
-          WHERE s.id = ?3 AND json_extract(m.value, '$.id') = ?1
-          AND (SELECT COUNT(*) FROM json_each(s.payload, '$.members') all_m
-            WHERE json_extract(all_m.value, '$.id') = ?1) = 1
-          AND lower(trim(json_extract(m.value, '$.email'))) = ?4
-          AND json_extract(m.value, '$.status') != '정지')`,
+        AND ${portalMemberExistsSql(db, { state: '?3', member: '?1', email: '?4', status: 'not-suspended' })}`,
       )
       .bind(member.id, nowTime, portalStateId, memberEmail),
     db
       .prepare(
         `INSERT INTO portal_password_links (token_hash, member_id, email, expires_at, created_by, created_at)
         SELECT ?1, ?2, ?3, ?4, ?5, ?6
-        WHERE EXISTS (SELECT 1 FROM portal_state s, json_each(s.payload, '$.members') m
-          WHERE s.id = ?7 AND json_extract(m.value, '$.id') = ?2
-          AND (SELECT COUNT(*) FROM json_each(s.payload, '$.members') all_m
-            WHERE json_extract(all_m.value, '$.id') = ?2) = 1
-          AND lower(trim(json_extract(m.value, '$.email'))) = ?3
-          AND json_extract(m.value, '$.status') != '정지')`,
+        WHERE ${portalMemberExistsSql(db, { state: '?7', member: '?2', email: '?3', status: 'not-suspended' })}`,
       )
       .bind(
         tokenHash(token),
@@ -417,11 +403,7 @@ export const setupPassword = passwordHandler(async (request) => {
       .prepare(`INSERT INTO portal_password_accounts (member_id, email, password_hash, credential_version, created_at, updated_at)
       SELECT l.member_id, l.email, ?1, ?2, ?3, ?3 FROM portal_password_links l
       WHERE l.token_hash = ?4 AND l.consumed_by IS NULL AND l.expires_at > ?5
-        AND EXISTS (SELECT 1 FROM portal_state s, json_each(s.payload, '$.members') m
-          WHERE s.id = ?6 AND json_extract(m.value, '$.id') = l.member_id
-          AND (SELECT COUNT(*) FROM json_each(s.payload, '$.members') all_m
-            WHERE json_extract(all_m.value, '$.id') = l.member_id) = 1
-          AND lower(trim(json_extract(m.value, '$.email'))) = l.email AND json_extract(m.value, '$.status') != '정지')
+        AND ${portalMemberExistsSql(db, { state: '?6', member: 'l.member_id', email: 'l.email', status: 'not-suspended' })}
       ON CONFLICT(member_id) DO UPDATE SET email = excluded.email, password_hash = excluded.password_hash,
         credential_version = excluded.credential_version, updated_at = excluded.updated_at`)
       .bind(encoded, version, now, digest, nowTime, portalStateId),

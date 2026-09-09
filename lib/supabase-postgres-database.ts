@@ -1,3 +1,5 @@
+import { registerPostgresDatabase } from './database-dialect';
+
 type PostgresRow = Record<string, unknown>;
 type PostgresResult = PostgresRow[] & {
   count?: number;
@@ -187,6 +189,10 @@ export function createSupabasePostgresDatabase(
     );
     try {
       return await client.begin(async (transaction) => {
+        // SQLite serializes writers. Read committed can instead commit a
+        // credential insert after its paired portal CAS loses a race. Require
+        // a serializable snapshot; conflicting transactions abort in full.
+        await transaction.unsafe('SET TRANSACTION ISOLATION LEVEL SERIALIZABLE');
         await transaction.unsafe(
           'SET LOCAL search_path TO partner_hub, pg_catalog',
         );
@@ -222,5 +228,5 @@ export function createSupabasePostgresDatabase(
     dump: invalid,
     withSession: invalid,
   };
-  return database;
+  return registerPostgresDatabase(database);
 }

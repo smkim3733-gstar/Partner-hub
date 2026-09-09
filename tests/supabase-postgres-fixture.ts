@@ -1,0 +1,46 @@
+import { readFile } from 'node:fs/promises';
+import { PGlite } from '@electric-sql/pglite';
+import {
+  createSupabasePostgresDatabase,
+  type SupabasePostgresExecutor,
+} from '../lib/supabase-postgres-database';
+
+// Real, in-memory PostgreSQL engine. No credentials or external connections.
+// PGlite serializes its single connection: this is NOT multi-session race QA.
+export async function postgresFixture() {
+  const engine = await PGlite.create({ parsers: { 20: (value) => BigInt(value) } });
+  try {
+    await engine.exec(`CREATE ROLE anon; CREATE ROLE authenticated;
+      CREATE ROLE service_role BYPASSRLS;`);
+    for (const name of [
+      '0001_partner_hub_private_schema.sql',
+      '0002_storage_object_versions.sql',
+      '0003_authentication.sql',
+      '0004_portal_state.sql',
+      '0005_password_link_metrics.sql',
+    ]) {
+      await engine.exec(await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), 'utf8'));
+    }
+    function executor(connection: Pick<PGlite, 'query'>): SupabasePostgresExecutor {
+      return {
+        async unsafe(query, parameters = []) {
+          const result = await connection.query<Record<string, unknown>>(query, [...parameters]);
+          return Object.assign(result.rows, {
+            command: /^\s*(\w+)/.exec(query)?.[1].toUpperCase(),
+            count: result.affectedRows ?? result.rows.length,
+          });
+        },
+      };
+    }
+    const db = createSupabasePostgresDatabase({
+      ...executor(engine),
+      async begin(callback) {
+        return engine.transaction((transaction) => callback(executor(transaction)));
+      },
+    });
+    return { engine, db, close: () => engine.close() };
+  } catch (error) {
+    await engine.close();
+    throw error;
+  }
+}

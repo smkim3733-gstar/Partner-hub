@@ -1,4 +1,5 @@
 import { env } from '@/lib/platform-runtime';
+import { isPostgresDatabase } from './database-dialect';
 
 import {
   aiDiagnosisRunsCaseIndexSql,
@@ -61,6 +62,10 @@ function database(): D1Database {
 }
 
 async function ensurePortalTables(db: D1Database) {
+  if (isPostgresDatabase(db)) {
+    await db.prepare('SELECT partner_hub.assert_portal_schema() AS ready').first();
+    return;
+  }
   await db.batch([
     db.prepare(portalStateTableSql),
     db.prepare(portalStateInsertTriggerSql),
@@ -192,7 +197,7 @@ export async function mutatePortalState<T>(
           .prepare(
             row
               ? `UPDATE portal_state SET payload = ?1, updated_at = ?2 WHERE id = ?3 AND payload = ?4 AND EXISTS (SELECT 1 FROM application_drafts WHERE owner_key = ?5 AND draft_id = ?6 AND revision = ?7 AND payload IS NOT NULL) ${conditionSql}`
-              : `INSERT INTO portal_state (payload, updated_at, id) SELECT ?1, ?2, ?3 WHERE ?4 IS NULL AND EXISTS (SELECT 1 FROM application_drafts WHERE owner_key = ?5 AND draft_id = ?6 AND revision = ?7 AND payload IS NOT NULL) ${conditionSql} ON CONFLICT(id) DO NOTHING`,
+              : `INSERT INTO portal_state (payload, updated_at, id) SELECT ?1, ?2, ?3 WHERE ${isPostgresDatabase(db) ? 'CAST(?4 AS text)' : '?4'} IS NULL AND EXISTS (SELECT 1 FROM application_drafts WHERE owner_key = ?5 AND draft_id = ?6 AND revision = ?7 AND payload IS NOT NULL) ${conditionSql} ON CONFLICT(id) DO NOTHING`,
           )
           .bind(
             payload,
@@ -211,7 +216,7 @@ export async function mutatePortalState<T>(
             .bind(payload, updatedAt, portalStateId, row.payload)
         : db
             .prepare(
-              `INSERT INTO portal_state (id, payload, updated_at) SELECT ?1, ?2, ?3 WHERE ?4 IS NULL ${conditionSql} ON CONFLICT(id) DO NOTHING`,
+              `INSERT INTO portal_state (id, payload, updated_at) SELECT ?1, ?2, ?3 WHERE ${isPostgresDatabase(db) ? 'CAST(?4 AS text)' : '?4'} IS NULL ${conditionSql} ON CONFLICT(id) DO NOTHING`,
             )
             .bind(portalStateId, payload, updatedAt, null);
     const result =

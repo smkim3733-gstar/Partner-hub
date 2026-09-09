@@ -37,7 +37,9 @@ void test('Supabase client disables prepared statements and bounds serverless co
   assert.deepEqual(observedOptions, supabasePostgresClientOptions);
   assert.equal(supabasePostgresClientOptions.prepare, false);
   assert.equal(supabasePostgresClientOptions.max, 1);
-  assert.deepEqual(queries.slice(0, 3), [
+  assert.equal(supabasePostgresClientOptions.types.bigint.parse('1788950935000'), BigInt('1788950935000'));
+  assert.deepEqual(queries.slice(0, 4), [
+    'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
     'SET LOCAL search_path TO partner_hub, pg_catalog',
     "SET LOCAL statement_timeout TO '25000ms'",
     "SET LOCAL lock_timeout TO '5000ms'",

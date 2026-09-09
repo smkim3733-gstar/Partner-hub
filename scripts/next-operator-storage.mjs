@@ -1,5 +1,27 @@
 export async function openNextOperatorStorage() {
   await import('./register-local.mjs');
+  const { supabaseBackendSelected } =
+    await import('../lib/supabase-backend-policy.mjs');
+  if (supabaseBackendSelected(process.env)) {
+    const { readSupabaseBackendConfig } =
+      await import('../lib/supabase-backend-config.ts');
+    const { default: postgres } = await import('postgres');
+    const { createSupabaseDatabaseClient, supabasePostgresClientOptions } =
+      await import('../lib/supabase-postgres-client.ts');
+    // Process-local setup access; never activates deployed runtime or stores keys.
+    const config = readSupabaseBackendConfig({
+      ...process.env, PARTNER_HUB_BACKEND_ENABLED: '1',
+    });
+    const client = postgres(config.databaseUrl, supabasePostgresClientOptions);
+    const db = createSupabaseDatabaseClient(config.databaseUrl, () => client);
+    try {
+      await db.prepare('SELECT partner_hub.assert_auth_schema() AS ready').first();
+      return { config, db, close: () => client.end({ timeout: 5 }) };
+    } catch (error) {
+      await client.end({ timeout: 5 });
+      throw error;
+    }
+  }
   const { vercelStorageSelected } =
     await import('../lib/vercel-storage-policy.mjs');
   if (vercelStorageSelected(process.env)) {

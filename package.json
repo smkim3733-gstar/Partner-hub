@@ -83,6 +83,7 @@
     "vinext": "1.0.0-beta.9"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.8",
     "@axe-core/playwright": "4.13.0",
     "@cloudflare/vite-plugin": "1.53.0",
     "@cloudflare/workers-types": "5.20260826.1",

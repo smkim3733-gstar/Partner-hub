@@ -4,7 +4,7 @@
 
 사용자 선택에 따라 현재 이전 대상은 **Vercel Next.js + Supabase PostgreSQL/비공개 Storage**다. 작업 브랜치는 `codex/supabase-migration`이며, 아래 Turso/Blob 기록은 이전 단계의 검증 기록이다. 현재 완료 범위와 미완료 항목은 [Supabase 이전 현황](SUPABASE_MIGRATION.md)을 따른다.
 
-Supabase MCP 연결, 서버 전용 원장 스키마 적용, 실제 PostgreSQL 롤백·RLS 검사, 파일 Storage 어댑터와 Supabase 모드 Next.js 빌드·비활성 API HTTP 123건 검증을 완료했다. 업무 SQL/트리거 이식, 직접 파일 전송 API 통합, 실제 Storage 연결과 운영 데이터 이관·Vercel 배포는 아직 완료하지 않았다. 기존 Sites 운영은 유지한다.
+Supabase MCP 연결, 서버 전용 15개 테이블 적용, 실제 PostgreSQL 롤백·RLS 검사, 파일 Storage 어댑터, 관리자/파트너 인증·명단·로그인 통계 SQL 이식과 PostgreSQL 테스트를 완료했다. 전체 테스트 918개와 추가 롤백 SQL 검사 1개, Supabase 모드 Next.js 빌드·비활성 API HTTP 123건을 통과했다. 남은 AI·초안·FLOW·파일 SQL/트리거 이식, 직접 파일 전송 API 통합, 실제 Supavisor/Storage 연결과 운영 데이터 이관·Vercel 배포는 미완료다. 실제 관리자·업무 명단은 아직 만들지 않았으며 기존 Sites 운영은 유지한다.
 
 ## 2026-09-09 Vercel 저장소 전환
 

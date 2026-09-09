@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { readSecret } from './secret-prompt.mjs';
 import { openNextOperatorStorage } from './next-operator-storage.mjs';
+let closeStorage = async () => {};
 
 async function main() {
   const check = process.argv.length === 3 && process.argv[2] === '--check';
@@ -23,7 +24,9 @@ async function main() {
     import('../lib/member-email.ts'),
     import('../lib/password-policy.ts'),
   ]);
-  const { config, db } = await openNextOperatorStorage();
+  const storage = await openNextOperatorStorage();
+  const { config, db } = storage;
+  closeStorage = storage.close ?? closeStorage;
   console.log(`대상 서비스: ${config.appOrigin}`);
   const rows = await db
     .prepare(`SELECT id, email, active, credential_version
@@ -42,7 +45,7 @@ async function main() {
   // Read-only schema availability; existing migration history is never rewritten.
   await db
     .prepare(`SELECT id,admin_id,reason,previous_version_hash,next_version_hash,created_at
-    FROM standalone_admin_recovery_audit WHERE 0`)
+    FROM standalone_admin_recovery_audit WHERE 1 = 0`)
     .all();
   const latest = await db
     .prepare(`SELECT id,created_at FROM standalone_admin_recovery_audit
@@ -104,7 +107,7 @@ async function main() {
     repeated = '';
   }
 }
-main().catch(() => {
+main().finally(() => closeStorage()).catch(() => {
   // Network errors can mean commit succeeded but its response was lost.
   // Do not report "nothing changed" or replay the mutation automatically.
   console.error(

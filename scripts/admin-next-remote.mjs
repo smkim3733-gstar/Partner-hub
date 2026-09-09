@@ -1,6 +1,7 @@
 // Explicit operator workflow. No default account, schema writes or password argv.
 import { readSecret } from './secret-prompt.mjs';
 import { openNextOperatorStorage } from './next-operator-storage.mjs';
+let closeStorage = async () => {};
 
 async function main() {
   const checkOnly = process.argv.length === 3 && process.argv[2] === '--check';
@@ -21,21 +22,23 @@ async function main() {
     import('../lib/member-email.ts'),
     import('../lib/password-policy.ts'),
   ]);
-  const { config, db } = await openNextOperatorStorage();
+  const storage = await openNextOperatorStorage();
+  const { config, db } = storage;
+  closeStorage = storage.close ?? closeStorage;
   console.log(`대상 서비스: ${config.appOrigin}`);
   // Read-only column availability check, not a full migration integrity audit.
   await db.batch([
     db.prepare(
-      'SELECT id,email,display_name,password_hash,credential_version,active,created_at,updated_at FROM standalone_admin_accounts WHERE 0',
+      'SELECT id,email,display_name,password_hash,credential_version,active,created_at,updated_at FROM standalone_admin_accounts WHERE 1 = 0',
     ),
     db.prepare(
-      'SELECT token_hash,admin_id,credential_version,issued_at,expires_at FROM standalone_admin_sessions WHERE 0',
+      'SELECT token_hash,admin_id,credential_version,issued_at,expires_at FROM standalone_admin_sessions WHERE 1 = 0',
     ),
     db.prepare(
-      'SELECT id,admin_id,action,created_at FROM standalone_admin_audit WHERE 0',
+      'SELECT id,admin_id,action,created_at FROM standalone_admin_audit WHERE 1 = 0',
     ),
     db.prepare(
-      'SELECT token_hash,member_id,email,credential_version,expires_at FROM portal_password_sessions WHERE 0',
+      'SELECT token_hash,member_id,email,credential_version,expires_at FROM portal_password_sessions WHERE 1 = 0',
     ),
   ]);
   const existing = await db
@@ -84,7 +87,7 @@ async function main() {
     repeated = '';
   }
 }
-main().catch((error) => {
+main().finally(() => closeStorage()).catch((error) => {
   console.error(
     error instanceof Error &&
       error.constructor === Error &&

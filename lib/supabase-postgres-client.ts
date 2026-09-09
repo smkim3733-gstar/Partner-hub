@@ -1,3 +1,4 @@
+import postgres from 'postgres';
 import {
   createSupabasePostgresDatabase,
   type SupabasePostgresClient,
@@ -35,6 +36,9 @@ export const supabasePostgresClientOptions = Object.freeze({
   fetch_types: false,
   ssl: 'require' as const,
   onnotice: false as const,
+  // int8 includes epoch milliseconds and COUNT(*). Preserve its type so the
+  // D1 adapter can reject unsafe integers instead of silently returning text.
+  types: { bigint: postgres.BigInt },
 });
 
 function executor(client: PostgresJsExecutor): SupabasePostgresExecutor {

@@ -1,6 +1,17 @@
 import { env, waitUntil } from '@/lib/platform-runtime';
 
 import { portalPasswordLinkStatsTableSql } from '@/db/schema';
+import { isPostgresDatabase } from './database-dialect';
+
+async function ensureMetricTable(db: D1Database) {
+  if (isPostgresDatabase(db)) {
+    await db.prepare(`SELECT bucket_date, issued_count, active_replacement_count,
+      expired_at_reissue_count, redeemed_count, observed_expired_attempt_count
+      FROM portal_password_link_stats WHERE 1 = 0`).all();
+  } else {
+    await db.prepare(portalPasswordLinkStatsTableSql).run();
+  }
+}
 
 export type PasswordLinkMetric = {
   issued?: number;
@@ -57,7 +68,7 @@ export async function recordPasswordLinkMetric(metric: PasswordLinkMetric) {
   const db = database();
   // This DDL intentionally lives only in the metric path. Authentication schema
   // setup must never depend on observability availability.
-  await db.prepare(portalPasswordLinkStatsTableSql).run();
+  await ensureMetricTable(db);
   await db
     .prepare(`
       INSERT INTO portal_password_link_stats
@@ -109,7 +120,7 @@ export async function readPasswordLinkSummary(
   const cutoffDate = koreanDate(new Date(cutoffTime).toISOString());
   const currentDate = koreanDate(now);
   const db = database();
-  await db.prepare(portalPasswordLinkStatsTableSql).run();
+  await ensureMetricTable(db);
   const row = await db
     .prepare(`
       SELECT
