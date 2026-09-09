@@ -27,6 +27,7 @@ import {
 } from '@/lib/storage-limits';
 import { isSafeStoredText } from '@/lib/unicode-text';
 import { isUtcMillisecondTimestamp } from '@/lib/utc-timestamp';
+import { isPostgresDatabase } from './database-dialect';
 
 export type StepZeroResult = {
   companyOverview: string;
@@ -75,6 +76,10 @@ type AiDiagnosisRunRow = {
 };
 
 export async function ensureAiDiagnosisTables(db: D1Database) {
+  if (isPostgresDatabase(db)) {
+    await db.prepare('SELECT partner_hub.assert_ai_diagnosis_schema() AS ready').first();
+    return;
+  }
   await db.batch([
     db.prepare(aiDiagnosisRunsTableSql),
     db.prepare(aiDiagnosisRunsCaseIndexSql),
@@ -476,7 +481,7 @@ export async function completeStepZeroRequest(
       created_at = ?7
     WHERE id = ?8 AND case_id = ?9 AND company = ?10
       AND created_by_user_id = ?11 AND status = '생성중'
-      AND json_extract(result_json, '$._requestFingerprint') = ?12
+      AND ${isPostgresDatabase(db) ? "(result_json::json ->> '_requestFingerprint')" : "json_extract(result_json, '$._requestFingerprint')"} = ?12
   `)
     .bind(
       run.status,
@@ -507,7 +512,7 @@ export async function failStepZeroRequest(
     .prepare(`
     UPDATE ai_diagnosis_runs SET status = '생성실패'
     WHERE id = ?1 AND created_by_user_id = ?2 AND status = '생성중'
-      AND json_extract(result_json, '$._requestFingerprint') = ?3
+      AND ${isPostgresDatabase(db) ? "(result_json::json ->> '_requestFingerprint')" : "json_extract(result_json, '$._requestFingerprint')"} = ?3
   `)
     .bind(requestId, createdByUserId, requestFingerprint)
     .run();

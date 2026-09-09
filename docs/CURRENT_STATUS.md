@@ -4,7 +4,7 @@
 
 사용자 선택에 따라 현재 이전 대상은 **Vercel Next.js + Supabase PostgreSQL/비공개 Storage**다. 작업 브랜치는 `codex/supabase-migration`이며, 아래 Turso/Blob 기록은 이전 단계의 검증 기록이다. 현재 완료 범위와 미완료 항목은 [Supabase 이전 현황](SUPABASE_MIGRATION.md)을 따른다.
 
-Supabase MCP 연결, 서버 전용 24개 테이블 적용, 실제 PostgreSQL 롤백·RLS 검사, 파일 Storage 어댑터, 관리자/파트너 인증·명단·로그인 통계·초안·기업 파일 원장 SQL 이식을 완료했다. 전체 회귀검사 927개 통과 후 레거시 파일·계정 정지·최초 저장 검사 3개를 추가로 통과했다. TypeScript·lint·Supabase Next.js 빌드·비활성 API HTTP 123건도 통과했다. 파일 통합검사는 실제 PostgreSQL 엔진과 메모리 바이트 저장소로 수행했으며 실제 Supabase Storage 연결 검사는 아니다. 남은 AI·FLOW·FLOW 파일 원장/관리자 재고 SQL 이식, 직접 파일 전송 API 통합, 실제 Supavisor/Storage 연결과 운영 데이터 이관·Vercel 배포는 미완료다. 실제 관리자·업무 명단은 아직 만들지 않았으며 기존 Sites 운영은 유지한다.
+Supabase MCP 연결, 서버 전용 25개 테이블 적용, 실제 PostgreSQL 롤백·RLS 검사, 파일 Storage 어댑터, 관리자/파트너 인증·명단·로그인 통계·초안·기업 파일·AI Step 0 원장 SQL 이식을 완료했다. 전체 회귀검사 934개와 TypeScript·lint를 통과했다. Step 0은 실제 PostgreSQL 엔진·독립 관리자 인증·파일 원장을 결합해 중복 호출 방지와 생성 중 동의 철회를 검사했다. Storage 바이트와 AI 제공자는 모의 객체이며 실제 Supabase Storage·Anthropic 네트워크 검증은 아니다. 남은 FLOW 명령/AI 작업 상태·FLOW 파일 원장/관리자 재고·충돌 통계 SQL 이식, 직접 파일 전송 API 통합, 실제 Supavisor/Storage 연결과 운영 데이터 이관·Vercel 배포는 미완료다. 실제 관리자·업무 명단은 아직 만들지 않았으며 기존 Sites 운영은 유지한다.
 
 ## 2026-09-09 Vercel 저장소 전환
 

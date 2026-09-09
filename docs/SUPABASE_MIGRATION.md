@@ -6,9 +6,22 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 
 ## 2026-09-09 현재 완료
 
-### 초안·기업 원본파일 PostgreSQL 이식
+### AI Step 0 실행 원장 PostgreSQL 이식
 
-- 원격 Supabase에 `application_drafts` (`20260909113623`), `company_file_ledgers` (`20260909113630`)를 적용했다. 서버 전용 테이블은 총 24개이며 실제 계정·업무 자료·Storage 바이트는 생성하거나 이관하지 않았다.
+- 원격 `ai_diagnosis_runs` 마이그레이션 `20260909115528`을 적용했다. 서버 전용 테이블은 총 25개다. 실제 AI 실행·계정 생성·운영 자료 이관은 하지 않았다.
+- 사건별 생성 중 요청은 한 건만 허용하고, 동일 요청 재시도·다른 내용의 요청 충돌·5분 만료 잠금·완료 결과 재사용·실패 기록 보존을 유지한다. 완료와 실패 상태의 기록은 같은 값의 UPDATE를 포함해 다시 수정하거나 삭제할 수 없다.
+- 원장 신원, UTC 밀리초 시각, 요청 지문, 제공자 요청·모델·메시지 ID, 사용량 범위, 결과의 필수 키·문자열·배열·UTF-8 바이트 상한을 PostgreSQL 함수와 트리거로 검증한다. JSONB 변환 전 중복 키가 사라지는 문제를 피하려고 검증에는 `json`을 사용한다. 중복 루트/후보 키, 보이지 않는 제어문자, 잘못된 Unicode와 범위 초과도 거절한다.
+- 실행 저장 함수는 PostgreSQL에서 런타임 DDL 대신 스키마 준비 함수를 확인하고, 지문 조회를 PostgreSQL JSON 문법으로 분기한다. 기존 Sites SQLite 경로는 유지했다. 준비 확인은 테이블/RLS·트리거·부분 고유 인덱스 유무 검사이며 전체 스키마 해시 검증은 아니다.
+- PGlite와 실제 관리자 비밀번호 인증을 통해 Step 0 HTTP 경로를 실행했다. 기업 원본 원장·바이트 확인, 결과 저장/조회, 동일 요청에서 제공자 중복 호출 없음, 생성 중 동의 철회 시 실패 처리와 후속 호출 차단을 확인했다. 제공자 응답과 Storage 바이트는 모의 객체다. **실제 Anthropic API·Supabase Storage 네트워크·다중 PostgreSQL 세션 경쟁 검증은 아니다.**
+- 전체 회귀검사 934개와 TypeScript·lint를 통과했다. 로컬 SQL 검사에는 원장 직접 변조·결과 크기/형식/사용량·고유 잠금·트랜잭션 롤백도 포함한다.
+- Supabase Next.js 프로덕션 빌드와 비활성 API 보호 HTTP 123건, 기존 Sites 빌드·번들 검사를 통과했다. 페이지 번들 380,725바이트, 전체 1,043,435바이트로 기존 제한 안이다. 실제 운영 배포는 하지 않았다.
+- 실제 Supabase에서 `tests/supabase-ai-rollback.sql`을 실행해 비공개 권한, 사건별 잠금, 완료 기록 불변성, 사용량 제한, 실패 전이의 롤백을 검증했다. 모든 합성 변경을 롤백한 뒤 AI 실행·관리자·명단이 각각 0행임을 별도 확인했다. 이 검사는 업무 데이터가 있는 대상에서는 실행을 거절한다.
+- 최신 보안 진단은 25개 서버 전용 RLS 테이블의 `rls_enabled_no_policy` INFO만 반환했다. 외부 AI 정책·API 키·Vercel 운영 설정은 변경하지 않았다.
+- 남은 핵심 DB 작업은 상담 FLOW 루트의 명령·감사·AI 작업 상태 전이, FLOW 전용 파일/완료 영수증 원장, 관리자 재고 및 충돌·중복 통계 쿼리다. Step 0 완료를 FLOW 전체 준비로 취급하지 않는다.
+
+### 앞서 완료한 초안·기업 원본파일 PostgreSQL 이식
+
+- 원격 Supabase에 `application_drafts` (`20260909113623`), `company_file_ledgers` (`20260909113630`)를 적용했다. 이 단계의 서버 전용 테이블은 24개였으며 실제 계정·업무 자료·Storage 바이트는 생성하거나 이관하지 않았다.
 - 초안은 소유 계정, 정확한 다음 revision, 현재 draft ID, 삭제 후 재사용 금지, 영구 삭제 기록을 유지한다. PostgreSQL에서는 요청 중 DDL 대신 `assert_draft_schema()`를 확인한다. 실제 비밀번호 인증과 초안 HTTP 경로로 계정 격리·동일 요청 재시도·오래된 초안 제출 거절을 검사했다.
 - 기업 파일의 변경 불가 원본 메타데이터와 6개 하위 원장, 영구 업로드 영수증을 이식했다. 부모 삭제만 하위 원장을 연쇄 삭제하며 영수증은 남는다. `pending→ready→deleted`의 단방향 상태와 삭제 재시도, 기존 request key 이전 규칙을 보존한다. 레거시 행에 소유 계정·체크섬·사건 연결을 임의로 채우지 않았다.
 - 기존 integrity CHECK가 `etag` 모드에서 NULL ETag를 허용하던 SQL의 UNKNOWN 허점을 새 빈 대상 스키마에서 닫았다. `metadata` 모드의 NULL ETag와 소유 원장이 없는 레거시 이름 접근은 유지한다. 브라우저 역할 접근과 서버 역할의 TRUNCATE 권한은 열지 않았다.
@@ -17,7 +30,7 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 - 전체 회귀검사 927개를 통과한 뒤 레거시 NULL 원장 다운로드·삭제, 파일 조회 도중 계정 정지, SQLite 최초 저장 검사 3개를 추가해 각각 통과했다. PostgreSQL 파일 통합 7개, 초안 2개, 원격 롤백 SQL 로컬 실행 1개를 포함한다. TypeScript·lint와 Supabase Next.js 프로덕션 빌드·비활성 API HTTP 123건을 통과했다.
 - 기존 Sites 빌드와 클라이언트 번들 검사도 통과했다. 페이지 380,725/460,800바이트, 전체 1,043,435/1,310,720바이트다. Sites·Vercel 운영 배포는 실행하지 않았다.
 - 실제 Supabase에서 `tests/supabase-draft-file-rollback.sql`로 초안 수명주기, 원장 변경·직접 삭제 금지, 트랜잭션 롤백, 부모 연쇄 삭제, 영수증 보존, RLS·권한을 검사했다. 모든 합성 변경을 롤백한 뒤 새 9개 테이블 각각 0행임을 별도 확인했다. 기존 업무 데이터가 존재하면 실행을 거절하는 초기 대상 전용 검사다.
-- 최신 보안 진단은 24개 서버 전용 RLS 테이블의 `rls_enabled_no_policy` INFO만 반환했다. 이는 브라우저 접근 정책을 열지 않은 의도된 상태이며 전체 앱 보안 완료 판정이 아니다.
+- 당시 보안 진단은 24개 서버 전용 RLS 테이블의 `rls_enabled_no_policy` INFO만 반환했다. 이는 브라우저 접근 정책을 열지 않은 의도된 상태이며 전체 앱 보안 완료 판정이 아니다.
 - 파일 통합검사의 DB는 실제 PostgreSQL 엔진인 PGlite, 바이트 저장소는 메모리 R2 대체물이다. **Supabase Storage HTTP·브라우저 직접 전송·전체 `/api/files` 업로드 HTTP 경로 검증은 아직 아니다.** 해당 경로에 결합되는 FLOW 스키마/쿼리 이식, 다중 DB 세션 경쟁, 실제 Supavisor·Storage 연결 검사가 남았다. 스키마 준비 함수도 전체 제약조건 해시 검증을 대체하지 않는다.
 
 ### 앞서 완료한 인증·기본 명단 PostgreSQL 이식
@@ -91,7 +104,7 @@ SUPABASE_STORAGE_BUCKET=partner-hub-private
 
 ## 다음 자동 진행 순서
 
-1. 남은 AI·FLOW 및 FLOW 전용 파일 원장 테이블/인덱스/무결성 함수·트리거 이식
+1. 상담 FLOW 및 FLOW 전용 파일 원장 테이블/인덱스/명령·AI 작업 무결성 함수·트리거 이식
 2. 남은 업무·관리자 파일 재고 쿼리를 PostgreSQL 문법으로 이식하고 원자적 batch/CAS 회귀검사
 3. 실제 Supavisor 연결·독립 다중 세션 경합·최종 스키마 무결성 검증
 4. 구현된 Storage 어댑터·임시 서명을 업로드 예약/완료 API와 연결하고 세션·권한 재검증, 대용량 다운로드, 보존 기한 정리 구현
