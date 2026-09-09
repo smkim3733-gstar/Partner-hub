@@ -268,13 +268,26 @@ void test('real application commands through all manual FLOW stages pass the nat
       ...(['complete_meeting','cancel_meeting','mark_request_sent','receive_document','review_document','record_contract','save_transcript'].includes(command.type) ? { targetId: String(targetId) } : {}),
     } };
     assert.equal(await boundary(engine, flow, after, after), true, command.type);
+    if (['set_ai_policy','queue_report1','retry_job'].includes(command.type)) {
+      assert.equal(await valid(engine, 'SELECT partner_hub.flow_ai_control_effect_valid($1::json,$2::json,$3,$4,$5) AS valid',
+        [raw(flow),raw(after),commandId,command.type,stamp]),true,`exact AI effect: ${command.type}`);
+    }
+    if (['save_source','import_intake_source','exclude_source'].includes(command.type)) {
+      assert.equal(await valid(engine, 'SELECT partner_hub.flow_source_effect_valid($1::json,$2::json,$3,$4) AS valid',
+        [raw(flow),raw(after),command.type,stamp]),true,`exact source effect: ${command.type}`);
+    }
     // Keep the original SQLite command boundary subset as an independent oracle.
     assert.equal(sqliteAllows(flow as unknown as Probe, after as unknown as Probe, [schema.consultingFlowsCommandScopeTriggerSql,
       schema.consultingFlowsCommandEffectTriggerSql, schema.consultingFlowsCommandTargetTriggerSql]), true, `SQLite ${command.type}`);
     flow = after; seen.add(command.type);
   }
   await apply({ type: 'save_source', sourceText: body, privacyMasked: true });
-  const source = { ...file('source'), intakeFileId: 'synthetic-intake-file', intakeCaseId: flow.caseId, intakeCategory: '재무자료', intakeReviewedAt: stamp };
+  const source = { ...file('source'), intakeFileId: 'synthetic-intake-file', intakeSourceHash: 'b'.repeat(64), sourceReviewedAt: stamp, sourceReviewedBy: admin.id };
+  // Real PostgreSQL source ledgers, synthetic metadata only. No Storage bytes.
+  await engine.query(`INSERT INTO partner_hub.company_file_objects VALUES ($1,'synthetic/intake-source','가상.pdf','가상기업','재무자료','가상자료','가상담당','synthetic-user','synthetic@example.invalid','application/pdf',100,$2)`,[source.intakeFileId,stamp]);
+  await engine.query('INSERT INTO partner_hub.company_file_storage_keys SELECT id,storage_key FROM partner_hub.company_file_objects WHERE id=$1',[source.intakeFileId]);
+  await engine.query('INSERT INTO partner_hub.company_file_metadata SELECT id,original_name,company,category,title,assigned_trainee,uploaded_by_user_id,uploaded_by_email,content_type,size_bytes,created_at FROM partner_hub.company_file_objects WHERE id=$1',[source.intakeFileId]);
+  await engine.query("INSERT INTO partner_hub.company_file_object_integrity VALUES ($1,'metadata',NULL,'application/pdf')",[source.intakeFileId]);
   await apply({ type: 'import_intake_source', intakeFileId: source.intakeFileId, contentReviewed: true, fileConsent: true, privacyMasked: true }, admin, source, '재무자료');
   await apply({ type: 'exclude_source', fileId: source.id });
   await apply({ type: 'queue_report1' }); // blocked while AI is disabled; no provider call.
