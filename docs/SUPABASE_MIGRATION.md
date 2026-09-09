@@ -6,6 +6,15 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 
 ## 2026-09-10 현재 완료
 
+### 기존 Sites 데이터의 읽기 전용 이전·복원 사전 검사
+
+- 원본 Sites DB 목록 30개를 확인했고 누락/잘림은 없었다. 그러나 `portal_state` 행 본문은 `truncated_values=1`로 잘려 반환됐다. 조회가 끝났다는 표시를 무손실 백업 증거로 사용하지 않았다. 구형 `portal_chatgpt_member_bindings`를 포함한 모든 원본 표를 보존 대상으로 등록했다.
+- `scripts/check-sites-snapshot.mjs`에 `inspect`/`compare`만 제공한다. 동결된 독립 SQLite 사본을 읽기 전용으로 열고 원본 마이그레이션 99개의 정확한 스키마·전체 표·기본 SQLite 검사·타입/바이트 기반 해시를 대조한다. JSON 원문, 64비트 정수, 인접 실수, NULL/BLOB/UTF-8을 손실 정규화하지 않는다. 비밀번호·세션·본문·이메일·원본 경로는 출력하지 않는다.
+- 긴 본문, 중복 JSON 키, UTF-8/NUL, 비표준 키/날짜, 빠진/추가/변경 표, 외래 키, 악성 CHECK/view, WAL/SQL 입력, 행 제한, 복원본 차이와 종료 코드를 포함한 집중검사 **15/15**가 통과했다. 로그는 `work/sites-snapshot-focused-tests.log`다. 도구에는 가져오기·삭제·강제 통과·배포 기능이 없으며 실제 운영/원격 테이블은 변경하지 않았다.
+- 전체 회귀검사는 `--test-concurrency=1`로 **1021/1021**, 실패/건너뜀 0건, 약 311초에 통과했다(`work/sites-snapshot-final-tests.log`). TypeScript·lint·변경 파일 서식 검사도 통과했다. 직접 전송 절의 1006건은 직전 단계 기록이다.
+- Supabase Next.js 프로덕션 빌드·비활성 API HTTP 123건·인증/비밀키 경계 검사(`work/sites-snapshot-next-build.log`), 기존 Sites 빌드(`work/sites-snapshot-sites-build.log`)와 번들 한도(페이지 380725/460800, 전체 1043430/1310720바이트)를 통과했다. Sites 빌드 후 Next 타입을 다시 생성했다. 앱 소스·의존성·적용 SQL·운영 배포는 변경하지 않았다.
+- **이 단계는 실제 백업과 PostgreSQL 복원 완료가 아니다.** 모든 결과의 `migrationReady=false`를 유지한다. 원본 전체 사본·R2 바이트, 역사 FLOW의 별도 복원 경로, 인증 결속, Supavisor/Storage/Vercel 검증이 남았다. 상세 조건·종료 코드·분류·안전한 절체/역방향 데이터 보존은 [Sites 데이터 이전 사전 검사](SITES_DATA_MIGRATION_PREFLIGHT.md)를 따른다.
+
 ### Supabase 브라우저 직접 업로드·완료 API와 기존 업무 저장 연결
 
 - `0019_direct_file_transfers.sql`을 원격 `20260909164931`로 적용했다. 서버 전용 RLS 전송 예약 테이블 한 개를 추가해 총 38개다. `service_role`에는 SELECT/INSERT만 허용하고 UPDATE/DELETE 및 브라우저 접근은 막았다. 예약은 세션 해시·사용자·정확한 명세/명령 본문·서버 생성 staging 경로·만료/보존시각에 결속한다. 실제 원문 세션/Storage 서명/서비스 키는 저장하지 않는다. 기존 `0001`~`0018`은 변경하지 않았다. 적용 SHA-256: `28BE921900F55F7B6D6BE500E32BAD8F7AAE990CA357194FAD82FD0278CFBDEA`.
@@ -236,7 +245,7 @@ SUPABASE_STORAGE_BUCKET=partner-hub-private
 
 ## 다음 자동 진행 순서
 
-1. 기존 운영 자료의 읽기 전용 이관 사전검증·내보내기/복원 대조 설계(비표준 키·날짜·역사 FLOW 포함)
+1. 원본 전체 D1/R2 사본 확보 후 읽기 전용 사전검사 도구를 실제 자료에 실행하고, 원장/바이트 대조·역사 FLOW 이관/복원 경로 검증(현재는 합성 SQLite 검사 도구만 완료)
 2. 만료 staging·미참조 최종 객체·불변 버전의 보존/정리 절차와 안전한 재시도 검증
 3. 실제 Supavisor 연결·독립 다중 세션 경합·최종 스키마 무결성 검증
 4. 비공개 버킷 생성 및 실제 Storage 서명/CORS·최대 크기·대용량 다운로드 검증; 필요 시 TUS 재개 전송 연결

@@ -4,6 +4,10 @@
 
 사용자 선택에 따라 현재 이전 대상은 **Vercel Next.js + Supabase PostgreSQL/비공개 Storage**다. 작업 브랜치는 `codex/supabase-migration`이며, 아래 Turso/Blob 기록은 이전 단계의 검증 기록이다. 현재 완료 범위와 미완료 항목은 [Supabase 이전 현황](SUPABASE_MIGRATION.md)을 따른다.
 
+최신 추가 작업은 [기존 Sites 데이터 이전 사전 검사](SITES_DATA_MIGRATION_PREFLIGHT.md)다. 실제 원본 목록 30개와 구형 신원 결속 표를 확인했다. 긴 `portal_state` 본문은 조회 도구에서 잘리므로 백업으로 사용하지 않았다. 동결된 독립 SQLite 사본에 대한 읽기 전용 검사/복원 사본 비교 CLI와 합성 회귀검사 **15개**를 추가했다. JSON 원문·큰 정수·타입·해시·스키마 누락·잘못된 날짜/파일 경로를 검사하고, 임의 SQL 실행·WAL 사본·인증 원문 출력·자동 이관/삭제는 제공하지 않는다. 실제 운영 백업·Supabase 복원은 아직 미완료이며 원본 D1/R2 전체 사본이 필요하다.
+
+최신 전체 검사 **1021/1021**, 실패/건너뜀 0건이다(`work/sites-snapshot-final-tests.log`, 직렬 실행 약 311초). Supabase Next.js 빌드·비활성 HTTP 123건·인증/비밀키 경계, Sites 빌드·번들 한도와 Next 타입 재생성 후 TypeScript·lint·변경 파일 서식 검사도 통과했다. 빌드 로그는 `work/sites-snapshot-next-build.log`, `work/sites-snapshot-sites-build.log`다. 아래 1006건은 직전 직접 전송 단계의 기록이다.
+
 Supabase MCP 연결, 서버 전용 38개 테이블 적용, 실제 PostgreSQL 롤백·RLS 검사, 관리자/파트너 독립 인증, 명단·초안·기업 파일·AI Step 0 원장, 상담 FLOW 루트·운영 통계·관리자 파일 재고/복구에 이어 **브라우저 직접 업로드와 완료 API를 기존 업무 저장에 연결했다.** 실제 PostgreSQL 엔진·독립 인증·Storage HTTP/버전 원장 어댑터를 결합해 검사한다. 시험의 파일 바이트와 AI 제공자는 모의 구성으로 실제 Supabase Storage·Anthropic 네트워크 검증은 아니다.
 
 최신 직접 전송 마이그레이션 `0019`는 원격 `20260909164931`이다. Vercel에는 업로드 명세와 완료 요청 JSON만 보내고 파일은 Supabase 비공개 임시 경로로 직접 PUT한다. 최종 확정 시 서버가 바이트·해시·권한을 확인하고 별도 불변 최종 객체 및 기존 기업/FLOW 영수증에 연결한다. 10분 제출 제한, 서명 지연/시계 여유를 포함한 133분 보존 계산, 사용자별 20개 예약 한도, 서버 생성 경로와 세션 결속을 적용한다. Storage 서명 자체를 짧게 철회할 수 있다고 가정하지 않는다.

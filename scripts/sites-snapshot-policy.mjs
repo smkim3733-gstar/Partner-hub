@@ -1,0 +1,42 @@
+// Inventory policy, not permission to import, delete, or reset production data.
+// Every source table remains in the SQLite backup, including archived credentials.
+export const sourceTablePolicy = Object.freeze({
+  ai_diagnosis_runs: 'preserve-business-history',
+  application_drafts: 'preserve-business-history',
+  company_file_assignments: 'preserve-file-ledger',
+  company_file_case_links: 'preserve-file-ledger',
+  company_file_metadata: 'preserve-file-ledger',
+  company_file_object_checksums: 'preserve-file-ledger',
+  company_file_object_integrity: 'preserve-file-ledger',
+  company_file_objects: 'preserve-file-ledger',
+  company_file_storage_keys: 'preserve-file-ledger',
+  company_file_upload_requests: 'preserve-file-ledger',
+  consulting_flow_file_metadata: 'preserve-file-ledger',
+  consulting_flow_file_object_checksums: 'preserve-file-ledger',
+  consulting_flow_file_object_integrity: 'preserve-file-ledger',
+  consulting_flow_file_owners: 'preserve-file-ledger',
+  consulting_flow_upload_completions: 'preserve-file-ledger',
+  consulting_flow_upload_requests: 'preserve-file-ledger',
+  consulting_flows: 'historical-import-required',
+  portal_auth_limits: 'archive-do-not-activate',
+  portal_chatgpt_identity_bindings: 'archive-sites-identity-only',
+  portal_chatgpt_member_bindings: 'archive-sites-identity-only',
+  portal_conflict_receipts: 'archive-do-not-activate',
+  portal_conflict_recovery_stats: 'preserve-operational-history',
+  portal_duplicate_request_stats: 'preserve-operational-history',
+  portal_login_stats: 'preserve-operational-history',
+  portal_password_accounts: 'credential-binding-review-required',
+  portal_password_link_stats: 'preserve-operational-history',
+  portal_password_links: 'archive-do-not-activate',
+  portal_password_sessions: 'archive-do-not-activate',
+  portal_save_conflict_stats: 'preserve-operational-history',
+  portal_state: 'preserve-business-history',
+});
+
+export const unverifiedMigrationGates = Object.freeze([
+  'source-export-provenance-and-cutover-freeze',
+  'complete-storage-bytes-and-ledger-reconciliation',
+  'historical-postgresql-import-and-restore',
+  'standalone-identity-and-credential-binding',
+  'vercel-preview-and-cutover-rollback',
+]);
