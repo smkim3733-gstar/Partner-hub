@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers';
+import { env } from '@/lib/platform-runtime';
 import {
   applicationDraftsIdentityTriggerSql,
   applicationDraftsInsertTriggerSql,

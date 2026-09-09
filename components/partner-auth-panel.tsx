@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { passwordProblem } from '@/lib/password-policy';
 import { isValidLoginEmail } from '@/lib/member-email';
 import { readPasswordAuthResponse } from '@/lib/password-auth-response';
+import { sitesSignInEnabled } from '@/lib/platform-auth-capabilities';
 
 export function PartnerAuthPanel({
   initialMode = 'login',
@@ -43,6 +44,7 @@ export function PartnerAuthPanel({
     setSuccess('');
   }
   async function legacySignIn() {
+    if (!sitesSignInEnabled) return;
     if (lock.current) return;
     lock.current = true;
     setBusy(true);
@@ -352,16 +354,18 @@ export function PartnerAuthPanel({
               기존 계정의 비밀번호를 바꿀 수는 없습니다.
             </p>
           )}
-          <div className="mt-5 border-t pt-4 text-center">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={legacySignIn}
-              className="inline-flex min-h-11 items-center px-3 text-xs text-slate-500 underline disabled:opacity-50"
-            >
-              대표 관리자 · 기존 ChatGPT 로그인
-            </button>
-          </div>
+          {sitesSignInEnabled && (
+            <div className="mt-5 border-t pt-4 text-center">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={legacySignIn}
+                className="inline-flex min-h-11 items-center px-3 text-xs text-slate-500 underline disabled:opacity-50"
+              >
+                대표 관리자 · 기존 ChatGPT 로그인
+              </button>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

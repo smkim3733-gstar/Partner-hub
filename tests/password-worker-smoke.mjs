@@ -1,5 +1,6 @@
 // Isolated workerd + real D1 smoke test. No live database, user account, email or paid AI is touched.
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
 import { createRequire } from 'node:module';
 import { readFile, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
@@ -11,6 +12,10 @@ const { Miniflare, convertV4MiniflareOptions } = require(
   require.resolve('miniflare', { paths: [wrangler] }),
 );
 const { build } = require(require.resolve('esbuild', { paths: [wrangler] }));
+const httpDatabase = process.argv.includes('--d1-http');
+const httpBucket = process.argv.includes('--r2-http');
+const r2BridgeSecret = randomBytes(32).toString('hex');
+const bridgeSecret = randomBytes(32).toString('hex');
 const bundle = await build({
   stdin: {
     contents: `
@@ -49,7 +54,17 @@ export default { async fetch(request) {
 } };`,
     resolveDir: project,
   },
-  alias: { '@': project },
+  alias: {
+    '@': project,
+    ...(httpDatabase || httpBucket
+      ? {
+          '@/lib/platform-runtime': path.join(
+            project,
+            'tests/d1-http-runtime.ts',
+          ),
+        }
+      : {}),
+  },
   bundle: true,
   write: false,
   format: 'esm',
@@ -57,22 +72,96 @@ export default { async fetch(request) {
   target: 'es2022',
   external: ['cloudflare:workers', 'node:*'],
 });
+const bridgeBundle = httpDatabase
+  ? await build({
+      entryPoints: [path.join(project, 'infra/d1-bridge/worker.ts')],
+      bundle: true,
+      write: false,
+      format: 'esm',
+      platform: 'node',
+      target: 'es2022',
+      external: ['node:*'],
+    })
+  : null;
+const r2BridgeBundle = httpBucket
+  ? await build({
+      entryPoints: [path.join(project, 'infra/r2-bridge/worker.ts')],
+      bundle: true,
+      write: false,
+      format: 'esm',
+      platform: 'node',
+      target: 'es2022',
+      external: ['node:*'],
+    })
+  : null;
 let outboundRequests = 0;
 const mf = new Miniflare(
   convertV4MiniflareOptions({
-    name: 'partner-hub-test',
-    script: bundle.outputFiles[0].text,
-    modules: true,
-    compatibilityDate: '2026-05-15',
-    compatibilityFlags: ['nodejs_compat'],
-    d1Databases: ['DB'],
-    r2Buckets: ['AI_SOURCE_FILES'],
-    outboundService: () => {
-      outboundRequests++;
-      throw new Error(
-        'External requests are forbidden in the isolated partner pilot',
-      );
-    },
+    workers: [
+      {
+        name: 'partner-hub-test',
+        script: bundle.outputFiles[0].text,
+        modules: true,
+        compatibilityDate: '2026-05-15',
+        compatibilityFlags: ['nodejs_compat'],
+        d1Databases: { DB: 'isolated-portal-test-db' },
+        serviceBindings: {
+          ...(httpDatabase ? { D1_HTTP: 'd1-bridge-test' } : {}),
+          ...(httpBucket ? { R2_HTTP: 'r2-bridge-test' } : {}),
+        },
+        bindings: {
+          ...(httpDatabase ? { D1_BRIDGE_SECRET: bridgeSecret } : {}),
+          ...(httpBucket ? { R2_BRIDGE_SECRET: r2BridgeSecret } : {}),
+        },
+        r2Buckets: { AI_SOURCE_FILES: 'isolated-portal-test-r2' },
+        outboundService: () => {
+          outboundRequests++;
+          throw new Error(
+            'External requests are forbidden in the isolated partner pilot',
+          );
+        },
+      },
+      ...(httpDatabase
+        ? [
+            {
+              name: 'd1-bridge-test',
+              script: bridgeBundle.outputFiles[0].text,
+              modules: true,
+              compatibilityDate: '2026-08-26',
+              compatibilityFlags: ['nodejs_compat'],
+              d1Databases: { DB: 'isolated-portal-test-db' },
+              bindings: {
+                D1_BRIDGE_ENABLED: '1',
+                D1_BRIDGE_SECRET: bridgeSecret,
+              },
+              outboundService: () => {
+                outboundRequests++;
+                throw new Error('External calls forbidden in bridge test.');
+              },
+            },
+          ]
+        : []),
+      ...(httpBucket
+        ? [
+            {
+              name: 'r2-bridge-test',
+              script: r2BridgeBundle.outputFiles[0].text,
+              modules: true,
+              compatibilityDate: '2026-08-26',
+              compatibilityFlags: ['nodejs_compat'],
+              r2Buckets: { AI_SOURCE_FILES: 'isolated-portal-test-r2' },
+              bindings: {
+                R2_BRIDGE_ENABLED: '1',
+                R2_BRIDGE_SECRET: r2BridgeSecret,
+              },
+              outboundService: () => {
+                outboundRequests++;
+                throw new Error('External calls forbidden in R2 bridge test.');
+              },
+            },
+          ]
+        : []),
+    ],
   }),
 );
 const origin = 'https://password-runtime.example.invalid';
@@ -1724,7 +1813,9 @@ try {
     }),
   ]);
   assert.deepEqual(
-    ownerRaceResponses.map((response) => response.status).sort(),
+    ownerRaceResponses
+      .map((response) => response.status)
+      .sort((left, right) => left - right),
     [200, 403],
   );
   checks.push(
@@ -13335,7 +13426,11 @@ try {
   console.log(
     JSON.stringify(
       {
-        runtime: 'workerd + isolated D1/R2',
+        runtime: httpBucket
+          ? `workerd + authenticated ${httpDatabase ? 'D1/R2' : 'R2'} HTTP + isolated D1/R2`
+          : httpDatabase
+            ? 'workerd + authenticated D1 HTTP + isolated D1/R2'
+            : 'workerd + isolated D1/R2',
         checksPassed: checks.length,
         checks,
         liveWrites: 0,

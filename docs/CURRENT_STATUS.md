@@ -1,5 +1,13 @@
 # 현재 구현과 다음 확인 순서
 
+## 2026-09-09 Vercel 저장소 전환
+
+`main`의 새 배포 경로는 Vercel Marketplace Turso DB와 비공개 Vercel Blob입니다. Cloudflare 계정·별도 Worker 없이 구성하며 기존 Sites 운영과 원본 SQL 99개는 유지합니다. 이전 준비 브랜치는 `codex/vercel-migration`이며, Vercel에는 `main`을 연결합니다. [연결·초기 설정·데이터 이관 안내](VERCEL_STORAGE.md)를 현재 기준으로 사용합니다.
+
+로컬 검증: 전체 테스트 892개, 실제 libSQL의 스키마 102개 적용·외래 키·트리거·원자적 롤백, Blob 모의 저장소의 기업자료/FLOW 업로드·다운로드·재시도·무결성·세션 철회, Next 프로덕션 빌드와 비활성 API 경계 HTTP 123건, TypeScript·lint 및 기존 Sites 빌드·번들 제한 검사를 통과했습니다. 실제 Turso/Blob 연결, 기존 운영 데이터 이관, 공개 Vercel 배포는 별도이며 완료로 간주하지 않습니다.
+
+아래 내용은 기존 Sites 기능과 이전 단계의 기록입니다.
+
 2026-09-08 기준. 이 문서는 현재 코드의 기능과 운영 경계를 정리한다. 날짜별 검증 문서는 당시 기록이며, 과거의 배포 대기 문구나 테스트 수를 현재 상태로 해석하지 않는다. 실제 반영 결과는 Sites 배포 이력과 로컬 `outputs/release/` 기록을 기준으로 확인한다.
 
 ## 최신 연속 개발 지점

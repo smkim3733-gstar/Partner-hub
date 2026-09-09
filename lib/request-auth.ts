@@ -1,8 +1,11 @@
 import { isValidLoginEmail, normalizeLoginEmail } from '@/lib/member-email';
+import { trustSitesIdentityHeaders } from '@/lib/platform-auth-capabilities';
+import { platformRateLimitClientKey } from '@/lib/platform-client-address';
 
 const SHARED_RATE_LIMIT_KEY = 'shared-no-edge-ip';
 
 export function chatGPTIdentityFromRequest(request: Request) {
+  if (!trustSitesIdentityHeaders) return null;
   const id = request.headers.get('oai-authenticated-user-id')?.trim() ?? '';
   const email = normalizeLoginEmail(
     request.headers.get('oai-authenticated-user-email') ?? '',
@@ -23,6 +26,7 @@ export function chatGPTDisplayNameFromRequest(
   request: Request,
   fallback: string,
 ) {
+  if (!trustSitesIdentityHeaders) return fallback;
   const encoded = request.headers.get('oai-authenticated-user-full-name');
   const encoding = request.headers.get(
     'oai-authenticated-user-full-name-encoding',
@@ -35,9 +39,7 @@ export function chatGPTDisplayNameFromRequest(
     return fallback;
   try {
     const name = decodeURIComponent(encoded).trim();
-    return name &&
-      Array.from(name).length <= 80 &&
-      !/\p{Cc}/u.test(name)
+    return name && Array.from(name).length <= 80 && !/\p{Cc}/u.test(name)
       ? name
       : fallback;
   } catch {
@@ -46,6 +48,9 @@ export function chatGPTDisplayNameFromRequest(
 }
 
 export function rateLimitClientKey(request: Request) {
+  const platformKey = platformRateLimitClientKey(request);
+  if (platformKey !== null) return platformKey;
+  if (!trustSitesIdentityHeaders) return SHARED_RATE_LIMIT_KEY;
   const value = request.headers.get('cf-connecting-ip')?.trim();
   return value && value.length <= 64 && /^[0-9A-Fa-f:.]+$/.test(value)
     ? value.toLowerCase()

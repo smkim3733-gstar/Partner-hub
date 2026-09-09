@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "environment": "preview",
+  "vercel": { "projectId": "", "orgId": "", "appOrigin": "" },
+  "cloudflare": {
+    "accountId": "",
+    "workersSubdomain": "",
+    "databaseId": "",
+    "databaseName": "",
+    "bucketName": "",
+    "workers": { "d1": "", "r2": "", "files": "" }
+  }
+}

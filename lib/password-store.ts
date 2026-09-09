@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers';
+import { env } from '@/lib/platform-runtime';
 import { portalPasswordSchemaSql, portalStateId } from '@/db/schema';
 import { normalizeLoginEmail } from '@/lib/member-email';
 import { tokenHash } from '@/lib/password-crypto';
@@ -83,7 +83,7 @@ export async function limitAuthenticationAttempts(
   const db = await passwordDatabase();
   const now = Date.now();
   const until = now + 15 * 60_000;
-  // This header is supplied by Cloudflare at the edge; do not trust client-supplied X-Forwarded-For.
+  // Platform-specific edge trust only; arbitrary forwarding headers never select a bucket.
   const ip = rateLimitClientKey(request);
   const buckets: [string, number][] = [
     [`${purpose}:ip:${ip}`, purpose === 'register' ? 8 : 30],
@@ -427,8 +427,13 @@ export function sessionToken(request: Request): string | null {
   return readSessionCookieToken(request, cookieName(request));
 }
 export const sessionLifetimeSeconds = 12 * 60 * 60;
-export function sessionCookie(request: Request, token: string, clear = false) {
-  return `${cookieName(request)}=${clear ? '' : token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${clear ? 0 : sessionLifetimeSeconds}${new URL(request.url).protocol === 'https:' ? '; Secure' : ''}`;
+export function sessionCookie(
+  request: Request,
+  token: string,
+  clear = false,
+  lifetimeSeconds = sessionLifetimeSeconds,
+) {
+  return `${cookieName(request)}=${clear ? '' : token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${clear ? 0 : lifetimeSeconds}${new URL(request.url).protocol === 'https:' ? '; Secure' : ''}`;
 }
 export async function passwordIdentity(request: Request) {
   const token = sessionToken(request);

@@ -7,6 +7,7 @@ import {
   PORTAL_OWNER_EMAIL,
 } from '@/lib/member-email';
 import type { PortalLoginStat } from '@/lib/portal-state';
+import { standaloneAdminIdentity } from '@/lib/platform-admin-auth';
 import {
   chatGPTIdentityBinding,
   chatGPTIdentityConflictMessage,
@@ -21,10 +22,7 @@ import {
   chatGPTDisplayNameFromRequest,
   chatGPTIdentityFromRequest,
 } from '@/lib/request-auth';
-import {
-  membersRevisionOf,
-  partnerTypes,
-} from '@/lib/partner-registration';
+import { membersRevisionOf, partnerTypes } from '@/lib/partner-registration';
 import { diagnosisAssessmentStateError } from '@/lib/diagnosis-assessment';
 import { caseRecordStateError } from '@/lib/case-record-integrity';
 import { relatedRecordStateError } from '@/lib/related-record-integrity';
@@ -152,10 +150,7 @@ function applyAdminMemberEdits(
         incomingName.length > 40 ||
         /[\r\n\t]/.test(incomingName))
     )
-      throw new PortalAccessError(
-        '파트너 이름은 2~40자로 입력해 주세요.',
-        403,
-      );
+      throw new PortalAccessError('파트너 이름은 2~40자로 입력해 주세요.', 403);
     const allowedStatuses = portalMemberStatusTransitions[stored.status];
     if (!allowedStatuses?.has(incoming.status))
       throw new PortalAccessError(
@@ -223,9 +218,7 @@ function isPortalRecordArray(value: unknown): value is PortalRecord[] {
   return Array.isArray(value) && value.every(isPortalRecord);
 }
 
-function hasPortalRecordStructure(
-  value: unknown,
-): value is PortalStateRecord {
+function hasPortalRecordStructure(value: unknown): value is PortalStateRecord {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const state = value as Partial<PortalStateRecord>;
   return (
@@ -239,8 +232,7 @@ function hasPortalRecordStructure(
 }
 
 function portalStateMetadataError(state: PortalStateRecord): string | null {
-  if (state.version !== 1)
-    return '저장 데이터 버전을 확인할 수 없습니다.';
+  if (state.version !== 1) return '저장 데이터 버전을 확인할 수 없습니다.';
   if (
     !Number.isSafeInteger(state.consultationNumber) ||
     state.consultationNumber < 0
@@ -271,12 +263,7 @@ function portalRecordIdError(state: PortalStateRecord): string | null {
     const ids = new Set<string>();
     for (const record of state[key]) {
       const id = record.id;
-      if (
-        typeof id !== 'string' ||
-        !id ||
-        id !== id.trim() ||
-        ids.has(id)
-      )
+      if (typeof id !== 'string' || !id || id !== id.trim() || ids.has(id))
         return `${label} ID가 없거나 중복되었습니다.`;
       ids.add(id);
     }
@@ -314,7 +301,7 @@ function asPortalState(value: unknown): PortalStateRecord | null {
 
 function invalidPortalStateMessage(value: unknown) {
   return hasPortalRecordStructure(value)
-    ? portalStateMetadataError(value) ??
+    ? (portalStateMetadataError(value) ??
         portalRecordIdError(value) ??
         caseRecordStateError(value.cases, value.members) ??
         timelineRecordStateError(value.timeline, value.cases) ??
@@ -330,8 +317,11 @@ function invalidPortalStateMessage(value: unknown) {
           value.cases,
           value.members,
         ) ??
-        diagnosisAssessmentStateError(value.diagnosisAssessments, value.cases) ??
-        '저장 데이터 형식이 올바르지 않습니다.'
+        diagnosisAssessmentStateError(
+          value.diagnosisAssessments,
+          value.cases,
+        ) ??
+        '저장 데이터 형식이 올바르지 않습니다.')
     : '저장 데이터 형식이 올바르지 않습니다.';
 }
 
@@ -345,6 +335,18 @@ export async function requirePortalUser(
 ): Promise<PortalUser> {
   let passwordUser;
   try {
+    const admin = await standaloneAdminIdentity(request);
+    if (admin)
+      return {
+        id: `standalone:${admin.id}`,
+        email: admin.email,
+        displayName: admin.displayName,
+        role: 'admin',
+        memberId: null,
+        memberName: null,
+        permissions: null,
+        authMethod: 'password',
+      };
     passwordUser = await passwordIdentity(request);
   } catch (error) {
     if (
@@ -867,10 +869,7 @@ export function mergeStateForPortalUser(
       );
     const currentMemberRevision =
       current && membersRevisionOf(incoming) === membersRevisionOf(current);
-    if (
-      current &&
-      currentMemberRevision
-    )
+    if (current && currentMemberRevision)
       assertMemberDeletionsAllowed(current, incoming);
     const members = current
       ? incoming.members.map((member) => {

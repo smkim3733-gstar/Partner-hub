@@ -120,8 +120,8 @@ void test('unregistered extensions fail closed at the content boundary', async (
 
 void test('both upload routes validate content before durable storage', async () => {
   for (const route of [
-    'app/api/files/route.ts',
-    'app/api/consulting-flow/[caseId]/route.ts',
+    'lib/company-file-post.ts',
+    'lib/consulting-flow-handlers.ts',
   ]) {
     const source = await readFile(join(process.cwd(), route), 'utf8');
     assert.match(source, /uploadFileContentProblem/);

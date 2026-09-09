@@ -7,6 +7,8 @@ import {
 } from './company-file-policy';
 import { COMPANY_FILE_TITLE_MAX_LENGTH } from './company-file-metadata';
 import { downloadContentType } from './download-content-type';
+import { directPrivateFiles } from '@/lib/platform-file-transfer-capabilities';
+import { directCompanyUpload } from '@/lib/file-transfer-client';
 
 export type StoredCompanyFile = {
   id: string;
@@ -97,11 +99,14 @@ export async function uploadCompanyFile(
   form.set('consent', 'confirmed');
   if (input.recordingConsent) form.set('recordingConsent', 'confirmed');
   try {
-    const response = await fetch('/api/files', {
-      method: 'POST',
-      body: form,
-      headers: { 'idempotency-key': await companyUploadKey(input) },
-    });
+    const requestKey = await companyUploadKey(input);
+    const response = directPrivateFiles
+      ? await directCompanyUpload(form, requestKey)
+      : await fetch('/api/files', {
+          method: 'POST',
+          body: form,
+          headers: { 'idempotency-key': requestKey },
+        });
     let rawPayload: unknown;
     try {
       rawPayload = await response.json();

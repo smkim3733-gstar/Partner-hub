@@ -4,6 +4,26 @@
 
 이 저장소는 **개발 코드와 비식별 기획·검증 자료**의 보관본입니다. 실제 회원·기업·계약·녹취 데이터와 API 키는 포함하지 않습니다. GitHub 업로드는 운영 사이트 배포나 운영 데이터 백업을 의미하지 않습니다.
 
+## Next.js / Vercel 배포 기준
+
+새 Vercel 배포는 **Vercel Marketplace의 Turso DB + 비공개 Vercel Blob**을 사용합니다. Cloudflare 계정이나 별도 Worker는 필요하지 않습니다. 사용자가 GitHub 저장소를 Vercel에 연결하면 `vercel.json`의 Next.js 설정으로 빌드합니다. 연결 환경변수·초기 스키마·관리자 설정·기존 데이터 이관 주의사항은 **[Vercel 저장소 연결 안내](docs/VERCEL_STORAGE.md)**를 기준으로 진행하세요.
+
+`pnpm storage:check`는 대상 연결과 스키마 내역을 확인하고, `pnpm storage:init`은 새 DB에 스키마를 적용합니다. `pnpm admin:vercel`은 독립 관리자 비밀번호를 최초 설정합니다. 실제 서비스 자원 연결·기존 데이터 복사·공개 배포는 소스 변경과 별개입니다.
+
+## 이전 단계 기록 — 기존 Sites 및 Cloudflare HTTP 검증
+
+아래는 이전 설계와 회귀 검증 기록입니다. 새 Vercel 배포의 요구사항이 아닙니다.
+
+`codex/vercel-migration`은 공식 Next.js 실행 기반을 병행 준비하는 브랜치입니다. `pnpm run dev:next`는 화면 확인용이며, `pnpm run dev:next:local`은 운영 데이터와 분리된 로컬 DB·파일 저장소를 연결합니다. `pnpm run admin:next:local`로 로컬 관리자 비밀번호를 직접 최초 설정할 수 있습니다(자동 생성·기존 계정 덮어쓰기 없음). 기본/프로덕션 경로에서는 운영 저장소·독립 관리자 인증 연결 전까지 업무 API가 의도적으로 `503`을 반환합니다. 기존 Sites 운영 경로와 기본 실행 명령은 유지합니다. 자세한 범위와 다음 작업은 [Vercel 이전 안내](docs/VERCEL_MIGRATION.md)를 참고하세요.
+
+`pnpm run dev:next:local:http`는 같은 격리 저장소의 DB 호출을 서버 전용 HTTP 연결로 검증합니다. 실제 운영 DB 연결이나 파일 직접 전송은 아닙니다. [D1 HTTP 이전 안내](docs/D1_HTTP_MIGRATION.md)에 보안 경계와 후속 작업을 정리했습니다.
+
+`pnpm run dev:next:local:files`는 D1·R2 서버 HTTP 연결, 기업자료·FLOW 첨부의 짧은 수명 전송 권한과 별도 파일 전송 서버를 함께 켭니다. 네이티브 Worker에서 개별 최대 25MiB, FLOW 전사문·음성 합계 30MiB와 권한·재시도·무결성을 검증했습니다. 아직 로컬 전용이며 운영 인증·실제 계정/저장소 연결과 이관·배포는 남아 있습니다. [비공개 파일 전송 기록](docs/PRIVATE_FILE_TRANSFER_MIGRATION.md), [서버 R2 연결 범위](docs/R2_HTTP_MIGRATION.md)를 참고하세요.
+
+독립 원격 연결 후보도 추가했습니다. 빌드 선택과 런타임 활성화를 분리하며, 실제 Next HTTPS에서 관리자·파트너 인증, D1/R2 연결, 기업자료·FLOW 직접 전송을 합성 데이터로 검증했습니다. 실제 운영 계정·데이터 이관·Vercel 배포는 아직 미완료입니다. 설정과 남은 조건은 [독립 운영 연결 기록](docs/NEXT_REMOTE_BACKEND.md)에 있습니다.
+
+`deployment:prepare`는 명시한 대상 정보로 비활성 Worker 패키지와 파일별 해시를 생성하며 실제 배포·자원 생성은 하지 않습니다. [배포 준비 안내](docs/STANDALONE_DEPLOYMENT.md)에 계정 연결, 데이터 복원·대조, 단계별 활성화와 롤백 조건을 정리했습니다.
+
 ## 현재 개발 기능
 
 현재 구현과 순차 점검 목록은 [현재 상태 안내](docs/CURRENT_STATUS.md)를 기준으로 봅니다. 날짜별 문서와 아래 선행 검증 수치는 각 단계의 기록입니다.

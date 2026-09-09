@@ -100,8 +100,8 @@ const guardedRoutes = [
     sensitive: 'return json(await recoverFile',
   },
   {
-    file: 'app/api/files/route.ts',
-    handler: 'export async function POST',
+    file: 'lib/company-file-post.ts',
+    handler: 'export async function postCompanyFile',
     guard: 'checkSameOrigin(request);',
     sensitive: 'const state = await readPortalState();',
   },
@@ -118,8 +118,8 @@ const guardedRoutes = [
     sensitive: 'const state = await readPortalState();',
   },
   {
-    file: 'app/api/consulting-flow/[caseId]/route.ts',
-    handler: 'export async function POST',
+    file: 'lib/consulting-flow-handlers.ts',
+    handler: 'export async function postConsultingFlow',
     guard: 'assertSameOrigin(request);',
     sensitive: 'const initial = await loadFlowAccess',
   },

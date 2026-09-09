@@ -2,6 +2,7 @@
 /* oxlint-disable next/no-html-link-for-pages -- Authenticated source downloads use native navigation. */
 import { useEffect, useRef, useState, type SubmitEvent } from 'react';
 import { Button } from '@/components/ui/button';
+import { CompanyFileDownload } from '@/components/company-file-download';
 import {
   Card,
   CardContent,
@@ -286,12 +287,13 @@ export function IntakeSourceReview({
               <legend className="mb-3 break-all text-sm font-bold">
                 검토 대상: {preview.file.name}
               </legend>
-              <a
+              <CompanyFileDownload
                 className="inline-flex min-h-11 items-center text-sm text-primary underline underline-offset-4"
-                href={`/api/files/${encodeURIComponent(preview.file.id)}`}
+                fileId={preview.file.id}
+                fileName={preview.file.name}
               >
                 선택한 원본 내려받기
-              </a>
+              </CompanyFileDownload>
               {preview.file.kind === 'text' ? (
                 <>
                   <label

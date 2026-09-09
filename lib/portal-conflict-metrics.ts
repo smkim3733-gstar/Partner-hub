@@ -1,4 +1,4 @@
-import { env, waitUntil } from 'cloudflare:workers';
+import { env, waitUntil } from '@/lib/platform-runtime';
 
 import {
   portalConflictReceiptsExpiryIndexSql,

@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - "codex/**"
+      - 'codex/**'
   pull_request:
 
 permissions:
@@ -15,6 +15,19 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  vercel-storage:
+    name: Vercel native storage (synthetic only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - run: npm install --global pnpm@11.19.0
+      - run: pnpm install --frozen-lockfile
+      - run: node --import ./tests/register.mjs --test tests/vercel-storage.test.ts tests/vercel-blob-transfer.test.ts
+      - run: pnpm run test:next:vercel
   verify:
     name: Full verification
     runs-on: ubuntu-latest
@@ -42,3 +55,75 @@ jobs:
 
       - name: Verify source
         run: pnpm run verify
+
+  next-foundation:
+    name: Next.js migration foundation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - name: Install pnpm
+        run: npm install --global pnpm@11.19.0
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build official Next.js
+        run: pnpm run build:next
+      - name: Check standalone runtime and migration boundary
+        run: pnpm run test:next
+      - name: Check Next local sessions and persistent file storage
+        run: pnpm run test:next:local
+      - name: Check local R2 streams and conditional writes
+        run: pnpm run test:next:local:r2
+
+  d1-http-compatibility:
+    name: Private D1/R2 HTTP compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - name: Install pnpm
+        run: npm install --global pnpm@11.19.0
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check native R2 HTTP byte transport and conditional writes
+        run: pnpm run test:r2:http
+      - name: Check existing workflows over authenticated D1/R2 HTTP
+        run: pnpm run test:storage:http
+      - name: Check Next authentication and files with D1 HTTP transport
+        run: pnpm run test:next:local:http
+      - name: Check scoped private file transfers in a native Worker
+        run: pnpm run test:files:worker
+      - name: Check direct file transport with real Next sessions
+        run: pnpm run test:next:local:files
+
+  next-remote-candidate:
+    name: Next remote backend candidate (synthetic only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - name: Install pnpm
+        run: npm install --global pnpm@11.19.0
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check remote production bundle and disabled runtime boundary
+        run: pnpm run test:next:remote:build
+      - name: Check independent auth and private file workflows over TLS
+        run: pnpm run test:next:remote
+      - name: Check generated standalone Worker package without deployment
+        run: pnpm run test:deployment:package

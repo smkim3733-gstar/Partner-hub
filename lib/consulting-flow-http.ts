@@ -42,7 +42,10 @@ export async function readFlowMultipartFormData(
     throw error;
   }
 }
-export async function parseFlowRequest(request: Request) {
+export async function parseFlowRequest(
+  request: Request,
+  validateTransfer?: (form: FormData) => Promise<void>,
+) {
   const contentType = request.headers.get('content-type') ?? '';
   const multipart = isMultipartFormDataContentType(contentType);
   let raw: unknown;
@@ -50,6 +53,9 @@ export async function parseFlowRequest(request: Request) {
   let audio: File | undefined;
   if (multipart) {
     const form = await readFlowMultipartFormData(request, 31 * 1024 * 1024);
+    // Optional server-owned transfer scope is checked before business parsing,
+    // command receipts, upload reservations or R2 writes.
+    await validateTransfer?.(form);
     const json = form.get('payload');
     if (typeof json !== 'string')
       throw new FlowError('업로드 요청 내용을 확인해 주세요.');
@@ -69,6 +75,8 @@ export async function parseFlowRequest(request: Request) {
     )
       throw new FlowError('전사문 1개와 보조 음성 1개만 첨부해 주세요.');
   } else {
+    if (validateTransfer)
+      throw new FlowError('파일 전송에는 첨부 형식이 필요합니다.', 400);
     raw = await readFlowJsonObject(request, 400_000);
   }
   const value = raw as {
@@ -93,7 +101,7 @@ export async function parseFlowRequest(request: Request) {
   };
 }
 export function describeUpload(
-  file: File,
+  file: Pick<File, 'name' | 'size'>,
   command: FlowCommand,
   now: string,
   slot: 'file' | 'audio' = 'file',

@@ -1,4 +1,7 @@
 'use client';
+import { directPrivateFiles } from '@/lib/platform-file-transfer-capabilities';
+import { directFlowUpload } from '@/lib/file-transfer-client';
+import { FlowFileDownload } from '@/components/company-file-download';
 /* oxlint-disable next/no-html-link-for-pages -- Protected report/download endpoints use native navigation. */
 import {
   useEffect,
@@ -468,12 +471,17 @@ export function ConsultingWorkflow({
         if (file) form.set('file', file);
         if (audio) form.set('audio', audio);
       }
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers:
-          file || audio ? undefined : { 'content-type': 'application/json' },
-        body: file || audio ? form : payload,
-      });
+      const response =
+        directPrivateFiles && (file || audio)
+          ? await directFlowUpload(caseId, form)
+          : await fetch(endpoint, {
+              method: 'POST',
+              headers:
+                file || audio
+                  ? undefined
+                  : { 'content-type': 'application/json' },
+              body: file || audio ? form : payload,
+            });
       let data;
       try {
         data = await readConsultingFlowMutationResponse(response, {
@@ -543,12 +551,14 @@ export function ConsultingWorkflow({
     }
   }
   const download = (id: string, label = '첨부 내려받기') => (
-    <a
-      href={`${endpoint}/files/${encodeURIComponent(id)}`}
+    <FlowFileDownload
+      caseId={caseId}
+      fileId={id}
+      fileName={flow?.files.find((file) => file.id === id)?.name ?? '첨부파일'}
       className="inline-flex min-h-11 items-center text-sm font-semibold text-primary underline underline-offset-4"
     >
       {label}
-    </a>
+    </FlowFileDownload>
   );
   if (loading)
     return (

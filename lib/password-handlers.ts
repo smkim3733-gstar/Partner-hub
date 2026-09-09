@@ -1,4 +1,8 @@
 import { portalStateId } from '@/db/schema';
+import {
+  loginStandaloneAdmin,
+  standaloneAdminRevocationStatements,
+} from '@/lib/platform-admin-auth';
 import { readPortalState } from '@/lib/portal-state';
 import { requirePortalUser, PortalAccessError } from '@/lib/portal-auth';
 import {
@@ -192,6 +196,8 @@ export const loginPassword = passwordHandler(async (request) => {
     Array.from(body.password).length > 128
   )
     throw new PasswordError(genericLoginError, 401);
+  const adminLogin = await loginStandaloneAdmin(request, email, body.password);
+  if (adminLogin) return passwordResponse({ ok: true }, 200, adminLogin.cookie);
   const db = await passwordDatabase();
   const account = await db
     .prepare(
@@ -238,6 +244,7 @@ export const loginPassword = passwordHandler(async (request) => {
         now + sessionLifetimeSeconds * 1000,
         portalStateId,
       ),
+    ...standaloneAdminRevocationStatements(db, previous, 'switch'),
   ]);
   if (results[1].meta.changes !== 1)
     throw new PasswordError(
@@ -250,13 +257,15 @@ export const loginPassword = passwordHandler(async (request) => {
 export const logoutPassword = passwordHandler(async (request) => {
   await passwordBody(request);
   const token = sessionToken(request);
-  if (token)
-    await (
-      await passwordDatabase()
-    )
-      .prepare('DELETE FROM portal_password_sessions WHERE token_hash = ?1')
-      .bind(tokenHash(token))
-      .run();
+  if (token) {
+    const db = await passwordDatabase();
+    await db.batch([
+      db
+        .prepare('DELETE FROM portal_password_sessions WHERE token_hash = ?1')
+        .bind(tokenHash(token)),
+      ...standaloneAdminRevocationStatements(db, token, 'logout'),
+    ]);
+  }
   return passwordResponse({ ok: true }, 200, sessionCookie(request, '', true));
 });
 
@@ -271,7 +280,9 @@ export const createPasswordLink = passwordHandler(async (request) => {
     );
   if (body.confirmed !== true)
     throw new PasswordError('기존 연락처로 본인을 확인한 후 발급해 주세요.');
-  const matchingIds = state.members.filter((member) => member.id === body.memberId);
+  const matchingIds = state.members.filter(
+    (member) => member.id === body.memberId,
+  );
   const member =
     matchingIds.length === 1 && matchingIds[0].status !== '정지'
       ? matchingIds[0]

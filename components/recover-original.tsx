@@ -1,6 +1,7 @@
 'use client';
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { CompanyFileDownload } from '@/components/company-file-download';
 import type { RecoveryControls, RecoveryPreview } from '@/lib/file-recovery';
 import { FileRecoverySubmission } from '@/lib/file-recovery-submission';
 import { readFileRecoveryPreviewResponse } from '@/lib/file-recovery-preview-response';
@@ -102,14 +103,14 @@ export function RecoverOriginal({
                 기존 진행번호에 자료 목록과 회수 이력만 추가합니다. 다른
                 신청으로 이동하거나 AI 분석을 실행하지 않습니다.
               </p>
-              <a
-                href={`/api/files/${encodeURIComponent(fileId)}`}
+              <CompanyFileDownload
+                fileId={fileId}
+                fileName={preview.fileName}
                 target="_blank"
-                rel="noopener noreferrer"
                 className="inline-flex min-h-10 items-center font-semibold text-sky-800 underline"
               >
                 권한 확인 후 원본 내려받기
-              </a>
+              </CompanyFileDownload>
               <label className="grid gap-1 font-semibold">
                 확인 사유 (5~500자)
                 <textarea

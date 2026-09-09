@@ -1,0 +1,33 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "@cloudflare/workers-types"],
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "paths": {
+      "@/lib/platform-runtime": ["./lib/platform-runtime.next.ts"],
+      "@/lib/platform-auth-capabilities": [
+        "./lib/platform-auth-capabilities.next.ts"
+      ],
+      "@/*": ["./*"]
+    },
+    "tsBuildInfoFile": ".next/tsconfig.next.tsbuildinfo"
+  },
+  "include": [
+    "next-env.d.ts",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "components/**/*.ts",
+    "components/**/*.tsx",
+    "lib/**/*.ts",
+    "db/**/*.ts",
+    "proxy.ts",
+    "next.config.ts",
+    ".next/types/**/*.ts",
+    ".next/dev/types/**/*.ts"
+  ],
+  "exclude": ["node_modules", "tests", "e2e", "work", "dist"]
+}

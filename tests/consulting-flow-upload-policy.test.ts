@@ -226,7 +226,7 @@ void test('consulting upload inputs use shared policy instead of literal lists',
 
 void test('flow route checks purpose and size before reading file content', async () => {
   const route = await readFile(
-    join(process.cwd(), 'app/api/consulting-flow/[caseId]/route.ts'),
+    join(process.cwd(), 'lib/consulting-flow-handlers.ts'),
     'utf8',
   );
   const sizePolicy = route.indexOf('const describedUpload = input.file');

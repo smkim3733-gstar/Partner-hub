@@ -37,7 +37,10 @@ void test('all browser pages receive the security boundary from proxy', async ()
 
   const proxySource = await readFile(join(process.cwd(), 'proxy.ts'), 'utf8');
   assert.match(proxySource, /applyBrowserSecurityHeaders\(response\.headers\)/);
-  assert.match(proxySource, /matcher:\s*\['\/', '\/account\/:path\*'\]/);
+  assert.match(
+    proxySource,
+    /matcher:\s*\['\/', '\/account\/:path\*', '\/api\/:path\*'\]/,
+  );
 
   const staticAssetHeaders = await readFile(
     join(process.cwd(), 'public', '_headers'),

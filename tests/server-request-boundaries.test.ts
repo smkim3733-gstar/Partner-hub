@@ -424,7 +424,7 @@ void test('legacy JSON consumers remain routed through the shared bounded reader
 
 void test('multipart consumers remain routed through the shared bounded reader', async () => {
   const expected = [
-    ['app/api/files/route.ts', 'readFlowMultipartFormData('],
+    ['lib/company-file-post.ts', 'readFlowMultipartFormData('],
     ['lib/consulting-flow-http.ts', 'readFlowMultipartFormData(request,'],
   ] as const;
   for (const [file, boundary] of expected) {
@@ -487,7 +487,7 @@ void test('dynamic route IDs remain routed through the shared path boundary', as
 void test('business request headers remain routed through shared boundaries', async () => {
   const expected = [
     ['app/api/state/route.ts', 'readIfMatchRevision(request)'],
-    ['app/api/files/route.ts', 'readIdempotencyKey(request)'],
+    ['lib/company-file-post.ts', 'readIdempotencyKey(request)'],
     ['app/api/state/route.ts', 'portalConflictReceiptFromRequest(request)'],
     ['app/api/register/route.ts', 'portalConflictReceiptFromRequest(request)'],
     [
