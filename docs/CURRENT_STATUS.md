@@ -1,5 +1,11 @@
 # 현재 구현과 다음 확인 순서
 
+## 2026-09-09 Supabase 이전 진행
+
+사용자 선택에 따라 현재 이전 대상은 **Vercel Next.js + Supabase PostgreSQL/비공개 Storage**다. 작업 브랜치는 `codex/supabase-migration`이며, 아래 Turso/Blob 기록은 이전 단계의 검증 기록이다. 현재 완료 범위와 미완료 항목은 [Supabase 이전 현황](SUPABASE_MIGRATION.md)을 따른다.
+
+Supabase MCP 연결, 서버 전용 원장 스키마 적용, 실제 PostgreSQL 롤백·RLS 검사, 파일 Storage 어댑터와 Supabase 모드 Next.js 빌드·비활성 API HTTP 123건 검증을 완료했다. 업무 SQL/트리거 이식, 직접 파일 전송 API 통합, 실제 Storage 연결과 운영 데이터 이관·Vercel 배포는 아직 완료하지 않았다. 기존 Sites 운영은 유지한다.
+
 ## 2026-09-09 Vercel 저장소 전환
 
 `main`의 새 배포 경로는 Vercel Marketplace Turso DB와 비공개 Vercel Blob입니다. Cloudflare 계정·별도 Worker 없이 구성하며 기존 Sites 운영과 원본 SQL 99개는 유지합니다. 이전 준비 브랜치는 `codex/vercel-migration`이며, Vercel에는 `main`을 연결합니다. [연결·초기 설정·데이터 이관 안내](VERCEL_STORAGE.md)를 현재 기준으로 사용합니다.

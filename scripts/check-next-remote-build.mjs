@@ -7,6 +7,8 @@ import { access } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const vercelStorage = process.argv.includes('--vercel');
+const supabaseStorage = process.argv.includes('--supabase');
+assert.equal(vercelStorage && supabaseStorage, false);
 for (const file of [
   '.env',
   '.env.local',
@@ -42,11 +44,19 @@ const env = {
   ANTHROPIC_API_KEY: '',
   ANTHROPIC_EXTERNAL_PROCESSING_ENABLED: 'false',
 };
-if (vercelStorage) {
-  env.PARTNER_HUB_NEXT_BACKEND = 'vercel-storage-v1';
-  env.TURSO_DATABASE_URL = 'libsql://synthetic.turso.io';
-  env.TURSO_AUTH_TOKEN = randomBytes(32).toString('hex');
-  env.BLOB_READ_WRITE_TOKEN = `vercel_blob_rw_synthetic_${randomBytes(32).toString('hex')}`;
+if (vercelStorage || supabaseStorage) {
+  if (supabaseStorage) {
+    env.PARTNER_HUB_NEXT_BACKEND = 'supabase-v1';
+    env.SUPABASE_URL = 'https://abcdefghijklmnopqrst.supabase.co';
+    env.SUPABASE_SECRET_KEY = `sb_secret_${randomBytes(32).toString('hex')}`;
+    env.SUPABASE_DATABASE_URL = `postgresql://postgres.abcdefghijklmnopqrst:${randomBytes(32).toString('hex')}@aws-0-synthetic.pooler.supabase.com:6543/postgres`;
+    env.SUPABASE_STORAGE_BUCKET = 'partner-hub-private';
+  } else {
+    env.PARTNER_HUB_NEXT_BACKEND = 'vercel-storage-v1';
+    env.TURSO_DATABASE_URL = 'libsql://synthetic.turso.io';
+    env.TURSO_AUTH_TOKEN = randomBytes(32).toString('hex');
+    env.BLOB_READ_WRITE_TOKEN = `vercel_blob_rw_synthetic_${randomBytes(32).toString('hex')}`;
+  }
   for (const key of [
     'PARTNER_HUB_D1_ORIGIN',
     'PARTNER_HUB_R2_ORIGIN',
@@ -61,7 +71,7 @@ for (const args of [
   [require.resolve('next/dist/bin/next'), 'build'],
   [
     'scripts/check-next-foundation.mjs',
-    vercelStorage ? '--vercel' : '--remote',
+    supabaseStorage ? '--supabase' : vercelStorage ? '--vercel' : '--remote',
   ],
 ]) {
   const child = spawn(process.execPath, args, {

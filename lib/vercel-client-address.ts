@@ -1,6 +1,8 @@
 import { isIP } from 'node:net';
 import { readVercelStorageConfig } from './vercel-storage-config';
 import { vercelStorageSelected } from './vercel-storage-policy.mjs';
+import { readSupabaseBackendConfig } from './supabase-backend-config';
+import { supabaseBackendSelected } from './supabase-backend-policy.mjs';
 import {
   readNextBackendConfig,
   nextBackendRequestAllowed,
@@ -37,7 +39,9 @@ export function vercelRateLimitClientKey(
   try {
     const config = vercelStorageSelected(environment)
       ? readVercelStorageConfig(environment)
-      : readNextBackendConfig(environment);
+      : supabaseBackendSelected(environment)
+        ? readSupabaseBackendConfig(environment)
+        : readNextBackendConfig(environment);
     if (!nextBackendRequestAllowed(request, config)) return null;
     // Vercel documents this edge header separately from an externally replaced
     // x-forwarded-for. Self-hosted/proxy-only installs must use the shared fallback.

@@ -30,6 +30,7 @@
     "start:next": "next start --hostname 127.0.0.1 --port 3001",
     "test:next": "node scripts/check-next-foundation.mjs",
     "test:next:vercel": "node scripts/check-next-remote-build.mjs --vercel",
+    "test:next:supabase": "node scripts/check-next-remote-build.mjs --supabase",
     "test:next:local": "node --import ./scripts/register-local.mjs tests/next-local-storage-smoke.mjs",
     "test:next:local:r2": "node --import ./scripts/register-local.mjs tests/next-local-r2-smoke.mjs",
     "test:next:local:http": "node --import ./scripts/register-local.mjs tests/next-local-storage-smoke.mjs --d1-http",

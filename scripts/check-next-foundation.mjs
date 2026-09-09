@@ -12,18 +12,23 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const require = createRequire(import.meta.url);
 const remoteBuild = process.argv.includes('--remote');
 const vercelBuild = process.argv.includes('--vercel');
-const connectedBuild = remoteBuild || vercelBuild;
-const secretKeys = vercelBuild
-  ? ['TURSO_AUTH_TOKEN', 'BLOB_READ_WRITE_TOKEN']
-  : [
-      'PARTNER_HUB_D1_SECRET',
-      'PARTNER_HUB_R2_SECRET',
-      'PARTNER_HUB_FILE_SECRET',
-    ];
+const supabaseBuild = process.argv.includes('--supabase');
+const connectedBuild = remoteBuild || vercelBuild || supabaseBuild;
+const secretKeys = supabaseBuild
+  ? ['SUPABASE_SECRET_KEY', 'SUPABASE_DATABASE_URL']
+  : vercelBuild
+    ? ['TURSO_AUTH_TOKEN', 'BLOB_READ_WRITE_TOKEN']
+    : [
+        'PARTNER_HUB_D1_SECRET',
+        'PARTNER_HUB_R2_SECRET',
+        'PARTNER_HUB_FILE_SECRET',
+      ];
 if (vercelBuild)
   assert.equal(process.env.PARTNER_HUB_NEXT_BACKEND, 'vercel-storage-v1');
 if (remoteBuild)
   assert.equal(process.env.PARTNER_HUB_NEXT_BACKEND, 'cloudflare-http-v1');
+if (supabaseBuild)
+  assert.equal(process.env.PARTNER_HUB_NEXT_BACKEND, 'supabase-v1');
 register('../tests/next-typescript-loader.mjs', import.meta.url);
 const auth = await import('../lib/request-auth.ts');
 const forgedHeaders = {
@@ -76,7 +81,7 @@ for (const file of outputFiles.filter((file) => file.endsWith('.js'))) {
       /createLocalFileHttpBridge|createLocalR2Bucket|createLocalR2HttpBridge/,
     );
     // Runtime secrets must not be compiled into either server or client output.
-    if (vercelBuild)
+    if (vercelBuild || supabaseBuild)
       assert.doesNotMatch(
         source,
         /internal\/d1\/v1\/batch|internal\/r2\/v1\/object|createNextD1HttpDatabase|createNextR2HttpBucket/,
@@ -105,7 +110,7 @@ if (connectedBuild) {
     const source = await readFile(join(staticRoot, file), 'utf8');
     assert.doesNotMatch(
       source,
-      /PARTNER_HUB_(?:D1|R2|FILE)_SECRET|standalone_admin_accounts|internal\/d1\/v1\/batch|internal\/r2\/v1\/object/,
+      /PARTNER_HUB_(?:D1|R2|FILE)_SECRET|SUPABASE_SECRET_KEY|SUPABASE_DATABASE_URL|storage_object_versions|standalone_admin_accounts|internal\/d1\/v1\/batch|internal\/r2\/v1\/object/,
       `Server-only backend code reached public output: ${file}`,
     );
     for (const key of secretKeys)
