@@ -9,6 +9,7 @@ import {
 // PGlite serializes its single connection: this is NOT multi-session race QA.
 export async function postgresFixture() {
   const engine = await PGlite.create({ parsers: { 20: (value) => BigInt(value) } });
+  let lastQueryError: unknown;
   try {
     await engine.exec(`CREATE ROLE anon; CREATE ROLE authenticated;
       CREATE ROLE service_role BYPASSRLS;`);
@@ -22,13 +23,19 @@ export async function postgresFixture() {
       '0007_company_file_ledgers.sql',
       '0008_ai_diagnosis_runs.sql',
       '0009_consulting_flow_core_guards.sql',
+      '0010_consulting_flow_file_ledgers.sql',
     ]) {
       await engine.exec(await readFile(new URL(`../supabase/migrations/${name}`, import.meta.url), 'utf8'));
     }
     function executor(connection: Pick<PGlite, 'query'>): SupabasePostgresExecutor {
       return {
         async unsafe(query, parameters = []) {
-          const result = await connection.query<Record<string, unknown>>(query, [...parameters]);
+          const result = await connection.query<Record<string, unknown>>(query, [...parameters]).catch((error: unknown) => {
+            // Synthetic, in-memory test diagnostics only. Production adapter
+            // intentionally redacts PostgreSQL query/parameter error details.
+            lastQueryError = error;
+            throw error;
+          });
           return Object.assign(result.rows, {
             command: /^\s*(\w+)/.exec(query)?.[1].toUpperCase(),
             count: result.affectedRows ?? result.rows.length,
@@ -42,7 +49,7 @@ export async function postgresFixture() {
         return engine.transaction((transaction) => callback(executor(transaction)));
       },
     });
-    return { engine, db, close: () => engine.close() };
+    return { engine, db, lastQueryError: () => lastQueryError, close: () => engine.close() };
   } catch (error) {
     await engine.close();
     throw error;

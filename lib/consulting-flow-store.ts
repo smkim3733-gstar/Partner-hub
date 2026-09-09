@@ -1,4 +1,6 @@
 import { env } from '@/lib/platform-runtime';
+import { isPostgresDatabase } from '@/lib/database-dialect';
+import { flowFileLedgerSql } from '@/lib/consulting-flow-file-sql';
 import {
   consultingFlowFileMetadataLifecycleTriggerSql,
   consultingFlowFileMetadataNoDeleteTriggerSql,
@@ -165,6 +167,12 @@ let flowDatabaseInitialization: Promise<void> | undefined;
 export async function flowDatabase() {
   const db = flowEnvironment().DB;
   if (!db) throw new FlowError('진행 저장소가 연결되지 않았습니다.', 503);
+  if (isPostgresDatabase(db)) {
+    // Intentionally absent until the FULL root/schema/query port is ready.
+    // Do not let a cached SQLite initialization expose partially ported writes.
+    await db.prepare('SELECT partner_hub.assert_consulting_flow_schema() AS ready').first();
+    return db;
+  }
   if (!flowDatabaseInitialization) {
     const initialization = (async () => {
       await ensureCompanyFileTables(db);
@@ -264,6 +272,13 @@ export async function flowDatabase() {
     });
   }
   await flowDatabaseInitialization;
+  return db;
+}
+async function flowFileLedgerDatabase() {
+  const db = flowEnvironment().DB;
+  if (!db) throw new FlowError('진행 저장소가 연결되지 않았습니다.', 503);
+  if (!isPostgresDatabase(db)) return flowDatabase();
+  await db.prepare('SELECT partner_hub.assert_flow_file_ledger_schema() AS ready').first();
   return db;
 }
 export function flowBucket() {
@@ -638,95 +653,6 @@ const flowFileOwnershipViolationSql = (
         length(object_checksum.sha256) <> 64 OR
         object_checksum.sha256 GLOB '*[^0-9a-f]*')))
   LIMIT 1`;
-const claimFlowFileOwnershipSql = `INSERT INTO consulting_flow_file_owners
-    (file_id, case_id, storage_key, created_at)
-  SELECT ?1, ?2, ?3, ?4
-  WHERE EXISTS (SELECT 1 FROM consulting_flows
-      WHERE case_id = ?2 AND revision = ?5 AND payload = ?6)
-    AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners
-      WHERE file_id = ?1 OR storage_key = ?3)
-  UNION ALL
-  SELECT NULL, ?2, ?3, ?4
-  WHERE NOT EXISTS (SELECT 1 FROM consulting_flows
-      WHERE case_id = ?2 AND revision = ?5 AND payload = ?6)
-    OR EXISTS (SELECT 1 FROM consulting_flow_file_owners
-      WHERE (file_id = ?1 OR storage_key = ?3)
-        AND NOT (file_id = ?1 AND case_id = ?2 AND storage_key = ?3 AND
-          created_at = ?4))`;
-const claimFlowFileMetadataSql = `INSERT INTO consulting_flow_file_metadata
-    (file_id, original_name, content_type, size_bytes, purpose, intake_file_id,
-      intake_source_hash, source_reviewed_at, source_reviewed_by)
-  SELECT ?1, ?4, ?5, ?6, ?8, ?9, ?10, ?11, ?12
-  WHERE EXISTS (SELECT 1 FROM consulting_flows
-      WHERE case_id = ?2 AND revision = ?13 AND payload = ?14)
-    AND EXISTS (SELECT 1 FROM consulting_flow_file_owners
-      WHERE file_id = ?1 AND case_id = ?2 AND storage_key = ?3 AND created_at = ?7)
-    AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_metadata WHERE file_id = ?1)
-  UNION ALL
-  SELECT NULL, ?4, ?5, ?6, ?8, ?9, ?10, ?11, ?12
-  WHERE NOT EXISTS (SELECT 1 FROM consulting_flows
-      WHERE case_id = ?2 AND revision = ?13 AND payload = ?14)
-    OR NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners
-      WHERE file_id = ?1 AND case_id = ?2 AND storage_key = ?3 AND created_at = ?7)
-    OR EXISTS (SELECT 1 FROM consulting_flow_file_metadata WHERE file_id = ?1 AND
-      NOT (original_name = ?4 AND content_type = ?5 AND size_bytes = ?6 AND
-        purpose = ?8 AND intake_file_id IS ?9 AND intake_source_hash IS ?10 AND
-        source_reviewed_at IS ?11 AND source_reviewed_by IS ?12))`;
-const transitionFlowFilePurposeSql = `INSERT INTO consulting_flow_file_metadata
-    (file_id, original_name, content_type, size_bytes, purpose, intake_file_id,
-      intake_source_hash, source_reviewed_at, source_reviewed_by)
-  SELECT CASE WHEN
-    EXISTS (SELECT 1 FROM consulting_flows
-      WHERE case_id = ?2 AND revision = ?14 AND payload = ?15) AND
-    EXISTS (SELECT 1 FROM consulting_flow_file_owners WHERE file_id = ?1 AND
-      case_id = ?2 AND storage_key = ?3 AND created_at = ?7) AND
-    EXISTS (SELECT 1 FROM consulting_flow_file_metadata WHERE
-      file_id = ?1 AND
-      original_name = ?4 AND content_type = ?5 AND size_bytes = ?6 AND purpose = ?8 AND
-      intake_file_id IS ?10 AND
-      intake_source_hash IS ?11 AND source_reviewed_at IS ?12 AND
-      source_reviewed_by IS ?13)
-    THEN ?1 ELSE NULL END,
-    ?4, ?5, ?6, ?9, ?10, ?11, ?12, ?13
-  ON CONFLICT(file_id) DO UPDATE SET purpose = excluded.purpose`;
-const claimFlowFileObjectIntegritySql = `INSERT INTO consulting_flow_file_object_integrity
-    (file_id, validation_mode, r2_etag, r2_content_type)
-  SELECT ?1, 'etag', ?15, ?5
-  WHERE EXISTS (SELECT 1 FROM consulting_flows
-      WHERE case_id = ?2 AND revision = ?13 AND payload = ?14)
-    AND EXISTS (SELECT 1 FROM consulting_flow_file_owners
-      WHERE file_id = ?1 AND case_id = ?2 AND storage_key = ?3 AND created_at = ?7)
-    AND EXISTS (SELECT 1 FROM consulting_flow_file_metadata WHERE file_id = ?1 AND
-      original_name = ?4 AND content_type = ?5 AND size_bytes = ?6 AND
-      purpose = ?8 AND intake_file_id IS ?9 AND intake_source_hash IS ?10 AND
-      source_reviewed_at IS ?11 AND source_reviewed_by IS ?12)
-    AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_object_integrity WHERE file_id = ?1)
-  UNION ALL
-  SELECT NULL, 'etag', ?15, ?5
-  WHERE NOT EXISTS (SELECT 1 FROM consulting_flows
-      WHERE case_id = ?2 AND revision = ?13 AND payload = ?14)
-    OR NOT EXISTS (SELECT 1 FROM consulting_flow_file_owners
-      WHERE file_id = ?1 AND case_id = ?2 AND storage_key = ?3 AND created_at = ?7)
-    OR NOT EXISTS (SELECT 1 FROM consulting_flow_file_metadata WHERE file_id = ?1 AND
-      original_name = ?4 AND content_type = ?5 AND size_bytes = ?6 AND
-      purpose = ?8 AND intake_file_id IS ?9 AND intake_source_hash IS ?10 AND
-      source_reviewed_at IS ?11 AND source_reviewed_by IS ?12)
-    OR EXISTS (SELECT 1 FROM consulting_flow_file_object_integrity WHERE file_id = ?1)`;
-const claimFlowFileObjectChecksumSql = `INSERT INTO consulting_flow_file_object_checksums
-    (file_id, sha256)
-  SELECT ?1, ?2
-  WHERE EXISTS (SELECT 1 FROM consulting_flow_file_object_integrity
-      WHERE file_id = ?1 AND validation_mode = 'etag'
-        AND r2_etag = ?3 AND r2_content_type = ?4)
-    AND NOT EXISTS (SELECT 1 FROM consulting_flow_file_object_checksums
-      WHERE file_id = ?1)
-  UNION ALL
-  SELECT NULL, ?2
-  WHERE NOT EXISTS (SELECT 1 FROM consulting_flow_file_object_integrity
-      WHERE file_id = ?1 AND validation_mode = 'etag'
-        AND r2_etag = ?3 AND r2_content_type = ?4)
-    OR EXISTS (SELECT 1 FROM consulting_flow_file_object_checksums
-      WHERE file_id = ?1)`;
 function flowFileOwnershipValues(file: FlowFile) {
   return [
     file.id,
@@ -995,7 +921,7 @@ export async function reserveFlowUploads(input: {
       '첨부파일 보관 예약을 확인할 수 없습니다. 자료를 다시 등록해 주세요.',
       503,
     );
-  const db = await flowDatabase();
+  const db = await flowFileLedgerDatabase();
   try {
     const existing = await readReusableFlowUploadReservation(db, input);
     if (existing) return existing;
@@ -1087,25 +1013,9 @@ export async function readFlowFileObjectIntegrity(
   caseId: string,
   file: FlowFile,
 ): Promise<FlowFileObjectIntegrity> {
-  const row = await (
-    await flowDatabase()
-  )
-    .prepare(
-      `SELECT object_integrity.validation_mode, object_integrity.r2_etag,
-        object_integrity.r2_content_type, object_checksum.sha256 AS r2_sha256
-      FROM consulting_flow_file_owners owner
-      JOIN consulting_flow_file_metadata metadata ON metadata.file_id = owner.file_id
-      JOIN consulting_flow_file_object_integrity object_integrity
-        ON object_integrity.file_id = owner.file_id
-      LEFT JOIN consulting_flow_file_object_checksums object_checksum
-        ON object_checksum.file_id = owner.file_id
-      WHERE owner.file_id = ?1 AND owner.case_id = ?2 AND owner.storage_key = ?3 AND
-        owner.created_at = ?4 AND metadata.original_name = ?5 AND
-        metadata.content_type = ?6 AND metadata.size_bytes = ?7 AND
-        metadata.purpose = ?8 AND metadata.intake_file_id IS ?9 AND
-        metadata.intake_source_hash IS ?10 AND metadata.source_reviewed_at IS ?11 AND
-        metadata.source_reviewed_by IS ?12`,
-    )
+  const db = await flowFileLedgerDatabase();
+  const row = await db
+    .prepare(flowFileLedgerSql(db).readIntegrity)
     .bind(
       file.id,
       caseId,
@@ -2854,7 +2764,7 @@ export async function commitFlow(
             sourceReviewedBy,
           ] = flowFileOwnershipValues(file);
           return db
-            .prepare(transitionFlowFilePurposeSql)
+            .prepare(flowFileLedgerSql(db).transitionPurpose)
             .bind(
               id,
               after.caseId,
@@ -2875,7 +2785,7 @@ export async function commitFlow(
         }),
         ...newFiles.flatMap((file) => [
           db
-            .prepare(claimFlowFileOwnershipSql)
+            .prepare(flowFileLedgerSql(db).claimOwner)
             .bind(
               file.id,
               after.caseId,
@@ -2885,7 +2795,7 @@ export async function commitFlow(
               payload,
             ),
           db
-            .prepare(claimFlowFileMetadataSql)
+            .prepare(flowFileLedgerSql(db).claimMetadata)
             .bind(
               file.id,
               after.caseId,
@@ -2903,7 +2813,7 @@ export async function commitFlow(
               payload,
             ),
           db
-            .prepare(claimFlowFileObjectIntegritySql)
+            .prepare(flowFileLedgerSql(db).claimIntegrity)
             .bind(
               file.id,
               after.caseId,
@@ -2922,7 +2832,7 @@ export async function commitFlow(
               fileObjectBindings!.get(file.id)!.etag,
             ),
           db
-            .prepare(claimFlowFileObjectChecksumSql)
+            .prepare(flowFileLedgerSql(db).claimChecksum)
             .bind(
               file.id,
               fileObjectBindings!.get(file.id)!.sha256,
