@@ -37,7 +37,9 @@ void test('PostgreSQL adapter translates numbered values and preserves one atomi
   ]);
   assert.equal(transactions, 1);
   assert.equal(observed[0].sql, 'SET LOCAL search_path TO partner_hub, pg_catalog');
-  assert.deepEqual(observed[1], {
+  assert.equal(observed[1].sql, "SET LOCAL statement_timeout TO '25000ms'");
+  assert.equal(observed[2].sql, "SET LOCAL lock_timeout TO '5000ms'");
+  assert.deepEqual(observed[3], {
     sql: 'UPDATE accounts SET value = $1 WHERE id = $2',
     parameters: ['값', 7],
   });
@@ -83,5 +85,5 @@ void test('PostgreSQL adapter keeps quoted question marks and fails closed on un
     db.prepare("SELECT '?1' AS literal, ?1 AS value").bind(1).all(),
     /SUPABASE_POSTGRES_OPERATION_FAILED_OR_OUTCOME_UNKNOWN/,
   );
-  assert.equal(observed[1], "SELECT '?1' AS literal, $1 AS value");
+  assert.equal(observed[3], "SELECT '?1' AS literal, $1 AS value");
 });

@@ -55,10 +55,10 @@
     "verify": "pnpm run release:verify && pnpm run typecheck && pnpm run lint && pnpm run test:all && pnpm run test:e2e && pnpm run build && pnpm run bundle:verify"
   },
   "dependencies": {
-    "@libsql/client": "0.18.0",
-    "@vercel/blob": "2.8.0",
     "@base-ui/react": "1.7.0",
+    "@libsql/client": "0.18.0",
     "@shadcn/react": "0.3.0",
+    "@vercel/blob": "2.8.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "1.1.1",
@@ -68,6 +68,7 @@
     "input-otp": "1.4.2",
     "lucide-react": "1.31.0",
     "next": "16.3.4",
+    "postgres": "3.4.9",
     "react": "19.2.8",
     "react-day-picker": "9.8.1",
     "react-dom": "19.2.8",

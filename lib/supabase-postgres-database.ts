@@ -186,6 +186,8 @@ export function createSupabasePostgresDatabase(
         await transaction.unsafe(
           'SET LOCAL search_path TO partner_hub, pg_catalog',
         );
+        await transaction.unsafe("SET LOCAL statement_timeout TO '25000ms'");
+        await transaction.unsafe("SET LOCAL lock_timeout TO '5000ms'");
         const results: D1Result<T>[] = [];
         for (const wire of wires)
           results.push(
