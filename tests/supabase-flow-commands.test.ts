@@ -4,8 +4,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFile } from 'node:fs/promises';
 import { postgresFixture } from './supabase-postgres-fixture';
 import * as schema from '../db/schema';
-import { applyFlowCommand, newConsultingFlow, type ConsultingFlow, type FlowActor, type FlowCommand, type FlowFile } from '../lib/consulting-flow';
-import { flowFileStorageKey } from '../lib/consulting-flow-file-policy';
+import { newConsultingFlow, type ConsultingFlow } from '../lib/consulting-flow';
+import { manualFlowScenario } from './supabase-flow-manual-fixture';
 
 type Action = keyof typeof schema.FLOW_COMMAND_EFFECT_PATHS;
 type Item = Record<string, unknown>;
@@ -246,81 +246,21 @@ void test('command boundaries reject malformed JSON, history injection and comma
   }
 });
 
-void test('real application commands through all manual FLOW stages pass the native command boundary composition', async (t) => {
+void test('real application commands through all manual FLOW stages pass all native command effect families', async (t) => {
   const { engine, close } = await postgresFixture(); t.after(close);
-  let flow: ConsultingFlow = { ...newConsultingFlow('synthetic-case', '가상기업', 'synthetic-partner', '가상담당'), updatedAt: time };
-  const admin: FlowActor = { id: 'synthetic-admin', role: 'admin', name: '가상관리자' };
-  const partner: FlowActor = { id: 'synthetic-partner', role: 'partner', name: '가상담당' };
-  const body = '가상 기업에 대한 합성 검사입니다. 실제 기업 자료나 AI 제공자 호출 없이 검증합니다. '.repeat(8);
-  let sequence = 0;
-  const seen = new Set<string>();
-  function file(purpose: string, name = 'synthetic.pdf'): FlowFile {
-    const fileId = `synthetic-file-${++sequence}`;
-    return { id: fileId, key: flowFileStorageKey(fileId), purpose, name, contentType: 'application/pdf', size: 100, createdAt: stamp };
+  const { transitions } = await manualFlowScenario(engine);
+  for (const { previous, proposed, command, commandId } of transitions) {
+    assert.equal(await boundary(engine, previous, proposed, proposed), true, command.type);
+    assert.equal(await valid(engine, 'SELECT partner_hub.flow_command_effect_transition_valid($1,$2,$3,$4,$5,$6) AS valid',
+      [raw(previous),raw(proposed),proposed.caseId,proposed.partnerId,proposed.revision,proposed.updatedAt]),true,`all effects: ${command.type} (${commandId})`);
+    // Intake origin needs external source tables; covered in its own real-ledger
+    // test. The other twenty exact effect families run in the SQLite oracle.
+    const exact = command.type === 'import_intake_source' ? [] : schema.FLOW_COMMAND_EXACT_EFFECT_TRIGGERS[command.type as Action];
+    assert.equal(sqliteAllows(previous as unknown as Probe, proposed as unknown as Probe, [
+      schema.consultingFlowsCommandScopeTriggerSql, schema.consultingFlowsCommandEffectTriggerSql,
+      schema.consultingFlowsCommandTargetTriggerSql,...exact]),true,`SQLite effects: ${command.type}`);
   }
-  async function apply(command: FlowCommand, actor = admin, upload?: FlowFile, intakeCategory?: string) {
-    const commandId = `synthetic-app-command-${++sequence}`;
-    const after = applyFlowCommand(flow, { transcriptReviewed: true, ...command }, actor, { commandId, now: stamp, upload, intakeCategory });
-    const targetId = command.meetingId ?? command.requestId ?? command.recordingId;
-    after.commandReceipts = { ...flow.commandReceipts, [commandId]: {
-      actorKey: actor.role === 'admin' ? 'admin:primary' : `member:${actor.id}`, fingerprint: 'a'.repeat(64),
-      actor: actor.name, action: command.type,
-      ...(['complete_meeting','cancel_meeting','mark_request_sent','receive_document','review_document','record_contract','save_transcript'].includes(command.type) ? { targetId: String(targetId) } : {}),
-    } };
-    assert.equal(await boundary(engine, flow, after, after), true, command.type);
-    if (['set_ai_policy','queue_report1','retry_job'].includes(command.type)) {
-      assert.equal(await valid(engine, 'SELECT partner_hub.flow_ai_control_effect_valid($1::json,$2::json,$3,$4,$5) AS valid',
-        [raw(flow),raw(after),commandId,command.type,stamp]),true,`exact AI effect: ${command.type}`);
-    }
-    if (['save_source','import_intake_source','exclude_source'].includes(command.type)) {
-      assert.equal(await valid(engine, 'SELECT partner_hub.flow_source_effect_valid($1::json,$2::json,$3,$4) AS valid',
-        [raw(flow),raw(after),command.type,stamp]),true,`exact source effect: ${command.type}`);
-    }
-    // Keep the original SQLite command boundary subset as an independent oracle.
-    assert.equal(sqliteAllows(flow as unknown as Probe, after as unknown as Probe, [schema.consultingFlowsCommandScopeTriggerSql,
-      schema.consultingFlowsCommandEffectTriggerSql, schema.consultingFlowsCommandTargetTriggerSql]), true, `SQLite ${command.type}`);
-    flow = after; seen.add(command.type);
-  }
-  await apply({ type: 'save_source', sourceText: body, privacyMasked: true });
-  const source = { ...file('source'), intakeFileId: 'synthetic-intake-file', intakeSourceHash: 'b'.repeat(64), sourceReviewedAt: stamp, sourceReviewedBy: admin.id };
-  // Real PostgreSQL source ledgers, synthetic metadata only. No Storage bytes.
-  await engine.query(`INSERT INTO partner_hub.company_file_objects VALUES ($1,'synthetic/intake-source','가상.pdf','가상기업','재무자료','가상자료','가상담당','synthetic-user','synthetic@example.invalid','application/pdf',100,$2)`,[source.intakeFileId,stamp]);
-  await engine.query('INSERT INTO partner_hub.company_file_storage_keys SELECT id,storage_key FROM partner_hub.company_file_objects WHERE id=$1',[source.intakeFileId]);
-  await engine.query('INSERT INTO partner_hub.company_file_metadata SELECT id,original_name,company,category,title,assigned_trainee,uploaded_by_user_id,uploaded_by_email,content_type,size_bytes,created_at FROM partner_hub.company_file_objects WHERE id=$1',[source.intakeFileId]);
-  await engine.query("INSERT INTO partner_hub.company_file_object_integrity VALUES ($1,'metadata',NULL,'application/pdf')",[source.intakeFileId]);
-  await apply({ type: 'import_intake_source', intakeFileId: source.intakeFileId, contentReviewed: true, fileConsent: true, privacyMasked: true }, admin, source, '재무자료');
-  await apply({ type: 'exclude_source', fileId: source.id });
-  await apply({ type: 'queue_report1' }); // blocked while AI is disabled; no provider call.
-  await apply({ type: 'set_ai_policy', enabled: true, thirdPartyConsent: true, privacyMasked: true, costConsent: true });
-  await apply({ type: 'retry_job', jobId: flow.jobs[0].id, costConsent: true });
-  await apply({ type: 'set_ai_policy', enabled: false });
-  await apply({ type: 'save_report', stage: 1, body });
-  await apply({ type: 'confirm_analysis', reportId: flow.reports[0].id });
-  await apply({ type: 'confirm_analysis', reportId: flow.reports[0].id }, partner);
-  const meeting = { type: 'book_meeting', kind: 'first', attendance: 'both', startsAt: '2026-09-09T01:00:00Z', endsAt: '2026-09-09T02:00:00Z', location: '가상 상담실' };
-  await apply(meeting);
-  await apply({ type: 'cancel_meeting', meetingId: flow.meetings[0].id, note: '가상 취소' });
-  await apply(meeting);
-  await apply({ type: 'save_report', stage: 2, body });
-  await apply({ type: 'save_report', stage: 3 }, admin, file('report', 'synthetic.pptx'));
-  await apply({ type: 'complete_meeting', meetingId: flow.meetings.at(-1)!.id });
-  await apply({ type: 'save_recording', meetingId: flow.meetings.at(-1)!.id, transcript: body, recordingConsent: true, privacyMasked: true }, partner);
-  await apply({ type: 'save_transcript', recordingId: flow.recordings[0].id, transcript: `${body} 가상 보완`, recordingConsent: true, privacyMasked: true }, partner);
-  await apply({ type: 'save_report', stage: 4, body });
-  await apply({ type: 'confirm_solutions', reportId: flow.reports.at(-1)!.id, solutions: ['정책자금 사전진단'], documentsNeeded: true, reviewConfirmed: true, note: '가상 추가 확인' });
-  await apply({ type: 'request_document', title: '가상 확인자료', recipient: '가상담당', channel: '이메일', required: true, dueDate: '2026-09-10' });
-  await apply({ type: 'mark_request_sent', requestId: flow.requests[0].id, sentConfirmed: true }, partner);
-  await apply({ type: 'receive_document', requestId: flow.requests[0].id }, partner, file('requested_document'));
-  await apply({ type: 'review_document', requestId: flow.requests[0].id, approved: true });
-  await apply({ type: 'save_report', stage: 5, body });
-  await apply({ type: 'save_report', stage: 6, body });
-  await apply({ ...meeting, kind: 'contract', startsAt: '2026-09-09T03:00:00Z', endsAt: '2026-09-09T04:00:00Z' });
-  await apply({ type: 'record_contract', meetingId: flow.meetings.at(-1)!.id, signedAt: '2026-09-09', expectedDepositWon: 1000000, signedConfirmed: true }, admin, file('signed_contract'));
-  await apply({ type: 'confirm_payment', amountWon: 400000, receivedAt: '2026-09-09', reference: '가상 부분입금', paymentConfirmed: true });
-  await apply({ type: 'confirm_payment', amountWon: 600000, receivedAt: '2026-09-09', reference: '가상 잔금', paymentConfirmed: true });
-  await apply({ type: 'start_aftercare', summary: '가상 수행 확인', owner: '가상관리자', nextDate: '2026-10-01', deliveryConfirmed: true });
-  assert.deepEqual([...seen].sort(), [...actions].sort());
-  // No root or HTTP/Storage integration is implied by this pure-function test.
+  assert.deepEqual([...new Set(transitions.map(({ command }) => command.type))].sort(), [...actions].sort());
   assert.equal((await engine.query<{ name: string | null }>("SELECT to_regclass('partner_hub.consulting_flows')::text AS name")).rows[0].name, null);
 });
 
