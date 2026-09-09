@@ -67,6 +67,7 @@ for (const file of traces) {
     );
 }
 let remoteRuntimeFound = false;
+let supabaseTransferFound = false;
 for (const file of outputFiles.filter((file) => file.endsWith('.js'))) {
   const source = await readFile(join(outputRoot, file), 'utf8');
   assert.doesNotMatch(
@@ -76,6 +77,14 @@ for (const file of outputFiles.filter((file) => file.endsWith('.js'))) {
   );
   if (connectedBuild) {
     remoteRuntimeFound ||= source.includes('standalone_admin_accounts');
+    if (supabaseBuild) {
+      supabaseTransferFound ||= source.includes('supabase_file_transfers');
+      assert.doesNotMatch(
+        source,
+        /vercel_blob_transfers/,
+        'Supabase build must not retain the Vercel Blob control handler.',
+      );
+    }
     assert.doesNotMatch(
       source,
       /createLocalFileHttpBridge|createLocalR2Bucket|createLocalR2HttpBridge/,
@@ -104,13 +113,23 @@ for (const file of outputFiles.filter((file) => file.endsWith('.js'))) {
 }
 if (connectedBuild) {
   assert.ok(remoteRuntimeFound, 'Build remote mode before checking it.');
+  if (supabaseBuild)
+    assert.ok(
+      supabaseTransferFound,
+      'Supabase direct-transfer handler missing from production.',
+    );
   const staticRoot = join(root, '.next', 'static');
+  let supabaseBrowserTransferFound = false;
   for (const file of await readdir(staticRoot, { recursive: true })) {
     if (!/\.(?:js|map|json)$/.test(file)) continue;
     const source = await readFile(join(staticRoot, file), 'utf8');
+    if (supabaseBuild)
+      supabaseBrowserTransferFound ||=
+        source.includes('/api/blob-transfers') &&
+        source.includes('partner-hub/staging/v1/');
     assert.doesNotMatch(
       source,
-      /PARTNER_HUB_(?:D1|R2|FILE)_SECRET|SUPABASE_SECRET_KEY|SUPABASE_DATABASE_URL|storage_object_versions|standalone_admin_accounts|internal\/d1\/v1\/batch|internal\/r2\/v1\/object/,
+      /PARTNER_HUB_(?:D1|R2|FILE)_SECRET|SUPABASE_SECRET_KEY|SUPABASE_DATABASE_URL|storage_object_versions|supabase_file_transfers|standalone_admin_accounts|internal\/d1\/v1\/batch|internal\/r2\/v1\/object/,
       `Server-only backend code reached public output: ${file}`,
     );
     for (const key of secretKeys)
@@ -120,6 +139,11 @@ if (connectedBuild) {
         `Public secret in ${file}`,
       );
   }
+  if (supabaseBuild)
+    assert.ok(
+      supabaseBrowserTransferFound,
+      'Supabase staging browser transport missing from production.',
+    );
   console.log(
     'PASS remote production traces exclude emulators; service secrets remain runtime-only and absent from public assets.',
   );

@@ -42,6 +42,7 @@ const nextConfig: NextConfig = {
       '@/lib/platform-file-transfer-capabilities':
         remoteBackend ||
         vercelStorage ||
+        supabaseBackend ||
         (localStorage && process.env.PARTNER_HUB_LOCAL_FILE_HTTP === '1')
           ? './lib/platform-file-transfer-capabilities.next.ts'
           : './lib/platform-file-transfer-capabilities.ts',
@@ -69,10 +70,14 @@ const nextConfig: NextConfig = {
             : './lib/platform-auth-capabilities.next.ts',
       '@/lib/platform-blob-transfer': vercelStorage
         ? './lib/platform-blob-transfer.vercel.ts'
-        : './lib/platform-blob-transfer.ts',
+        : supabaseBackend
+          ? './lib/platform-blob-transfer.supabase.ts'
+          : './lib/platform-blob-transfer.ts',
       '@/lib/file-transfer-client': vercelStorage
         ? './lib/file-transfer-client.vercel.ts'
-        : './lib/file-transfer-client.ts',
+        : supabaseBackend
+          ? './lib/file-transfer-client.supabase.ts'
+          : './lib/file-transfer-client.ts',
     },
   },
 };

@@ -60,6 +60,7 @@ function deadlineBody(
 export async function dispatchFileTransfer(
   incoming: Request,
   claims: TransferClaims,
+  assertTransferCurrent?: () => void,
 ) {
   assertTransferTime(claims);
   const upload = fileTransferMethod(claims.intent) === 'POST';
@@ -133,20 +134,25 @@ export async function dispatchFileTransfer(
           );
         }
       },
+      assertTransferCurrent,
     );
   }
   const expected = claims.intent;
-  return postCompanyFile(request, async (form) => {
-    try {
-      const actual = await describeCompanyTransfer(form, expected.requestKey);
-      assertTransferTime(claims);
-      if (JSON.stringify(actual) !== JSON.stringify(expected))
-        throw new Error();
-    } catch {
-      throw new CompanyFileError(
-        '발급된 전송 권한과 파일·자료정보가 다르거나 만료되었습니다.',
-        403,
-      );
-    }
-  });
+  return postCompanyFile(
+    request,
+    async (form) => {
+      try {
+        const actual = await describeCompanyTransfer(form, expected.requestKey);
+        assertTransferTime(claims);
+        if (JSON.stringify(actual) !== JSON.stringify(expected))
+          throw new Error();
+      } catch {
+        throw new CompanyFileError(
+          '발급된 전송 권한과 파일·자료정보가 다르거나 만료되었습니다.',
+          403,
+        );
+      }
+    },
+    assertTransferCurrent,
+  );
 }

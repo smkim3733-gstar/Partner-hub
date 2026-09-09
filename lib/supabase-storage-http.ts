@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { SupabaseBackendConfig } from './supabase-backend-config';
+import { MAX_COMPANY_FILE_BYTES } from './company-file-policy';
 import {
   guardedR2Body,
   r2HttpLimits,
@@ -75,6 +76,21 @@ export function createSupabaseStorageHttp(
     const response = await request(`/bucket/${storageBucket}`);
     const value = await json(response);
     if (!response.ok || value.id !== storageBucket || value.public !== false)
+      supabaseStorageFailure();
+    return value;
+  }
+  async function assertStagingBucket() {
+    const value = await assertPrivateBucket();
+    // Signed upload capabilities cannot bind a descriptor's exact size/hash.
+    // The provider enforces the global ceiling; finish checks exact bytes.
+    if (
+      !Number.isSafeInteger(value.file_size_limit) ||
+      (value.file_size_limit as number) <= 0 ||
+      (value.file_size_limit as number) > MAX_COMPANY_FILE_BYTES ||
+      !Array.isArray(value.allowed_mime_types) ||
+      value.allowed_mime_types.length !== 1 ||
+      value.allowed_mime_types[0] !== 'application/octet-stream'
+    )
       supabaseStorageFailure();
   }
   async function info(path: string): Promise<SupabaseStoredObject | null> {
@@ -181,7 +197,7 @@ export function createSupabaseStorageHttp(
     assertSupabaseObjectPath(path);
     if (!path.startsWith('partner-hub/staging/'))
       return supabaseStorageFailure();
-    await assertPrivateBucket();
+    await assertStagingBucket();
     const response = await request(
       `/object/upload/sign/${storageBucket}/${path}`,
       {
@@ -212,6 +228,13 @@ export function createSupabaseStorageHttp(
       headers: { 'content-type': 'application/octet-stream' },
     };
   }
-  return { assertPrivateBucket, head, get, put, signStagingUpload };
+  return {
+    assertPrivateBucket,
+    assertStagingBucket,
+    head,
+    get,
+    put,
+    signStagingUpload,
+  };
 }
 export type SupabaseStorageHttp = ReturnType<typeof createSupabaseStorageHttp>;

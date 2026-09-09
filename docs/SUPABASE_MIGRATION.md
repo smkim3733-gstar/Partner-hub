@@ -6,6 +6,20 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 
 ## 2026-09-10 현재 완료
 
+### Supabase 브라우저 직접 업로드·완료 API와 기존 업무 저장 연결
+
+- `0019_direct_file_transfers.sql`을 원격 `20260909164931`로 적용했다. 서버 전용 RLS 전송 예약 테이블 한 개를 추가해 총 38개다. `service_role`에는 SELECT/INSERT만 허용하고 UPDATE/DELETE 및 브라우저 접근은 막았다. 예약은 세션 해시·사용자·정확한 명세/명령 본문·서버 생성 staging 경로·만료/보존시각에 결속한다. 실제 원문 세션/Storage 서명/서비스 키는 저장하지 않는다. 기존 `0001`~`0018`은 변경하지 않았다. 적용 SHA-256: `28BE921900F55F7B6D6BE500E32BAD8F7AAE990CA357194FAD82FD0278CFBDEA`.
+- Next.js `supabase-v1` 빌드는 직접 업로드 기능과 Supabase 전용 브라우저/서버 전송 모듈을 선택한다. 기존 `/api/blob-transfers` 주소는 호환되는 JSON 제어 주소로 유지하며 실제 Vercel Blob 서비스는 사용하지 않는다. 브라우저 파일 바이트는 Supabase의 임시 경로로 직접 PUT하고, Vercel에는 명세와 완료 요청 JSON만 보낸다. 기본 업무 multipart 업로드는 계속 거절한다.
+- 발급 전 실제 독립 로그인·제출 동의·업무 역할·담당/사건·FLOW 명령/대상/현재 revision을 검사한다. 서명은 서버가 만든 무작위 staging 경로에만 발급하고 덮어쓰기를 허용하지 않는다. 브라우저는 모든 슬롯의 URL·프로젝트 호스트·경로·메서드·헤더·만료를 먼저 검증하며 쿠키/서비스 키/임의 헤더를 Storage에 전달하지 않는다. 잘못된 추가 필드나 외부 URL/완료 callback은 업무 저장을 시작할 수 없다.
+- 버킷은 비공개, `allowed_mime_types=["application/octet-stream"]`, 정수 `file_size_limit` 1~26214400바이트여야 서명을 발급한다. 기존 25MiB 기능을 전부 쓰려면 26214400으로 설정한다. Supabase 서명은 [공식 Storage SDK의 2시간 유효기간](https://github.com/supabase/storage-js/blob/master/src/packages/StorageFileApi.ts)을 따른다. 앱의 제출 허용시간은 10분이며, 서명 요청 지연 2분과 시계 여유 1분까지 고려해 등록 후 133분 동안 사용자당 최대 20개 예약을 계산한다. 새 로그인으로 한도를 우회하지 못한다. 서명 자체에 정확한 파일 크기/해시가 묶였다고 간주하지 않는다.
+- 완료 API는 브라우저가 제출한 경로/URL을 쓰지 않고 불변 예약을 읽는다. 현재 인증/권한을 재검사한 뒤 private Storage의 정보·조건부 GET·실제 길이·SHA-256을 검증하고 원래 기업/FLOW 저장 함수를 호출한다. 파일 서명/동의·revision·업로드 예약·완료 영수증·최종 권한 및 원자성 검사는 유지된다. 최종 물리 객체 검증이 지연돼도 업무 저장 직전에 제출 유효시간을 다시 검사한다. 실패 시 남은 임시/최종 객체나 예약은 임의로 삭제하지 않는다.
+- **브라우저 업로드가 직접 전송된다는 뜻이지 서버가 파일을 전혀 읽지 않는다는 뜻은 아니다.** 최종 확정 시 Vercel 서버가 임시 바이트를 읽고 무결성을 확인하며 기존 Storage 어댑터로 별도 불변 최종 객체와 조건부 포인터를 저장한다. 다운로드는 매 요청 기존 권한/원장 검사를 거치는 비공개 스트리밍 응답이다. 실제 Vercel 배포에서의 응답 한도·지연·CORS·Supabase 네트워크 검증은 아직 남아 있다.
+- 새 집중검사 10개가 실제 PostgreSQL 엔진(PGlite), 독립 관리자/파트너 로그인, 실제 Storage HTTP/버전 원장 어댑터와 모의 HTTP 바이트 저장소를 결합한다. 브라우저 전송 함수의 4.5MiB 초과 기업 파일, FLOW 전사문 5MiB+음성 25MiB, 두 슬롯 중 하나 누락 시 전체 업무 저장 차단, 완료 재시도, 25MiB 다운로드 해시, 손상/외부 경로/세션 교체·철회/중간 권한 변경/서명 중 철회/만료 직전·최종 저장 중 만료/사용자별 한도/자동 재전송 없음까지 통과했다(`work/supabase-0019-transfer-final-tests.log`). 실제 Supabase 바이트·브라우저 UI·독립 DB 세션 시험은 아니다.
+- `tests/supabase-transfer-rollback.sql`을 로컬 PostgreSQL에서 먼저 검증하고 원격 `service_role`로 실행했다. 합성 예약 한 개, 수정/삭제 금지, 중복 경로·최종 객체 경로·짧은 보존기간 거절을 검사한 뒤 전부 롤백했다. 후속 조회에서 예약·기업 파일·FLOW·명단·관리자·Storage 버전은 각각 0행이다. 새 테이블은 RLS 활성, `anon`/`authenticated` 읽기 불가, 서버 INSERT 가능/UPDATE 불가다. 보안 진단은 서버 전용 [RLS 정책 없음 INFO](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy) 38건뿐이며 경고/오류는 없었다.
+- 최종 전체 검사는 **1006/1006**, 건너뜀 0건이며 `work/supabase-0019-serial-final-tests.log`에 보존했다(약 307초). `--test-concurrency=2` 검사 중 Node/V8 `Check failed: jit_page_->allocations_.erase(addr) == 1` 내부 오류로 `supabase-flow-domain.test.ts` 프로세스가 종료됐다. 원인은 확정하지 않았고 앱이나 기대값을 변경하지 않은 `--test-concurrency=1` 전체 재실행으로 통과했다. 앞선 메모리 부족 오류와 동일 원인이라고 단정하지 않는다. 후속 무거운 PostgreSQL 전체 검증도 직렬 실행을 우선한다.
+- 최종 Supabase Next.js 프로덕션 빌드·비활성 API HTTP 123건·독립 인증/비밀키 경계가 통과했다(`work/supabase-0019-final-next-build.log`). 검사기는 서버에 Supabase 전송 테이블 코드가 포함되고 Vercel Blob 전송 테이블은 없으며, 브라우저에는 Supabase staging 전송 코드만 있고 서버 전용 테이블/키는 없는지도 확인한다. 기존 Sites 빌드(`work/supabase-0019-final-sites-build.log`), 번들 한도(페이지 380725/460800, 총 1043430/1310720바이트), Next 타입 재생성 후 TypeScript·lint도 통과했다.
+- 이번 경로는 표준 서명 PUT이다. [Supabase가 6MB 초과에서 권장하는 TUS 재개 전송](https://supabase.com/docs/guides/storage/uploads/standard-uploads)은 아직 구현하지 않았으며 네트워크 장애 뒤 자동 이어올리기로 표현하지 않는다. 실제 연결의 지연/안정성 확인, 만료 staging 및 불변 버전 보존/정리, 역사 자료 이관/롤백, Vercel Preview/운영 검증이 남았다. 백엔드는 계속 비활성이며 실제 계정/파일 생성이나 운영 배포는 하지 않았다.
+
 ### 관리자 파일 재고·원본 존재 확인·문서 연결 복구
 
 - `0018_file_inventory_read_helpers.sql`을 원격 `20260909162113`으로 적용했다. 안전한 JSON 파싱과 중복 키 확인을 위한 읽기 전용 함수 두 개만 추가했다. `SECURITY INVOKER`와 고정 `search_path`를 사용하고 PUBLIC/브라우저 역할의 실행 권한을 회수했다. 테이블은 서버 전용 RLS 37개 그대로이며 기존 `0001`~`0017`은 변경하지 않았다. 적용 파일 SHA-256: `84F0148D53580A6E0DEACC249D1A2F5380230B4DE4246CF0A2D69875E6787BA1`.
@@ -16,7 +30,7 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 - 새 네이티브 집중검사 7개가 실제 독립 관리자/파트너 로그인, 21종 실제 FLOW 명령과 첨부, metadata-only/NULL ETag 레거시, 실패 롤백/재시도/오래된 최종 CAS, 모든 주요 영수증 변조, 원장 누락/JSON 손상/충돌/페이지 경계를 검사한다. 전체 **996/996**, 건너뜀 0건으로 통과했다(`work/supabase-0018-final-tests.log`, 약 166초, `--test-concurrency=2`). PGlite는 실제 PostgreSQL 엔진이지만 단일 연결이며 Storage 바이트는 모의 객체다.
 - 원격에서 앱이 내보내는 실제 목록/존재 SQL을 `service_role`로 실행했다. 빈 목록/존재 결과와 합성 metadata-only 기업 파일의 미연결 목록/집계를 확인하고 모든 시험 쓰기를 롤백했다. 후속 조회의 기업 파일·FLOW·명단·관리자·Storage 버전은 각각 0행이고 새 함수의 `anon`/`authenticated` 실행 권한도 0건이다. 보안 진단은 의도된 서버 전용 [RLS 정책 없음 INFO](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy) 37건뿐이며 경고/오류는 없었다. 실제 Storage 바이트나 운영 계정을 만들지 않았다.
 - Supabase Next.js 프로덕션 빌드·비활성 API HTTP 123건·인증/비밀키 번들 경계(`work/supabase-0018-next-build.log`), 기존 Sites 빌드(`work/supabase-0018-sites-build.log`), 번들 한도(페이지 380725/460800, 총 1043430/1310720바이트), Sites 빌드 후 Next.js 타입 재생성과 TypeScript·lint를 통과했다. UI는 저장 원장과 현재 원본의 제공자 중립 문구를 쓰며 본문 검증과 존재 확인을 구분한다.
-- **다음:** 대용량 직접 전송 API 통합, 실제 Supavisor/Storage·독립 세션 경합, 비표준 키/날짜 및 역사 자료 이관/롤백, Vercel 배포 검증. 운영 백엔드는 `PARTNER_HUB_BACKEND_ENABLED=0`이며 기존 Sites 운영과 공개 배포는 변경하지 않았다.
+- **0018 시점의 다음 항목:** 대용량 직접 전송 API(위 `0019`에서 연결), 실제 Supavisor/Storage·독립 세션 경합, 비표준 키/날짜 및 역사 자료 이관/롤백, Vercel 배포 검증. 운영 백엔드는 `PARTNER_HUB_BACKEND_ENABLED=0`이며 기존 Sites 운영과 공개 배포는 변경하지 않았다.
 
 ### 중복·충돌·복구 및 관리자 진행 통계 연결
 
@@ -171,7 +185,7 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 - Supabase Next.js 런타임의 DB 타입 오류와 빌드 선택자 거절 오류를 수정하고, 요청 시점에만 DB·Storage 클라이언트를 구성하도록 연결했다.
 - 비공개 Storage HTTP 전송, 새 물리 경로에만 쓰기, 저장 후 본문 SHA-256 검증, 기존 R2 형식의 메타데이터·체크섬 읽기를 구현했다.
 - Supabase 객체를 직접 덮어쓰지 않고 PostgreSQL의 `storage_object_versions`/`storage_object_heads`로 논리 키를 조건부 교체한다. 경쟁 저장은 하나만 반영된다. 삭제는 복구 가능한 tombstone이며 물리 파일·구버전은 보존한다. 보존 기한 기반 정리는 별도 구현이 필요하다.
-- 브라우저 직접 업로드용 서명은 임시 `staging` 경로에만 발급하도록 구현했다. 실제 화면·업로드 예약·완료 처리·세션 재검사 연결은 아직 남아 있다.
+- 이 기반 단계에서는 브라우저 직접 업로드용 임시 `staging` 서명만 구현했다. 화면·예약·완료 처리·세션 재검사는 위 `0019`에서 연결했으며 실제 네트워크 검증은 남았다.
 - 원격 Supabase에 `partner_hub_private_schema` (`20260909102118`), `storage_object_versions` (`20260909102136`)를 적용했다. 기존 Sites D1/R2와 운영 데이터는 변경하지 않았다.
 - 실제 PostgreSQL에서 비공개 스키마 권한, RLS, 조건부 생성·교체, 오래된 삭제 거절, 외래 키, 원장 수정·삭제 금지, 원자적 롤백을 검증했다. 시험 종료 후 두 원장 테이블 모두 0행임을 별도 확인했다. 재실행 SQL은 `tests/supabase-storage-rollback.sql`에 있다.
 - 이 기반 단계에서는 전체 회귀검사 905건 통과 후 Supabase 검사 17건과 Vercel 접속 주소 검사 5건을 통과했다. 기존 Sites 빌드·클라이언트 번들 제한 검사도 통과했다. 최신 수치는 위 인증 이식 절을 따른다. HTTP 123건은 백엔드 비활성 상태의 보호 경계 검증이며, 모든 업무 API가 Supabase에서 정상 작동한다는 증거는 아니다.
@@ -222,13 +236,13 @@ SUPABASE_STORAGE_BUCKET=partner-hub-private
 
 ## 다음 자동 진행 순서
 
-1. 대용량 직접 전송 API·예약/완료·세션 재검사 통합(운영 통계는 `0017`, 관리자 파일 재고·존재 확인·복구 쿼리는 `0018`에서 연결 완료)
-2. 실제 운영 인증·FLOW·파일·진행판을 결합한 남은 API와 원자적 batch/CAS 회귀검사 확대
+1. 기존 운영 자료의 읽기 전용 이관 사전검증·내보내기/복원 대조 설계(비표준 키·날짜·역사 FLOW 포함)
+2. 만료 staging·미참조 최종 객체·불변 버전의 보존/정리 절차와 안전한 재시도 검증
 3. 실제 Supavisor 연결·독립 다중 세션 경합·최종 스키마 무결성 검증
-4. 구현된 Storage 어댑터·임시 서명을 업로드 예약/완료 API와 연결하고 세션·권한 재검증, 대용량 다운로드, 보존 기한 정리 구현
-5. 이미 검증한 인증 흐름에 업로드/다운로드·관리자 원격 CLI를 결합해 실제 저장소 통합검사
-6. Supabase에 남은 업무 스키마 마이그레이션 적용, 비공개 버킷 생성 후 Vercel Preview 연결
-7. 기존 운영 데이터 백업·변환·복원 대조 및 전환/롤백 검증
+4. 비공개 버킷 생성 및 실제 Storage 서명/CORS·최대 크기·대용량 다운로드 검증; 필요 시 TUS 재개 전송 연결
+5. 독립 인증·FLOW·파일·진행판·관리자 원격 CLI를 실제 저장소와 결합한 통합검사
+6. Vercel Preview에서 업로드/다운로드 한도·시간·권한·비밀키 경계 검사 후 기존 자료 전환/롤백 검증
+7. 검증된 브랜치의 main 반영 및 Vercel 운영 결과 확인(현재 main/운영은 변경하지 않음)
 
 ## 현재 외부 입력 필요 시점
 
@@ -238,7 +252,7 @@ SUPABASE_STORAGE_BUCKET=partner-hub-private
 - Supabase 신형 Secret key
 - Vercel 프로덕션 도메인
 
-실제 값은 Vercel 환경변수 또는 Git에서 제외된 로컬 `.env.local`에 등록한다. MCP 접속 승인과 애플리케이션 실행용 자격증명은 별개다. 현재 로컬에는 `.env.example`만 있으며, 실제 Storage HTTP 업로드와 앱의 Supavisor 연결은 아직 검증하지 않았다.
+실제 값은 Vercel 환경변수 또는 Git에서 제외된 로컬 `.env.local`에 등록한다. MCP 접속 승인과 애플리케이션 실행용 자격증명은 별개다. `0019` 검사 종료 시 `.env.local`과 프로세스의 두 Supabase 자격증명은 없었고, `storage.buckets`에서 `partner-hub-private`을 조회한 결과도 없었다. 실제 Storage HTTP 업로드와 앱의 Supavisor 연결은 아직 검증하지 않았다. 해당 연결값과 Vercel 주소 입력을 요청했으며 그동안 코드·사전검증 작업을 계속할 수 있다.
 
 ## 공식 기준 문서
 

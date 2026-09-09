@@ -65,6 +65,7 @@ function checkSameOrigin(request: Request) {
 export async function postCompanyFile(
   request: Request,
   validateTransfer?: (form: FormData) => Promise<void>,
+  assertTransferCurrent?: () => void,
 ) {
   try {
     checkSameOrigin(request);
@@ -243,6 +244,8 @@ export async function postCompanyFile(
           company,
           partnerMemberId,
         );
+        // Server-owned control-plane deadline; normal Sites uploads have none.
+        assertTransferCurrent?.();
         return access.payload;
       },
       (outcome) =>

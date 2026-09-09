@@ -56,6 +56,7 @@ export async function postConsultingFlow(
   request: Request,
   context: Context,
   validateTransfer?: (form: FormData) => Promise<void>,
+  assertTransferCurrent?: () => void,
 ) {
   const fileObjectBindings = new Map<
     string,
@@ -352,6 +353,9 @@ export async function postConsultingFlow(
             );
         }),
     );
+    // Final object verification can outlive a direct-upload reservation.
+    // Keep bytes/receipts recoverable but do not start an expired business write.
+    assertTransferCurrent?.();
     try {
       await commitFlow(
         flow,

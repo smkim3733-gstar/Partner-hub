@@ -33,7 +33,12 @@ function fixture() {
     const method = init?.method ?? 'GET';
     calls.push({ method, path });
     if (path === `/bucket/${config.storageBucket}`)
-      return Response.json({ id: config.storageBucket, public: isPublic });
+      return Response.json({
+        id: config.storageBucket,
+        public: isPublic,
+        file_size_limit: 25 * 1024 * 1024,
+        allowed_mime_types: ['application/octet-stream'],
+      });
     if (path.startsWith('/object/upload/sign/')) {
       assert.equal(new Headers(init?.headers).get('x-upsert'), 'false');
       return Response.json({

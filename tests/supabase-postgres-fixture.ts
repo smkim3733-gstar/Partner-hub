@@ -34,6 +34,7 @@ export async function postgresFixture(options: { flowRoot?: boolean } = {}) {
       ...(options.flowRoot ? ['0016_consulting_flow_root.sql'] : []),
       '0017_portal_operational_metrics.sql',
       '0018_file_inventory_read_helpers.sql',
+      '0019_direct_file_transfers.sql',
     ]) {
       await engine.exec(
         await readFile(
