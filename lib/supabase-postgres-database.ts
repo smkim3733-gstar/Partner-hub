@@ -209,7 +209,7 @@ export function createSupabasePostgresDatabase(
     }
   }
 
-  return {
+  const database = {
     prepare: (sql: string) => new Statement(sql),
     batch<T = unknown>(statements: D1PreparedStatement[]) {
       return execute<T>(
@@ -221,5 +221,6 @@ export function createSupabasePostgresDatabase(
     exec: invalid,
     dump: invalid,
     withSession: invalid,
-  } as D1Database;
+  };
+  return database;
 }
