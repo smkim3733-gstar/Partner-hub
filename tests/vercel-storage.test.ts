@@ -49,8 +49,8 @@ void test('native runtime refuses missing, partial or mismatched schema before a
   }
 });
 
-void test('Vercel chooses native storage; credentials and target are server-only and fail closed', () => {
-  assert.equal(vercelStorageSelected({ VERCEL: '1' }), true);
+void test('Legacy Turso/Blob storage requires explicit selection; credentials and target fail closed', () => {
+  assert.equal(vercelStorageSelected({ VERCEL: '1' }), false);
   assert.equal(
     vercelStorageSelected({
       VERCEL: '1',

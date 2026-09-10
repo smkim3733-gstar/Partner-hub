@@ -1,6 +1,6 @@
-# Vercel 연동 저장소 배포 안내
+# 이전 구성 기록 — Vercel + Turso / Blob
 
-새 배포의 기준 구성은 **Next.js on Vercel + Turso DB + 비공개 Vercel Blob**입니다. 사용자가 GitHub 저장소를 Vercel에 직접 연결해 배포합니다. 별도 Cloudflare 계정·D1·R2·Worker 배포는 필요하지 않습니다. 기존 Sites 운영은 그대로 유지합니다.
+**현재 배포 기준은 Supabase입니다. [Vercel + Supabase 연결 안내](VERCEL_SUPABASE_SETUP.md)를 먼저 따르세요.** 아래는 `PARTNER_HUB_NEXT_BACKEND=vercel-storage-v1`을 명시적으로 선택한 이전 구성의 보존 기록입니다. 현재 `.env.example`과 함께 사용하거나 Supabase에 아래 `storage:*` 명령을 실행하지 마세요. 기존 Sites 운영은 그대로 유지합니다.
 
 ## 저장소 선정
 

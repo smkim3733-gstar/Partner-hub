@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
 import { readSupabaseBackendConfig } from '../lib/supabase-backend-config';
 import { supabaseBackendSelected } from '../lib/supabase-backend-policy.mjs';
@@ -52,11 +53,31 @@ void test('Next Supabase aliases select its runtime, admin authentication and Ve
   }
 });
 
-void test('Supabase backend requires explicit selection and rejects local mixing', () => {
+void test('Vercel defaults to Supabase without overriding explicit modes or allowing local mixing', () => {
   assert.equal(supabaseBackendSelected(configured), true);
   assert.equal(nextRemoteBackendSelected(configured), false);
   assert.equal(vercelStorageSelected({ ...configured, VERCEL: '1' }), false);
-  assert.equal(supabaseBackendSelected({ VERCEL: '1' }), false);
+  assert.equal(supabaseBackendSelected({}), false);
+  assert.equal(supabaseBackendSelected({ VERCEL: '0' }), false);
+  for (const mode of [undefined, '', 'supabase-v1']) {
+    const env = { VERCEL: '1', PARTNER_HUB_NEXT_BACKEND: mode };
+    assert.equal(supabaseBackendSelected(env), true);
+    assert.equal(vercelStorageSelected(env), false);
+    assert.equal(nextRemoteBackendSelected(env), false);
+    assert.throws(() =>
+      supabaseBackendSelected({ ...env, PARTNER_HUB_LOCAL_STORAGE: '1' }),
+    );
+  }
+  for (const mode of ['disabled', 'vercel-storage-v1', 'cloudflare-http-v1']) {
+    const env = { VERCEL: '1', PARTNER_HUB_NEXT_BACKEND: mode };
+    assert.equal(supabaseBackendSelected(env), false);
+    assert.equal(vercelStorageSelected(env), mode === 'vercel-storage-v1');
+    assert.equal(nextRemoteBackendSelected(env), mode === 'cloudflare-http-v1');
+  }
+  const invalid = { VERCEL: '1', PARTNER_HUB_NEXT_BACKEND: 'supabase-typo' };
+  assert.equal(supabaseBackendSelected(invalid), false);
+  assert.equal(vercelStorageSelected(invalid), false);
+  assert.throws(() => nextRemoteBackendSelected(invalid));
   assert.equal(
     supabaseBackendSelected({ PARTNER_HUB_NEXT_BACKEND: 'disabled' }),
     false,
@@ -66,6 +87,84 @@ void test('Supabase backend requires explicit selection and rejects local mixing
       ...configured,
       PARTNER_HUB_LOCAL_STORAGE: '1',
     }),
+  );
+});
+
+void test('Fresh Vercel Next config defaults all runtime and upload aliases to Supabase', () => {
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    VERCEL: '1',
+    PARTNER_HUB_LOCAL_STORAGE: '0',
+  };
+  delete env.PARTNER_HUB_NEXT_BACKEND;
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--import',
+      './tests/register.mjs',
+      '--input-type=module',
+      '-e',
+      "import config from './next.config.ts'; process.stdout.write(JSON.stringify(config.turbopack.resolveAlias));",
+    ],
+    {
+      cwd: new URL('../', import.meta.url),
+      env,
+      encoding: 'utf8',
+      timeout: 30_000,
+      windowsHide: true,
+    },
+  );
+  assert.equal(
+    result.status,
+    0,
+    'Fresh Next configuration must load successfully.',
+  );
+  const aliases = JSON.parse(result.stdout);
+  for (const name of [
+    'runtime',
+    'server-gate',
+    'admin-auth',
+    'auth-capabilities',
+    'blob-transfer',
+  ])
+    assert.equal(
+      aliases[`@/lib/platform-${name}`],
+      `./lib/platform-${name}.supabase.ts`,
+    );
+  assert.equal(
+    aliases['@/lib/file-transfer-client'],
+    './lib/file-transfer-client.supabase.ts',
+  );
+  assert.equal(
+    aliases['@/lib/platform-client-address'],
+    './lib/platform-client-address.remote.ts',
+  );
+  assert.equal(
+    aliases['@/lib/platform-file-transfer-capabilities'],
+    './lib/platform-file-transfer-capabilities.next.ts',
+  );
+});
+
+void test('Default Vercel Supabase still requires explicit enablement and all server credentials', () => {
+  const env = {
+    ...configured,
+    VERCEL: '1',
+    PARTNER_HUB_NEXT_BACKEND: undefined,
+  };
+  assert.equal(readSupabaseBackendConfig(env).projectRef, projectRef);
+  for (const key of [
+    'PARTNER_HUB_BACKEND_ENABLED',
+    'PARTNER_HUB_APP_ORIGIN',
+    'SUPABASE_URL',
+    'SUPABASE_DATABASE_URL',
+    'SUPABASE_SECRET_KEY',
+    'SUPABASE_STORAGE_BUCKET',
+  ])
+    assert.throws(() =>
+      readSupabaseBackendConfig({ ...env, [key]: undefined }),
+    );
+  assert.throws(() =>
+    readSupabaseBackendConfig({ ...env, PARTNER_HUB_BACKEND_ENABLED: '0' }),
   );
 });
 

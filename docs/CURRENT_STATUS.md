@@ -4,6 +4,8 @@
 
 사용자 선택에 따라 현재 이전 대상은 **Vercel Next.js + Supabase PostgreSQL/비공개 Storage**다. 작업 브랜치는 `codex/supabase-migration`이며, 아래 Turso/Blob 기록은 이전 단계의 검증 기록이다. 현재 완료 범위와 미완료 항목은 [Supabase 이전 현황](SUPABASE_MIGRATION.md)을 따른다.
 
+**최신 연결 오류 수정:** 실제 Vercel의 두 Production 배포에서 초기 설정 오류를 재현했다. 로그인 후 `partner-hub`와 `partner-hub-3733` 모두 Project 환경변수가 없음을 확인했다. `partner-hub`에는 연결된 Shared 변수도 없었다. Vercel 기본 백엔드가 여전히 Turso/Blob을 선택하던 코드도 Supabase 기본값으로 수정했다. 명시적 비활성화·기존 모드·필수 자격증명·보안 검사는 유지한다. 집중검사 18건, TypeScript·lint 통과. 실제 사용할 주소 선택과 Secret key·비밀번호 포함 DB URI 입력, 관리자/데이터 정책·연결 검증이 남았다. 두 프로젝트에 같은 업무 DB를 자동 연결하거나 활성화하지 않았다. [현재 연결 안내](VERCEL_SUPABASE_SETUP.md)를 따르며 아래 내용은 이전 시점 기록이다.
+
 **최신 로컬 설정 준비:** 기존 키 저장 질문에 대한 사용자의 `다음진행` 후 Supabase 프로젝트와 키 화면을 다시 열었다. 화면의 키 한 개를 파일에 저장하는 과정은 끝까지 검증하지 못했으므로 저장 성공으로 기록하지 않는다. Git 제외 `.env.local`을 새로 준비하고 프로젝트 URL·비공개 버킷·`supabase-v1`·백엔드 비활성(`0`)을 확인했다. `SUPABASE_SECRET_KEY`와 `SUPABASE_DATABASE_URL`은 실제로 비어 있으며 입력이 필요하다. 임시 로컬 전달 서버는 종료했고 새 키 생성·DB 비밀번호 재설정·권한 확대·배포는 하지 않았다. 작업 폴더가 OneDrive 아래라 이 파일도 동기화될 수 있음을 안내했다. 아래 "파일 없음/승인 대기"는 이전 시점 기록이다.
 
 **최신 추가 검사:** 공개 Supabase Storage 서버의 실제 응답 규격과 연결 코드를 대조했다. 현재 소스의 `bucket_id` 검사는 유지하며, 서버가 `If-Match`를 강제하지 않아도 기존 응답 ETag/길이/해시 검사가 변경된 파일을 거절함을 독립 회귀검사 6개로 확인했다. 신규·기존 Storage 집중검사 12개, 전체 직렬 회귀검사 **1027/1027**(실패/건너뜀 0건, 약 304초), TypeScript·lint·변경 파일 서식 검사를 통과했다. 로그는 `work/supabase-storage-contract-final-tests.log`다. 앱 동작·SQL·운영 데이터·키는 변경하지 않았으며 실제 서비스 연결 검증은 여전히 별도다.

@@ -6,9 +6,9 @@
 
 ## Next.js / Vercel 배포 기준
 
-새 Vercel 배포는 **Vercel Marketplace의 Turso DB + 비공개 Vercel Blob**을 사용합니다. Cloudflare 계정이나 별도 Worker는 필요하지 않습니다. 사용자가 GitHub 저장소를 Vercel에 연결하면 `vercel.json`의 Next.js 설정으로 빌드합니다. 연결 환경변수·초기 스키마·관리자 설정·기존 데이터 이관 주의사항은 **[Vercel 저장소 연결 안내](docs/VERCEL_STORAGE.md)**를 기준으로 진행하세요.
+새 Vercel 배포는 **Supabase PostgreSQL + 비공개 Supabase Storage**를 사용합니다. Cloudflare 계정이나 별도 Worker는 필요하지 않습니다. 사용자가 GitHub 저장소를 Vercel에 연결하면 `vercel.json`의 Next.js 설정으로 빌드합니다. 연결 환경변수·관리자 설정·기존 데이터 이관 주의사항은 **[Vercel + Supabase 연결 안내](docs/VERCEL_SUPABASE_SETUP.md)**를 기준으로 진행하세요.
 
-`pnpm storage:check`는 대상 연결과 스키마 내역을 확인하고, `pnpm storage:init`은 새 DB에 스키마를 적용합니다. `pnpm admin:vercel`은 독립 관리자 비밀번호를 최초 설정합니다. 실제 서비스 자원 연결·기존 데이터 복사·공개 배포는 소스 변경과 별개입니다.
+Vercel에서 백엔드 선택을 생략하면 Supabase를 선택하며, 명시적인 `disabled` 및 기존 백엔드 모드는 유지합니다. 선택과 활성화는 별개입니다. 실제 연결값·스키마·관리자·데이터 정책을 준비해야 업무 API를 활성화할 수 있습니다. `.env.local`의 값은 GitHub 푸시로 Vercel에 전달되지 않습니다. `storage:check`와 `storage:init`은 이전 Turso 전용 명령이므로 Supabase에는 실행하지 마세요. 상세 진행 기록은 [Supabase 이전 현황](docs/SUPABASE_MIGRATION.md)에 있습니다.
 
 ## 이전 단계 기록 — 기존 Sites 및 Cloudflare HTTP 검증
 

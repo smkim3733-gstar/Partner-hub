@@ -6,6 +6,14 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 
 ## 2026-09-10 현재 완료
 
+### Vercel 연결 오류 재현과 기본 백엔드 수정
+
+- GitHub의 `b5d16e6` 배포 기록과 실제 브라우저에서 `partner-hub`, `partner-hub-3733` 두 Production 배포가 Ready지만 "Vercel 저장소 연결과 초기 설정이 필요합니다"를 표시함을 확인했다. 이 문구는 앱의 이전 Turso/Blob 설정 검사에서 나온다. GitHub 연결 실패나 DB 서버 장애를 확인한 것이 아니다.
+- Vercel에 로그인해 두 프로젝트의 Project 환경변수 목록이 비어 있음을 확인했다. `partner-hub`의 Shared 목록도 연결된 변수가 없었다. 실제 주소는 각각 `partner-hub-gamma-five.vercel.app`, `partner-hub-3733.vercel.app`이다. 사용 대상 선택을 요청했으며 어느 프로젝트에도 키·DB 연결값을 저장하거나 backend 활성화를 하지 않았다.
+- Vercel에서 선택 변수를 생략했을 때 이전 Turso/Blob 대신 Supabase를 선택하도록 수정했다. 명시적인 `disabled` / `vercel-storage-v1` / `cloudflare-http-v1`은 유지하며 잘못된 선택값·로컬 혼합은 차단한다. 실제 키·정확한 Origin·DB URI·버킷·별도 활성화 조건은 그대로 요구한다. 인증·스키마 검사·RLS를 완화하지 않았다.
+- README의 잘못된 기본 구성을 고치고 이전 Turso 안내를 과거 기록으로 분리했다. 현재 설정은 [Vercel + Supabase 연결 안내](VERCEL_SUPABASE_SETUP.md)를 따른다. `.env.local`은 GitHub 푸시로 배포 환경에 전달되지 않는다.
+- 집중 회귀검사 18건, 전체 직렬 회귀검사 **1029/1029**(실패/건너뜀 0건, 약 479초), TypeScript·lint·변경 파일 서식 검사를 통과했다. 전체 로그는 `work/vercel-supabase-default-tests.log`다. 별도 프로세스로 실제 Next 설정의 기본 런타임·인증·직접 업로드 모듈 선택을 확인했다. 이번 단계에서 로컬 프로덕션 빌드는 재실행하지 않았다. 기존 Sites·적용 SQL·업무 데이터·비밀키는 변경하지 않았다. **코드의 선택 오류 수정과 실제 서비스 연결 완료는 별개다.**
+
 ### 로컬 설정 파일 준비 — 실제 자격증명 입력 필요
 
 - 기존 Secret key의 로컬 저장 질문에 사용자가 `다음진행`이라고 답한 뒤 기존 프로젝트의 키 화면을 다시 열었다. 새 키나 권한을 만들지 않았다. 단일 키의 자동 파일 저장을 끝까지 검증하지 못했으므로 자격증명 저장·실제 연결 완료로 판정하지 않았다. 전체 키 화면 내보내기는 재시도하지 않았다.
