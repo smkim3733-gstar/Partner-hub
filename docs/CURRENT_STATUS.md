@@ -4,6 +4,8 @@
 
 사용자 선택에 따라 현재 이전 대상은 **Vercel Next.js + Supabase PostgreSQL/비공개 Storage**다. 작업 브랜치는 `codex/supabase-migration`이며, 아래 Turso/Blob 기록은 이전 단계의 검증 기록이다. 현재 완료 범위와 미완료 항목은 [Supabase 이전 현황](SUPABASE_MIGRATION.md)을 따른다.
 
+**최신 로컬 설정 준비:** 기존 키 저장 질문에 대한 사용자의 `다음진행` 후 Supabase 프로젝트와 키 화면을 다시 열었다. 화면의 키 한 개를 파일에 저장하는 과정은 끝까지 검증하지 못했으므로 저장 성공으로 기록하지 않는다. Git 제외 `.env.local`을 새로 준비하고 프로젝트 URL·비공개 버킷·`supabase-v1`·백엔드 비활성(`0`)을 확인했다. `SUPABASE_SECRET_KEY`와 `SUPABASE_DATABASE_URL`은 실제로 비어 있으며 입력이 필요하다. 임시 로컬 전달 서버는 종료했고 새 키 생성·DB 비밀번호 재설정·권한 확대·배포는 하지 않았다. 작업 폴더가 OneDrive 아래라 이 파일도 동기화될 수 있음을 안내했다. 아래 "파일 없음/승인 대기"는 이전 시점 기록이다.
+
 **최신 추가 검사:** 공개 Supabase Storage 서버의 실제 응답 규격과 연결 코드를 대조했다. 현재 소스의 `bucket_id` 검사는 유지하며, 서버가 `If-Match`를 강제하지 않아도 기존 응답 ETag/길이/해시 검사가 변경된 파일을 거절함을 독립 회귀검사 6개로 확인했다. 신규·기존 Storage 집중검사 12개, 전체 직렬 회귀검사 **1027/1027**(실패/건너뜀 0건, 약 304초), TypeScript·lint·변경 파일 서식 검사를 통과했다. 로그는 `work/supabase-storage-contract-final-tests.log`다. 앱 동작·SQL·운영 데이터·키는 변경하지 않았으며 실제 서비스 연결 검증은 여전히 별도다.
 
 **실제 Storage 준비 추가 완료:** 기존 Supabase 로그인 세션을 확인하고 대시보드에서 `partner-hub-private`을 생성했다. 원격 재조회로 비공개, 25MiB(26214400바이트), MIME `application/octet-stream`을 확인했다. 버킷 객체·명단·FLOW·기업 파일·버전·전송 예약은 각각 0행이며, 업무 38개 표와 `storage.objects`의 RLS를 유지한다. 실제 업로드/DB 접속/배포 시험은 미완료다. 연결 화면에서 확인한 트랜잭션 풀러 주소를 `.env.example`의 주석에 기록했고 DB 비밀번호 재설정·새 키 생성은 하지 않았다. 비밀키 화면 자동 저장은 보안 검토에서 차단되어 우회하지 않았으며, 기존 Secret key의 Git 제외 `.env.local` 저장 승인과 실제 DB 비밀번호가 필요하다. 운영·main·기존 사용자 파일은 변경하지 않았다.

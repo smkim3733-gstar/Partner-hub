@@ -6,6 +6,13 @@ Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase Postgre
 
 ## 2026-09-10 현재 완료
 
+### 로컬 설정 파일 준비 — 실제 자격증명 입력 필요
+
+- 기존 Secret key의 로컬 저장 질문에 사용자가 `다음진행`이라고 답한 뒤 기존 프로젝트의 키 화면을 다시 열었다. 새 키나 권한을 만들지 않았다. 단일 키의 자동 파일 저장을 끝까지 검증하지 못했으므로 자격증명 저장·실제 연결 완료로 판정하지 않았다. 전체 키 화면 내보내기는 재시도하지 않았다.
+- `.env.local`을 준비했다. 프로젝트 URL, `partner-hub-private`, `PARTNER_HUB_NEXT_BACKEND=supabase-v1`, `PARTNER_HUB_BACKEND_ENABLED=0`은 설정됐지만 `SUPABASE_SECRET_KEY`와 `SUPABASE_DATABASE_URL`은 빈 값이다. 실제 파일을 파싱해 확인했고 Git 제외도 확인했다. 앱 코드·적용 SQL은 바꾸지 않았다.
+- 임시 로컬 메모리 전달 서버와 임시 창을 종료했다. 키 화면은 숨김 상태로 사용자에게 남겼다. DB 비밀번호를 재설정하지 않았으며 값 입력이 필요하다. 작업 폴더가 OneDrive 아래여서 `.env.local`도 동기화될 수 있음을 안내했다. Git 제외는 동기화 차단·암호화를 뜻하지 않는다.
+- 아래 "`.env.local` 없음/키 저장 승인 대기"는 앞선 시점의 기록이다. 다음 실제 연결에는 키와 비밀번호 포함 풀러 URI가 필요하며, 실제 원본 백업·복원과 Vercel 검증도 남아 있다.
+
 ### 공개 Storage 서버 응답 규격 대조와 독립 회귀검사
 
 - Supabase Storage 공개 소스 `7d7757dc971ed83e6d8bcc42a61497428b7a84a0`을 기준으로 HTTP 응답 규격을 대조했다. [InfoRenderer](https://github.com/supabase/storage/blob/7d7757dc971ed83e6d8bcc42a61497428b7a84a0/src/storage/renderer/info.ts)는 `bucket_id`를 반환하므로 버킷 일치 검사를 완화하지 않았다. 이 공개 커밋이 현재 프로젝트에 배포된 버전이라는 의미는 아니다.
