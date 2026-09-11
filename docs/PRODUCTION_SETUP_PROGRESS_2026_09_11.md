@@ -1,6 +1,6 @@
 # 운영 설정 마무리 진행
 
-대상은 Next.js + Supabase, 배포는 `keve1/partner-hub`의 `https://partner-hub-gamma-five.vercel.app`이다. 마지막 운영 소스는 `f35f3d8d1e6b37e74d533fb05b0a0b0581d115ae`이며 main 푸시와 [Production Ready](https://vercel.com/keve1/partner-hub/96QLBqafE1A2AYBSd88Us2SAakrd)를 확인했다. 이 문서는 자격증명이나 업무 원문을 포함하지 않는다.
+대상은 Next.js + Supabase, 배포는 `keve1/partner-hub`의 `https://partner-hub-gamma-five.vercel.app`이다. 마지막 운영 소스는 `c82e32ab4503f2d49560d01d2782241bf23145ed`이며 main 푸시와 [Production Ready](https://vercel.com/keve1/partner-hub/5L2WW3YTQ2Wiu9LrUJarqtXJEWPh)를 확인했다. 이 문서는 자격증명이나 업무 원문을 포함하지 않는다.
 
 ## 확인 완료
 
@@ -13,6 +13,8 @@
 Windows 한글 바이너리 경로의 initdb UTF-8 오류, 관리자 토큰의 직접 서버 기동 거절, 제어 프로세스의 출력 핸들 상속 대기를 해결했다. ASCII 도구 경로와 제한 토큰을 사용하는 `pg_ctl`, 출력 파이프 없는 서버 제어를 적용했다. 기동 초기 중단은 기동 작업 종료 후 정리하도록 순서를 보장한다. 전원 차단·강제 프로세스 종료까지 정리를 보장하지 않는다.
 
 실제 검증 요약은 Git 제외 `work/backup-native-verification-20260911.json`, 회귀 로그는 `work/backup-final-tests-20260911.log`, 실행·보관·복구 범위는 `docs/SUPABASE_BACKUP_RECOVERY.md`에 기록했다. 백업은 `C:\Users\smkim\PartnerHubBackups\backup-8DlVC6`, 키는 별도 `PartnerHubRecoveryKeys` 아래에 있다. 백업·키·도구 바이너리는 Git에 넣지 않는다. 현재 파일이 0건이므로 실제 파일 재업로드를 검증했다고 표현하지 않는다. 별도 장치 보관, 정기 실행, 새 Supabase 환경의 실제 복구, 기존 Sites 자료 확보·이전은 아직 남아 있다.
+
+도구·테스트·문서·Git 제외 규칙 16개 파일을 `c82e32a`로 커밋하고 main에 푸시했다. 해당 커밋의 Vercel Production Ready와 빌드 27초를 확인했다. 백업 생성 당시 앱 소스 기준은 `f35f3d8`이며 이번 도구 커밋은 업무 스키마를 변경하지 않는다. 이 배포 결과 문단과 첫 문단의 최신 소스 갱신은 후속 인계 기록이다.
 
 ### 최신 후속: 운영 상태 점검 주소 수정
 
@@ -71,6 +73,16 @@ Vercel에서 해당 커밋의 운영 배포 Ready와 공식 별칭을 확인했�
 - 이전 CLI와 원본 판독·계획 도구(`scripts/import-sites-supabase.mjs`, `scripts/sites-supabase-import-source.mjs`, `scripts/sites-supabase-import-plan.mjs`)는 **구현 완료·실제 미적용** 상태다. 원본 마이그레이션 99개와 테이블 30개를 전수 검사한, 잘리지 않은 동결 SQLite 사본을 요구한다. 포털 상태·revision 1 초안·revision 1 FLOW 각 1행만 이관하며, ChatGPT 결속은 원본에 보존하고 새 인증에 복제하지 않는다. 기존 세션도 이관하지 않는다.
 - 원본 파일·논리 해시, 변경 감지, 원본 보존·쓰기 동결·전체 Storage 빈 목록 확인과 정확한 서비스 URL의 TTY 확인을 유지한다. 대상의 기존 새 관리자·감사·세션·인증 제한 기록은 불변 확인 후 보존한다. 이관 대상 업무 데이터나 연계 원장이 이미 있으면 거절한다. 트랜잭션의 첫 조회 전에 잠금을 확보하고, 하나의 SERIALIZABLE 트랜잭션 안에서 원본과 최종 값을 대조한다. FLOW의 임시 revision 0 기준은 합법적인 전이를 위한 내부 단계이며 단독으로 커밋하지 않는다. 트리거·RLS를 완화하거나 결과가 불명확한 쓰기를 자동 재시도하지 않는다.
 - 합성 SQLite/PGlite의 기존 snapshot 검사 15건과 importer 검사 12건, 총 **27건**이 통과했다. 최종 잠금 순서와 원장 사후검사 보강 뒤 importer 12건을 다시 통과했고, 독립 검토와 변경 파일 lint·서식·범위 제한 TypeScript 검사를 마쳤다. 더 높은 revision, 미복구 첨부, 추가 업무행, 모호한 영수증·담당 연결을 거절하는 제약을 유지한다. 이는 실제 운영 원본 백업·이관, 독립 Supavisor 세션 경합 또는 운영 전환 완료 증거가 아니다.
+
+## 최신 후속: 일일 백업 예약
+
+2026-09-11 사용자 `다음 진행`에 따라 `supabase-backup-scheduled.mjs`와 예약 정책·통합 테스트를 추가했다. 범용 백업 CLI의 생성·검증을 같은 프로세스에서 재사용하고 기존 중단·정리 처리를 유지한다. 독점 잠금, 한국 날짜 중복 방지, 실패와 마지막 성공 분리, 최신 암호문·키 인증, 36시간 초과 감지, 30일 실행 기록 집계가 포함된다. 백업·키 자동 삭제는 없다.
+
+20:46 KST 실제 실행은 38개 테이블·전체 9행·Storage 0건을 백업하고 네이티브 로컬 PostgreSQL의 내용·정의·권한 대조 및 평문 정리를 완료했다. SHA-256은 `1e4e9d127c7dc3b618ec79d3f5e65e57395a29c911f88439c10a1bd4c04e75eb`이다. 후속 실행은 같은 날짜 중복을 생략하고 실물 재검증 후 healthy를 반환했다. 이전 수동 백업과 키는 그대로 보존한다.
+
+현재 작업에 `automation-2`, **파트너 허브 일일 백업·복원 검증** heartbeat를 ACTIVE로 등록했다. 매일 오전 9시 Asia/Seoul, 실패 실행 알림 설정이다. 기존 `파트너 허브 연속 개발` 예약은 PAUSED 상태를 유지했다. 55개 백업 검사와 전체 TypeScript·변경 lint·서식 검사, 기동 중 SIGINT 정리 검증을 통과했다. 세부 실행법과 한계는 `docs/SUPABASE_BACKUP_RECOVERY.md`를 참조한다.
+
+PC와 Codex가 켜져 있어야 하며 다음 예약 실행·실제 OS 알림 수신은 아직 관찰 전이다. 암호화 백업의 외부 보관 위치와 키의 별도 보관 위치를 사용자에게 확인 중이다. 답변 없이 외부 복사하지 않았다. 정기 예약 등록을 PC 밖 사본·신규 Supabase 복구·기존 Sites 원본 이전 완료로 해석하지 않는다.
 
 ## 다음 실행
 

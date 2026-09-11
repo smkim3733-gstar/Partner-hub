@@ -63,8 +63,16 @@ const interrupt = () => {
   for (const client of activeConnections)
     void client.end({ timeout: 1 }).catch(() => {});
 };
-for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'])
-  process.on(signal, interrupt);
+export async function withBackupSignals(operation) {
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'])
+    process.on(signal, interrupt);
+  try {
+    return await operation();
+  } finally {
+    for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'])
+      process.removeListener(signal, interrupt);
+  }
+}
 
 function options(args) {
   const result = {};
@@ -114,7 +122,7 @@ async function snapshot(client) {
   );
 }
 
-async function createBackup(args) {
+export async function createBackup(args, { reportResult = true } = {}) {
   const selected = options(args);
   if (selected['--archive'] || selected['--key-file'])
     throw failBackup('backup-usage-invalid');
@@ -276,7 +284,8 @@ async function createBackup(args) {
       json(report),
       { flag: 'wx', mode: 0o600 },
     );
-    console.log(json(report));
+    if (reportResult) console.log(json(report));
+    return report;
   } finally {
     activeConnections.delete(client);
     await client.end({ timeout: 5 });
@@ -296,7 +305,7 @@ async function unusedPort() {
   return port;
 }
 
-async function verifyBackup(args) {
+export async function verifyBackup(args, { reportResult = true } = {}) {
   const selected = options(args);
   if (
     !selected['--archive'] ||
@@ -582,34 +591,40 @@ async function verifyBackup(args) {
       `verification-${Date.now()}.json`,
     );
     await writeFile(reportPath, json(report), { flag: 'wx', mode: 0o600 });
-    console.log(json({ ...report, reportPath }));
+    if (reportResult) console.log(json({ ...report, reportPath }));
+    return { ...report, reportPath };
   }
 }
 
-try {
-  const [command, ...args] = process.argv.slice(2);
-  if (command === '--help' && args.length === 0)
-    console.log(
-      'create --pg-bin <PostgreSQL17/bin> [--backup-dir <absolute-root>] [--key-dir <separate-absolute-root>]\nverify --pg-bin <PostgreSQL17/bin> --archive <encrypted.phbackup> --key-file <recovery.key>\ncreate loads operator environment; verify only creates a private, temporary loopback PostgreSQL cluster. No remote restore. Keys must be copied separately to secure offline storage for device-loss recovery.',
-    );
-  else if (command === 'create') await createBackup(args);
-  else if (command === 'verify') await verifyBackup(args);
-  else throw failBackup('backup-usage-invalid');
-} catch (error) {
-  const code =
-    typeof error?.backupCode === 'string'
-      ? error.backupCode
-      : error?.name === 'SupabaseFingerprintError' &&
-          /^[a-z-]+$/.test(error.code)
-        ? error.code
-        : /^(BACKUP_ARCHIVE_INVALID|SUPABASE_BACKUP_STORAGE_(INVALID_CONFIG|FAILED|CHANGED|LIMIT_EXCEEDED))$/.test(
-              error?.message,
-            )
-          ? error.message
-          : 'backup-failed-redacted';
-  console.error(json({ status: 'failed', error: code }));
-  process.exitCode = 1;
-} finally {
-  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'])
-    process.removeListener(signal, interrupt);
+async function main() {
+  try {
+    const [command, ...args] = process.argv.slice(2);
+    if (command === '--help' && args.length === 0)
+      console.log(
+        'create --pg-bin <PostgreSQL17/bin> [--backup-dir <absolute-root>] [--key-dir <separate-absolute-root>]\nverify --pg-bin <PostgreSQL17/bin> --archive <encrypted.phbackup> --key-file <recovery.key>\ncreate loads operator environment; verify only creates a private, temporary loopback PostgreSQL cluster. No remote restore. Keys must be copied separately to secure offline storage for device-loss recovery.',
+      );
+    else if (command === 'create') await createBackup(args);
+    else if (command === 'verify') await verifyBackup(args);
+    else throw failBackup('backup-usage-invalid');
+  } catch (error) {
+    const code =
+      typeof error?.backupCode === 'string'
+        ? error.backupCode
+        : error?.name === 'SupabaseFingerprintError' &&
+            /^[a-z-]+$/.test(error.code)
+          ? error.code
+          : /^(BACKUP_ARCHIVE_INVALID|SUPABASE_BACKUP_STORAGE_(INVALID_CONFIG|FAILED|CHANGED|LIMIT_EXCEEDED))$/.test(
+                error?.message,
+              )
+            ? error.message
+            : 'backup-failed-redacted';
+    console.error(json({ status: 'failed', error: code }));
+    process.exitCode = 1;
+  }
 }
+
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+)
+  await withBackupSignals(main);

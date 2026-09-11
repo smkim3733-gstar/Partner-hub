@@ -139,6 +139,11 @@ export async function privateDirectory(
       throw failBackup('backup-path-inside-synced-folder');
   }
   const directory = await mkdtemp(path.join(resolvedRoot, prefix));
+  await protectPrivateDirectory(directory);
+  return await realpath(directory);
+}
+
+export async function protectPrivateDirectory(directory) {
   if (process.platform === 'win32') {
     const script = `$ErrorActionPreference = 'Stop'
 $taskIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
@@ -160,7 +165,6 @@ Set-Acl -LiteralPath $env:PARTNER_HUB_BACKUP_PRIVATE_DIR -AclObject $taskAcl`;
       },
     );
   } else await chmod(directory, 0o700);
-  return await realpath(directory);
 }
 
 export function defaultBackupRoots() {
