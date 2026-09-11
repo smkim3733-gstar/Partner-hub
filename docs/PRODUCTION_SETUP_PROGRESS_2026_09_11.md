@@ -1,8 +1,16 @@
 # 운영 설정 마무리 진행
 
-대상은 Next.js + Supabase, 배포는 `keve1/partner-hub`의 `https://partner-hub-gamma-five.vercel.app`이다. 마지막 운영 소스는 `6c772ff`이며 Production Ready와 로그인 화면을 확인했다. 이 문서는 자격증명이나 업무 원문을 포함하지 않는다.
+대상은 Next.js + Supabase, 배포는 `keve1/partner-hub`의 `https://partner-hub-gamma-five.vercel.app`이다. 마지막 운영 소스는 `22cdc48a0a4d890895b49347ef976ed4f7b0cdb5`이며 main 푸시와 [Production Ready](https://vercel.com/keve1/partner-hub/Axxrz4VcQkzFKo1X3YU5kV6iCeJi)를 확인했다. 빌드는 28초였다. 이 문서는 자격증명이나 업무 원문을 포함하지 않는다.
 
 ## 확인 완료
+
+### 최신 후속: 가입 비밀번호 6자
+
+사용자가 회원가입 비밀번호를 6자 이상으로 변경하라고 명시했다. 가입 전용 `signupPasswordProblem`과 가입 API, 가입 화면의 HTML 제한·안내를 6~128자로 통일했다. 기존 관리자 생성·복구와 회원 비밀번호 설정 링크는 15자 기준을 유지한다. 가입 승인·권한·세션·해시 저장 규칙은 변경하지 않는다. 합성 5자 가입 거절, 6자 가입 및 승인 후 로그인, 6자 복구 거절과 기존 세션 보존 검사가 PGlite에서 통과했다.
+
+이전 관리자 14자 후보 7개 파일은 Git 제외 `work/pending-admin14-before-signup6-20260911/`에 원본 바이트 그대로 보존했고, 관리자 관련 작업 파일은 운영 기준으로 복원했다. 보존본은 TypeScript가 작업 소스로 수집하지 않도록 파일명에 `.pending`을 붙였다. 이번 가입 변경에 관리자 정책 완화나 계정 생성은 포함하지 않는다. 아래 14자 로컬 미커밋 파일 목록은 이 보존 처리 전의 기록이다.
+
+가입·인증·화면 회귀 69건과 정책/PGlite 4건, 총 73건 및 전체 TypeScript·변경 파일 lint가 통과했다. 배포 HEAD에서 선정한 6개 소스/테스트만 덧씌운 격리 후보로 Next 프로덕션 빌드와 HTTP 경계 123건을 통과했다. 기록은 Git 제외 `work/signup6-auth-ui-tests-20260911.log`, `work/signup6-next-build-20260911.log`다.
 
 - Supabase 실제 DB와 앱의 회원가입·비밀번호 로그인·세션·현재 권한 검사를 연결했다. 합성 회원 가입 201, 중복 가입 409, 승인 전 로그인 403, 내부 승인 후 로그인, 권한 회수에 따른 파일 업로드 금지, 정지 후 세션 무효화, 재활성 후 새 로그인 및 로그아웃이 통과했다.
 - 검사 전체를 하나의 SERIALIZABLE 트랜잭션에 고정했고, 내부 배치는 SAVEPOINT로 묶었다. 의도적으로 실패한 배치의 부분 쓰기 취소도 확인했다. 기존 관리자 관련 표는 변경하지 않았고, 마지막에 전체 ROLLBACK 후 38개 표의 행 요약 SHA-256이 검사 전과 일치했다.
@@ -12,6 +20,7 @@
 - 관리자 최초 설정만 14자를 허용하는 로컬 후보 변경을 준비했다. 일반 회원·비밀번호 복구는 15자 규칙을 유지한다. 합성 비밀번호로 집중 검사 36건, TypeScript와 변경 파일 lint가 통과했다. 이는 후보 소스 검증이며 정책 변경의 운영 적용·배포나 관리자 생성 완료를 뜻하지 않는다. 사용자 실제 비밀번호는 코드·테스트·문서에 넣지 않았다.
 - 관리자 14자 변경을 제외하고 현재 15자 정책을 유지한 격리된 안전 배포 후보의 Next.js 프로덕션 빌드, HTTP 경계 123건 및 인증 경계 검사가 종료 코드 0으로 통과했다. 로그는 Git 제외 `work/next-safe-release-build-20260911.log`다. 후보 검사 통과와 실제 Production 배포 완료는 별개다.
 - 공개 메타데이터의 옛 Sites 주소를 현재 Vercel 주소로 고쳤다. `vercel.json`에는 Supabase PostgreSQL과 같은 싱가포르 `sin1`을 단일 실행 지역으로 지정해 DB 왕복 지연을 줄이도록 했다. [Vercel 공식 regions 설정](https://vercel.com/docs/project-configuration/vercel-json#regions)은 Hobby의 단일 지역 선택을 지원한다. 실제 운영 처리 시간 개선은 배포 후 측정 전이므로 확정하지 않는다.
+- 배포 완료 뒤 공식 주소 `/`와 `/account`는 200과 새 Open Graph 주소, `/api/state`는 401과 `private, no-store, max-age=0`을 반환했다. 해당 API 응답의 Vercel 식별 헤더에서 `sin1` 실행을 확인했다. 증거는 Git 제외 `work/safe-production-check-20260911.json`이다. 실제 파일 업무의 배포 전후 속도를 비교한 결과는 아니다.
 
 ## 승인 대기
 
@@ -31,6 +40,6 @@
 
 ## 다음 실행
 
-승인이 필요한 관리자 정책 후보는 제외하고, 승인 없이 진행할 수 있는 이전 도구·메타데이터·문서만 별도 선택하여 main 반영과 Vercel 배포를 준비한다. 이 반영 자체가 관리자 생성이나 자료 이관 완료를 뜻하지는 않는다.
+이전 도구·메타데이터·싱가포르 실행 지역·문서 8개만 선택해 `22cdc48`로 main 푸시하고 Vercel 배포를 완료했다. 운영 최소 비밀번호 길이는 15자로 유지한다. 관리자 14자 후보의 `lib/password-policy.ts`, `lib/standalone-admin-store.ts`, `scripts/admin-next-remote.mjs`와 관련 테스트는 로컬 미커밋 상태이며, 명시적 승인 전 다른 변경과 함께 푸시하지 않는다. 이 반영 자체가 관리자 생성이나 자료 이관 완료를 뜻하지는 않는다. 이 문서의 배포 후 결과 추가는 다음 변경에 함께 기록할 로컬 인계 갱신이다.
 
 정책 승인 후 기존 TTY 관리자 최초 설정 → 원본 Sites 로그인 승인에 따른 잘리지 않은 원본 확보 → 이전 계획 검토 및 원자적 복원 → 운영 로그인·권한·자료·FLOW 검사 순서로 마무리한다. 같은 DB 비밀번호나 이미 승인된 Vercel 배포 허용을 다시 요청하지 않는다. 외부 AI 자동 생성은 API 키가 없어 현재 비활성이다.

@@ -5,7 +5,7 @@ import { Eye, EyeOff, LockKeyhole, LogIn, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { passwordProblem } from '@/lib/password-policy';
+import { passwordProblem, signupPasswordProblem } from '@/lib/password-policy';
 import { isValidLoginEmail } from '@/lib/member-email';
 import { readPasswordAuthResponse } from '@/lib/password-auth-response';
 import { sitesSignInEnabled } from '@/lib/platform-auth-capabilities';
@@ -79,8 +79,14 @@ export function PartnerAuthPanel({
       setError('이메일 주소를 정확히 입력해 주세요.');
       return;
     }
-    if (mode !== 'login' && passwordProblem(password)) {
-      setError(passwordProblem(password));
+    const passwordIssue =
+      mode === 'signup'
+        ? signupPasswordProblem(password)
+        : mode === 'setup'
+          ? passwordProblem(password)
+          : '';
+    if (passwordIssue) {
+      setError(passwordIssue);
       return;
     }
     if (!password) {
@@ -273,7 +279,7 @@ export function PartnerAuthPanel({
                       autoComplete={
                         mode === 'login' ? 'current-password' : 'new-password'
                       }
-                      minLength={mode === 'login' ? 1 : 15}
+                      minLength={mode === 'login' ? 1 : mode === 'signup' ? 6 : 15}
                       maxLength={128}
                       required
                       className="h-11 bg-white"
@@ -301,7 +307,9 @@ export function PartnerAuthPanel({
                     className="mt-2 text-xs leading-5 text-slate-600"
                   >
                     네이버·구글 메일 비밀번호가 아닙니다.
-                    {mode !== 'login' &&
+                    {mode === 'signup' &&
+                      ' 6자 이상, 최대 128자로 입력해 주세요. 붙여넣기와 비밀번호 관리자를 사용할 수 있습니다.'}
+                    {mode === 'setup' &&
                       ' 15~128자의 긴 문장을 권장합니다. 붙여넣기와 비밀번호 관리자를 사용할 수 있습니다.'}
                   </p>
                 </div>

@@ -279,12 +279,20 @@ void test('signup UI has exactly five fields, username/new-password autocomplete
   assert.equal((html.match(/<input/g) ?? []).length, 6); // Five fields plus explicit consent, not an extra personal-data field.
   assert.match(html, /autoComplete="username"/i);
   assert.match(html, /autoComplete="new-password"/i);
+  assert.match(html, /minLength="6"/i);
+  assert.match(html, /6자 이상, 최대 128자/);
   assert.match(html, /네이버·구글 메일 비밀번호가 아닙니다/);
   assert.match(html, /대표 승인 요청/);
   assert.doesNotMatch(html, /onPaste=|readonly="".*name="password"/i);
   const loginHtml = renderToStaticMarkup(createElement(PartnerAuthPanel));
   assert.match(loginHtml, /autoComplete="current-password"/i);
+  assert.match(loginHtml, /minLength="1"/i);
   assert.equal((loginHtml.match(/<input/g) ?? []).length, 2);
+  const setupHtml = renderToStaticMarkup(
+    createElement(PartnerAuthPanel, { initialMode: 'setup' }),
+  );
+  assert.match(setupHtml, /minLength="15"/i);
+  assert.match(setupHtml, /15~128자/);
 });
 void test('admin reset UI requires explicit identity confirmation and does not auto-send email', () => {
   const html = renderToStaticMarkup(

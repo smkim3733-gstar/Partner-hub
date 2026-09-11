@@ -16,7 +16,7 @@ const { readPasswordLinkSummary } = await import('../lib/password-link-metrics')
 
 const origin = 'https://postgres-auth.example.test';
 const email = 'synthetic-partner@example.test';
-const password = 'Synthetic PostgreSQL partner password!';
+const password = 'Map7!x'; // Synthetic six-character signup credential.
 const adminPassword = 'Synthetic PostgreSQL owner password!';
 function request(data: unknown, cookie = '') {
   return new Request(`${origin}/api/auth/test`, {
@@ -58,6 +58,9 @@ void test('PostgreSQL password handlers preserve pending approval, role boundari
   const adminCookie = admin.headers.get('set-cookie')!.split(';')[0];
   assert.match(admin.headers.get('set-cookie')!, /^__Host-keve_session=.*;.*HttpOnly.*SameSite=Strict.*Secure/);
   const signup = { name: '가상 검증파트너', phone: '010-0000-0000', affiliation: '가상 소속', email, password, consent: true };
+  await responseStatus(await registerPassword(request({ ...signup, password: password.slice(0, -1) })), 400);
+  assert.equal(await f.db.prepare('SELECT count(*) AS n FROM portal_password_accounts').first('n'), 0);
+  assert.equal((await readPortalState() as { members: unknown[] }).members.length, 0);
   await responseStatus(await registerPassword(request(signup)), 201);
   await responseStatus(await registerPassword(request(signup)), 409);
   await responseStatus(await loginPassword(request({ email, password })), 403);
@@ -80,6 +83,9 @@ void test('PostgreSQL password handlers preserve pending approval, role boundari
   const issued = await responseStatus(await createPasswordLink(request({ memberId, confirmed: true }, adminCookie)), 201);
   const resetToken = ((await issued.json()) as { path: string }).path.split('#token=')[1];
   const replacement = 'Synthetic PostgreSQL replacement partner password!';
+  const rejectedReset = await responseStatus(await setupPassword(request({ token: resetToken, password })), 400);
+  assert.match((await rejectedReset.json() as { error: string }).error, /15~128/);
+  assert.ok(await passwordIdentity(request({}, cookie)), 'rejected short reset must preserve the current session and one-time link');
   await responseStatus(await setupPassword(request({ token: resetToken, password: replacement })), 200);
   await assert.rejects(passwordIdentity(request({}, cookie)), { status: 401 });
   await responseStatus(await loginPassword(request({ email, password })), 401);

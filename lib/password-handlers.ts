@@ -17,7 +17,7 @@ import {
   normalizeLoginEmail,
   isValidLoginEmail,
 } from '@/lib/member-email';
-import { passwordProblem } from '@/lib/password-policy';
+import { passwordProblem, signupPasswordProblem } from '@/lib/password-policy';
 import { PORTAL_STATE_LIMIT_BYTES } from '@/lib/pilot-readiness';
 import { schedulePasswordLinkMetric } from '@/lib/password-link-metrics';
 import {
@@ -66,8 +66,8 @@ function usableMember(state: State, id: string, email: string) {
     ? member
     : undefined;
 }
-function checkedPassword(value: unknown) {
-  const problem = passwordProblem(value);
+function checkedPassword(value: unknown, policy = passwordProblem) {
+  const problem = policy(value);
   if (problem) throw new PasswordError(problem);
   return value as string;
 }
@@ -97,7 +97,7 @@ export const registerPassword = passwordHandler(async (request) => {
   });
   if (Object.keys(errors).length)
     throw new PasswordError(Object.values(errors)[0]!);
-  const password = checkedPassword(body.password);
+  const password = checkedPassword(body.password, signupPasswordProblem);
   if (isReservedPortalOwnerEmail(value.email))
     throw new PasswordError(existingAccountMessage, 409);
   await readPortalState();
