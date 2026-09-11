@@ -1,4 +1,4 @@
-const defaultBaseUrl = 'https://keve-partner-hub.smkim3733.chatgpt.site';
+const defaultBaseUrl = 'https://partner-hub-gamma-five.vercel.app';
 const baseUrl = new URL(process.env.PARTNER_HUB_BASE_URL || defaultBaseUrl);
 
 if (baseUrl.protocol !== 'https:' || baseUrl.username || baseUrl.password) {

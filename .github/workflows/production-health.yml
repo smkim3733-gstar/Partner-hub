@@ -22,4 +22,6 @@ jobs:
         with:
           node-version: 22
       - name: Verify public pages and private API boundaries
+        env:
+          PARTNER_HUB_BASE_URL: https://partner-hub-gamma-five.vercel.app
         run: node scripts/check-production-health.mjs
