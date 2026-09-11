@@ -1,4 +1,7 @@
-function passwordProblemWithMinimum(value: unknown, minimumLength: 6 | 15) {
+function passwordProblemWithMinimum(
+  value: unknown,
+  minimumLength: 6 | 14 | 15,
+) {
   if (
     typeof value !== 'string' ||
     Array.from(value).length < minimumLength ||
@@ -24,4 +27,8 @@ export function passwordProblem(value: unknown) {
 
 export function signupPasswordProblem(value: unknown) {
   return passwordProblemWithMinimum(value, 6);
+}
+
+export function standaloneAdminPasswordProblem(value: unknown) {
+  return passwordProblemWithMinimum(value, 14);
 }

@@ -16,7 +16,7 @@ async function main() {
   const [
     { provisionStandaloneAdmin },
     { PORTAL_OWNER_EMAIL },
-    { passwordProblem },
+    { standaloneAdminPasswordProblem },
   ] = await Promise.all([
     import('../lib/standalone-admin-store.ts'),
     import('../lib/member-email.ts'),
@@ -65,11 +65,11 @@ async function main() {
   if (confirmation !== config.appOrigin)
     throw new Error('대상 확인이 일치하지 않습니다. 변경하지 않았습니다.');
   let password = await readSecret(
-    '새 운영 전용 비밀번호(15~128자, 표시되지 않음): ',
+    '새 운영 전용 비밀번호(14~128자, 표시되지 않음): ',
   );
   let repeated = '';
   try {
-    const problem = passwordProblem(password);
+    const problem = standaloneAdminPasswordProblem(password);
     if (problem) throw new Error(problem);
     repeated = await readSecret('비밀번호 확인: ');
     if (password !== repeated)
@@ -87,14 +87,16 @@ async function main() {
     repeated = '';
   }
 }
-main().finally(() => closeStorage()).catch((error) => {
-  console.error(
-    error instanceof Error &&
-      error.constructor === Error &&
-      !error.cause &&
-      !/SQL|D1_|SQLITE/i.test(error.message)
-      ? error.message
-      : '운영 관리자 설정을 확인하지 못했습니다. 비밀값·저장소 오류 상세는 출력하지 않습니다.',
-  );
-  process.exitCode = 1;
-});
+main()
+  .finally(() => closeStorage())
+  .catch((error) => {
+    console.error(
+      error instanceof Error &&
+        error.constructor === Error &&
+        !error.cause &&
+        !/SQL|D1_|SQLITE/i.test(error.message)
+        ? error.message
+        : '운영 관리자 설정을 확인하지 못했습니다. 비밀값·저장소 오류 상세는 출력하지 않습니다.',
+    );
+    process.exitCode = 1;
+  });

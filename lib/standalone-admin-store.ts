@@ -1,6 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import { PORTAL_OWNER_EMAIL, normalizeLoginEmail } from './member-email';
-import { passwordProblem } from './password-policy';
+import {
+  passwordProblem,
+  standaloneAdminPasswordProblem,
+} from './password-policy';
 import {
   hashPassword,
   verifyPassword,
@@ -40,7 +43,10 @@ export async function provisionStandaloneAdmin(
     throw new Error(
       `현재 지정된 대표 이메일로만 ${label} 관리자를 설정할 수 있습니다.`,
     );
-  const problem = passwordProblem(input.password);
+  const problem =
+    input.deployment === 'remote'
+      ? standaloneAdminPasswordProblem(input.password)
+      : passwordProblem(input.password);
   if (problem) throw new Error(problem);
   const version = randomUUID();
   const now = new Date().toISOString();

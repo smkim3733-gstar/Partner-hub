@@ -78,6 +78,41 @@ void test('real PostgreSQL independent admin provision, login, rotation, expiry 
   assert.equal(await readStandaloneAdminIdentity(db, expired), null);
 });
 
+void test('real PostgreSQL initial remote admin accepts 14 characters without changing local policy or overwriting credentials', async (t) => {
+  const f = await postgresFixture();
+  t.after(f.close);
+  const db = f.db;
+  const password = 'Ab9!cdAb9!cdXy';
+  for (const deployment of [undefined, 'local'] as const) {
+    await assert.rejects(provisionStandaloneAdmin(db, {
+      email: PORTAL_OWNER_EMAIL, password, deployment,
+    }), /15~128/);
+  }
+  await assert.rejects(provisionStandaloneAdmin(db, {
+    email: PORTAL_OWNER_EMAIL, password: password.slice(0, -1), deployment: 'remote',
+  }), /14~128/);
+  await assert.rejects(provisionStandaloneAdmin(db, {
+    email: PORTAL_OWNER_EMAIL, password: 'a'.repeat(14), deployment: 'remote',
+  }), /반복 문자/);
+  assert.equal(await db.prepare('SELECT count(*) AS n FROM standalone_admin_accounts').first('n'), 0);
+  assert.equal(await db.prepare('SELECT count(*) AS n FROM standalone_admin_audit').first('n'), 0);
+
+  await provisionStandaloneAdmin(db, { email: PORTAL_OWNER_EMAIL, password, deployment: 'remote' });
+  const account = await db.prepare('SELECT * FROM standalone_admin_accounts').first();
+  await assert.rejects(provisionStandaloneAdmin(db, {
+    email: PORTAL_OWNER_EMAIL, password: newPassword, deployment: 'remote',
+  }), /이미 설정/);
+  assert.deepEqual(await db.prepare('SELECT * FROM standalone_admin_accounts').first(), account);
+  assert.equal(await db.prepare('SELECT count(*) AS n FROM standalone_admin_accounts').first('n'), 1);
+  assert.equal(await db.prepare("SELECT count(*) AS n FROM standalone_admin_audit WHERE action = 'provision'").first('n'), 1);
+  assert.equal(await issueStandaloneAdminSession(db, PORTAL_OWNER_EMAIL, newPassword, null), null);
+  const token = await issueStandaloneAdminSession(db, PORTAL_OWNER_EMAIL, password, null);
+  assert.ok(token);
+  assert.deepEqual(await readStandaloneAdminIdentity(db, token), {
+    id: 'primary-admin', email: PORTAL_OWNER_EMAIL, displayName: '대표 관리자',
+  });
+});
+
 void test('real PostgreSQL admin recovery rotates atomically and rollback preserves credentials and sessions', async (t) => {
   const f = await postgresFixture();
   t.after(f.close);
