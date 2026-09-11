@@ -55,6 +55,8 @@
     "test:e2e": "playwright test",
     "bundle:verify": "node scripts/verify-client-bundle.mjs",
     "health:production": "node scripts/check-production-health.mjs",
+    "backup:create": "node --env-file-if-exists=.env.local scripts/supabase-backup.mjs create",
+    "backup:verify": "node scripts/supabase-backup.mjs verify",
     "release:verify": "node scripts/verify-release-manifest.mjs",
     "verify": "pnpm run release:verify && pnpm run typecheck && pnpm run lint && pnpm run test:all && pnpm run test:e2e && pnpm run build:sites && pnpm run bundle:verify"
   },

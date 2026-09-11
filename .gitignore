@@ -44,6 +44,8 @@ yarn-error.log*
 *.key
 *.p12
 *.pfx
+*.phbackup
+*.phbackup.partial
 /data/
 /uploads/
 /private/
