@@ -1,5 +1,7 @@
 # 새 세션 인계: Vercel + Supabase 연결 마무리
 
+**최신 진행:** 후속 "전부다 되도록 셋팅" 요청의 실제 DB 통합검사, 관리자 정책 변경 승인 대기, 원본 전체 수집과 이전 도구 준비는 [운영 설정 마무리 진행](PRODUCTION_SETUP_PROGRESS_2026_09_11.md)을 먼저 따른다. 현재 관리자 계정 생성은 자동 승인 검토가 차단했고 실행되지 않았다.
+
 ## 배포 검증 완료 — 2026-09-11
 
 `13457c98707b1835b8dc13347bada0f00a841519`를 GitHub `main`에 푸시했고, 지정 프로젝트 `keve1/partner-hub`의 Production 배포가 Ready임을 확인했다. [검증한 배포](https://vercel.com/keve1/partner-hub/6fv9s9SNNwzP31sqzjUJWKgNPH73)의 빌드는 26초였다. 이후 커밋은 이 결과의 문서 기록이다.
