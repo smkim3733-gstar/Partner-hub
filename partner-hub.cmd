@@ -25,7 +25,7 @@ set "WRANGLER_LOG_PATH=%CD%\.wrangler\logs"
 set "MINIFLARE_REGISTRY_PATH=%CD%\.wrangler\registry"
 
 if "%~1"=="" (
-  call pnpm.cmd dev --host localhost
+  call pnpm.cmd dev
 ) else (
   call pnpm.cmd %*
 )

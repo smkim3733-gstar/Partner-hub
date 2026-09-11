@@ -8,6 +8,8 @@
 
 새 Vercel 배포는 **Supabase PostgreSQL + 비공개 Supabase Storage**를 사용합니다. Cloudflare 계정이나 별도 Worker는 필요하지 않습니다. 사용자가 GitHub 저장소를 Vercel에 연결하면 `vercel.json`의 Next.js 설정으로 빌드합니다. 연결 환경변수·관리자 설정·기존 데이터 이관 주의사항은 **[Vercel + Supabase 연결 안내](docs/VERCEL_SUPABASE_SETUP.md)**를 기준으로 진행하세요.
 
+현재 운영 대상은 Vercel `keve1/partner-hub`, 연결 저장소는 `smkim3733-gstar/Partner-hub`의 `main`, 운영 주소는 `https://partner-hub-gamma-five.vercel.app`입니다. 기본 `pnpm dev`, `pnpm build`, `pnpm start`는 공식 Next.js를 실행합니다. 기존 Sites 실행은 `dev:sites`, `build:sites`, `start:sites`로 분리해 보존합니다. 아래 이전 단계의 기본 명령 관련 설명은 당시 기록입니다.
+
 Vercel에서 백엔드 선택을 생략하면 Supabase를 선택하며, 명시적인 `disabled` 및 기존 백엔드 모드는 유지합니다. 선택과 활성화는 별개입니다. 실제 연결값·스키마·관리자·데이터 정책을 준비해야 업무 API를 활성화할 수 있습니다. `.env.local`의 값은 GitHub 푸시로 Vercel에 전달되지 않습니다. `storage:check`와 `storage:init`은 이전 Turso 전용 명령이므로 Supabase에는 실행하지 마세요. 상세 진행 기록은 [Supabase 이전 현황](docs/SUPABASE_MIGRATION.md)에 있습니다.
 
 ## 이전 단계 기록 — 기존 Sites 및 Cloudflare HTTP 검증
@@ -127,9 +129,9 @@ pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-개발 서버가 출력하는 Local 주소로 접속합니다. 가입·로그인 화면은 `/account`, 비밀번호 설정 화면은 `/account/setup`입니다. 로컬 Sites 테스트 로그인과 실제 운영 로그인은 구분됩니다. 개발 서버를 인터넷에 그대로 노출하지 마세요.
+Next.js 개발 서버는 `http://127.0.0.1:3001`에서 실행합니다. 가입·로그인 화면은 `/account`, 비밀번호 설정 화면은 `/account/setup`입니다. 연결값 없이 화면만 확인할 때 업무 API는 비활성 상태입니다. 실제 운영 DB와 분리된 개발용 저장소가 필요하면 `dev:next:local`을 사용하세요. 개발 서버를 인터넷에 그대로 노출하지 마세요.
 
-외부 AI 연결을 시험할 경우 `.dev.vars.example`을 참고해 로컬 전용 `.dev.vars`를 만들거나 실행 환경의 비밀값 관리 기능을 사용합니다. `.dev.vars`와 `.env*`는 Git에 올리지 않습니다. 예시 모델 이름은 프로젝트 설정값이며 실제 계정에서 사용 가능한 모델임을 보장하지 않습니다.
+Next.js 연결값은 `.env.example`과 Vercel + Supabase 연결 안내를 참고해 Git 제외 `.env.local` 또는 배포 환경변수로 설정합니다. `.dev.vars`는 기존 Sites 전용입니다. 비밀값을 Git에 올리지 마세요. 외부 AI는 별도 승인·키·사용 가능한 모델이 준비되기 전까지 비활성을 유지합니다.
 
 ```sh
 pnpm test
@@ -140,7 +142,7 @@ node tests/password-worker-smoke.mjs
 
 마지막 명령은 workerd와 격리 D1 데이터베이스에서 인증을 검증합니다. 실제 계정, 운영 DB, 이메일 또는 유료 AI를 사용하지 않습니다. Windows 보안 환경에 따라 로컬 실행 허용이 필요할 수 있습니다.
 
-`pnpm start`는 빌드 후 로컬 Worker 미리보기를 실행합니다. GitHub Pages용 정적 사이트가 아닙니다. DB/R2와 동적 Worker 경로가 필요합니다.
+`pnpm start`는 빌드 후 Next.js 서버를 실행합니다. GitHub Pages용 정적 사이트가 아니며, Vercel의 서버 실행 환경과 Supabase 연결이 필요합니다. 기존 Worker 미리보기는 `pnpm run build:sites` 후 `pnpm run start:sites`를 사용합니다. 기존 전체 회귀 명령 `verify`는 Sites 번들 검사도 보존하며, Next.js + Supabase 번들은 `test:next:supabase`로 별도 검증합니다.
 
 ## 구조
 

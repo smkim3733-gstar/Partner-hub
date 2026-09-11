@@ -6,9 +6,12 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "vinext dev",
-    "build": "vinext build",
-    "start": "wrangler dev --config dist/server/wrangler.json",
+    "dev": "next dev --hostname 127.0.0.1 --port 3001",
+    "build": "next build",
+    "start": "next start --hostname 127.0.0.1 --port 3001",
+    "dev:sites": "vinext dev",
+    "build:sites": "vinext build",
+    "start:sites": "wrangler dev --config dist/server/wrangler.json",
     "dev:next": "next dev --hostname 127.0.0.1 --port 3001",
     "dev:next:local": "node scripts/dev-next-local.mjs",
     "dev:next:local:http": "node scripts/dev-next-local.mjs --d1-http",
@@ -53,7 +56,7 @@
     "bundle:verify": "node scripts/verify-client-bundle.mjs",
     "health:production": "node scripts/check-production-health.mjs",
     "release:verify": "node scripts/verify-release-manifest.mjs",
-    "verify": "pnpm run release:verify && pnpm run typecheck && pnpm run lint && pnpm run test:all && pnpm run test:e2e && pnpm run build && pnpm run bundle:verify"
+    "verify": "pnpm run release:verify && pnpm run typecheck && pnpm run lint && pnpm run test:all && pnpm run test:e2e && pnpm run build:sites && pnpm run bundle:verify"
   },
   "dependencies": {
     "@base-ui/react": "1.7.0",

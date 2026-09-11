@@ -12,11 +12,11 @@
 
 `partner-hub.cmd`는 이 PC에 설치된 Codex 번들 Node.js와 pnpm을 해당 프로세스에서만 PATH에 추가한다. 번들이 없는 PC에서는 PATH에 설치된 Node.js와 pnpm을 사용한다. 시스템 PATH나 PowerShell 실행 정책은 변경하지 않는다. 검증에 사용하는 Node.js는 24 계열이며, 프로젝트의 최소 요구 버전은 22.13이다.
 
-서버가 출력하는 `http://localhost:포트` 주소로 접속하고, 종료하려면 실행한 터미널에서 `Ctrl+C`를 누른다. 기본 실행은 `localhost`에만 바인딩한다. 로컬 대표 테스트 로그인은 호스트 이름 `localhost`를 전제로 하므로, 주소를 `127.0.0.1`로 바꾸지 않는다.
+현재 기본 실행은 공식 Next.js이며 `http://127.0.0.1:3001`로 접속한다. 종료하려면 실행한 터미널에서 `Ctrl+C`를 누른다. 루프백에만 바인딩하며 운영 DB를 자동 활성화하지 않는다. 운영과 분리된 로컬 관리자·DB·파일 테스트는 `.\partner-hub.cmd run dev:next:local`과 `.\partner-hub.cmd run admin:next:local`을 사용한다. Vercel 대상과 연결값은 [Vercel + Supabase 연결 안내](VERCEL_SUPABASE_SETUP.md)를 따른다.
 
 가입·로그인 화면은 `/account`, 비밀번호 설정 화면은 `/account/setup`이다. 로컬 Sites 테스트 로그인은 운영 계정 인증과 별개다. 로컬에서 표시되는 가상 자료는 실제 파트너·고객 데이터가 아니다.
 
-대표 화면을 시험하려면 `http://localhost:3000/signin-with-chatgpt?return_to=/`를 연다. 개발 플러그인이 제공하는 모의 계정 `seedy@sites.test`로 로그인하며 실제 ChatGPT 비밀번호는 필요하지 않다. 서버가 다른 포트를 표시하면 주소의 포트도 변경한다. 로그아웃 경로는 `/signout-with-chatgpt?return_to=/`이다. 이 모의 로그인은 운영 빌드에 포함되지 않는다.
+기존 Sites 모의 로그인 회귀검사는 `.\partner-hub.cmd run dev:sites --host localhost`로 별도 실행한다. 이 모드에서만 `http://localhost:3000/signin-with-chatgpt?return_to=/`의 모의 계정 `seedy@sites.test`를 사용한다. 서버가 다른 포트를 표시하면 포트도 변경한다. Next.js 또는 Vercel에서는 이 모의 로그인으로 관리자 인증할 수 없다.
 
 ## 개발 명령
 
@@ -32,7 +32,7 @@
 
 `pnpm-lock.yaml`과 `pnpm-workspace.yaml`의 기존 버전·설치 정책을 유지한다. Worker 실행이 Windows 보안 환경에서 차단될 경우 필요한 실행 권한을 확인하고, 보안 정책을 해제하거나 인증 검사를 제거하지 않는다.
 
-## 비밀값과 데이터
+## 기존 Sites 로컬 설정 기록 — 비밀값과 데이터
 
 - `.dev.vars.example`을 복사한 로컬 `.dev.vars`를 준비했다. API 키는 비어 있으며 외부 AI 연결은 설정하지 않았다. 실제 키는 로컬 비밀값 파일 또는 호스팅 비밀값 관리에만 입력한다.
 - `.dev.vars`, `.env*`, `.wrangler/`, `node_modules/`, `dist/`는 Git에서 제외된다. `.wrangler/`에는 로컬 DB/R2 상태가 저장되므로 고객 자료를 넣거나 공유하지 않는다.

@@ -1,5 +1,14 @@
 # 현재 구현과 다음 확인 순서
 
+## 2026-09-11 Vercel 운영 대상 확정 및 Next.js 기본 실행
+
+- 사용자가 지정한 Vercel 대상은 `keve1/partner-hub`, 운영 주소는 `https://partner-hub-gamma-five.vercel.app`이다. Git 설정에서 `smkim3733-gstar/Partner-hub` 연결과 운영 브랜치 `main`을 확인했다. 다른 `partner-hub-3733`에는 이번 작업의 비밀값을 설정하지 않는다.
+- 기본 `dev/build/start`를 공식 Next.js로 전환하고 기존 Sites 명령을 `dev:sites/build:sites/start:sites`로 보존했다. Vercel도 기본 빌드 명령을 사용하며 Windows 실행 파일의 Vinext 전용 `--host` 인수를 제거했다. 기존 Sites 번들 회귀검사는 `build:sites`를 명시한다.
+- 기존 Supabase Secret key의 Git 제외 로컬 저장 및 실제 비공개 버킷 조회 HTTP 200, 새 OAuth 연결의 MCP 도구 11개 조회를 확인했다. 로컬 운영 주소도 선택된 Vercel 주소로 설정했다. DB 비밀번호/URI는 아직 없으며 로컬 백엔드는 `0`이다. 아래 9월 10일의 키 미확보 기록은 이전 상태다.
+- Vercel Production에 비밀이 아닌 설정 6개(백엔드 선택, 비활성화, 운영 주소, Supabase URL/버킷, 외부 AI 비활성)를 Config 유형으로 저장하고 목록을 재조회했다. 비밀값을 포함한 환경파일 업로드는 보안 검토에서 차단되어 재시도하지 않았고, 특정 목적지로의 전송 승인을 요청했다. Secret key/DB URI의 Vercel 등록, 관리자 설정·데이터 정책·실제 로그인/저장 검증은 아직 완료가 아니다.
+- 비밀 파일과 사용자 미커밋 변경을 제외한 독립 소스에서 frozen-lockfile 설치, Supabase 선택 Next.js 프로덕션 빌드, HTTP 123건 및 인증·공개 번들 비밀값 배제 검사를 통과했다. TypeScript·추가 설정 검사 4건·해당 파일 lint/서식 검사도 통과했다. 빌드 로그는 `work/vercel-next-release-build.log`이며, 실제 업무 가능 상태와 구분한다.
+- 전체 직렬 회귀검사 **1033/1033**, 실패·건너뜀 0건, 약 671초를 통과했다(`work/vercel-next-release-tests.log`). 기존 Git 이력을 사용하는 릴리스 매니페스트 검사도 원본 저장소에서 통과했다. 원본 없는 임시 빌드 사본의 매니페스트 검사는 Git 경로 기준이 달라 적합하지 않으므로 성공 증거로 사용하지 않았다.
+
 ## 2026-09-10 Supabase 이전 진행
 
 사용자 선택에 따라 현재 이전 대상은 **Vercel Next.js + Supabase PostgreSQL/비공개 Storage**다. 작업 브랜치는 `codex/supabase-migration`이며, 아래 Turso/Blob 기록은 이전 단계의 검증 기록이다. 현재 완료 범위와 미완료 항목은 [Supabase 이전 현황](SUPABASE_MIGRATION.md)을 따른다.
