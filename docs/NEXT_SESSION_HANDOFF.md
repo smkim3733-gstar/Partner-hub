@@ -1,5 +1,13 @@
 # 새 세션 인계: Vercel + Supabase 연결 마무리
 
+## 배포 검증 완료 — 2026-09-11
+
+`13457c98707b1835b8dc13347bada0f00a841519`를 GitHub `main`에 푸시했고, 지정 프로젝트 `keve1/partner-hub`의 Production 배포가 Ready임을 확인했다. [검증한 배포](https://vercel.com/keve1/partner-hub/6fv9s9SNNwzP31sqzjUJWKgNPH73)의 빌드는 26초였다. 이후 커밋은 이 결과의 문서 기록이다.
+
+공식 주소의 `/`와 `/account`는 HTTP 200, `/api/state`는 HTTP 401 `로그인 정보를 확인할 수 없습니다.`와 `private, no-store, max-age=0`을 반환했다. 실제 브라우저 홈은 **파트너 로그인**과 이메일·비밀번호 입력란을 표시했다. 기존 `다시 확인`/503 설정 오류는 해소됐고 Vercel에서 실제 Supabase 읽기가 인증 단계까지 통과했다. 검사 기록은 Git 제외 `work/vercel-production-check-20260911.json`이다.
+
+관리자 초기 설정과 기존 자료 이관은 여전히 미완료다. 현재 화면에 로그인 양식이 표시된다는 사실을 로그인 성공·업무 전체 사용 가능으로 보고하지 않는다. 앞서 받은 관리자 비밀번호는 최소 15자 조건을 충족하지 않아 저장하지 않았으며 값은 기록하지 않는다. 아래 배포 진행·대기 문구는 과거 기록이다. 이 배포 작업에서 사용자 미커밋 파일과 비밀값은 Git에 포함하지 않았다.
+
 ## 최우선 최신 상태 — 사용자 푸시·배포 요청
 
 2026-09-11 사용자가 `push하고 배포해야지 당연히`라고 명시했다. `keve1/partner-hub` Production의 `PARTNER_HUB_BACKEND_ENABLED=1`을 저장하고 성공 알림을 확인했다. 9개 환경변수(Config 7+Secret 2), Supabase 전용 백엔드, 외부 AI 비활성을 유지한다. `main` 푸시와 새 운영 배포를 진행한다. 같은 배포 승인을 다시 요청하지 않는다.
