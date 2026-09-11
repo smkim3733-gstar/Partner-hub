@@ -1,5 +1,11 @@
 # Supabase 이전 현황
 
+**최신 정정(2026-09-11):** 사용자 요청으로 Production 백엔드 활성값 `1` 저장을 완료하고 `main` 푸시·Vercel 배포를 진행한다. 변수는 Config 7개와 Secret 2개다. 관리자·기존 자료 이관은 미완료다. 아래 비활성·변수 8개·배포 대기 기록은 당시 상태이며 [인계 문서](NEXT_SESSION_HANDOFF.md)의 최신 결과를 우선한다.
+
+## 2026-09-11 최신 연결 확인
+
+[새 세션 인계 문서](NEXT_SESSION_HANDOFF.md)를 먼저 읽는다. 현재 대상은 `keve1/partner-hub` Production이며 공식 Next.js 기본 명령 전환 코드 `ee5a4ba`의 GitHub `main` 푸시와 Vercel Ready를 확인했다. 새 세션에서 MCP 실제 SQL 조회가 복구됐고 스키마 검사 함수 8개, 38개 업무 테이블 RLS 및 비공개 버킷 설정을 확인했다. 사용자가 제공한 DB 비밀번호로 Git 제외 로컬 `SUPABASE_DATABASE_URL`을 저장했으며, 실제 앱의 `admin-next-remote.mjs --check`가 Supavisor 접속과 관리자 테이블 검사에 성공했다. 관리자는 미설정이다. 승인된 Vercel Production에도 DB URI를 Secret으로 저장하고 성공 알림·목록의 유형과 환경을 확인했다. 현재 설정은 Config 6개와 Secret 2개다. **독립 관리자, 데이터 정책 및 실제 업무 기능 검증은 미완료이고 백엔드는 `0`이다. 새 배포는 아직 실행하지 않았다.** 아래 키·DB URI 미확보 기록은 과거 상태다. 비밀번호와 완성된 URI는 문서·로그에 기록하지 않는다.
+
 ## 목표
 
 Vercel의 Next.js 앱을 프로젝트 `yievsveuxjnbygatvjtb`의 Supabase PostgreSQL과 비공개 Storage에 연결한다. 기존 Sites/Cloudflare 운영 경로와 데이터는 전환 검증이 끝날 때까지 변경하지 않는다.

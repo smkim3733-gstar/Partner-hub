@@ -1,5 +1,35 @@
 # 현재 구현과 다음 확인 순서
 
+## 2026-09-11 운영 백엔드 활성화 및 배포 요청
+
+사용자가 `main` 푸시와 Vercel 배포를 명시적으로 요청했다. `keve1/partner-hub` Production의 `PARTNER_HUB_BACKEND_ENABLED`를 `1`로 저장하고 Vercel 성공 알림을 확인했다. 기존 환경변수 9개와 Supabase 전용 실행 경로를 유지한다. 새 배포를 진행하며 공식 주소의 `/api/state`가 설정 오류 503에서 인증 필요 401로 바뀌는지 검증한다. 이 단계는 연결과 로그인 화면 공개이며 관리자 설정·기존 자료 이관 완료를 뜻하지 않는다. 아래 비활성·미배포 문구는 이전 시점 기록이다. 최신 상태는 [인계 문서](NEXT_SESSION_HANDOFF.md)를 따른다.
+
+## 2026-09-11 최종 구조 정정
+
+사용자가 **Next.js + Supabase만 사용, Vercel은 배포용**으로 명확히 지정했다. 실제 Next 설정에서 DB·파일·인증 경로의 여섯 alias가 Supabase 구현을 선택함을 확인했다. 기존 Sites/ChatGPT 로그인·Cloudflare 저장소·Turso·Vercel Blob은 새 운영 경로에 연결하지 않는다. 기존 자료 보존·수집은 별도 이전 작업이며 외부 AI 키와 기존 Sites 로그인 허용은 기본 서비스 운영의 필수 조건이 아니다. 외부 AI와 백엔드는 아직 비활성이다. 관리자 비밀번호 수정 입력, 실제 자료 이전과 기능 검증·활성화·재배포는 남아 있다. [최우선 인계 정정](NEXT_SESSION_HANDOFF.md)을 따른다.
+
+## 2026-09-11 기존 자료 유지 요청 및 실제 파일 전송 검사
+
+사용자는 Vercel에서 기존과 같은 자료·기능을 사용하도록 요청했으며 **기존 자료 이관 방향이 확정됐다**. 원본 D1 30개 표를 조회했고 긴 명단 본문은 여전히 잘린 상태다. 실제 Supabase DB 롤백 검사와 별도 비공개 버킷의 25MiB 업로드/다운로드·SHA-256·CORS·비로그인 차단·용량 초과 거절을 확인하고 테스트 자원은 제거했다. 기존 AI 모델을 로컬·Vercel Production Config로 저장해 변수는 총 9개다. 관리자 비밀번호 수정 입력, 자동 승인 검토에 차단된 기존 Sites 로그인 허용, Anthropic API 키가 필요하다. 전체 이관·관리자·Vercel 기능 검증·활성화·재배포는 미완료다. [최신 상세 기록](MIGRATION_ACTIVATION_PROGRESS_2026_09_11.md)을 따른다.
+
+## 2026-09-11 새 세션 재개 — MCP 복구 및 로컬 앱 DB 접속 완료
+
+- Supabase MCP의 프로젝트 URL·마이그레이션 19개·실제 SQL 조회에 성공했다. `partner_hub` 테이블 38개 RLS, 브라우저 역할의 스키마 접근 차단, 비공개 버킷 설정 및 스키마 검사 함수 8개 통과를 확인했다. 전체 DDL·실제 앱 통합검사 완료와는 구분한다.
+- 독립 관리자, 비밀번호 계정, 포털 상태, FLOW, 기업 파일, Storage 버전 및 버킷 객체는 각각 0건이었다. 이후 사용자가 프로젝트 DB 비밀번호를 전달했고, 값을 노출하지 않고 Git 제외 `.env.local`의 `SUPABASE_DATABASE_URL`에 저장했다. 기존 Secret key와 백엔드 비활성(`0`)을 유지한다.
+- 실제 앱 CLI `node --env-file-if-exists=.env.local scripts/admin-next-remote.mjs --check`를 외부 네트워크 접속 허용 후 실행해 종료 코드 0을 확인했다. 대상 `https://partner-hub-gamma-five.vercel.app`의 관리자 테이블 연결 성공·관리자 미설정을 확인했다. MCP URL·SQL 재조회도 성공했으며 `assert_auth_schema=1`, `admin_count=0`이었다. 로컬 앱의 실제 Supavisor 읽기 접속이 확인됐고, 전체 스키마·Storage 전송·Vercel 업무 통합검사는 아직 별도다.
+- Vercel `keve1/partner-hub`의 `SUPABASE_DATABASE_URL`을 **Secret / Production만**으로 저장했다. UI 저장 성공 알림과 목록의 `Secret environment variable`, 변수 이름, `Production`, `Added just now`를 확인했다. 현재 Config 6개와 Secret 2개, 총 8개다. 같은 승인·DB 비밀번호·저장을 반복하지 않는다. 재배포는 미실행, 백엔드는 `0`이므로 Vercel 런타임 연결·배포 반영 완료는 아니다.
+- 운영 `/`, `/account`는 200, `/api/state`는 503 `MIGRATION_BACKEND_NOT_CONFIGURED`와 private/no-store였다. 키 재저장, 업무 데이터 변경, 활성화·재배포는 하지 않았다.
+- 기존 자료 이관/신규 빈 서비스 선택, 독립 관리자 초기 설정, 분리된 로그인·권한·파일·FLOW 검증, Production 활성화·재배포는 미완료다. [최신 인계 기록](NEXT_SESSION_HANDOFF.md)을 따른다. 코드 변경이 없어 전체 빌드·회귀검사는 반복하지 않았다.
+
+## 2026-09-11 재시작 인계 및 Production Secret 저장 완료
+
+이 절과 아래 날짜별 내용은 당시 기록이다. DB 비밀번호 미수신·로컬 URI 없음·Vercel DB URI 미등록 문구는 위 최신 수신·저장·접속 성공 기록으로 대체한다.
+
+- 새 세션은 [재시작 인계 문서](NEXT_SESSION_HANDOFF.md)를 먼저 읽는다. 같은 컴퓨터·같은 로컬 폴더에서 이어가며, 완료 증거·남은 입력·MCP 장애·사용자 변경 보존 범위를 기록했다. 인계 문서는 로컬 저장이며 이번 턴에는 커밋·푸시하지 않았다.
+- 사용자가 지정된 `keve1/partner-hub` Production으로 Supabase 키·DB 연결값을 저장하는 것을 승인했다. 기존 Config 6개에 이어 `SUPABASE_SECRET_KEY`를 **Secret / Production만**으로 저장하고 성공 알림과 목록을 확인했다. 아래의 Secret key 전송 승인 대기·Vercel 미등록 문구는 이전 시점 기록이다.
+- 당시 `SUPABASE_DATABASE_URL`과 DB 비밀번호는 없었다. 이후 수신·로컬 저장·앱 CLI 접속 및 Vercel Secret / Production 저장 완료 상태는 위 최신 기록을 따른다. 백엔드는 계속 `0`이며, 관리자·데이터 정책·기능 검사·활성화/재배포는 남아 있다. MCP 인증과 앱 DB 접속은 별개다.
+- 코드 `ee5a4bac235185d8f0cd5729132cbad011ebbfd9`를 GitHub `main`에 푸시하고 지정 Vercel Production의 Ready를 확인했다. 마지막 `/api/state`는 503 `MIGRATION_BACKEND_NOT_CONFIGURED`였으므로 실제 업무 가능 상태로 보고하지 않는다.
+
 ## 2026-09-11 Vercel 운영 대상 확정 및 Next.js 기본 실행
 
 - 사용자가 지정한 Vercel 대상은 `keve1/partner-hub`, 운영 주소는 `https://partner-hub-gamma-five.vercel.app`이다. Git 설정에서 `smkim3733-gstar/Partner-hub` 연결과 운영 브랜치 `main`을 확인했다. 다른 `partner-hub-3733`에는 이번 작업의 비밀값을 설정하지 않는다.
