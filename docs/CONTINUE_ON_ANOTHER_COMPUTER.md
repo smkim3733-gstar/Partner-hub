@@ -1,96 +1,123 @@
 # 다른 컴퓨터에서 이어서 개발하기
 
-기준일: 2026-09-08
+기준일: **2026-10-07 (한국 시간)**
 
-이 저장소의 `main` 브랜치가 개발 코드, 테스트, 마이그레이션, 기획·검증 문서의 기준본이다. 실제 회원·기업·원본 파일과 운영 D1/R2 데이터는 GitHub에 포함하지 않는다.
+현재 인계 기준은 이 문서다. 날짜가 오래된 문서의 Sites 배포 대기, 관리자 미설정, 운영 백엔드 비활성 설명은 당시 기록이며 현재 상태로 적용하지 않는다. GitHub에는 개발 코드·테스트·마이그레이션·비식별 문서만 포함한다.
 
-## 현재 인수인계 지점
+## 저장소와 운영 대상
 
-- 최신 로컬 기능 커밋: `ed2050c` (`fix: bind flow receipt actor text semantics`)
-- 최신 확인: 영수증과 연결 감사기록의 `actor`를 함께 공백 전용·과다 길이·짝 없는 UTF-16 서로게이트로 바꾸면 재고 증명이 유지되는 손상 상태
-- 연속 확인: 현대 영수증 `actor`를 필수 JSON 텍스트·1~200 Unicode 코드포인트·비공백·정상 Unicode로 결속하고 감사기록의 정확한 일치를 유지해 `inconsistent`·`unavailable` 격리와 R2 `head` 전 503 차단
-- 검증: Node 회귀 검사 786개, 파일 재고 집중 회귀 30개, 격리 workerd/D1/R2 검사 683개, 추가형 마이그레이션 99개 2회, 타입검사, 전체 lint, 변경 파일 포맷, 프로덕션 빌드와 로컬 Worker 화면·인증 경계 통과
-- GitHub: `https://github.com/smkim3733-gstar/Partner-hub`, 원격 `main`은 v343 마감 커밋 `5e8e4bad517891fcbc74a09f9f262d675ac30afe`
-- 기존 Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
-- 기존 공개 URL: `https://keve-partner-hub.smkim3733.chatgpt.site`
-- 현재 공개 운영본: 버전 310
-- 최신 Sites 저장·공개 운영 버전: 310, 소스 `5e8e4bad517891fcbc74a09f9f262d675ac30afe`
-- 운영 상태: v343이 `https://keve-partner-hub.smkim3733.chatgpt.site`에 공개 운영 중이다. 핵심 화면 3곳의 HTTP 200과 비인증 API 4곳의 HTTP 401·보안 헤더를 확인했다.
-- 자동 개발: 버전 343 기능 마감 결정에 따라 30분 간격 반복 실행은 중지했다. 이후 작업은 운영 반영·장애 대응·법·정책 변경·외부 서비스 연결·사용자 요청 유지보수로 구분한다.
-- 연결 유지값: `.openai/hosting.json`의 D1 `DB`, R2 `AI_SOURCE_FILES`, 공개 접근 범위
+| 항목 | 기준 |
+| --- | --- |
+| 저장소 | https://github.com/smkim3733-gstar/Partner-hub |
+| 개발 기준 브랜치 | `main` |
+| 이번 인계 전 기능 커밋 | `884d95d244a545f9939442f6c723d97c647f3f6b` — 일일 백업·복원 검증 |
+| 공식 서비스 | https://partner-hub-gamma-five.vercel.app/ |
+| Vercel 프로젝트 | `keve1/partner-hub` |
+| Supabase 프로젝트 | `yievsveuxjnbygatvjtb` |
+| 파일 버킷 | `partner-hub-private` (비공개) |
+
+확정 구조는 **Next.js + Supabase**이며 Vercel은 Next.js 배포와 실행을 담당한다. 로그인 로직은 Next.js에 있고 회원·세션은 Supabase PostgreSQL에 저장한다. Supabase Auth 제품으로 전환한 상태는 아니다. 기존 Sites·Cloudflare D1/R2·Turso·Vercel Blob 관련 코드는 과거 호환과 검증용이며 새 운영 연결의 요구사항이 아니다.
+
+이미 운영 프로젝트·관리자·DB 스키마가 존재한다. 컴퓨터를 바꾸는 이유만으로 프로젝트를 새로 만들거나 관리자·DB 비밀번호를 재설정하지 않는다. 기존 `codex/*` 브랜치 대신 최신 `main`에서 이어간다.
+
+## 확인된 진행 상황과 검증 범위
+
+- **2026-10-07:** Vercel Production Ready를 확인했다. 확인 당시 배포 소스는 위 `884d95d`이며 배포 생성일은 9월 11일이다.
+- 같은 날 공식 서비스 접속·비인증 접근 제한 검사 **7건 통과**, 실제 로그인 화면을 확인했다. 이날 관리자 로그인이나 전체 업무 흐름을 다시 실행한 것은 아니다.
+- **2026-09-11:** 관리자 생성·실제 로그인, 회원가입 최소 비밀번호 6자, 실제 Supabase DB 인증·파일 처리 검사, 별도 25MiB Storage 전송 검증을 완료했다.
+- 승인·담당 배정·기업자료·상담 FLOW·계약·입금 기록·사후관리 기능은 구현됐다. 실제 Vercel 브라우저에서 모든 과정을 연결한 검증은 미완료다.
+- 기존 Sites 자료·원본 파일의 완전한 확보와 Supabase 이관은 미완료다. 새 DB를 기존 자료 이전 완료로 간주하지 않는다.
+- 마지막 확인 설정에서 외부 AI 처리는 비활성이다. AI는 일부 초안 경로이며, 문서 등록·메일/카톡 전달·입금 확인 등의 수동 절차가 남아 있다.
+- 판단: **내부 시험 사용 가능. 실고객 본격 운영 준비 완료는 아님.**
 
 ## 새 컴퓨터 준비
 
-Node.js 22.13 이상과 pnpm을 설치한 뒤 다음 순서로 시작한다.
+OneDrive 동기화 폴더 밖의 일반 개발 폴더를 권장한다. Git과 Node.js를 준비한다. 저장소 CI의 재현 기준은 **Node.js 24.19.0 + pnpm 11.19.0**이며, `package.json`의 Node 최소 조건은 22.13.0이다.
 
-```sh
-git clone https://github.com/smkim3733-gstar/Partner-hub.git
-cd Partner-hub
-git checkout main
-git pull --ff-only origin main
+PowerShell 예시:
+
+```powershell
+npm install --global pnpm@11.19.0
+git clone --branch main https://github.com/smkim3733-gstar/Partner-hub.git
+Set-Location Partner-hub
+node --version
+pnpm --version
 pnpm install --frozen-lockfile
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm build
+pnpm run test:next:supabase
+pnpm run typecheck
+pnpm run lint
+node --import ./tests/register.mjs --test --test-concurrency=1 tests/*.test.ts
 ```
 
-Windows의 기존 Codex 번들 런타임을 사용하는 경우 저장소의 `partner-hub.cmd`와 [로컬 설정 안내](LOCAL_SETUP.md)를 사용할 수 있다. 다른 환경에서는 위의 일반 pnpm 명령을 사용한다.
+위 명령은 새 PC에서 실행할 절차다. 이번 문서 인계 작업에서 새 PC 검사를 대신 실행했거나 모든 검사가 현재 통과했다고 주장하지 않는다.
 
-격리 Worker/D1/R2 회귀 검증은 다음 명령으로 실행한다. 운영 DB와 실제 고객 자료를 사용하지 않는다.
+`test:next:supabase`는 합성 자격증명으로 Next.js 빌드와 비활성 API 경계를 검사한다. **`.env`, `.env.local`, `.env.production`, `.env.production.local`을 만들기 전에 실행해야 한다.** 이 파일들이 있으면 명령이 중단된다. 실제 운영 DB·로그인·업무 전체 검사가 아니다. 기존 작업 폴더에서 재검사할 때 환경파일을 삭제하지 말고 별도 깨끗한 checkout을 사용한다.
 
-```sh
-node tests/password-worker-smoke.mjs
+처음 복제한 폴더에서 위 검사가 끝나면 화면 확인용 설정을 만든다:
+
+```powershell
+Copy-Item -LiteralPath .env.example -Destination .env.local
+pnpm dev
 ```
 
-## 이어서 읽을 문서
+기존 `.env.local`이 있으면 덮어쓰지 않는다. 개발 화면은 `http://127.0.0.1:3001`, 로그인은 `/account`다.
 
-먼저 [v343 개발 마감 보고서](V343_FINAL_DEVELOPMENT_REPORT_2026_09_08.md)를 확인한다.
+예제는 `PARTNER_HUB_NEXT_BACKEND=supabase-v1`, `PARTNER_HUB_BACKEND_ENABLED=0`, `ANTHROPIC_EXTERNAL_PROCESSING_ENABLED=false`다. 서버 비밀값은 비어 있다. 따라서 복제 직후 업무 API가 차단되는 것은 정상이다. **새 PC의 로컬 비활성 상태와 이미 활성화된 Vercel 운영 환경을 구분한다.**
 
-1. [현재 구현과 다음 확인 순서](CURRENT_STATUS.md)
-2. [기업자료 연결 원본 삭제 무결성 경계](COMPANY_DOCUMENT_LINKED_ORIGINAL_DELETION_INTEGRITY_2026_09_05.md)
-3. [기업자료 원본 보관 원장 무결성 경계](COMPANY_DOCUMENT_FILE_PROVENANCE_INTEGRITY_2026_09_05.md)
-4. [기업자료 원본 메타데이터 무결성 경계](COMPANY_DOCUMENT_FILE_METADATA_INTEGRITY_2026_09_05.md)
-5. [업무·기업자료·일정 필드 무결성 경계](OPERATIONAL_RECORD_FIELD_INTEGRITY_2026_09_05.md)
-6. [진행 타임라인 기록 무결성 경계](TIMELINE_RECORD_INTEGRITY_2026_09_05.md)
-7. [업무·기업자료·일정 연결 무결성 경계](RELATED_RECORD_ASSIGNMENT_INTEGRITY_2026_09_05.md)
-8. [진행 기록 필드·담당 연결 무결성 경계](CASE_RECORD_INTEGRITY_2026_09_05.md)
-9. [진단평가 기록 무결성 경계](DIAGNOSIS_ASSESSMENT_INTEGRITY_2026_09_05.md)
-10. [포털 상태 메타데이터 무결성 경계](PORTAL_STATE_METADATA_INTEGRITY_2026_09_05.md)
-11. [포털 레코드 ID 무결성 경계](PORTAL_RECORD_ID_INTEGRITY_2026_09_05.md)
-12. [사건 ID 무결성 경계](CASE_ID_INTEGRITY_BOUNDARY_2026_09_05.md)
-13. [포털 레코드 구조 무결성 경계](PORTAL_RECORD_STRUCTURE_INTEGRITY_2026_09_05.md)
-14. [파트너 식별정보 실행 무결성 경계](MEMBER_IDENTITY_RUNTIME_INTEGRITY_2026_09_05.md)
-15. [파트너 권한 실행 무결성 경계](PARTNER_PERMISSION_RUNTIME_INTEGRITY_2026_09_05.md)
-16. [파트너 계정 편집 무결성 경계](PARTNER_ACCOUNT_EDIT_INTEGRITY_2026_09_05.md)
-17. [파트너 계정 삭제 무결성 경계](PARTNER_ACCOUNT_DELETION_INTEGRITY_2026_09_05.md)
-18. [파트너 감사 필드 무결성 경계](MEMBER_AUDIT_FIELD_INTEGRITY_2026_09_05.md)
-19. [파트너 안정 ID 생성 경계](STABLE_MEMBER_ID_CREATION_BOUNDARY_2026_09_05.md)
-20. [파트너 안정 ID 무결성](DUPLICATE_MEMBER_ID_INTEGRITY_2026_09_05.md)
-21. [ChatGPT 자가등록 중복 이메일 무결성](CHATGPT_REGISTRATION_AMBIGUOUS_EMAIL_INTEGRITY_2026_09_05.md)
-22. [ChatGPT 중복 이메일 결속 무결성](CHATGPT_AMBIGUOUS_EMAIL_BINDING_INTEGRITY_2026_09_05.md)
-23. [변경 요청 Origin 필수 보안 경계](MUTATION_ORIGIN_REQUIRED_BOUNDARY_2026_09_05.md)
-24. [ChatGPT 관리자 안정 ID 결속 무결성](CHATGPT_OWNER_STABLE_IDENTITY_INTEGRITY_2026_09_05.md)
-25. [제품 기획 검수](PRODUCT_PLANNING_REVIEW.md)
-26. [브라우저 화면 보안 헤더 경계](BROWSER_PAGE_SECURITY_HEADERS_2026_09_04.md)
-27. [빌드 도구와 운영 의존성 경계](BUILD_TOOL_RUNTIME_DEPENDENCY_BOUNDARY_2026_09_04.md)
-28. [운영 의존성 보안 패치와 잔여 위험](DEPENDENCY_SECURITY_PATCH_AND_RESIDUAL_RISK_2026_09_04.md)
-29. [협업신청 첨부 내용 확인 중 제출 잠금 정책](APPLICATION_ATTACHMENT_HASHING_SUBMISSION_LOCK_POLICY_2026_09_04.md)
-30. [협업신청 첨부 실제 내용 중복 판정 정책](APPLICATION_ATTACHMENT_CONTENT_DEDUPLICATION_POLICY_2026_09_04.md)
-31. [상담 FLOW 화면 재시도 지문 정책](FLOW_CLIENT_RETRY_FINGERPRINT_POLICY_2026_09_04.md)
-32. [업로드 멱등키·영수증 파일명 정규화 정책](UPLOAD_RECEIPT_FILENAME_NORMALIZATION_POLICY_2026_09_04.md)
-33. [신청 첨부 업로드 멱등키 Content-Type 정책](APPLICATION_UPLOAD_KEY_CONTENT_TYPE_POLICY_2026_09_04.md)
-34. [문서 전체 목록](README.md)
+실제 기능 개발·통합 검사는 운영과 분리된 Supabase 자원, 정확한 HTTPS origin, 검증 범위를 준비한 뒤 활성화한다. 단순 화면 확인을 위해 운영 DB에 연결하거나 기존 운영 설정을 덮어쓰지 않는다.
 
-## Git에 넣지 않는 것
+## 비밀값과 계정 연결
 
-- `.dev.vars`, `.env*`, API 키, 짧은 수명의 Sites 소스 인증정보
-- 실제 회원·기업·계약·녹취·원본 파일, 운영 D1/R2 내용
-- `node_modules`, `dist`, `.wrangler`, `.vinext`, 빌드 압축파일
-- `work`와 `outputs`의 임시 Duet 실행물·검사 로그·배포 패키지
+- 필요한 서버 설정은 `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `SUPABASE_DATABASE_URL`, `SUPABASE_STORAGE_BUCKET`, `PARTNER_HUB_APP_ORIGIN`이다. 대상에 맞는 기존 연결값을 Git 밖에서 안전하게 설정한다.
+- `.env.local`, DB 비밀번호, API 키, 계정 비밀번호, 인증 세션, 실제 DB·파일, 백업 암호문·복구 키를 Git에 넣지 않는다. 서버 비밀에 `NEXT_PUBLIC_` 접두어를 붙이지 않는다.
+- Git 제외는 OneDrive 동기화 제외를 뜻하지 않는다.
+- GitHub/Vercel/Supabase 로그인·MCP 연결, PostgreSQL 바이너리와 Codex 예약은 복제로 옮겨지지 않는다. 새 PC에서 필요한 연결을 직접 설정한다.
+- Vercel 환경변수는 기존 프로젝트에 별도로 저장되어 있으며 GitHub 푸시로 전송되지 않는다. 이 문서에는 값을 포함하지 않는다.
+- `pnpm dev`, `pnpm build`, `pnpm start`는 공식 Next.js 명령이다.
+- `dev:sites`, `build:sites`, `dev:next:local*` 및 Worker/D1/R2 검사는 이전 호환 경로다. 새 PC의 Supabase 기본 설정 절차로 사용하지 않는다.
+- `storage:check`, `storage:init`, `storage:cleanup*`은 이전 Turso/Vercel Blob용이므로 Supabase에 실행하지 않는다.
+- `pnpm verify`는 Sites 검사까지 포함하는 기존 전체 검증 묶음이다. Next.js + Supabase 전용 준비 검사는 `test:next:supabase`다.
 
-Duet의 실제 결정과 적용 경계는 정식 `docs` 문서에 옮겼다. 로컬 실행 디렉터리나 임시 로그가 없어도 구현과 검증을 이어갈 수 있다.
+## 백업 상태와 PC 이전
 
-## 다음 작업 경계
+**2026-10-07:** 기존 PC 작업 폴더의 `.env.local` 누락을 확인했다. 예약 백업은 `backup-failed-redacted`, 상태는 `last-run-failed`였다. 마지막 성공은 **2026-09-27 09:03 KST**이며 10월 7일 확인 시 약 253시간 공백이었다. 기존 최신 백업 암호문과 복구 키 검증은 정상이다. 이 로컬 파일 누락이 Vercel 환경변수 삭제를 뜻하지 않는다.
 
-Sites 저장 버전 310과 GitHub `main`은 같은 v343 마감 커밋을 가리키며 공개 운영 배포와 기본 HTTP 확인을 완료했다. 버전 108–309는 v343 최종 운영본으로 대체했다. v343을 기능 마감으로 확정해 v344 이상 신규 감사 버전은 만들지 않는다. 형식상 정상인 다른 `actor` 문자열의 공동 변조는 정상 생성 경로의 서버 전이 검증·D1 트리거가 보호하지만 파일 재고 SQL이 권위 표시명과 독립 대조하지 않는 수용 잔여 위험으로 기록한다. 실제 파트너 계정·고객 데이터·외부 발송·유료 AI는 별도 승인 없이 사용하지 않는다.
+9월 17·18·24·25·26·27일 예약 실행 성공 기록이 있다. 연속 매일 실행됐다고 보장할 수 없으며, PC가 꺼진 시간을 성공으로 간주하지 않는다. 최신 성공본은 38개 테이블·전체 16행·Storage 파일 0건이다. 16행은 고객 16건이라는 뜻이 아니며 실제 파일이 있는 Supabase 복구 검증도 아니다.
+
+기존 PC의 경로:
+
+- 암호화 백업: `C:\Users\smkim\PartnerHubBackups`
+- 복구 키: `C:\Users\smkim\PartnerHubRecoveryKeys`
+- PostgreSQL 도구: `C:\Users\smkim\AppData\Local\PartnerHubTools\postgresql-17.11\pgsql\bin`
+
+백업과 키는 서로 다른 폴더지만 같은 PC에만 보관된 상태다. PC 밖 사본·별도 장치의 키 사본은 검증되지 않았다. 저장소 업로드는 DB 백업이나 복구 키 이전이 아니다.
+
+새 PC에서 PostgreSQL 17 도구를 ASCII 경로에 준비하고 [백업·복구 절차](SUPABASE_BACKUP_RECOVERY.md)를 확인한다. 아래 예시의 도구 경로는 새 PC의 실제 경로로 바꾼다. 이 명령은 안전하게 복원한 기존 연결값이 있는 작업 폴더에서 실행한다.
+
+```powershell
+node --env-file-if-exists=.env.local scripts/supabase-backup-scheduled.mjs run --pg-bin "C:\Tools\postgresql-17\pgsql\bin"
+node scripts/supabase-backup-scheduled.mjs status
+```
+
+- 기존 `automation-2`는 기존 PC·Codex·작업 경로에 의존하는 오전 9시 로컬 예약이다. 저장소 복제로 이전되지 않는다. 이번 GitHub 업로드에서 예약을 변경하거나 새로 만들지 않았다.
+- 새 PC에서 예약을 옮길 때 실행 PC·폴더·도구 경로를 맞추고 기존 예약과 중복되지 않도록 확인한다.
+- `status`는 실행한 PC의 로컬 기록을 본다. 새 PC의 기록 없음은 운영 DB 손실이라는 뜻이 아니다.
+- 기존 백업·키를 안전하게 별도 전달하고 실제 읽기·복호화를 확인한다. GitHub로 전달하지 않는다.
+- 오래된 잠금을 자동 삭제하거나 복원 프로세스를 강제 종료하지 않는다. 원래 프로세스와 평문 임시 폴더부터 확인한다.
+- 30일은 예약 기록의 보관 구간 집계 기준이며 자동 삭제하지 않는다. 현재 CLI는 원격 Supabase 복원을 지원하지 않는다.
+
+## 다음 작업 순서
+
+1. 기존 연결값을 안전하게 확보해 로컬 백업 설정을 복구하고 새 백업·로컬 복원·평문 정리 성공을 확인한다.
+2. 운영과 분리된 Next.js + Supabase 검증 배포에서 테스트 기업 1곳으로 가입 → 승인 → 신청 → 배정 → 업로드·다운로드 → 상담 FLOW → 계약·입금 기록 → 사후관리·권한 검증을 수행한다. 운영 대상 확인은 기존 자료 이전 계획과 데이터 보존 범위를 확정한 뒤 제한적으로 수행한다.
+3. 기존 Sites의 완전한 원본·파일 목록을 확보해 이전 계획을 보완한다. 현재 포털 초기 상태와 이전 도구의 빈 대상 조건을 대조하고, 조건을 우회하거나 기존 행을 임의 삭제하지 않는다.
+4. 암호화 백업과 복구 키의 별도 외부 보관 위치를 정하고 전달·복호화를 검증한다.
+5. 실패 알림 수신, Supabase 임시 업로드 정리, 실제 파일을 포함한 새 Supabase 환경 복구를 검증한다. AI 자동화는 별도 선택 기능으로 진행한다.
+
+기존 Sites 접근에 대한 자동 승인 거절은 해제된 것으로 간주하지 않는다. 원본 확보가 필요하면 해당 접근의 승인 상태부터 확인한다. 실제 고객 자료를 테스트에 사용하거나 외부 발송·유료 AI를 실행하는 작업은 별도 범위를 확인한다.
+
+상세 과거 기록: [9월 11일 운영 설정](PRODUCTION_SETUP_PROGRESS_2026_09_11.md), [개발 점검](DEVELOPMENT_COMPLETION_AUDIT_2026_09_11.md), [Supabase 연결](VERCEL_SUPABASE_SETUP.md), [백업·복구](SUPABASE_BACKUP_RECOVERY.md).
+
+## 새 Codex 대화에 전달할 문장
+
+> 이 저장소의 main에서 docs/CONTINUE_ON_ANOTHER_COMPUTER.md를 먼저 읽고 이어서 진행해 줘. Next.js + Supabase만 사용하고 Vercel은 배포용이야. 인계 문서의 완료 항목과 현재 환경을 구분해서 확인하고, 비밀값·고객 자료는 Git에 올리지 마. 다음 우선순위는 백업 설정 복구와 전체 업무 흐름 검증이야.
