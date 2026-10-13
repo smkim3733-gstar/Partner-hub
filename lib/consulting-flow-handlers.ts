@@ -33,6 +33,7 @@ import {
 import { privateJsonResponse } from '@/lib/private-response';
 import { r2ObjectSha256Hex, r2Sha256Bytes } from '@/lib/r2-checksum';
 import { uploadFileContentProblem } from '@/lib/upload-file-signature';
+import { SupabaseTransactionConflict } from '@/lib/supabase-postgres-database';
 
 type Context = { params: Promise<{ caseId: string }> };
 export async function getConsultingFlow(request: Request, context: Context) {
@@ -420,6 +421,11 @@ async function writeReservedFlowUpload(
     );
   } catch (error) {
     if (error instanceof FlowError) throw error;
+    if (error instanceof SupabaseTransactionConflict)
+      throw new FlowError(
+        '동시에 처리된 첨부 요청과 충돌했습니다. 원본은 보존됩니다. 저장 결과를 확인한 후 같은 자료로 다시 시도해 주세요.',
+        409,
+      );
     throw new FlowError(
       '첨부파일을 보안 저장소에 기록하지 못했습니다. 같은 자료로 다시 시도해 주세요.',
       503,

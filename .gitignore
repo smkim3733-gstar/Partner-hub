@@ -1,5 +1,7 @@
 # dependencies
 /node_modules
+# Local dependency copies are recreated with the lockfile, never transferred.
+/*-node_modules/
 /.pnp
 .pnp.*
 .yarn/*

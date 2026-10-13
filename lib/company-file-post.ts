@@ -35,6 +35,7 @@ import { privateJsonResponse } from '@/lib/private-response';
 import { uploadFileContentProblem } from '@/lib/upload-file-signature';
 import { downloadContentType } from '@/lib/download-content-type';
 import { companyUploadKeyVariants } from '@/lib/file-upload-key';
+import { SupabaseTransactionConflict } from '@/lib/supabase-postgres-database';
 
 function field(form: FormData, key: string, maxLength: number) {
   const value = form.get(key);
@@ -42,6 +43,14 @@ function field(form: FormData, key: string, maxLength: number) {
 }
 
 function errorResponse(error: unknown) {
+  if (error instanceof SupabaseTransactionConflict)
+    return privateJsonResponse(
+      {
+        error:
+          '동시에 처리된 파일 요청과 충돌했습니다. 원본은 보존됩니다. 저장 결과를 확인한 후 같은 파일로 다시 시도해 주세요.',
+      },
+      { status: 409 },
+    );
   if (
     error instanceof PortalAccessError ||
     error instanceof CompanyFileError ||

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   createSupabasePostgresDatabase,
+  SupabaseTransactionConflict,
   type SupabasePostgresExecutor,
 } from '../lib/supabase-postgres-database';
 
@@ -37,7 +38,10 @@ void test('PostgreSQL adapter translates numbered values and preserves one atomi
   ]);
   assert.equal(transactions, 1);
   assert.equal(observed[0].sql, 'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE');
-  assert.equal(observed[1].sql, 'SET LOCAL search_path TO partner_hub, pg_catalog');
+  assert.equal(
+    observed[1].sql,
+    'SET LOCAL search_path TO partner_hub, pg_catalog',
+  );
   assert.equal(observed[2].sql, "SET LOCAL statement_timeout TO '25000ms'");
   assert.equal(observed[3].sql, "SET LOCAL lock_timeout TO '5000ms'");
   assert.deepEqual(observed[4], {
@@ -46,6 +50,79 @@ void test('PostgreSQL adapter translates numbered values and preserves one atomi
   });
   assert.equal(results[0].meta.changes, 1);
   assert.deepEqual(results[1].results, [{ repeated: 3, same: 3 }]);
+});
+
+for (const phase of ['statement', 'commit']) {
+  void test(`PostgreSQL ${phase} serialization abort is sanitized without replaying the batch`, async () => {
+    let transactions = 0;
+    const original = Object.assign(
+      new Error('synthetic provider query and parameters'),
+      {
+        code: '40001',
+        detail: 'synthetic confidential detail',
+      },
+    );
+    const executor: SupabasePostgresExecutor = {
+      async unsafe(sql) {
+        if (phase === 'statement' && !sql.startsWith('SET ')) throw original;
+        return result([], 'UPDATE', 1);
+      },
+    };
+    const db = createSupabasePostgresDatabase({
+      ...executor,
+      async begin(callback) {
+        transactions++;
+        await callback(executor);
+        throw original;
+      },
+    });
+    await assert.rejects(
+      db.prepare('UPDATE accounts SET value = ?1').bind(1).run(),
+      (error: unknown) => {
+        assert.ok(error instanceof SupabaseTransactionConflict);
+        assert.equal(error.message, 'SUPABASE_POSTGRES_TRANSACTION_CONFLICT');
+        assert.equal('detail' in error, false);
+        assert.equal(error.cause, undefined);
+        assert.doesNotMatch(error.stack!, /synthetic provider|confidential/);
+        return true;
+      },
+    );
+    assert.equal(transactions, 1);
+  });
+}
+
+void test('PostgreSQL unknown, timeout and constraint failures never become retryable conflicts', async () => {
+  for (const code of [
+    'CONNECTION_CLOSED',
+    '57014',
+    '55P03',
+    '23505',
+    '400010',
+    undefined,
+  ]) {
+    let transactions = 0;
+    const db = createSupabasePostgresDatabase({
+      async unsafe() {
+        return result([]);
+      },
+      async begin() {
+        transactions++;
+        throw Object.assign(new Error('synthetic private provider detail'), {
+          code,
+        });
+      },
+    });
+    await assert.rejects(db.prepare('SELECT 1').first(), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.equal(error instanceof SupabaseTransactionConflict, false);
+      assert.equal(
+        error.message,
+        'SUPABASE_POSTGRES_OPERATION_FAILED_OR_OUTCOME_UNKNOWN',
+      );
+      return true;
+    });
+    assert.equal(transactions, 1);
+  }
 });
 
 void test('PostgreSQL adapter refuses SQLite dialect and unsafe binding shapes before network access', async () => {
@@ -66,7 +143,10 @@ void test('PostgreSQL adapter refuses SQLite dialect and unsafe binding shapes b
     db.prepare("SELECT '?1' AS literal").bind('unused'),
     db.prepare('PRAGMA foreign_keys'),
   ])
-    await assert.rejects(statement.all(), /SUPABASE_POSTGRES_INVALID_OPERATION/);
+    await assert.rejects(
+      statement.all(),
+      /SUPABASE_POSTGRES_INVALID_OPERATION/,
+    );
   assert.equal(calls, 0);
 });
 

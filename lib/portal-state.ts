@@ -1,5 +1,6 @@
 import { env } from '@/lib/platform-runtime';
 import { isPostgresDatabase } from './database-dialect';
+import { SupabaseTransactionConflict } from './supabase-postgres-database';
 
 import {
   aiDiagnosisRunsCaseIndexSql,
@@ -63,7 +64,9 @@ function database(): D1Database {
 
 async function ensurePortalTables(db: D1Database) {
   if (isPostgresDatabase(db)) {
-    await db.prepare('SELECT partner_hub.assert_portal_schema() AS ready').first();
+    await db
+      .prepare('SELECT partner_hub.assert_portal_schema() AS ready')
+      .first();
     return;
   }
   await db.batch([
@@ -184,13 +187,20 @@ export async function mutatePortalState<T>(
       );
     const effects = writeEffects?.(db, payload) ?? [];
     if (payload === row?.payload) {
-      if (effects.length > 0) await db.batch(effects);
+      try {
+        if (effects.length > 0) await db.batch(effects);
+      } catch (error) {
+        if (error instanceof SupabaseTransactionConflict) continue;
+        throw error;
+      }
       return { state, updatedAt: null };
     }
     const updatedAt = new Date().toISOString();
     const guard = requiredDraft?.();
     const conditionSql = [...new Set(commitConditions?.() ?? [])]
-      .map((condition) => `AND (${portalStateCommitConditionSql[condition](db)})`)
+      .map(
+        (condition) => `AND (${portalStateCommitConditionSql[condition](db)})`,
+      )
       .join(' ');
     const write = guard
       ? db
@@ -219,10 +229,18 @@ export async function mutatePortalState<T>(
               `INSERT INTO portal_state (payload, updated_at, id) SELECT ?1, ?2, ?3 WHERE ${isPostgresDatabase(db) ? 'CAST(?4 AS text)' : '?4'} IS NULL ${conditionSql} ON CONFLICT(id) DO NOTHING`,
             )
             .bind(payload, updatedAt, portalStateId, null);
-    const result =
-      effects.length > 0
-        ? (await db.batch([write, ...effects]))[0]
-        : await write.run();
+    let result: D1Result;
+    try {
+      result =
+        effects.length > 0
+          ? (await db.batch([write, ...effects]))[0]
+          : await write.run();
+    } catch (error) {
+      // The server aborted this batch. Recompute both the state and its paired
+      // effects within the existing four-attempt bound. Unknown outcomes escape.
+      if (error instanceof SupabaseTransactionConflict) continue;
+      throw error;
+    }
     if (result.meta.changes === 1) return { state, updatedAt };
   }
   throw new PortalStateConflict(

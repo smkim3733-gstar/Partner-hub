@@ -1,5 +1,6 @@
 import { env } from '@/lib/platform-runtime';
 import { isPostgresDatabase } from '@/lib/database-dialect';
+import { SupabaseTransactionConflict } from './supabase-postgres-database';
 import { flowFileLedgerSql } from '@/lib/consulting-flow-file-sql';
 import {
   consultingFlowFileMetadataLifecycleTriggerSql,
@@ -2758,9 +2759,18 @@ export async function commitFlow(
     return next && next.purpose !== file.purpose ? [[file, next] as const] : [];
   });
   let result: D1Result;
-  if (flowWrites.length === 1 && !newFiles.length && !purposeChanges.length)
-    result = await flowWrite.run();
-  else {
+  if (flowWrites.length === 1 && !newFiles.length && !purposeChanges.length) {
+    try {
+      result = await flowWrite.run();
+    } catch (error) {
+      if (error instanceof SupabaseTransactionConflict)
+        throw new FlowError(
+          '다른 사용자가 먼저 수정했습니다. 새로고침 후 다시 확인해 주세요.',
+          409,
+        );
+      throw error;
+    }
+  } else {
     let results: D1Result[];
     try {
       results = await db.batch([

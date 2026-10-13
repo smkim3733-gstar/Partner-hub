@@ -19,6 +19,14 @@ export type SupabasePostgresClient = SupabasePostgresExecutor & {
   ): Promise<T>;
 };
 
+/** A server-confirmed serialization abort, never an uncertain commit outcome. */
+export class SupabaseTransactionConflict extends Error {
+  constructor() {
+    super('SUPABASE_POSTGRES_TRANSACTION_CONFLICT');
+    this.name = 'SupabaseTransactionConflict';
+  }
+}
+
 const unsupportedSql =
   /\b(?:(?:CREATE|ALTER|DROP)\s+(?:TABLE|INDEX|TRIGGER)|PRAGMA|VACUUM|ATTACH|DETACH|sqlite_master|json_(?:each|extract|set|valid|type|group_array|object|array)|julianday|unixepoch|strftime|RAISE|GLOB|HEX|IIF|GROUP_CONCAT|WITHOUT\s+ROWID|INSERT\s+OR)\b/i;
 
@@ -110,9 +118,7 @@ function postgresValue(value: unknown): unknown {
   return invalid();
 }
 
-function result<T>(
-  rows: PostgresResult,
-): D1Result<T> {
+function result<T>(rows: PostgresResult): D1Result<T> {
   const converted = rows.map((row) =>
     Object.fromEntries(
       Object.entries(row).map(([key, value]) => [key, postgresValue(value)]),
@@ -192,7 +198,9 @@ export function createSupabasePostgresDatabase(
         // SQLite serializes writers. Read committed can instead commit a
         // credential insert after its paired portal CAS loses a race. Require
         // a serializable snapshot; conflicting transactions abort in full.
-        await transaction.unsafe('SET TRANSACTION ISOLATION LEVEL SERIALIZABLE');
+        await transaction.unsafe(
+          'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
+        );
         await transaction.unsafe(
           'SET LOCAL search_path TO partner_hub, pg_catalog',
         );
@@ -206,6 +214,11 @@ export function createSupabasePostgresDatabase(
         return results;
       });
     } catch (error) {
+      // PostgreSQL 40001 rolls back the whole transaction, including a failure
+      // at COMMIT. Callers must re-read state before deciding whether to retry;
+      // this adapter must not replay stale multi-statement batches itself.
+      if (error instanceof Error && 'code' in error && error.code === '40001')
+        throw new SupabaseTransactionConflict();
       if (
         error instanceof Error &&
         error.message === 'SUPABASE_POSTGRES_INVALID_OPERATION'

@@ -17,6 +17,7 @@ import {
   type DraftEnvelope,
 } from '@/lib/application-draft';
 import { privateJsonResponse } from '@/lib/private-response';
+import { SupabaseTransactionConflict } from '@/lib/supabase-postgres-database';
 
 export const dynamic = 'force-dynamic';
 type Row = {
@@ -139,6 +140,14 @@ async function handle(request: Request) {
       updatedAt,
     });
   } catch (error) {
+    if (error instanceof SupabaseTransactionConflict)
+      return json(
+        {
+          error:
+            '다른 창에서 임시저장을 변경했습니다. 현재 입력을 유지한 채 최신 내용을 확인해 주세요.',
+        },
+        409,
+      );
     if (error instanceof PortalAccessError || error instanceof FlowError)
       return json({ error: error.message }, error.status);
     if (error instanceof SyntaxError)

@@ -2,6 +2,15 @@ import 'server-only';
 import { nextBackendRequestAllowed } from './next-backend-config';
 import { supabaseBackendConfig } from './supabase-backend-config.server';
 import { privateJsonResponse } from './private-response';
+import { readSessionCookieToken } from './request-auth';
+
+const publicApiPaths = new Set([
+  '/api/auth/login',
+  '/api/auth/register',
+  '/api/auth/setup',
+  '/api/auth/logout',
+  '/api/register',
+]);
 
 export function serverRequestGate(request: Request): Response | null {
   let config;
@@ -38,5 +47,15 @@ export function serverRequestGate(request: Request): Response | null {
       { status: 400 },
     );
   }
+  // Reject absent or malformed sessions before handlers read portal state.
+  // A well-formed token still requires the handler's live session/role checks.
+  if (
+    !publicApiPaths.has(new URL(request.url).pathname) &&
+    !readSessionCookieToken(request, '__Host-keve_session')
+  )
+    return privateJsonResponse(
+      { error: '로그인 정보를 확인할 수 없습니다.' },
+      { status: 401 },
+    );
   return null;
 }
