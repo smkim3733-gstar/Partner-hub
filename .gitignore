@@ -62,3 +62,9 @@ next-env.d.ts
 # Deployment packaging must also exclude nested local Worker state under dist/server.
 /outputs/
 /work/
+
+# Claude per-machine settings, sessions and isolated checkouts are not shared.
+CLAUDE.local.md
+/.claude/settings.local.json
+/.claude/worktrees/
+/.claude/sessions/

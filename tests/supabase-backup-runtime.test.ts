@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import path from 'node:path';
 import os from 'node:os';
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import {
   captureProcess,
   processEnvironment,
@@ -9,7 +10,80 @@ import {
   assertSeparateRoots,
   isWithin,
   defaultBackupRoots,
+  protectPrivateDirectory,
 } from '../scripts/supabase-backup-runtime.mjs';
+
+void test(
+  'Windows private protection is repeatable and retains only user and SYSTEM access',
+  {
+    skip: process.platform !== 'win32',
+  },
+  async () => {
+    const temp = await realpath(os.tmpdir());
+    const directory = await mkdtemp(
+      path.join(temp, 'partner-private-acl-test-'),
+    );
+    const content = Buffer.from('synthetic original evidence');
+    try {
+      await writeFile(path.join(directory, 'evidence.bin'), content);
+      for (let pass = 0; pass < 2; pass++) {
+        await protectPrivateDirectory(directory);
+        const result = await captureProcess(
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-Command',
+            `
+$ErrorActionPreference = 'Stop'
+$taskAcl = Get-Acl -LiteralPath $env:PARTNER_HUB_BACKUP_PRIVATE_DIR
+$taskUser = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+$taskRules = @($taskAcl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+$taskValid = @($taskRules | Where-Object {
+  $_.IdentityReference.Value -in @($taskUser.Value, 'S-1-5-18') -and
+  $_.FileSystemRights -eq [System.Security.AccessControl.FileSystemRights]::FullControl -and
+  $_.AccessControlType -eq [System.Security.AccessControl.AccessControlType]::Allow -and
+  $_.InheritanceFlags -eq ([System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit) -and
+  $_.PropagationFlags -eq [System.Security.AccessControl.PropagationFlags]::None -and -not $_.IsInherited
+})
+[pscustomobject]@{
+  protected = $taskAcl.AreAccessRulesProtected
+  owner = ($taskAcl.GetOwner([System.Security.Principal.SecurityIdentifier]).Value -eq $taskUser.Value)
+  ruleCount = $taskRules.Count
+  validRuleCount = $taskValid.Count
+  distinctIdentities = @($taskRules.IdentityReference.Value | Sort-Object -Unique).Count
+} | ConvertTo-Json -Compress
+`,
+          ],
+          {
+            env: processEnvironment({
+              PARTNER_HUB_BACKUP_PRIVATE_DIR: directory,
+            }),
+            limit: 4096,
+          },
+        );
+        assert.deepEqual(JSON.parse(new TextDecoder().decode(result)), {
+          protected: true,
+          owner: true,
+          ruleCount: 2,
+          validRuleCount: 2,
+          distinctIdentities: 2,
+        });
+        assert.deepEqual(
+          await readFile(path.join(directory, 'evidence.bin')),
+          content,
+        );
+      }
+    } finally {
+      const resolved = await realpath(directory);
+      assert.equal(path.dirname(resolved), temp);
+      assert.ok(
+        path.basename(resolved).startsWith('partner-private-acl-test-'),
+      );
+      await rm(resolved, { recursive: true });
+    }
+  },
+);
 
 void test(
   'Windows default backup roots ignore disposable application package caches',

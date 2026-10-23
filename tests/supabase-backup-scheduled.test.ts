@@ -10,7 +10,10 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
-import { scheduledBackup } from '../scripts/supabase-backup-scheduled.mjs';
+import {
+  scheduledBackup,
+  scheduledBackupReport,
+} from '../scripts/supabase-backup-scheduled.mjs';
 
 // Every dependency capable of touching production is replaced. Files contain
 // synthetic reports only and live under a fresh OS temporary directory.
@@ -63,6 +66,7 @@ async function createFixture() {
   let verifyCalls = 0;
   let validateCalls = 0;
   let beforeCreate: (() => Promise<void>) | undefined;
+  let beforeValidateStored: (() => Promise<void>) | undefined;
   let verifyFailure: Error | undefined;
   let validationFailure: Error | undefined;
   let cleanup = true;
@@ -142,6 +146,7 @@ async function createFixture() {
       assert.equal(saved.status, 'verified');
       assert.equal(archives, backupRoot);
       assert.equal(keys, keyRoot);
+      await beforeValidateStored?.();
       if (validationFailure) throw validationFailure;
     },
   };
@@ -150,6 +155,9 @@ async function createFixture() {
     config,
     dependencies,
     run: () => scheduledBackup(config, dependencies),
+    report: () => scheduledBackupReport(config, dependencies),
+    statusReport: () =>
+      scheduledBackupReport({ ...config, command: 'status' }, dependencies),
     status: () =>
       scheduledBackup({ ...config, command: 'status' }, dependencies),
     counts: () => ({ createCalls, verifyCalls, validateCalls }),
@@ -158,6 +166,9 @@ async function createFixture() {
     },
     delayCreate: (handler: () => Promise<void>) => {
       beforeCreate = handler;
+    },
+    delayStoredValidation: (handler: () => Promise<void>) => {
+      beforeValidateStored = handler;
     },
     failVerification: (error: Error) => {
       verifyFailure = error;
@@ -416,4 +427,214 @@ void test('status distinguishes no backup, healthy and overdue without running a
       validateCalls: 1,
     });
   });
+});
+
+void test('report prepares a local failure preview while preserving failed backup outcome and redacting details', async () => {
+  await fixture(async (fx) => {
+    fx.failVerification(new Error('private-connection-and-customer-data'));
+    const report = await fx.report();
+    assert.equal(report.status, 'failed');
+    assert.equal(report.notification.status, 'prepared');
+    assert.equal(report.notification.sent, false);
+    assert.equal(report.notification.receiptVerified, false);
+    assert.ok('alert' in report.notification && report.notification.alert);
+    assert.ok(typeof report.notification.alert === 'object');
+    assert.ok('code' in report.notification.alert);
+    assert.equal(report.notification.alert.code, 'BACKUP_FAILED');
+    assert.ok(!JSON.stringify(report).includes('private-'));
+    assert.equal(
+      (await fx.statusReport()).notification.status,
+      'already-prepared',
+    );
+    assert.equal(fx.counts().createCalls, 1);
+    assert.equal(fx.counts().verifyCalls, 1);
+  });
+});
+
+void test('overdue status integrates preview deduplication without creating another backup', async () => {
+  await fixture(async (fx) => {
+    assert.equal((await fx.report()).notification.status, 'not-required');
+    fx.time('2024-01-03T04:05:00.000Z');
+    const first = await fx.statusReport();
+    assert.equal('health' in first && first.health, 'backup-overdue');
+    assert.equal(first.notification.status, 'prepared');
+    assert.equal(
+      (await fx.statusReport()).notification.status,
+      'already-prepared',
+    );
+    assert.equal(fx.counts().createCalls, 1);
+    assert.equal(fx.counts().verifyCalls, 1);
+  });
+});
+
+void test('notification preparation failure does not replace a successful backup outcome', async () => {
+  await fixture(async (fx) => {
+    const directory = path.join(fx.config.backupRoot, 'schedule');
+    await mkdir(directory, { recursive: true });
+    await writeFile(path.join(directory, 'alert-preview.json'), '{invalid', {
+      flag: 'wx',
+    });
+    const report = await fx.report();
+    assert.equal(report.status, 'verified-scheduled-backup');
+    assert.equal(report.notification.status, 'preparation-failed');
+    assert.equal(report.notification.sent, false);
+  });
+});
+
+void test('a duplicate command during an active backup does not create a false failure preview', async () => {
+  await fixture(async (fx) => {
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    fx.delayCreate(async () => {
+      started();
+      await gate;
+    });
+    const first = fx.run();
+    await ready;
+    try {
+      const duplicate = await fx.report();
+      assert.equal(duplicate.status, 'failed');
+      assert.equal(duplicate.notification.status, 'not-required');
+      assert.equal(duplicate.notification.sent, false);
+    } finally {
+      release();
+    }
+    await first;
+    assert.equal(fx.counts().createCalls, 1);
+  });
+});
+
+void test('active revalidation uses its own lock time instead of an older backup time', async () => {
+  await fixture(async (fx) => {
+    await fx.run();
+    fx.time('2024-01-02T00:05:00.000Z'); // Same KST day, nine hours later.
+    let release!: () => void;
+    let started!: () => void;
+    let waiting = true;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    fx.delayStoredValidation(async () => {
+      if (!waiting) return;
+      waiting = false;
+      started();
+      await gate;
+    });
+    const first = fx.run();
+    await ready;
+    const lock = path.join(fx.config.backupRoot, 'schedule', 'active.lock');
+    const original = await readFile(lock, 'utf8');
+    try {
+      const duplicate = await fx.report();
+      assert.equal(duplicate.status, 'failed');
+      assert.equal(duplicate.notification.status, 'not-required');
+      const status = await fx.statusReport();
+      assert.equal('health' in status && status.health, 'run-incomplete');
+      assert.equal(status.notification.status, 'not-required');
+      assert.equal(await readFile(lock, 'utf8'), original);
+      assert.equal((await fx.records()).length, 1);
+      assert.equal(fx.counts().createCalls, 1);
+      assert.equal(fx.counts().verifyCalls, 1);
+    } finally {
+      release();
+      await first;
+    }
+  });
+});
+
+void test('a fresh active lock without a run record receives the two-hour grace period', async () => {
+  await fixture(async (fx) => {
+    const directory = path.join(fx.config.backupRoot, 'schedule');
+    await mkdir(directory, { recursive: true });
+    const lock = path.join(directory, 'active.lock');
+    const original = JSON.stringify({
+      owner: 'synthetic-owner',
+      startedAt: '2024-01-01T15:05:00.000Z',
+    });
+    await writeFile(lock, original, { flag: 'wx' });
+    fx.time('2024-01-01T17:04:59.999Z');
+    assert.equal((await fx.statusReport()).notification.status, 'not-required');
+    assert.equal((await fx.report()).notification.status, 'not-required');
+    fx.time('2024-01-01T17:05:00.000Z');
+    const report = await fx.statusReport();
+    assert.equal(report.notification.status, 'prepared');
+    assert.ok('alert' in report.notification && report.notification.alert);
+    assert.ok(typeof report.notification.alert === 'object');
+    assert.ok('code' in report.notification.alert);
+    assert.equal(report.notification.alert.code, 'BACKUP_RUN_REVIEW');
+    assert.equal((await fx.report()).notification.status, 'already-prepared');
+    assert.equal(await readFile(lock, 'utf8'), original);
+    assert.deepEqual(fx.counts(), {
+      createCalls: 0,
+      verifyCalls: 0,
+      validateCalls: 0,
+    });
+  });
+});
+
+void test('an old active lock cannot borrow the grace period of a newer history record', async () => {
+  await fixture(async (fx) => {
+    await fx.run();
+    const lock = path.join(fx.config.backupRoot, 'schedule', 'active.lock');
+    const original = JSON.stringify({
+      owner: 'synthetic-stale-owner',
+      startedAt: '2024-01-01T14:05:00.000Z',
+    });
+    await writeFile(lock, original, { flag: 'wx' });
+    fx.time('2024-01-01T16:04:59.999Z');
+    assert.equal((await fx.statusReport()).notification.status, 'not-required');
+    fx.time('2024-01-01T16:05:00.000Z');
+    const report = await fx.statusReport();
+    assert.equal(report.notification.status, 'prepared');
+    assert.ok('alert' in report.notification && report.notification.alert);
+    assert.ok(typeof report.notification.alert === 'object');
+    assert.ok('code' in report.notification.alert);
+    assert.equal(report.notification.alert.code, 'BACKUP_RUN_REVIEW');
+    assert.equal((await fx.report()).notification.status, 'already-prepared');
+    assert.equal(await readFile(lock, 'utf8'), original);
+    assert.equal(fx.counts().createCalls, 1);
+    assert.equal(fx.counts().verifyCalls, 1);
+  });
+});
+
+void test('unusable active lock times require review without exposing or changing lock contents', async () => {
+  for (const original of [
+    '{}',
+    '{invalid',
+    JSON.stringify({
+      startedAt: 'private-invalid-time',
+      owner: 'private-owner',
+    }),
+    JSON.stringify({ startedAt: '2024-01-01T17:05:00.000Z' }),
+  ]) {
+    await fixture(async (fx) => {
+      await fx.run();
+      fx.time('2024-01-01T16:05:00.000Z');
+      const lock = path.join(fx.config.backupRoot, 'schedule', 'active.lock');
+      await writeFile(lock, original, { flag: 'wx' });
+      const report = await fx.statusReport();
+      assert.equal(report.notification.status, 'prepared');
+      assert.ok('alert' in report.notification && report.notification.alert);
+      assert.ok(typeof report.notification.alert === 'object');
+      assert.ok('code' in report.notification.alert);
+      assert.equal(report.notification.alert.code, 'BACKUP_RUN_REVIEW');
+      assert.equal(report.notification.transportConfigured, false);
+      assert.equal(report.notification.sent, false);
+      assert.equal(report.notification.receiptVerified, false);
+      assert.ok(!JSON.stringify(report).includes('private-'));
+      assert.equal((await fx.report()).notification.status, 'already-prepared');
+      assert.equal(await readFile(lock, 'utf8'), original);
+      assert.equal(fx.counts().createCalls, 1);
+      assert.equal(fx.counts().verifyCalls, 1);
+    });
+  }
 });

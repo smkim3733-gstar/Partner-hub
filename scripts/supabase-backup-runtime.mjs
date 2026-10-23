@@ -148,14 +148,20 @@ export async function protectPrivateDirectory(directory) {
     const script = `$ErrorActionPreference = 'Stop'
 $taskIdentity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
 $taskSystem = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
-$taskAcl = [System.Security.AccessControl.DirectorySecurity]::new()
+$taskAcl = Get-Acl -LiteralPath $env:PARTNER_HUB_BACKUP_PRIVATE_DIR
+$taskExistingOwner = $taskAcl.GetOwner([System.Security.Principal.SecurityIdentifier])
 $taskAcl.SetAccessRuleProtection($true, $false)
-$taskAcl.SetOwner($taskIdentity)
+foreach ($taskExistingRule in @($taskAcl.GetAccessRules($true, $false, [System.Security.Principal.SecurityIdentifier]))) {
+  [void]$taskAcl.RemoveAccessRuleSpecific($taskExistingRule)
+}
+# Leave ownership untouched when it already belongs to the current user.
+if ($taskExistingOwner.Value -ne $taskIdentity.Value) { $taskAcl.SetOwner($taskIdentity) }
 foreach ($taskSid in @($taskIdentity, $taskSystem)) {
   $taskRule = [System.Security.AccessControl.FileSystemAccessRule]::new($taskSid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
   $taskAcl.AddAccessRule($taskRule)
 }
-Set-Acl -LiteralPath $env:PARTNER_HUB_BACKUP_PRIVATE_DIR -AclObject $taskAcl`;
+# Persist changed sections only. Set-Acl can also request audit ACL privileges.
+[System.IO.Directory]::SetAccessControl($env:PARTNER_HUB_BACKUP_PRIVATE_DIR, $taskAcl)`;
     await captureProcess(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-Command', script],

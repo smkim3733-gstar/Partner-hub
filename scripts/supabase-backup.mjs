@@ -44,8 +44,12 @@ import {
   removePrivateRestoreDirectory,
 } from './supabase-backup-runtime.mjs';
 
-const projectRef = 'yievsveuxjnbygatvjtb';
-const appOrigin = 'https://partner-hub-gamma-five.vercel.app';
+import {
+  backupTarget,
+  assertBackupSource,
+  assertBackupMarker,
+  assertBackupPayload,
+} from './supabase-backup-target.mjs';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const json = (value) => JSON.stringify(value, null, 2) + '\n';
 const pgOptions = {
@@ -112,29 +116,46 @@ async function pgTools(directory) {
   return { exe, version, bin };
 }
 
-async function snapshot(client) {
+async function snapshot(client, target) {
   return await client.begin(
     'isolation level repeatable read read only',
     async (tx) => {
       await prepareSnapshot(tx);
-      return await fingerprintSupabaseDatabase(tx, { expectedTableCount: 38 });
+      await assertBackupMarker(tx, target);
+      return await fingerprintSupabaseDatabase(tx, {
+        expectedTableCount: target.expectedTableCount,
+      });
     },
   );
 }
 
-export async function createBackup(args, { reportResult = true } = {}) {
+/**
+ * @param {string[]} args
+ * @param {{reportResult?: boolean, scope?: string, sourceConfig?: import('../lib/supabase-backend-config.ts').SupabaseBackendConfig}} options
+ */
+export async function createBackup(
+  args,
+  { reportResult = true, scope = 'production', sourceConfig } = {},
+) {
+  const target = backupTarget(scope);
+  if (sourceConfig && scope !== 'verification')
+    throw failBackup('backup-source-override-rejected');
   const selected = options(args);
   if (selected['--archive'] || selected['--key-file'])
     throw failBackup('backup-usage-invalid');
   await import('./register-local.mjs');
   const { readSupabaseBackendConfig } =
     await import('../lib/supabase-backend-config.ts');
-  const config = readSupabaseBackendConfig({
-    ...process.env,
-    PARTNER_HUB_BACKEND_ENABLED: '1',
-  });
-  if (config.projectRef !== projectRef || config.appOrigin !== appOrigin)
-    throw failBackup('backup-source-target-mismatch');
+  // Verification never falls back to the operator's production environment.
+  if (scope === 'verification' && !sourceConfig)
+    throw failBackup('backup-verification-config-required');
+  const config =
+    sourceConfig ??
+    readSupabaseBackendConfig({
+      ...process.env,
+      PARTNER_HUB_BACKEND_ENABLED: '1',
+    });
+  assertBackupSource(config, target);
   const tools = await pgTools(selected['--pg-bin']);
   const defaults = defaultBackupRoots();
   const backupRoot = selected['--backup-dir'] || defaults.backupRoot;
@@ -160,13 +181,14 @@ export async function createBackup(args, { reportResult = true } = {}) {
       'isolation level repeatable read read only',
       async (tx) => {
         await prepareSnapshot(tx);
+        await assertBackupMarker(tx, target);
         const [{ version }] = await tx.unsafe(
           "SELECT current_setting('server_version') AS version",
         );
         if (!version.startsWith('17.'))
           throw failBackup('backup-source-version-mismatch');
         const fingerprint = await fingerprintSupabaseDatabase(tx, {
-          expectedTableCount: 38,
+          expectedTableCount: target.expectedTableCount,
         });
         const storageLinks = await readBackupStorageLinks(tx);
         const [{ snapshot_id: snapshotId }] = await tx.unsafe(
@@ -203,7 +225,7 @@ export async function createBackup(args, { reportResult = true } = {}) {
       database.storageLinks,
       storage,
     );
-    const after = await snapshot(client);
+    const after = await snapshot(client, target);
     checkBackupAbort();
     if (!compareSupabaseFingerprints(database.fingerprint, after).equal)
       throw failBackup('backup-source-changed-during-storage-read');
@@ -223,7 +245,16 @@ export async function createBackup(args, { reportResult = true } = {}) {
       });
     }
     const commit = (
-      await captureProcess('git', ['rev-parse', 'HEAD'], { limit: 1024 })
+      await captureProcess(
+        'git',
+        [
+          '-c',
+          `safe.directory=${path.resolve(root).replaceAll('\\', '/')}`,
+          'rev-parse',
+          'HEAD',
+        ],
+        { limit: 1024 },
+      )
     )
       .toString()
       .trim();
@@ -232,8 +263,9 @@ export async function createBackup(args, { reportResult = true } = {}) {
       startedAt,
       completedAt: new Date().toISOString(),
       source: {
-        projectRef,
-        appOrigin,
+        projectRef: target.projectRef,
+        appOrigin: target.appOrigin,
+        ...(target.purpose ? { purpose: target.purpose } : {}),
         schema: 'partner_hub',
         commit,
         pgDumpVersion: tools.version,
@@ -305,7 +337,11 @@ async function unusedPort() {
   return port;
 }
 
-export async function verifyBackup(args, { reportResult = true } = {}) {
+export async function verifyBackup(
+  args,
+  { reportResult = true, scope = 'production' } = {},
+) {
+  const target = backupTarget(scope);
   const selected = options(args);
   if (
     !selected['--archive'] ||
@@ -324,14 +360,7 @@ export async function verifyBackup(args, { reportResult = true } = {}) {
   const key = await readFile(selected['--key-file']);
   const payload = openBackup(encrypted, key);
   key.fill(0);
-  if (
-    payload?.format !== 'partner-hub-backup-v1' ||
-    payload.source?.projectRef !== projectRef ||
-    payload.source?.appOrigin !== appOrigin ||
-    payload.source?.schema !== 'partner_hub' ||
-    !payload.database?.serverVersion?.startsWith('17.')
-  )
-    throw failBackup('backup-payload-invalid');
+  assertBackupPayload(payload, target);
   const dump = Buffer.from(payload.database.bytesBase64, 'base64');
   if (
     dump.toString('base64') !== payload.database.bytesBase64 ||
@@ -473,7 +502,7 @@ export async function verifyBackup(args, { reportResult = true } = {}) {
       PGCONNECT_TIMEOUT: '5',
     });
     console.log(
-      '새 로컬 PostgreSQL에 복원하고 38개 테이블·권한·규칙을 대조합니다.',
+      `새 로컬 PostgreSQL에 복원하고 ${target.expectedTableCount}개 테이블·권한·규칙을 대조합니다.`,
     );
     await captureProcess(
       tools.exe('pg_restore'),
@@ -488,7 +517,7 @@ export async function verifyBackup(args, { reportResult = true } = {}) {
     );
     restored = connect(database);
     activeConnections.add(restored);
-    const fingerprint = await snapshot(restored);
+    const fingerprint = await snapshot(restored, target);
     const compared = compareSupabaseFingerprints(
       payload.database.fingerprint,
       fingerprint,

@@ -19,6 +19,7 @@ import {
   withBackupSignals,
 } from './supabase-backup.mjs';
 import { openBackup, hashBackupBytes } from './supabase-backup-archive.mjs';
+import { prepareBackupAlert } from './supabase-backup-alert.mjs';
 import {
   BACKUP_LIMIT,
   defaultBackupRoots,
@@ -50,6 +51,24 @@ async function regularFile(file, limit) {
 async function readRecord(file) {
   await regularFile(file, maxRecordBytes);
   return JSON.parse(await readFile(file, 'utf8'));
+}
+
+async function readActiveLock(file) {
+  try {
+    const held = await readRecord(file);
+    const startedAt = held?.startedAt;
+    const valid =
+      typeof startedAt === 'string' &&
+      Number.isFinite(Date.parse(startedAt)) &&
+      new Date(startedAt).toISOString() === startedAt;
+    // A lock can exist before its JSON is written. Unknown times require review;
+    // never borrow a previous run's grace period or expose owner/PID/raw fields.
+    return { startedAt: valid ? startedAt : null };
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    if (error instanceof SyntaxError) return { startedAt: null };
+    throw error;
+  }
 }
 
 async function releaseLock(lockFile, owner) {
@@ -125,7 +144,7 @@ async function records(directory) {
   );
 }
 
-function statusSummary(runs, now, locked) {
+function statusSummary(runs, now, activeLock) {
   const lastAttempt = runs.at(-1) ?? null;
   const lastSuccess =
     runs.filter((run) => run.status === 'verified').at(-1) ?? null;
@@ -133,7 +152,7 @@ function statusSummary(runs, now, locked) {
     ? (now.getTime() - Date.parse(lastSuccess.completedAt)) / 3_600_000
     : null;
   const health =
-    locked || lastAttempt?.status === 'running'
+    activeLock || lastAttempt?.status === 'running'
       ? 'run-incomplete'
       : lastAttempt?.status === 'failed'
         ? 'last-run-failed'
@@ -149,6 +168,7 @@ function statusSummary(runs, now, locked) {
     timeZone: 'Asia/Seoul',
     lastAttempt: publicRun(lastAttempt),
     lastSuccess: publicRun(lastSuccess),
+    ...(activeLock ? { activeRun: activeLock } : {}),
     ageHours,
     retention: {
       ...summarizeRetention(runs, now),
@@ -229,19 +249,11 @@ export async function scheduledBackup(
   assertSeparateRoots(backupRoot, keyRoot);
   const directory = await controlDirectory(backupRoot, dependencies);
   const lockFile = path.join(directory, 'active.lock');
-  const isLocked = () =>
-    lstat(lockFile).then(
-      () => true,
-      (error) => {
-        if (error.code === 'ENOENT') return false;
-        throw error;
-      },
-    );
   if (command === 'status') {
     const runs = await records(directory);
     const latest = runs.filter((run) => run.status === 'verified').at(-1);
     if (latest) await validateStored(latest, backupRoot, keyRoot);
-    return statusSummary(runs, now(), await isLocked());
+    return statusSummary(runs, now(), await readActiveLock(lockFile));
   }
   if (command !== 'run' || !pgBin)
     throw failBackup('backup-scheduled-usage-invalid');
@@ -320,7 +332,7 @@ export async function scheduledBackup(
     run = { ...run, ...success, phase: 'complete', verification: verified };
     await saveRecord(runFile, run);
     return {
-      ...statusSummary([...previous, run], now(), false),
+      ...statusSummary([...previous, run], now(), null),
       status: 'verified-scheduled-backup',
       runFile,
     };
@@ -343,6 +355,67 @@ export async function scheduledBackup(
   }
 }
 
+export async function scheduledBackupReport(config, dependencies = {}) {
+  const now = dependencies.now ?? (() => new Date());
+  const invocationStartedAt = now().getTime();
+  let report;
+  try {
+    report = await scheduledBackup(config, dependencies);
+  } catch (error) {
+    report = {
+      status: 'failed',
+      health: 'check-failed',
+      error: safeScheduledError(error),
+    };
+  }
+  // Mail preparation failure must never replace the original backup outcome.
+  let notification;
+  try {
+    assertSeparateRoots(config.backupRoot, config.keyRoot);
+    const directory = await controlDirectory(config.backupRoot, dependencies);
+    const alertReport = {
+      ...report,
+      health:
+        report.health ??
+        (report.status === 'already-verified-today'
+          ? 'healthy'
+          : 'check-failed'),
+      checkedAt: report.checkedAt ?? now().toISOString(),
+    };
+    if (report.status === 'failed') {
+      // Read local metadata only: never retry the failed backup/verification.
+      const history = await records(directory);
+      const latest = history.at(-1);
+      alertReport.lastAttempt = publicRun(latest);
+      alertReport.lastSuccess = publicRun(
+        history.filter((item) => item.status === 'verified').at(-1),
+      );
+      if (report.error === 'backup-scheduled-lock-present') {
+        alertReport.health = 'run-incomplete';
+        alertReport.activeRun = (await readActiveLock(
+          path.join(directory, 'active.lock'),
+        )) ?? { startedAt: null };
+      } else if (
+        config.command === 'run' &&
+        latest?.status === 'failed' &&
+        Date.parse(latest.failedAt) >= invocationStartedAt
+      ) {
+        alertReport.health = 'last-run-failed';
+      }
+    }
+    notification = await prepareBackupAlert(alertReport, directory);
+  } catch {
+    notification = {
+      mode: 'local-preview',
+      status: 'preparation-failed',
+      transportConfigured: false,
+      sent: false,
+      receiptVerified: false,
+    };
+  }
+  return { ...report, notification };
+}
+
 async function main() {
   try {
     const [command, ...args] = process.argv.slice(2);
@@ -361,13 +434,17 @@ async function main() {
         : args.length !== 0)
     )
       throw failBackup('backup-scheduled-usage-invalid');
-    const report = await scheduledBackup({
+    const report = await scheduledBackupReport({
       command,
       pgBin: args[1],
       ...defaultBackupRoots(),
     });
     console.log(json(report));
-    if (command === 'status' && report.health !== 'healthy')
+    if (
+      report.status === 'failed' ||
+      report.notification.status === 'preparation-failed' ||
+      (command === 'status' && report.health !== 'healthy')
+    )
       process.exitCode = 1;
   } catch (error) {
     console.error(json({ status: 'failed', error: safeScheduledError(error) }));

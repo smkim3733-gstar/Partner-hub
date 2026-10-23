@@ -63,6 +63,8 @@
     "backup:verify": "node scripts/supabase-backup.mjs verify",
     "backup:daily": "node --env-file-if-exists=.env.local scripts/supabase-backup-scheduled.mjs run",
     "backup:status": "node scripts/supabase-backup-scheduled.mjs status",
+    "backup:alert:preview": "node scripts/preview-backup-alert.mjs",
+    "backup:mail:preview": "node scripts/backup-alert-mail.mjs --preview",
     "release:verify": "node scripts/verify-release-manifest.mjs",
     "verify": "pnpm run release:verify && pnpm run typecheck && pnpm run lint && pnpm run test:all && pnpm run test:e2e && pnpm run build:sites && pnpm run bundle:verify"
   },
@@ -80,6 +82,7 @@
     "input-otp": "1.4.2",
     "lucide-react": "1.31.0",
     "next": "16.3.4",
+    "nodemailer": "10.1.7",
     "postgres": "3.4.9",
     "react": "19.2.8",
     "react-day-picker": "9.8.1",
@@ -94,10 +97,10 @@
     "vinext": "1.0.0-beta.9"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.8",
     "@axe-core/playwright": "4.13.0",
     "@cloudflare/vite-plugin": "1.53.0",
     "@cloudflare/workers-types": "5.20260826.1",
+    "@electric-sql/pglite": "0.5.8",
     "@openai/sites-vite-plugin": "0.2.0",
     "@playwright/test": "1.63.0",
     "@tailwindcss/postcss": "4.2.1",
