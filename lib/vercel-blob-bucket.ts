@@ -1,4 +1,5 @@
 import * as blobSdk from '@vercel/blob';
+import { Buffer } from 'node:buffer';
 import { createHash } from 'node:crypto';
 import {
   r2PrivateKey,
@@ -204,7 +205,13 @@ export function createVercelBlobBucket(
       envelope.set(json, 12);
       envelope.set(bytes, headerBytes);
       try {
-        const saved = await sdk.put(vercelObjectPath(key), envelope, {
+        // Zero-copy Buffer view: the SDK body type accepts Buffer, not Uint8Array.
+        const body = Buffer.from(
+          envelope.buffer,
+          envelope.byteOffset,
+          envelope.byteLength,
+        );
+        const saved = await sdk.put(vercelObjectPath(key), body, {
           ...options(),
           access: 'private',
           contentType: 'application/octet-stream',
