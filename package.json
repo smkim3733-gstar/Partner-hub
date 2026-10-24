@@ -47,7 +47,7 @@
     "lint": "oxlint",
     "format": "oxfmt",
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
-    "test": "node --import ./tests/register.mjs --test --test-concurrency=1 tests/*.test.ts",
+    "test": "node --liftoff-only --import ./tests/register.mjs --test --test-concurrency=1 tests/*.test.ts",
     "test:workerd": "node tests/password-worker-smoke.mjs",
     "test:d1:http": "node tests/password-worker-smoke.mjs --d1-http",
     "test:all": "pnpm test && pnpm run test:workerd",
@@ -94,8 +94,8 @@
   "devDependencies": {
     "@electric-sql/pglite": "0.5.8",
     "@axe-core/playwright": "4.13.0",
-    "@cloudflare/vite-plugin": "1.53.0",
-    "@cloudflare/workers-types": "5.20260826.1",
+    "@cloudflare/vite-plugin": "1.65.0",
+    "@cloudflare/workers-types": "5.20261019.1",
     "@openai/sites-vite-plugin": "0.2.0",
     "@playwright/test": "1.63.0",
     "@tailwindcss/postcss": "4.2.1",
@@ -104,14 +104,14 @@
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.1.1",
     "@vitejs/plugin-rsc": "0.5.34",
-    "oxfmt": "0.61.0",
+    "oxfmt": "0.74.0",
     "oxlint": "1.76.0",
     "oxlint-tsgolint": "7.0.2001",
-    "shadcn": "4.18.0",
+    "shadcn": "4.22.1",
     "tailwindcss": "4.2.1",
     "typescript": "5.9.3",
-    "vite": "8.2.2",
-    "wrangler": "4.127.0"
+    "vite": "8.2.4",
+    "wrangler": "4.152.0"
   },
   "type": "module",
   "packageManager": "pnpm@11.19.0"

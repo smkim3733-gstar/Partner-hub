@@ -46,7 +46,7 @@ pnpm install --frozen-lockfile
 pnpm run test:next:supabase
 pnpm run typecheck
 pnpm run lint
-node --import ./tests/register.mjs --test --test-concurrency=1 tests/*.test.ts
+node --liftoff-only --import ./tests/register.mjs --test --test-concurrency=1 tests/*.test.ts
 ```
 
 이미 pnpm 12 이상이 전역 설치된 PC에서는 저장소의 `packageManager` 버전으로 전환하는 단계에서 명령이 멈출 수 있다(2026-10-24 확인). 전역 버전을 바꾸지 않으려면 `npx pnpm@11.19.0 install --frozen-lockfile`처럼 고정 버전을 직접 실행한다. 같은 날 새 PC(`D:\dev\Partner-hub`)에서 설치, `test:next:supabase`, 타입검사, lint, 직렬 회귀검사 1106개가 통과했다.
