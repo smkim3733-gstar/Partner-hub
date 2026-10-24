@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { isMainThread } from 'node:worker_threads';
 import type { NextLocalBindings } from '../../lib/next-local-bindings';
 import {
   nextLocalStorageEnabled,
@@ -142,7 +143,21 @@ const localGlobal = globalThis as typeof globalThis & {
   __partnerHubNextLocalPlatform?: ReturnType<typeof createNextLocalPlatform>;
 };
 
-export async function loadNextLocalBindings(): Promise<NextLocalBindings> {
+export async function loadNextLocalBindings(): Promise<
+  NextLocalBindings | undefined
+> {
+  // next dev evaluates dynamic routes in a separate static-paths worker
+  // (Next's compiled jest-worker child; its env override drops JEST_WORKER_ID).
+  // A second Miniflare on the same persisted D1/R2 files races the dev
+  // server's instance and fails with intermittent internal D1 errors. That
+  // worker never serves requests.
+  if (
+    /[\\/]jest-worker[\\/](?:processChild|threadChild)\.js$/.test(
+      process.argv[1] ?? '',
+    ) ||
+    !isMainThread
+  )
+    return undefined;
   localGlobal.__partnerHubNextLocalPlatform ??= createNextLocalPlatform().catch(
     (error: unknown) => {
       delete localGlobal.__partnerHubNextLocalPlatform;
