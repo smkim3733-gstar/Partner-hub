@@ -13,7 +13,7 @@ Sites 프로젝트: `appgprj_6a92514801988191b79eb9bd314e3fcd`
 - 인증 없는 비공개 API는 401과 `private, no-store`를 반환한다.
 - 운영 점검은 익명 GET만 사용한다. 운영 로그인, 고객 데이터, 파일 본문, 이메일, 유료 AI 호출은 사용하지 않는다.
 
-매일 06:23 KST에 GitHub Actions `Production health`가 `node scripts/check-production-health.mjs`를 실행한다. 수동 확인은 `pnpm run health:production`을 사용한다.
+6시간마다(00:23·06:23·12:23·18:23 KST) GitHub Actions `Production health`가 `node scripts/check-production-health.mjs`를 실행한다. 익명 `/api/state` 점검이 Supabase DB를 읽으므로 무료 프로젝트 일시정지 방지 역할도 한다. [일시정지 방지와 복구](SUPABASE_PAUSE_PREVENTION.md). 수동 확인은 `pnpm run health:production`을 사용한다.
 
 ## 배포 절차
 

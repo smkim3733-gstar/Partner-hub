@@ -2,7 +2,11 @@ name: Production health
 
 on:
   schedule:
-    - cron: '23 21 * * *'
+    # Every 6 hours. The anonymous /api/state check reads the portal state from
+    # Supabase, so each run is also real database activity. One run per day
+    # was not enough: the Free project was paused for inactivity in Oct 2026.
+    # Supabase asks for "a few user requests to the database each day".
+    - cron: '23 3,9,15,21 * * *'
   workflow_dispatch:
 
 permissions:

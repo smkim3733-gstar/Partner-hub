@@ -50,7 +50,12 @@ export default defineConfig(async () => {
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
     plugins: [
-      vinext(),
+      // vinext applies next.config's Turbopack resolveAlias, which selects the
+      // Next.js/Vercel platform modules (and their migration API gate). The
+      // Sites build and its local emulator must keep the default lib modules.
+      vinext({
+        nextConfig: { poweredByHeader: false, skipProxyUrlNormalize: true },
+      }),
       sites(),
       cloudflare({
         viteEnvironment: { name: 'rsc', childEnvironments: ['ssr'] },

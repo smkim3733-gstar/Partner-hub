@@ -1,5 +1,9 @@
 # 현재 구현과 다음 확인 순서
 
+**2026-10-24 추가:** 새 PC에서 개발환경 검증을 통과했다. 개발 점검 5번의 [Supabase 임시 업로드 정리](SUPABASE_STAGING_CLEANUP.md) 명령(`staging:check`/`staging:cleanup`)과 회귀검사 7건을 추가했다. 운영 Storage에서는 아직 실행하지 않았다.
+
+**2026-10-24 운영 복구:** 10월 8일부터 공식 서비스 DB 연결이 실패했다. 원인은 Supabase 무료 프로젝트의 비활성 자동 일시정지였다. 프로젝트 재개, DB 비밀번호 재설정, Vercel `SUPABASE_DATABASE_URL` 갱신, 재배포 후 운영 점검 7/7이 통과했다. 재발 방지로 `Production health`를 6시간마다 실행한다. 상세: [일시정지 방지와 복구](SUPABASE_PAUSE_PREVENTION.md).
+
 **2026-10-07 최우선 인계:** [다른 컴퓨터에서 이어서 개발하기](CONTINUE_ON_ANOTHER_COMPUTER.md)를 먼저 따른다. 관리자 생성·회원가입 6자·Next.js + Supabase 운영 배포는 완료 기록이 있으며 오늘 접속 검사 7건은 통과했다. 전체 업무 흐름 검증·기존 자료 이전은 미완료다. 로컬 백업은 설정 파일 누락으로 실패했고 마지막 성공은 9월 27일 09:03 KST다. 아래의 관리자 미설정·배포 대기·백엔드 비활성 설명은 과거 기록이다.
 
 **최신 완료:** `13457c9`의 `main` 푸시와 Vercel Production Ready를 확인했다. 공식 URL은 홈·계정 200, DB API는 401이며 브라우저에서 파트너 로그인 화면을 확인했다. `다시 확인`/503 오류는 해소됐다. 관리자 설정과 기존 자료 이관은 남아 있다. [배포 검증 결과](NEXT_SESSION_HANDOFF.md)를 우선한다.
