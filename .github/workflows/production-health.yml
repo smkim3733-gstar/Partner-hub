@@ -21,10 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
+          # v5 auto-caches from packageManager before pnpm is installed.
+          package-manager-cache: false
       - name: Verify public pages and private API boundaries
         env:
           PARTNER_HUB_BASE_URL: https://partner-hub-gamma-five.vercel.app
