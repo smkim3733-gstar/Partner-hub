@@ -1,5 +1,12 @@
 # 현재 구현과 다음 확인 순서
 
+**2026-10-25 보안·CI 정비:** 모두 CI 7개 작업 통과 후 `main`에 병합했고, 병합마다 운영 점검 7/7을 확인했다.
+
+- **보안:** Next.js 16.3.4 → 16.4.3(PR #4). 인증 없는 원격 코드 실행 등 critical/high 취약점을 수정했다. 개발 도구(oxfmt, wrangler, Cloudflare Vite 플러그인, shadcn, vite)도 갱신하고, 하위 의존성은 `pnpm-workspace.yaml` overrides로 패치판을 고정했다(PR #6). `pnpm audit` 결과는 "No known vulnerabilities found"다.
+- **CI 안정화:** E2E용 Vinext 서버가 `next.config.ts`의 Next 전용 alias를 읽던 문제와 `next dev` 정적 경로 작업 프로세스의 Miniflare 이중 실행을 고쳤다(PR #1). PGlite 테스트의 V8 Wasm 충돌(`jit_page_->allocations_.erase(addr) == 1`)에 대응해 단위 테스트를 순차 실행(PR #2)과 `--liftoff-only`(PR #7)로 실행한다. GitHub Actions의 checkout과 setup-node는 Node 24 기반 v5로 올렸다(PR #3).
+- **운영 감시:** `Production health`를 6시간마다 실행한다. 익명 `/api/state`가 DB를 읽으므로 Supabase 비활성 일시정지 방지 역할도 한다. 효과는 아직 관찰 중이다.
+- **새 PC 메모:** 전역 pnpm 12는 이 저장소에서 멈추므로 `npx pnpm@11.19.0`을 사용한다. `vinext build` 뒤에는 `next typegen`을 다시 실행해야 타입검사가 통과한다.
+
 **2026-10-24 추가:** 새 PC에서 개발환경 검증을 통과했다. 개발 점검 5번의 [Supabase 임시 업로드 정리](SUPABASE_STAGING_CLEANUP.md) 명령(`staging:check`/`staging:cleanup`)과 회귀검사 7건을 추가했다. 운영 Storage에서는 아직 실행하지 않았다.
 
 **2026-10-24 운영 복구:** 10월 8일부터 공식 서비스 DB 연결이 실패했다. 원인은 Supabase 무료 프로젝트의 비활성 자동 일시정지였다. 프로젝트 재개, DB 비밀번호 재설정, Vercel `SUPABASE_DATABASE_URL` 갱신, 재배포 후 운영 점검 7/7이 통과했다. 재발 방지로 `Production health`를 6시간마다 실행한다. 상세: [일시정지 방지와 복구](SUPABASE_PAUSE_PREVENTION.md).
