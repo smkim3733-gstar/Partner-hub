@@ -49,6 +49,8 @@ pnpm run lint
 node --import ./tests/register.mjs --test --test-concurrency=1 tests/*.test.ts
 ```
 
+이미 pnpm 12 이상이 전역 설치된 PC에서는 저장소의 `packageManager` 버전으로 전환하는 단계에서 명령이 멈출 수 있다(2026-10-24 확인). 전역 버전을 바꾸지 않으려면 `npx pnpm@11.19.0 install --frozen-lockfile`처럼 고정 버전을 직접 실행한다. 같은 날 새 PC(`D:\dev\Partner-hub`)에서 설치, `test:next:supabase`, 타입검사, lint, 직렬 회귀검사 1106개가 통과했다.
+
 위 명령은 새 PC에서 실행할 절차다. 이번 문서 인계 작업에서 새 PC 검사를 대신 실행했거나 모든 검사가 현재 통과했다고 주장하지 않는다.
 
 `test:next:supabase`는 합성 자격증명으로 Next.js 빌드와 비활성 API 경계를 검사한다. **`.env`, `.env.local`, `.env.production`, `.env.production.local`을 만들기 전에 실행해야 한다.** 이 파일들이 있으면 명령이 중단된다. 실제 운영 DB·로그인·업무 전체 검사가 아니다. 기존 작업 폴더에서 재검사할 때 환경파일을 삭제하지 말고 별도 깨끗한 checkout을 사용한다.
@@ -75,7 +77,7 @@ pnpm dev
 - Vercel 환경변수는 기존 프로젝트에 별도로 저장되어 있으며 GitHub 푸시로 전송되지 않는다. 이 문서에는 값을 포함하지 않는다.
 - `pnpm dev`, `pnpm build`, `pnpm start`는 공식 Next.js 명령이다.
 - `dev:sites`, `build:sites`, `dev:next:local*` 및 Worker/D1/R2 검사는 이전 호환 경로다. 새 PC의 Supabase 기본 설정 절차로 사용하지 않는다.
-- `storage:check`, `storage:init`, `storage:cleanup*`은 이전 Turso/Vercel Blob용이므로 Supabase에 실행하지 않는다.
+- `storage:check`, `storage:init`, `storage:cleanup*`은 이전 Turso/Vercel Blob용이므로 Supabase에 실행하지 않는다. Supabase 임시 업로드 정리는 `staging:check`(읽기 전용)·`staging:cleanup`을 사용한다. [정리 절차](SUPABASE_STAGING_CLEANUP.md)
 - `pnpm verify`는 Sites 검사까지 포함하는 기존 전체 검증 묶음이다. Next.js + Supabase 전용 준비 검사는 `test:next:supabase`다.
 
 ## 백업 상태와 PC 이전
@@ -112,7 +114,7 @@ node scripts/supabase-backup-scheduled.mjs status
 2. 운영과 분리된 Next.js + Supabase 검증 배포에서 테스트 기업 1곳으로 가입 → 승인 → 신청 → 배정 → 업로드·다운로드 → 상담 FLOW → 계약·입금 기록 → 사후관리·권한 검증을 수행한다. 운영 대상 확인은 기존 자료 이전 계획과 데이터 보존 범위를 확정한 뒤 제한적으로 수행한다.
 3. 기존 Sites의 완전한 원본·파일 목록을 확보해 이전 계획을 보완한다. 현재 포털 초기 상태와 이전 도구의 빈 대상 조건을 대조하고, 조건을 우회하거나 기존 행을 임의 삭제하지 않는다.
 4. 암호화 백업과 복구 키의 별도 외부 보관 위치를 정하고 전달·복호화를 검증한다.
-5. 실패 알림 수신, Supabase 임시 업로드 정리, 실제 파일을 포함한 새 Supabase 환경 복구를 검증한다. AI 자동화는 별도 선택 기능으로 진행한다.
+5. 실패 알림 수신, 실제 파일을 포함한 새 Supabase 환경 복구를 검증한다. Supabase 임시 업로드 정리 명령은 2026-10-24에 구현했으며 운영 Storage에서는 아직 실행하지 않았다. 처음에는 `staging:check` 결과부터 검토한다. AI 자동화는 별도 선택 기능으로 진행한다.
 
 기존 Sites 접근에 대한 자동 승인 거절은 해제된 것으로 간주하지 않는다. 원본 확보가 필요하면 해당 접근의 승인 상태부터 확인한다. 실제 고객 자료를 테스트에 사용하거나 외부 발송·유료 AI를 실행하는 작업은 별도 범위를 확인한다.
 

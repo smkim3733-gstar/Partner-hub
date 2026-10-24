@@ -59,6 +59,8 @@
     "backup:verify": "node scripts/supabase-backup.mjs verify",
     "backup:daily": "node --env-file-if-exists=.env.local scripts/supabase-backup-scheduled.mjs run",
     "backup:status": "node scripts/supabase-backup-scheduled.mjs status",
+    "staging:check": "node --env-file-if-exists=.env.local scripts/cleanup-supabase-staging.mjs check",
+    "staging:cleanup": "node --env-file-if-exists=.env.local scripts/cleanup-supabase-staging.mjs cleanup",
     "release:verify": "node scripts/verify-release-manifest.mjs",
     "verify": "pnpm run release:verify && pnpm run typecheck && pnpm run lint && pnpm run test:all && pnpm run test:e2e && pnpm run build:sites && pnpm run bundle:verify"
   },
