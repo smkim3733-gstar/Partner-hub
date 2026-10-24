@@ -47,7 +47,7 @@
     "lint": "oxlint",
     "format": "oxfmt",
     "typecheck": "node node_modules/typescript/bin/tsc --noEmit",
-    "test": "node --import ./tests/register.mjs --test tests/*.test.ts",
+    "test": "node --import ./tests/register.mjs --test --test-concurrency=1 tests/*.test.ts",
     "test:workerd": "node tests/password-worker-smoke.mjs",
     "test:d1:http": "node tests/password-worker-smoke.mjs --d1-http",
     "test:all": "pnpm test && pnpm run test:workerd",
