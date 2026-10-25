@@ -1,5 +1,6 @@
 import { flowDatabase } from '@/lib/consulting-flow-store';
 import { isPostgresDatabase } from '@/lib/database-dialect';
+import { runBatchedRead, type BatchedRead } from '@/lib/batched-read';
 
 export type ConsultingFlowMetricRow = {
   case_id: string;
@@ -11,15 +12,21 @@ export type ConsultingFlowMetricRow = {
   request_metrics_json: unknown;
 };
 
-/** One narrow FLOW scan shared by administrator summaries. */
-export async function readConsultingFlowMetricRows() {
+/**
+ * The PostgreSQL read behind `readConsultingFlowMetricRows`, for callers that
+ * send it together with other reads. `null` on legacy SQLite databases.
+ */
+export async function consultingFlowMetricRowsRead(): Promise<BatchedRead<
+  ConsultingFlowMetricRow[]
+> | null> {
   const db = await flowDatabase();
-  if (isPostgresDatabase(db)) {
-    // Project only the fields used by administrator summaries, never source
-    // text, reports, file paths, command receipts or the full FLOW payload.
-    return (
-      await db
-        .prepare(`
+  if (!isPostgresDatabase(db)) return null;
+  // Project only the fields used by administrator summaries, never source
+  // text, reports, file paths, command receipts or the full FLOW payload.
+  return {
+    db,
+    statements: [
+      db.prepare(`
       SELECT f.case_id,
         (SELECT MIN(m.value->>'completedAt')
          FROM jsonb_array_elements(f.payload::jsonb->'meetings') m(value)
@@ -41,10 +48,17 @@ export async function readConsultingFlowMetricRows() {
         ) ORDER BY q.position), '[]'::jsonb)::text
          FROM jsonb_array_elements(f.payload::jsonb->'requests') WITH ORDINALITY q(value, position)) AS request_metrics_json
       FROM consulting_flows f
-    `)
-        .all<ConsultingFlowMetricRow>()
-    ).results;
-  }
+    `),
+    ],
+    parse: ([rows]) => (rows as D1Result<ConsultingFlowMetricRow>).results,
+  };
+}
+
+/** One narrow FLOW scan shared by administrator summaries. */
+export async function readConsultingFlowMetricRows() {
+  const read = await consultingFlowMetricRowsRead();
+  if (read) return runBatchedRead(read);
+  const db = await flowDatabase();
   return (
     await db
       .prepare(`

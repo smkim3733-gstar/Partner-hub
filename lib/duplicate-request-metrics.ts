@@ -5,6 +5,7 @@ import {
   isPostgresDatabase,
   postgresSchemaGuarded,
 } from '@/lib/database-dialect';
+import { runBatchedRead, type BatchedRead } from '@/lib/batched-read';
 
 export const duplicateRequestSources = [
   'flow_command',
@@ -116,13 +117,21 @@ export async function readDuplicateRequestSummary(
   windowDays = 7,
   now = new Date().toISOString(),
 ): Promise<DuplicateRequestSummary> {
+  return runBatchedRead(await duplicateRequestSummaryRead(windowDays, now));
+}
+
+/** The read behind `readDuplicateRequestSummary`, to share a batch. */
+export async function duplicateRequestSummaryRead(
+  windowDays = 7,
+  now = new Date().toISOString(),
+): Promise<BatchedRead<DuplicateRequestSummary>> {
   const boundedDays = Math.min(30, Math.max(1, Math.trunc(windowDays)));
   const cutoffTime =
     new Date(now).getTime() - (boundedDays - 1) * 24 * 60 * 60 * 1000;
   const cutoffDate = koreanDate(new Date(cutoffTime).toISOString());
   const currentDate = koreanDate(now);
   const db = await ensureMetricsTable(database());
-  const result = await db
+  const statement = db
     .prepare(`
       SELECT source, outcome, SUM(event_count) AS event_count
       FROM portal_duplicate_request_stats
@@ -130,28 +139,34 @@ export async function readDuplicateRequestSummary(
       GROUP BY source, outcome
       ORDER BY source, outcome
     `)
-    .bind(cutoffDate, currentDate)
-    .all<SummaryRow>();
-  const rows = result.results.map((row) => ({
-    source: row.source,
-    outcome: row.outcome,
-    count: Number(row.event_count),
-  }));
-  const total = (outcome: DuplicateRequestOutcome) =>
-    rows
-      .filter((row) => row.outcome === outcome)
-      .reduce((sum, row) => sum + row.count, 0);
+    .bind(cutoffDate, currentDate);
   return {
-    windowDays: boundedDays,
-    totalSafeRetries: total('safe_retry'),
-    totalRequestKeyConflicts: total('request_key_conflict'),
-    totalExistingRecordBlocks: total('existing_record_blocked'),
-    unkeyedUploadRequests: rows
-      .filter(
-        (row) =>
-          row.source === 'file_upload' && row.outcome === 'unkeyed_request',
-      )
-      .reduce((sum, row) => sum + row.count, 0),
-    rows,
+    db,
+    statements: [statement],
+    parse([result]) {
+      const rows = (result as D1Result<SummaryRow>).results.map((row) => ({
+        source: row.source,
+        outcome: row.outcome,
+        count: Number(row.event_count),
+      }));
+      const total = (outcome: DuplicateRequestOutcome) =>
+        rows
+          .filter((row) => row.outcome === outcome)
+          .reduce((sum, row) => sum + row.count, 0);
+      return {
+        windowDays: boundedDays,
+        totalSafeRetries: total('safe_retry'),
+        totalRequestKeyConflicts: total('request_key_conflict'),
+        totalExistingRecordBlocks: total('existing_record_blocked'),
+        unkeyedUploadRequests: rows
+          .filter(
+            (row) =>
+              row.source === 'file_upload' &&
+              row.outcome === 'unkeyed_request',
+          )
+          .reduce((sum, row) => sum + row.count, 0),
+        rows,
+      };
+    },
   };
 }

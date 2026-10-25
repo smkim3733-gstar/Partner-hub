@@ -1,5 +1,4 @@
 import {
-  readPortalLoginStats,
   readPortalState,
   readPortalStateSnapshot,
   recordPortalLogin,
@@ -41,7 +40,6 @@ import {
 import {
   issuePortalConflictReceipt,
   PORTAL_CONFLICT_RECEIPT_TTL_SECONDS,
-  readPortalSaveConflictSummary,
   schedulePortalConflictRecovery,
   schedulePortalSaveConflict,
   type PortalConflictActorRole,
@@ -49,14 +47,12 @@ import {
 import { portalConflictReceiptFromRequest } from '@/lib/portal-conflict-receipt';
 import { HeaderRequestError, readIfMatchRevision } from '@/lib/request-header';
 import { chatGPTIdentityFromRequest } from '@/lib/request-auth';
-import { readPasswordLinkSummary } from '@/lib/password-link-metrics';
 import {
   protectApplicationSubmissionTimes,
   readApplicationConsultationSummary,
 } from '@/lib/application-consultation-metrics';
 import { draftCaseId } from '@/lib/application-draft';
-import { readDuplicateRequestSummary } from '@/lib/duplicate-request-metrics';
-import { readConsultingFlowMetricRows } from '@/lib/consulting-flow-metrics';
+import { readAdministratorState } from '@/lib/admin-state-reads';
 import { readJointAnalysisConfirmationSummary } from '@/lib/joint-analysis-confirmation-metrics';
 import { readDocumentReviewWaitSummary } from '@/lib/document-review-wait-metrics';
 import {
@@ -107,7 +103,14 @@ export async function GET(request: Request) {
     const snapshot = await readPortalStateSnapshot();
     const rawState = snapshot.state;
     const currentUser = await requirePortalUser(request, rawState);
-    const state = await stateWithConsultingFlows(rawState);
+    // Administrator reads share one DB batch; partner reads are unchanged.
+    const adminReads =
+      currentUser.role === 'admin'
+        ? await readAdministratorState(rawState)
+        : null;
+    const state = adminReads
+      ? await adminReads.state()
+      : await stateWithConsultingFlows(rawState);
     if (currentUser.role === 'trainee' && currentUser.memberId) {
       await recordPortalLogin(currentUser.memberId).catch((error) => {
         // Access telemetry must never block an authorized partner from loading
@@ -118,12 +121,10 @@ export async function GET(request: Request) {
         );
       });
     }
-    const responseState =
-      currentUser.role === 'admin'
-        ? stateWithPortalLoginStats(state, await readPortalLoginStats())
-        : stateForPortalUser(state, currentUser);
-    const flowMetricRows =
-      currentUser.role === 'admin' ? readConsultingFlowMetricRows() : null;
+    const responseState = adminReads
+      ? stateWithPortalLoginStats(state, await adminReads.loginStats())
+      : stateForPortalUser(state, currentUser);
+    const flowMetricRows = adminReads ? adminReads.flowMetricRows() : null;
     const [
       saveConflicts,
       passwordLinks,
@@ -134,16 +135,16 @@ export async function GET(request: Request) {
       supportRequests,
       pipelineDropoff,
     ] =
-      currentUser.role === 'admin'
+      adminReads
         ? await Promise.all([
-            readPortalSaveConflictSummary().catch((error) => {
+            adminReads.saveConflicts().catch((error) => {
               console.error(
                 'Failed to read portal save conflict summary',
                 error instanceof Error ? error.name : 'unknown',
               );
               return null;
             }),
-            readPasswordLinkSummary().catch((error) => {
+            adminReads.passwordLinks().catch((error) => {
               console.error(
                 'Failed to read password-link summary',
                 error instanceof Error ? error.name : 'unknown',
@@ -161,7 +162,7 @@ export async function GET(request: Request) {
                 );
                 return null;
               }),
-            readDuplicateRequestSummary().catch((error) => {
+            adminReads.duplicateRequests().catch((error) => {
               console.error(
                 'Failed to read duplicate-request summary',
                 error instanceof Error ? error.name : 'unknown',

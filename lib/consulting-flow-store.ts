@@ -4,6 +4,7 @@ import {
   postgresSchemaGuarded,
 } from '@/lib/database-dialect';
 import { flowFileLedgerSql } from '@/lib/consulting-flow-file-sql';
+import { runBatchedRead, type BatchedRead } from '@/lib/batched-read';
 import {
   consultingFlowFileMetadataLifecycleTriggerSql,
   consultingFlowFileMetadataNoDeleteTriggerSql,
@@ -1123,26 +1124,52 @@ export async function readFlow(caseId: string): Promise<ConsultingFlow | null> {
     throw storedFlowIntegrityError();
   return row ? storedFlowFromRow(row, caseId) : null;
 }
-export async function stateWithConsultingFlows(raw: unknown) {
+function assertPortalStateStructure(raw: unknown) {
   if (raw !== null && !hasPortalStateStructure(raw))
     throw new FlowError(
       '저장된 운영 데이터 구조를 확인할 수 없습니다. 관리자 복구가 필요합니다.',
       503,
     );
-  const database = await flowDatabase();
-  if (isPostgresDatabase(database)) {
-    const [violations, projectedRows] = await database.batch([
+}
+function postgresFlowStateRead(
+  database: D1Database,
+  raw: unknown,
+): BatchedRead<unknown> {
+  return {
+    db: database,
+    statements: [
       database.prepare('SELECT 1 AS invalid FROM consulting_flows WHERE NOT partner_hub.flow_file_ledgers_valid(payload::json) LIMIT 1'),
       database.prepare(`SELECT case_id, partner_id, revision, updated_at,
         partner_hub.flow_dashboard_payload(payload::json) AS payload FROM consulting_flows`),
-    ]);
-    if (violations.results.length > 0) throw storedFlowIntegrityError();
-    const projected = projectFlowState(raw, (projectedRows as D1Result<StoredFlowRow>).results
-      .map((row) => storedFlowFromRow(row, undefined, true)));
-    if (projected !== null && !hasPortalStateStructure(projected))
-      throw new FlowError('저장된 운영 데이터 구조를 확인할 수 없습니다. 관리자 복구가 필요합니다.', 503);
-    return projected;
-  }
+    ],
+    parse([violations, projectedRows]) {
+      if (violations.results.length > 0) throw storedFlowIntegrityError();
+      const projected = projectFlowState(raw, (projectedRows as D1Result<StoredFlowRow>).results
+        .map((row) => storedFlowFromRow(row, undefined, true)));
+      if (projected !== null && !hasPortalStateStructure(projected))
+        throw new FlowError('저장된 운영 데이터 구조를 확인할 수 없습니다. 관리자 복구가 필요합니다.', 503);
+      return projected;
+    },
+  };
+}
+/**
+ * The PostgreSQL read behind `stateWithConsultingFlows`, for callers that
+ * send it together with other reads. `null` on legacy SQLite databases.
+ */
+export async function consultingFlowStateRead(
+  raw: unknown,
+): Promise<BatchedRead<unknown> | null> {
+  assertPortalStateStructure(raw);
+  const database = await flowDatabase();
+  return isPostgresDatabase(database)
+    ? postgresFlowStateRead(database, raw)
+    : null;
+}
+export async function stateWithConsultingFlows(raw: unknown) {
+  assertPortalStateStructure(raw);
+  const database = await flowDatabase();
+  if (isPostgresDatabase(database))
+    return runBatchedRead(postgresFlowStateRead(database, raw));
   const batch = await database.batch([
     database.prepare(hiddenFlowSemanticViolationSql),
     database.prepare(flowAiSuccessEvidenceViolationSql),

@@ -3,6 +3,7 @@ import {
   isPostgresDatabase,
   postgresSchemaGuarded,
 } from '@/lib/database-dialect';
+import { runBatchedRead, type BatchedRead } from '@/lib/batched-read';
 
 import {
   portalConflictReceiptsExpiryIndexSql,
@@ -372,6 +373,14 @@ export async function readPortalSaveConflictSummary(
   windowDays = 7,
   now = new Date().toISOString(),
 ): Promise<PortalSaveConflictSummary> {
+  return runBatchedRead(await portalSaveConflictSummaryRead(windowDays, now));
+}
+
+/** The read behind `readPortalSaveConflictSummary`, to share a batch. */
+export async function portalSaveConflictSummaryRead(
+  windowDays = 7,
+  now = new Date().toISOString(),
+): Promise<BatchedRead<PortalSaveConflictSummary>> {
   const boundedDays = Math.min(30, Math.max(1, Math.trunc(windowDays)));
   const cutoffTime =
     new Date(now).getTime() - (boundedDays - 1) * 24 * 60 * 60 * 1000;
@@ -380,7 +389,7 @@ export async function readPortalSaveConflictSummary(
   const db = await ensureRecoveryTables(
     await ensureConflictTable(database()),
   );
-  const [conflicts, recoveries] = await Promise.all([
+  const statements = [
     db
       .prepare(`
         SELECT bucket_date, source, kind, actor_role, conflict_count, last_conflict_at
@@ -388,8 +397,7 @@ export async function readPortalSaveConflictSummary(
         WHERE bucket_date BETWEEN ?1 AND ?2
         ORDER BY last_conflict_at DESC
       `)
-      .bind(cutoffDate, currentDate)
-      .all<ConflictRow>(),
+      .bind(cutoffDate, currentDate),
     db
       .prepare(`
         SELECT bucket_date, source, kind, actor_role, issued_count, recovered_count,
@@ -398,9 +406,21 @@ export async function readPortalSaveConflictSummary(
         FROM portal_conflict_recovery_stats
         WHERE bucket_date BETWEEN ?1 AND ?2
       `)
-      .bind(cutoffDate, currentDate)
-      .all<RecoveryRow>(),
-  ]);
+      .bind(cutoffDate, currentDate),
+  ];
+  return {
+    db,
+    statements,
+    parse: (results) => summarizePortalSaveConflicts(boundedDays, results),
+  };
+}
+
+function summarizePortalSaveConflicts(
+  boundedDays: number,
+  [conflictResult, recoveryResult]: D1Result[],
+): PortalSaveConflictSummary {
+  const conflicts = conflictResult as D1Result<ConflictRow>;
+  const recoveries = recoveryResult as D1Result<RecoveryRow>;
   const rows = conflicts.results.map((row) => ({
     date: row.bucket_date,
     source: row.source,
