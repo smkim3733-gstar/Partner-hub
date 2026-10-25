@@ -155,7 +155,10 @@ foreach ($taskSid in @($taskIdentity, $taskSystem)) {
   $taskRule = [System.Security.AccessControl.FileSystemAccessRule]::new($taskSid, 'FullControl', 'ContainerInherit,ObjectInherit', 'None', 'Allow')
   $taskAcl.AddAccessRule($taskRule)
 }
-Set-Acl -LiteralPath $env:PARTNER_HUB_BACKUP_PRIVATE_DIR -AclObject $taskAcl`;
+# Set-Acl also rewrites the audit (SACL) section and needs SeSecurityPrivilege
+# when re-protecting an existing folder. SetAccessControl writes only the
+# owner and access rules set above.
+(Get-Item -LiteralPath $env:PARTNER_HUB_BACKUP_PRIVATE_DIR).SetAccessControl($taskAcl)`;
     await captureProcess(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-Command', script],
