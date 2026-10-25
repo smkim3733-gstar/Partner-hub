@@ -1,7 +1,10 @@
 import { env, waitUntil } from '@/lib/platform-runtime';
 
 import { portalDuplicateRequestStatsTableSql } from '@/db/schema';
-import { isPostgresDatabase } from '@/lib/database-dialect';
+import {
+  isPostgresDatabase,
+  postgresSchemaGuarded,
+} from '@/lib/database-dialect';
 
 export const duplicateRequestSources = [
   'flow_command',
@@ -47,14 +50,14 @@ function database(): D1Database {
   return binding;
 }
 
-async function ensureMetricsTable(db: D1Database) {
-  if (isPostgresDatabase(db)) {
-    await db
-      .prepare('SELECT partner_hub.assert_portal_metrics_schema() AS ready')
-      .first();
-    return;
-  }
+async function ensureMetricsTable(db: D1Database): Promise<D1Database> {
+  if (isPostgresDatabase(db))
+    return postgresSchemaGuarded(
+      db,
+      'SELECT partner_hub.assert_portal_metrics_schema() AS ready',
+    );
   await db.prepare(portalDuplicateRequestStatsTableSql).run();
+  return db;
 }
 
 function koreanDate(iso: string) {
@@ -78,9 +81,8 @@ export async function recordDuplicateRequestMetric(
   if (!isSource(metric.source) || !isOutcome(metric.outcome))
     throw new Error('Invalid duplicate-request metric dimension.');
   const occurredAt = metric.occurredAt ?? new Date().toISOString();
-  const db = database();
   // Observability availability must never become a dependency of business data.
-  await ensureMetricsTable(db);
+  const db = await ensureMetricsTable(database());
   await db
     .prepare(`
       INSERT INTO portal_duplicate_request_stats
@@ -119,8 +121,7 @@ export async function readDuplicateRequestSummary(
     new Date(now).getTime() - (boundedDays - 1) * 24 * 60 * 60 * 1000;
   const cutoffDate = koreanDate(new Date(cutoffTime).toISOString());
   const currentDate = koreanDate(now);
-  const db = database();
-  await ensureMetricsTable(db);
+  const db = await ensureMetricsTable(database());
   const result = await db
     .prepare(`
       SELECT source, outcome, SUM(event_count) AS event_count

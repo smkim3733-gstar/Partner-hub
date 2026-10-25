@@ -15,7 +15,7 @@ import {
   type PortalUser,
 } from './portal-auth';
 import { portalRevision } from './portal-revision';
-import { flowDatabase } from './consulting-flow-store';
+import { flowDatabase, withFlowSchemaGuard } from './consulting-flow-store';
 import { readFlowJsonObject } from './consulting-flow-http';
 import { FlowError } from './consulting-flow';
 import { portalStateId } from '@/db/schema';
@@ -96,8 +96,7 @@ async function inspect(id: string, state: RecoveryState) {
       );
     // The UI also disables colliding IDs, but direct API requests must enforce
     // the same company/FLOW identity boundary before inspecting private bytes.
-    await flowDatabase();
-    const candidates = await db
+    const candidates = await (await withFlowSchemaGuard(db))
       .prepare(postgresInventoryPresenceSql)
       .bind(id)
       .all<{ source_type: string }>();

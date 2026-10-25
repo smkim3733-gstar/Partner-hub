@@ -26,6 +26,9 @@ export const serializableTransactionMode = 'isolation level serializable';
 export const transactionSettingsSql =
   "SELECT set_config('search_path', 'partner_hub, pg_catalog', true), set_config('statement_timeout', '25000ms', true), set_config('lock_timeout', '5000ms', true)";
 
+// Only the read-only schema assertions may ride along as batch guards.
+const schemaGuardSql = /^SELECT partner_hub\.assert_[a-z_]+\(\) AS ready$/;
+
 const unsupportedSql =
   /\b(?:(?:CREATE|ALTER|DROP)\s+(?:TABLE|INDEX|TRIGGER)|PRAGMA|VACUUM|ATTACH|DETACH|sqlite_master|json_(?:each|extract|set|valid|type|group_array|object|array)|julianday|unixepoch|strftime|RAISE|GLOB|HEX|IIF|GROUP_CONCAT|WITHOUT\s+ROWID|INSERT\s+OR)\b/i;
 
@@ -144,7 +147,8 @@ function result<T>(
  * It intentionally accepts only already-ported PostgreSQL SQL. SQLite JSON,
  * PRAGMA, GLOB, RAISE and null-safe `IS ?n` statements fail before a network
  * call. Every D1 batch runs in one PostgreSQL transaction with a local private
- * schema search path.
+ * schema search path. Schema-guarded views prepend their assertions to each
+ * batch in that same transaction instead of spending a separate one.
  */
 export function createSupabasePostgresDatabase(
   client: SupabasePostgresClient,
@@ -152,12 +156,18 @@ export function createSupabasePostgresDatabase(
   class Statement implements D1PreparedStatement {
     #sql: string;
     #parameters: unknown[];
-    constructor(sql: string, parameters: unknown[] = []) {
+    readonly guards: readonly string[];
+    constructor(
+      sql: string,
+      parameters: unknown[] = [],
+      guards: readonly string[] = [],
+    ) {
       this.#sql = sql;
       this.#parameters = [...parameters];
+      this.guards = guards;
     }
     bind(...values: unknown[]) {
-      return new Statement(this.#sql, values);
+      return new Statement(this.#sql, values, this.guards);
     }
     wire() {
       return {
@@ -191,9 +201,17 @@ export function createSupabasePostgresDatabase(
 
   async function execute<T>(statements: Statement[]) {
     if (!statements.length) invalid();
-    const wires = statements.map((statement) =>
-      statement instanceof Statement ? statement.wire() : invalid(),
-    );
+    const guards = [
+      ...new Set(
+        statements.flatMap((statement) =>
+          statement instanceof Statement ? statement.guards : invalid(),
+        ),
+      ),
+    ];
+    const wires = [
+      ...guards.map((sql) => ({ sql, parameters: [] as unknown[] })),
+      ...statements.map((statement) => statement.wire()),
+    ];
     try {
       // SQLite serializes writers. Read committed can instead commit a
       // credential insert after its paired portal CAS loses a race. Require
@@ -211,7 +229,7 @@ export function createSupabasePostgresDatabase(
               transaction.unsafe(wire.sql, wire.parameters),
             ),
           ]);
-          return replies.map((rows) => result<T>(rows));
+          return replies.slice(guards.length).map((rows) => result<T>(rows));
         },
       );
     } catch (error) {
@@ -224,18 +242,26 @@ export function createSupabasePostgresDatabase(
     }
   }
 
-  const database = {
-    prepare: (sql: string) => new Statement(sql),
-    batch<T = unknown>(statements: D1PreparedStatement[]) {
-      return execute<T>(
-        statements.map((statement) =>
-          statement instanceof Statement ? statement : invalid(),
-        ),
-      );
-    },
-    exec: invalid,
-    dump: invalid,
-    withSession: invalid,
-  };
-  return registerPostgresDatabase(database);
+  function view(guards: readonly string[]): D1Database {
+    const database = {
+      prepare: (sql: string) => new Statement(sql, [], guards),
+      batch<T = unknown>(statements: D1PreparedStatement[]) {
+        return execute<T>(
+          statements.map((statement) =>
+            statement instanceof Statement ? statement : invalid(),
+          ),
+        );
+      },
+      exec: invalid,
+      dump: invalid,
+      withSession: invalid,
+    } as unknown as D1Database;
+    return registerPostgresDatabase(database, (guardSql) => {
+      if (!schemaGuardSql.test(guardSql)) invalid();
+      return guards.includes(guardSql)
+        ? database
+        : view([...guards, guardSql]);
+    });
+  }
+  return view([]);
 }

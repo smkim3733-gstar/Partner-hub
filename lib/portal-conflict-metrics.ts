@@ -1,5 +1,8 @@
 import { env, waitUntil } from '@/lib/platform-runtime';
-import { isPostgresDatabase } from '@/lib/database-dialect';
+import {
+  isPostgresDatabase,
+  postgresSchemaGuarded,
+} from '@/lib/database-dialect';
 
 import {
   portalConflictReceiptsExpiryIndexSql,
@@ -135,33 +138,29 @@ async function tokenHash(token: string) {
   ).join('');
 }
 
-async function ensureRecoveryTables(db: D1Database) {
-  if (isPostgresDatabase(db)) {
-    await db
-      .prepare('SELECT partner_hub.assert_portal_metrics_schema() AS ready')
-      .first();
-    return;
-  }
+const portalMetricsSchemaGuardSql =
+  'SELECT partner_hub.assert_portal_metrics_schema() AS ready';
+
+async function ensureRecoveryTables(db: D1Database): Promise<D1Database> {
+  if (isPostgresDatabase(db))
+    return postgresSchemaGuarded(db, portalMetricsSchemaGuardSql);
   await db.prepare(portalConflictReceiptsTableSql).run();
   await db.prepare(portalConflictReceiptsExpiryIndexSql).run();
   await db.prepare(portalConflictRecoveryStatsTableSql).run();
+  return db;
 }
 
-async function ensureConflictTable(db: D1Database) {
-  if (isPostgresDatabase(db)) {
-    await db
-      .prepare('SELECT partner_hub.assert_portal_metrics_schema() AS ready')
-      .first();
-    return;
-  }
+async function ensureConflictTable(db: D1Database): Promise<D1Database> {
+  if (isPostgresDatabase(db))
+    return postgresSchemaGuarded(db, portalMetricsSchemaGuardSql);
   await db.prepare(portalSaveConflictStatsTableSql).run();
+  return db;
 }
 
 export async function recordPortalSaveConflict(metric: ConflictMetric) {
   if (metric.kind === 'capacity') return false;
   const occurredAt = metric.occurredAt ?? new Date().toISOString();
-  const db = database();
-  await ensureConflictTable(db);
+  const db = await ensureConflictTable(database());
   await db
     .prepare(`
       INSERT INTO portal_save_conflict_stats
@@ -216,8 +215,7 @@ export async function issuePortalConflictReceipt(
   const hash = await tokenHash(token);
   const bucketDate = koreanDate(startedAt);
   const expiresAt = startedTime + PORTAL_CONFLICT_RECEIPT_TTL_SECONDS * 1000;
-  const db = database();
-  await ensureRecoveryTables(db);
+  const db = await ensureRecoveryTables(database());
   await db.batch([
     db
       .prepare(`
@@ -279,8 +277,7 @@ export async function consumePortalConflictReceipt({
   if (!Number.isFinite(recoveredTime))
     throw new Error('Invalid recovery timestamp.');
   const hash = await tokenHash(token);
-  const db = database();
-  await ensureRecoveryTables(db);
+  const db = await ensureRecoveryTables(database());
   if (isPostgresDatabase(db)) {
     const result = await db
       .prepare(
@@ -380,9 +377,9 @@ export async function readPortalSaveConflictSummary(
     new Date(now).getTime() - (boundedDays - 1) * 24 * 60 * 60 * 1000;
   const cutoffDate = koreanDate(new Date(cutoffTime).toISOString());
   const currentDate = koreanDate(now);
-  const db = database();
-  await ensureConflictTable(db);
-  await ensureRecoveryTables(db);
+  const db = await ensureRecoveryTables(
+    await ensureConflictTable(database()),
+  );
   const [conflicts, recoveries] = await Promise.all([
     db
       .prepare(`

@@ -142,8 +142,7 @@ function option(row: SourceMetadata): IntakeSourceOption {
 }
 
 export async function listIntakeSources(flow: ConsultingFlow) {
-  const db = companyFileDatabase();
-  await ensureCompanyFileTables(db);
+  const db = await ensureCompanyFileTables(companyFileDatabase());
   const rows = await db
     .prepare(`
     SELECT f.id, original_name, category, size_bytes, created_at

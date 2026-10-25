@@ -4,13 +4,11 @@ import { portalPasswordLinkStatsTableSql } from '@/db/schema';
 import { isPostgresDatabase } from './database-dialect';
 
 async function ensureMetricTable(db: D1Database) {
-  if (isPostgresDatabase(db)) {
-    await db.prepare(`SELECT bucket_date, issued_count, active_replacement_count,
-      expired_at_reissue_count, redeemed_count, observed_expired_attempt_count
-      FROM portal_password_link_stats WHERE 1 = 0`).all();
-  } else {
-    await db.prepare(portalPasswordLinkStatsTableSql).run();
-  }
+  // PostgreSQL schema is an operator migration. Every metric statement names
+  // the same table and columns, so a missing schema fails that statement
+  // without spending a separate probe transaction.
+  if (isPostgresDatabase(db)) return;
+  await db.prepare(portalPasswordLinkStatsTableSql).run();
 }
 
 export type PasswordLinkMetric = {

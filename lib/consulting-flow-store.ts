@@ -1,5 +1,8 @@
 import { env } from '@/lib/platform-runtime';
-import { isPostgresDatabase } from '@/lib/database-dialect';
+import {
+  isPostgresDatabase,
+  postgresSchemaGuarded,
+} from '@/lib/database-dialect';
 import { flowFileLedgerSql } from '@/lib/consulting-flow-file-sql';
 import {
   consultingFlowFileMetadataLifecycleTriggerSql,
@@ -164,14 +167,16 @@ export function flowEnvironment() {
   };
 }
 let flowDatabaseInitialization: Promise<void> | undefined;
+const flowSchemaGuardSql =
+  'SELECT partner_hub.assert_consulting_flow_schema() AS ready';
 export async function flowDatabase() {
   const db = flowEnvironment().DB;
   if (!db) throw new FlowError('진행 저장소가 연결되지 않았습니다.', 503);
   if (isPostgresDatabase(db)) {
     // Check native root + deferred file-ledger guards independently of cached
-    // SQLite initialization. Runtime never creates PostgreSQL schema.
-    await db.prepare('SELECT partner_hub.assert_consulting_flow_schema() AS ready').first();
-    return db;
+    // SQLite initialization, inside every batch sent through the returned
+    // database. Runtime never creates PostgreSQL schema.
+    return postgresSchemaGuarded(db, flowSchemaGuardSql);
   }
   if (!flowDatabaseInitialization) {
     const initialization = (async () => {
@@ -278,8 +283,21 @@ async function flowFileLedgerDatabase() {
   const db = flowEnvironment().DB;
   if (!db) throw new FlowError('진행 저장소가 연결되지 않았습니다.', 503);
   if (!isPostgresDatabase(db)) return flowDatabase();
-  await db.prepare('SELECT partner_hub.assert_flow_file_ledger_schema() AS ready').first();
-  return db;
+  return postgresSchemaGuarded(
+    db,
+    'SELECT partner_hub.assert_flow_file_ledger_schema() AS ready',
+  );
+}
+/**
+ * Adds the FLOW schema guard to another handle on the same database, so work
+ * that must respect the FLOW boundary is checked in its own transaction.
+ */
+export async function withFlowSchemaGuard(db: D1Database) {
+  if (!isPostgresDatabase(db)) {
+    await flowDatabase();
+    return db;
+  }
+  return postgresSchemaGuarded(db, flowSchemaGuardSql);
 }
 export function flowBucket() {
   const bucket = flowEnvironment().AI_SOURCE_FILES;

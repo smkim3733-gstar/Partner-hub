@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { postgresRuntimeFixture } from './supabase-runtime-fixture';
 import { flowFileLedgerSql } from '../lib/consulting-flow-file-sql';
-import { newConsultingFlow, type FlowFile } from '../lib/consulting-flow';
+import { FlowError, newConsultingFlow, type FlowFile } from '../lib/consulting-flow';
 import { MAX_FLOW_UPLOAD_BYTES } from '../lib/consulting-flow-upload-policy';
 const { reserveFlowUploads, readFlowFileObjectIntegrity, flowDatabase } = await import('../lib/consulting-flow-store');
 
@@ -23,12 +23,13 @@ type Fixture = Awaited<ReturnType<typeof postgresRuntimeFixture>>;
 
 // Deliberately isolated ledger harness, NOT the production FLOW root or its
 // command/actor/domain guard. Never applied remotely or included in migrations.
-// The application flowDatabase() must still reject this incomplete root.
+// Work through the application flowDatabase() must still reject this
+// incomplete root (its schema guard rides along with each batch).
 async function ledgerHarness(fixture: Fixture) {
   await fixture.engine.exec(`CREATE TABLE partner_hub.consulting_flows (
     case_id text PRIMARY KEY, partner_id text NOT NULL, revision bigint NOT NULL, payload text NOT NULL, updated_at text NOT NULL);
     GRANT SELECT, INSERT, UPDATE ON partner_hub.consulting_flows TO service_role;`);
-  await assert.rejects(flowDatabase(), /OPERATION_FAILED/);
+  await assert.rejects((await flowDatabase()).prepare('SELECT 1 AS ok').first(), /OPERATION_FAILED/);
 }
 function snapshot(files: FlowFile[], id = commandId) {
   return { ...newConsultingFlow(caseId, '가상기업', 'synthetic-partner', '가상담당'), revision: 1, updatedAt: time, files,
@@ -79,12 +80,15 @@ void test('PostgreSQL FLOW reservations reuse exact pending keys, scope identity
   await reserveFlowUploads(request([{ slot: 'file', file: file('other-actor') }], { actorKey: 'member:synthetic-partner' }));
   await reserveFlowUploads(request([{ slot: 'file', file: file('other-case') }], { caseId: 'synthetic-other-case' }));
   assert.equal(await db.prepare('SELECT count(*) AS n FROM consulting_flow_upload_requests').first('n'), 3);
-  await assert.rejects(flowDatabase(), /OPERATION_FAILED/);
+  await assert.rejects((await flowDatabase()).prepare('SELECT 1 AS ok').first(), /OPERATION_FAILED/);
   await assert.rejects(db.prepare("UPDATE consulting_flow_upload_requests SET status='ready' WHERE file_id=?1").bind(file().id).run(), /OPERATION_FAILED/);
   assert.equal(await db.prepare("SELECT to_regclass('partner_hub.consulting_flows')::text AS name").first('name'), null);
   await engine.exec('RESET ROLE');
   await engine.exec('ALTER TABLE partner_hub.consulting_flow_upload_command_keys DISABLE TRIGGER consulting_flow_upload_command_keys_guard');
-  await assert.rejects(reserveFlowUploads(input), /OPERATION_FAILED/);
+  // The ledger guard runs inside the reservation lookup batch, which fails
+  // closed with a retryable 503 instead of reserving anything.
+  await assert.rejects(reserveFlowUploads(input), (error: unknown) => error instanceof FlowError && error.status === 503);
+  assert.equal(await db.prepare('SELECT count(*) AS n FROM consulting_flow_upload_requests').first('n'), 3);
 });
 
 void test('PostgreSQL FLOW direct reservation envelopes and cross-slot fingerprint guard reject malformed writes atomically', async (t) => {
