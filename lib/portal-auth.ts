@@ -7,7 +7,11 @@ import {
   PORTAL_OWNER_EMAIL,
 } from '@/lib/member-email';
 import type { PortalLoginStat } from '@/lib/portal-state';
-import type { StandaloneAdminIdentity } from '@/lib/standalone-admin-store';
+import {
+  standaloneAdminIdentityFromRow,
+  standaloneAdminSessionExpiresAt,
+  type StandaloneAdminSessionRow,
+} from '@/lib/standalone-admin-store';
 import { standaloneAdminSessionLookup } from '@/lib/platform-admin-auth';
 import {
   chatGPTIdentityBinding,
@@ -344,23 +348,73 @@ export function normalizedMemberName(name: unknown) {
 async function sessionIdentities(request: Request) {
   const adminLookup = standaloneAdminSessionLookup(request);
   if (!adminLookup)
-    return { admin: null, passwordUser: await passwordIdentity(request) };
+    return {
+      admin: null,
+      adminExpiresAt: null,
+      passwordUser: await passwordIdentity(request),
+    };
   const db = await passwordDatabase();
   const [adminResult, passwordResult] = await db.batch([
     adminLookup.statement(db),
     passwordSessionStatement(db, adminLookup.token),
   ]);
-  const admin = adminLookup.accept(
-    (adminResult.results[0] as StandaloneAdminIdentity | undefined) ?? null,
-  );
-  if (admin) return { admin, passwordUser: null };
+  const adminRow = adminResult.results[0] as
+    | StandaloneAdminSessionRow
+    | undefined;
+  const admin = adminLookup.accept(standaloneAdminIdentityFromRow(adminRow));
+  if (admin)
+    return {
+      admin,
+      adminExpiresAt: standaloneAdminSessionExpiresAt(adminRow),
+      passwordUser: null,
+    };
   return {
     admin: null,
+    adminExpiresAt: null,
     passwordUser: acceptPasswordSession(
       request,
       passwordResult.results[0] as PasswordSessionIdentity | undefined,
     ),
   };
+}
+
+// Administrator sessions expire one hour after login (security design). The
+// expiry travels beside the user object so the response shape stays the same.
+const portalSessionExpiry = new WeakMap<PortalUser, number>();
+
+/** Whole seconds until the signed-in administrator session expires. */
+export function portalSessionExpiresInSeconds(
+  user: PortalUser,
+  now = Date.now(),
+): number | null {
+  const expiresAt = portalSessionExpiry.get(user);
+  return expiresAt === undefined
+    ? null
+    : Math.max(0, Math.floor((expiresAt - now) / 1000));
+}
+
+/**
+ * Lightweight check of the administrator session behind this request: whole
+ * seconds left, or a 401 `PortalAccessError` when no administrator session is
+ * live. Reads no portal state.
+ */
+export async function requireAdminSessionExpiresInSeconds(request: Request) {
+  let identities;
+  try {
+    identities = await sessionIdentities(request);
+  } catch (error) {
+    if (error instanceof PasswordError && error.status === 403)
+      throw new PortalAccessError(error.message, 403);
+    if (error instanceof PasswordError && error.status === 401)
+      throw new PortalAccessError('관리자 로그인이 필요합니다.', 401);
+    throw error;
+  }
+  if (!identities.admin || identities.adminExpiresAt === null)
+    throw new PortalAccessError('관리자 로그인이 필요합니다.', 401);
+  return Math.max(
+    0,
+    Math.floor((identities.adminExpiresAt - Date.now()) / 1000),
+  );
 }
 
 export async function requirePortalUser(
@@ -371,8 +425,8 @@ export async function requirePortalUser(
   try {
     const identities = await sessionIdentities(request);
     const admin = identities.admin;
-    if (admin)
-      return {
+    if (admin) {
+      const user: PortalUser = {
         id: `standalone:${admin.id}`,
         email: admin.email,
         displayName: admin.displayName,
@@ -382,6 +436,10 @@ export async function requirePortalUser(
         permissions: null,
         authMethod: 'password',
       };
+      if (identities.adminExpiresAt !== null)
+        portalSessionExpiry.set(user, identities.adminExpiresAt);
+      return user;
+    }
     passwordUser = identities.passwordUser;
   } catch (error) {
     if (

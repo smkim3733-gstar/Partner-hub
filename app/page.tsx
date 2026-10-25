@@ -36,6 +36,8 @@ import {
 } from '@/lib/step-zero-pilot-input';
 import { googleCalendarDraftUrl, scheduleDateGroups } from '@/lib/schedule-display';
 import { PartnerAuthPanel } from '@/components/partner-auth-panel';
+import { AdminSessionNotice } from '@/components/admin-session-notice';
+import { adminSessionDeadline } from '@/lib/admin-session-notice';
 import { PartnerPasswordLink } from '@/components/partner-password-link';
 import { PartnerSignout } from '@/components/partner-signout';
 import { PortalInitializationGate } from '@/components/portal-initialization-gate';
@@ -3810,6 +3812,7 @@ export default function Home() {
   const [currentUser, setCurrentUser] = useState<PortalUser | null>(null);
   const [accessError, setAccessError] = useState('');
   const [accessStatus, setAccessStatus] = useState<number | null>(null);
+  const [adminLoginDeadline, setAdminLoginDeadline] = useState<number | null>(null);
   const saveIdentityRef = useRef('');
   const saveStateRevisionRef = useRef('');
   const saveRecoveryReceiptRef = useRef('');
@@ -3906,6 +3909,7 @@ export default function Home() {
         setDocumentReviewWait(payload.documentReviewWait ?? null);
         setSupportRequests(payload.supportRequests ?? null);
         setPipelineDropoff(payload.pipelineDropoff ?? null);
+        setAdminLoginDeadline(adminSessionDeadline(payload.sessionExpiresInSeconds, Date.now()));
         setAccessStatus(null);
         if (payload.currentUser.role === 'trainee') {
           setView('trainee');
@@ -4318,6 +4322,7 @@ export default function Home() {
         </header>
 
         <main id="main-content" className="mx-auto max-w-[1440px] p-4 sm:p-6 lg:p-8">
+          {isAdmin && <AdminSessionNotice deadline={adminLoginDeadline} />}
           {saveError && <div role="alert" className="mb-6 rounded-xl border border-red-200 bg-red-50 p-4 text-sm leading-6 text-red-800"><p className="font-bold">변경사항 저장 확인 필요</p><p>{saveError}</p><p className="mt-1">입력은 현재 화면에 남아 있습니다. 새로고침하지 말고 연결을 확인한 뒤 다시 저장해 주세요. 로그인 만료 시 같은 계정으로 새 탭에서 로그인한 후 돌아오세요.</p><div className="mt-3 flex flex-wrap gap-3"><SecondaryButton onClick={() => { void saveQueue.flush().catch(() => {}); }} disabled={dataStatus === 'saving' || applicationPending}>변경사항 다시 저장</SecondaryButton><a className="inline-flex min-h-11 items-center underline" href="/account" target="_blank" rel="noopener noreferrer">새 탭에서 로그인</a><a className="inline-flex min-h-11 items-center underline" href="/" target="_blank" rel="noopener noreferrer">새 탭에서 최신 운영 내용 확인</a></div></div>}
           {view === 'admin' ? <AdminDashboard onOpenCase={openCase} onOpenSchedule={() => openSchedule('admin')} schedule={schedule} cases={cases} documents={companyDocuments} tasks={tasks} members={members} storage={storage} saveConflicts={saveConflicts} applicationFunnel={applicationFunnel} duplicateRequests={duplicateRequests} jointAnalysisConfirmation={jointAnalysisConfirmation} documentReviewWait={documentReviewWait} supportRequests={supportRequests} pipelineDropoff={pipelineDropoff} /> : null}
           {view === 'pipeline' ? <PipelineBoard cases={cases} setCases={setCases} members={members} isAdmin={isAdmin} currentName={traineeName} notify={notify} onOpenCase={openCase} /> : null}

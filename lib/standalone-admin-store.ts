@@ -160,7 +160,8 @@ export function standaloneAdminIdentityStatement(
   token: string,
 ): D1PreparedStatement {
   return db
-    .prepare(`SELECT a.id, a.email, a.display_name AS "displayName"
+    .prepare(`SELECT a.id, a.email, a.display_name AS "displayName",
+    s.expires_at AS "expiresAt"
     FROM standalone_admin_sessions s JOIN standalone_admin_accounts a
     ON a.id = s.admin_id AND a.credential_version = s.credential_version
     WHERE s.token_hash = ?1 AND s.issued_at <= ?2 AND s.expires_at > ?2
@@ -173,10 +174,31 @@ export async function readStandaloneAdminIdentity(
   token: string | null,
 ): Promise<StandaloneAdminIdentity | null> {
   if (!token || !/^[a-f0-9]{64}$/.test(token)) return null;
-  return standaloneAdminIdentityStatement(
-    db,
-    token,
-  ).first<StandaloneAdminIdentity>();
+  return standaloneAdminIdentityFromRow(
+    await standaloneAdminIdentityStatement(
+      db,
+      token,
+    ).first<StandaloneAdminSessionRow>(),
+  );
+}
+
+/** Row returned by `standaloneAdminIdentityStatement`. */
+export type StandaloneAdminSessionRow = StandaloneAdminIdentity & {
+  expiresAt: number | string;
+};
+export function standaloneAdminIdentityFromRow(
+  row: StandaloneAdminSessionRow | null | undefined,
+): StandaloneAdminIdentity | null {
+  return row
+    ? { id: row.id, email: row.email, displayName: row.displayName }
+    : null;
+}
+/** Session expiry in epoch milliseconds, or null when it is unreadable. */
+export function standaloneAdminSessionExpiresAt(
+  row: StandaloneAdminSessionRow | null | undefined,
+): number | null {
+  const expiresAt = Number(row?.expiresAt);
+  return Number.isSafeInteger(expiresAt) && expiresAt > 0 ? expiresAt : null;
 }
 
 /**
