@@ -7,15 +7,20 @@ import {
   PORTAL_OWNER_EMAIL,
 } from '@/lib/member-email';
 import type { PortalLoginStat } from '@/lib/portal-state';
-import { standaloneAdminIdentity } from '@/lib/platform-admin-auth';
+import type { StandaloneAdminIdentity } from '@/lib/standalone-admin-store';
+import { standaloneAdminSessionLookup } from '@/lib/platform-admin-auth';
 import {
   chatGPTIdentityBinding,
   chatGPTIdentityConflictMessage,
   chatGPTOwnerIdentityConflictMessage,
   claimChatGPTMemberBinding,
   claimChatGPTOwnerBinding,
+  acceptPasswordSession,
+  passwordDatabase,
   passwordIdentity,
   PasswordError,
+  passwordSessionStatement,
+  type PasswordSessionIdentity,
 } from '@/lib/password-store';
 import { isPilotSeedId, type PilotSeedKind } from '@/lib/pilot-readiness';
 import {
@@ -329,13 +334,43 @@ export function normalizedMemberName(name: unknown) {
   return typeof name === 'string' ? name.replace('(가상)', '').trim() : '';
 }
 
+/**
+ * Resolves the administrator session and, failing that, the partner password
+ * session behind the shared session cookie. When both lookups apply they run
+ * as one read-only DB batch (one transaction, one round trip) instead of two.
+ * Precedence and checks match running them one after another: an
+ * administrator session wins, otherwise the partner session rules apply.
+ */
+async function sessionIdentities(request: Request) {
+  const adminLookup = standaloneAdminSessionLookup(request);
+  if (!adminLookup)
+    return { admin: null, passwordUser: await passwordIdentity(request) };
+  const db = await passwordDatabase();
+  const [adminResult, passwordResult] = await db.batch([
+    adminLookup.statement(db),
+    passwordSessionStatement(db, adminLookup.token),
+  ]);
+  const admin = adminLookup.accept(
+    (adminResult.results[0] as StandaloneAdminIdentity | undefined) ?? null,
+  );
+  if (admin) return { admin, passwordUser: null };
+  return {
+    admin: null,
+    passwordUser: acceptPasswordSession(
+      request,
+      passwordResult.results[0] as PasswordSessionIdentity | undefined,
+    ),
+  };
+}
+
 export async function requirePortalUser(
   request: Request,
   rawState: unknown,
 ): Promise<PortalUser> {
   let passwordUser;
   try {
-    const admin = await standaloneAdminIdentity(request);
+    const identities = await sessionIdentities(request);
+    const admin = identities.admin;
     if (admin)
       return {
         id: `standalone:${admin.id}`,
@@ -347,7 +382,7 @@ export async function requirePortalUser(
         permissions: null,
         authMethod: 'password',
       };
-    passwordUser = await passwordIdentity(request);
+    passwordUser = identities.passwordUser;
   } catch (error) {
     if (
       error instanceof PasswordError &&

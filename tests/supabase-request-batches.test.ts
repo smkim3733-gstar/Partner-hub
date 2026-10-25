@@ -33,7 +33,8 @@ const schemaGuard = /^SELECT partner_hub\.assert_[a-z_]+\(\) AS ready$/;
 // Each adapter batch is one PostgreSQL transaction and at least one network
 // round trip to Supavisor. Schema guards must ride along with real work.
 // Measured on 2026-10-26: partner state 10 -> 5, administrator state 18 -> 9,
-// partner FLOW 14 -> 7 batches.
+// partner FLOW 14 -> 7 batches. The administrator and partner session lookups
+// then shared one batch: partner state 5 -> 4, partner FLOW 7 -> 5.
 void test('signed-in Supabase requests spend no transaction on schema guards alone', async (t) => {
   const f = await postgresRuntimeFixture(t, { flowRoot: true });
   await writePortalState({
@@ -102,7 +103,7 @@ void test('signed-in Supabase requests spend no transaction on schema guards alo
   for (const [label, limit, run] of [
     [
       'partner state',
-      5,
+      4,
       () => getState(request('/api/state', undefined, partner)),
     ],
     [
@@ -112,7 +113,7 @@ void test('signed-in Supabase requests spend no transaction on schema guards alo
     ],
     [
       'partner FLOW',
-      7,
+      5,
       () =>
         getFlow(
           request('/api/consulting-flow/batch-case', undefined, partner),
@@ -136,4 +137,34 @@ void test('signed-in Supabase requests spend no transaction on schema guards alo
         `${label}: a transaction ran only schema guards`,
       );
   }
+
+  // The batched session lookup keeps the same access rules: administrator
+  // sessions win, partner sessions still need approval, and unknown or
+  // malformed tokens are rejected.
+  const access = async (sessionCookie: string) => {
+    const response = await getState(
+      request('/api/state', undefined, sessionCookie),
+    );
+    const body = (await response.json()) as {
+      currentUser?: { role: string };
+    };
+    return [response.status, body.currentUser?.role ?? null];
+  };
+  const cookieName = owner.slice(0, owner.indexOf('='));
+  assert.deepEqual(await access(owner), [200, 'admin']);
+  assert.deepEqual(await access(partner), [200, 'trainee']);
+  assert.deepEqual(await access(`${cookieName}=${'0'.repeat(64)}`), [
+    401,
+    null,
+  ]);
+  assert.deepEqual(await access(`${cookieName}=not-a-session`), [401, null]);
+  await mutatePortalState((raw) => {
+    const state = raw as { members: Array<Record<string, unknown>> };
+    return {
+      ...state,
+      members: state.members.map((member) => ({ ...member, status: '정지' })),
+    };
+  });
+  assert.deepEqual(await access(partner), [403, null]);
+  assert.deepEqual(await access(owner), [200, 'admin']);
 });

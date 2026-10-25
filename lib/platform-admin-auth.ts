@@ -1,4 +1,7 @@
-import type { StandaloneAdminIdentity } from './standalone-admin-store';
+import type {
+  StandaloneAdminIdentity,
+  StandaloneAdminSessionLookup,
+} from './standalone-admin-store';
 
 // Sites and production Next never enable the local standalone administrator.
 export async function loginStandaloneAdmin(
@@ -6,6 +9,11 @@ export async function loginStandaloneAdmin(
   _email: string,
   _password: string,
 ): Promise<{ cookie: string } | null> {
+  return null;
+}
+export function standaloneAdminSessionLookup(
+  _request: Request,
+): StandaloneAdminSessionLookup | null {
   return null;
 }
 export async function standaloneAdminIdentity(
