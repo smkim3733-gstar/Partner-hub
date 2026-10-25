@@ -17,6 +17,7 @@ type PostgresJsExecutor = {
 };
 type PostgresJsClient = PostgresJsExecutor & {
   begin<T>(
+    options: string,
     callback: (transaction: PostgresJsExecutor) => Promise<T>,
   ): PromiseLike<T>;
 };
@@ -60,8 +61,10 @@ export function createSupabaseDatabaseClient(
   const raw = factory(databaseUrl, supabasePostgresClientOptions);
   const client: SupabasePostgresClient = {
     ...executor(raw),
-    async begin(callback) {
-      return await raw.begin((transaction) => callback(executor(transaction)));
+    async begin(mode, callback) {
+      return await raw.begin(mode, (transaction) =>
+        callback(executor(transaction)),
+      );
     },
   };
   return createSupabasePostgresDatabase(client);
