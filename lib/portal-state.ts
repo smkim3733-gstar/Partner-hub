@@ -3,6 +3,7 @@ import {
   isPostgresDatabase,
   postgresSchemaGuarded,
 } from './database-dialect';
+import { runBatchedRead, type BatchedRead } from './batched-read';
 
 import {
   aiDiagnosisRunsCaseIndexSql,
@@ -261,17 +262,27 @@ export async function recordPortalLogin(memberId: string) {
   return lastLoginAt;
 }
 
-export async function readPortalLoginStats(): Promise<PortalLoginStat[]> {
+/** The read behind `readPortalLoginStats`, to share a batch with others. */
+export async function portalLoginStatsRead(): Promise<
+  BatchedRead<PortalLoginStat[]>
+> {
   const db = await ensurePortalTables(database());
-  const result = await db
-    .prepare(
-      'SELECT member_id, last_login_at, login_count FROM portal_login_stats ORDER BY last_login_at DESC',
-    )
-    .all<PortalLoginStatRow>();
+  return {
+    db,
+    statements: [
+      db.prepare(
+        'SELECT member_id, last_login_at, login_count FROM portal_login_stats ORDER BY last_login_at DESC',
+      ),
+    ],
+    parse: ([result]) =>
+      (result as D1Result<PortalLoginStatRow>).results.map((row) => ({
+        memberId: row.member_id,
+        lastLoginAt: row.last_login_at,
+        loginCount: row.login_count,
+      })),
+  };
+}
 
-  return result.results.map((row) => ({
-    memberId: row.member_id,
-    lastLoginAt: row.last_login_at,
-    loginCount: row.login_count,
-  }));
+export async function readPortalLoginStats(): Promise<PortalLoginStat[]> {
+  return runBatchedRead(await portalLoginStatsRead());
 }

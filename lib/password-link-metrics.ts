@@ -2,6 +2,7 @@ import { env, waitUntil } from '@/lib/platform-runtime';
 
 import { portalPasswordLinkStatsTableSql } from '@/db/schema';
 import { isPostgresDatabase } from './database-dialect';
+import { runBatchedRead, type BatchedRead } from './batched-read';
 
 async function ensureMetricTable(db: D1Database) {
   // PostgreSQL schema is an operator migration. Every metric statement names
@@ -112,6 +113,14 @@ export async function readPasswordLinkSummary(
   windowDays = 7,
   now = new Date().toISOString(),
 ): Promise<PasswordLinkSummary> {
+  return runBatchedRead(await passwordLinkSummaryRead(windowDays, now));
+}
+
+/** The read behind `readPasswordLinkSummary`, to share a batch with others. */
+export async function passwordLinkSummaryRead(
+  windowDays = 7,
+  now = new Date().toISOString(),
+): Promise<BatchedRead<PasswordLinkSummary>> {
   const boundedDays = Math.min(30, Math.max(1, Math.trunc(windowDays)));
   const cutoffTime =
     new Date(now).getTime() - (boundedDays - 1) * 24 * 60 * 60 * 1000;
@@ -119,7 +128,7 @@ export async function readPasswordLinkSummary(
   const currentDate = koreanDate(now);
   const db = database();
   await ensureMetricTable(db);
-  const row = await db
+  const statement = db
     .prepare(`
       SELECT
         COALESCE(SUM(issued_count), 0) AS issued_count,
@@ -130,14 +139,22 @@ export async function readPasswordLinkSummary(
       FROM portal_password_link_stats
       WHERE bucket_date BETWEEN ?1 AND ?2
     `)
-    .bind(cutoffDate, currentDate)
-    .first<PasswordLinkStatsRow>();
+    .bind(cutoffDate, currentDate);
   return {
-    windowDays: boundedDays,
-    issued: Number(row?.issued_count ?? 0),
-    activeReplacements: Number(row?.active_replacement_count ?? 0),
-    expiredAtReissue: Number(row?.expired_at_reissue_count ?? 0),
-    redeemed: Number(row?.redeemed_count ?? 0),
-    observedExpiredAttempts: Number(row?.observed_expired_attempt_count ?? 0),
+    db,
+    statements: [statement],
+    parse([result]) {
+      const row = (result as D1Result<PasswordLinkStatsRow>).results[0];
+      return {
+        windowDays: boundedDays,
+        issued: Number(row?.issued_count ?? 0),
+        activeReplacements: Number(row?.active_replacement_count ?? 0),
+        expiredAtReissue: Number(row?.expired_at_reissue_count ?? 0),
+        redeemed: Number(row?.redeemed_count ?? 0),
+        observedExpiredAttempts: Number(
+          row?.observed_expired_attempt_count ?? 0,
+        ),
+      };
+    },
   };
 }
