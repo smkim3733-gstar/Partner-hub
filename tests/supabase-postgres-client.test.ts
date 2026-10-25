@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { transactionSettingsSql } from '../lib/supabase-postgres-database';
 import {
   createSupabaseDatabaseClient,
   supabasePostgresClientOptions,
@@ -10,6 +11,7 @@ void test('Supabase client disables prepared statements and bounds serverless co
   let observedUrl = '';
   let observedOptions: unknown;
   const queries: string[] = [];
+  const modes: string[] = [];
   const executor = {
     async unsafe(query: string) {
       queries.push(query);
@@ -24,7 +26,8 @@ void test('Supabase client disables prepared statements and bounds serverless co
     observedOptions = options;
     return {
       ...executor,
-      async begin(callback) {
+      async begin(mode, callback) {
+        modes.push(mode);
         return callback(executor);
       },
     };
@@ -38,10 +41,6 @@ void test('Supabase client disables prepared statements and bounds serverless co
   assert.equal(supabasePostgresClientOptions.prepare, false);
   assert.equal(supabasePostgresClientOptions.max, 1);
   assert.equal(supabasePostgresClientOptions.types.bigint.parse('1788950935000'), BigInt('1788950935000'));
-  assert.deepEqual(queries.slice(0, 4), [
-    'SET TRANSACTION ISOLATION LEVEL SERIALIZABLE',
-    'SET LOCAL search_path TO partner_hub, pg_catalog',
-    "SET LOCAL statement_timeout TO '25000ms'",
-    "SET LOCAL lock_timeout TO '5000ms'",
-  ]);
+  assert.deepEqual(modes, ['isolation level serializable']);
+  assert.deepEqual(queries, [transactionSettingsSql, 'SELECT 1 AS ready']);
 });

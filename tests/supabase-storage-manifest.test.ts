@@ -39,7 +39,10 @@ function fixture() {
   };
   const db = createSupabasePostgresDatabase({
     ...executor,
-    async begin(callback) {
+    async begin<T>(
+      _mode: string,
+      callback: (transaction: typeof executor) => Promise<T>,
+    ) {
       transactions++;
       return callback(executor);
     },
@@ -61,19 +64,19 @@ void test('Supabase manifest uses the real parameter adapter and one transaction
   assert.equal(f.transactions(), 1);
   assert.equal(
     f.observed.length,
-    6,
-    'isolation, three transaction limits, immutable insert and CAS',
+    3,
+    'transaction settings, immutable insert and CAS',
   );
-  assert.deepEqual(f.observed[4].parameters, [
+  assert.deepEqual(f.observed[1].parameters, [
     key,
     saved.revision,
     saved.path,
     JSON.stringify(saved.wire),
   ]);
-  assert.deepEqual(f.observed[5].parameters, [key, saved.revision, null]);
-  assert.match(f.observed[5].sql, /\$3::text IS NULL OR EXISTS/);
-  assert.match(f.observed[5].sql, /WHERE storage_object_heads.revision = \$3/);
-  assert.doesNotMatch(f.observed[5].sql, /\?/);
+  assert.deepEqual(f.observed[2].parameters, [key, saved.revision, null]);
+  assert.match(f.observed[2].sql, /\$3::text IS NULL OR EXISTS/);
+  assert.match(f.observed[2].sql, /WHERE storage_object_heads.revision = \$3/);
+  assert.doesNotMatch(f.observed[2].sql, /\?/);
   await f.manifest.publish(key, version(), undefined);
   assert.equal(f.observed.at(-1)!.parameters.length, 2);
   assert.doesNotMatch(f.observed.at(-1)!.sql, /WHERE/);

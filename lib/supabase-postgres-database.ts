@@ -15,9 +15,16 @@ export type SupabasePostgresExecutor = {
 
 export type SupabasePostgresClient = SupabasePostgresExecutor & {
   begin<T>(
+    mode: typeof serializableTransactionMode,
     callback: (transaction: SupabasePostgresExecutor) => Promise<T>,
   ): Promise<T>;
 };
+
+/** Sent as `BEGIN ISOLATION LEVEL SERIALIZABLE`, so no extra round trip. */
+export const serializableTransactionMode = 'isolation level serializable';
+/** One statement for the three transaction-local settings (`SET LOCAL`). */
+export const transactionSettingsSql =
+  "SELECT set_config('search_path', 'partner_hub, pg_catalog', true), set_config('statement_timeout', '25000ms', true), set_config('lock_timeout', '5000ms', true)";
 
 const unsupportedSql =
   /\b(?:(?:CREATE|ALTER|DROP)\s+(?:TABLE|INDEX|TRIGGER)|PRAGMA|VACUUM|ATTACH|DETACH|sqlite_master|json_(?:each|extract|set|valid|type|group_array|object|array)|julianday|unixepoch|strftime|RAISE|GLOB|HEX|IIF|GROUP_CONCAT|WITHOUT\s+ROWID|INSERT\s+OR)\b/i;
@@ -188,23 +195,25 @@ export function createSupabasePostgresDatabase(
       statement instanceof Statement ? statement.wire() : invalid(),
     );
     try {
-      return await client.begin(async (transaction) => {
-        // SQLite serializes writers. Read committed can instead commit a
-        // credential insert after its paired portal CAS loses a race. Require
-        // a serializable snapshot; conflicting transactions abort in full.
-        await transaction.unsafe('SET TRANSACTION ISOLATION LEVEL SERIALIZABLE');
-        await transaction.unsafe(
-          'SET LOCAL search_path TO partner_hub, pg_catalog',
-        );
-        await transaction.unsafe("SET LOCAL statement_timeout TO '25000ms'");
-        await transaction.unsafe("SET LOCAL lock_timeout TO '5000ms'");
-        const results: D1Result<T>[] = [];
-        for (const wire of wires)
-          results.push(
-            result<T>(await transaction.unsafe(wire.sql, wire.parameters)),
-          );
-        return results;
-      });
+      // SQLite serializes writers. Read committed can instead commit a
+      // credential insert after its paired portal CAS loses a race. Require
+      // a serializable snapshot; conflicting transactions abort in full.
+      return await client.begin(
+        serializableTransactionMode,
+        async (transaction) => {
+          // Issue the settings and every statement before awaiting any of them
+          // so the driver pipelines them: PostgreSQL still runs them in order,
+          // and a failure aborts the rest, but the batch costs one network
+          // round trip instead of one per statement.
+          const [, ...replies] = await Promise.all([
+            transaction.unsafe(transactionSettingsSql),
+            ...wires.map((wire) =>
+              transaction.unsafe(wire.sql, wire.parameters),
+            ),
+          ]);
+          return replies.map((rows) => result<T>(rows));
+        },
+      );
     } catch (error) {
       if (
         error instanceof Error &&

@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 import {
   createSupabasePostgresDatabase,
+  serializableTransactionMode,
   type SupabasePostgresExecutor,
 } from '../lib/supabase-postgres-database';
 
@@ -65,9 +66,16 @@ export async function postgresFixture(options: { flowRoot?: boolean } = {}) {
     }
     const db = createSupabasePostgresDatabase({
       ...executor(engine),
-      async begin(callback) {
+      async begin(mode, callback) {
+        if (mode !== serializableTransactionMode)
+          throw new Error('unexpected transaction mode');
         return engine
-          .transaction((transaction) => callback(executor(transaction)))
+          .transaction(async (transaction) => {
+            // postgres.js sends the mode as part of BEGIN; PGlite opens the
+            // transaction itself, so apply the same level as its first command.
+            await transaction.query('SET TRANSACTION ISOLATION LEVEL SERIALIZABLE');
+            return callback(executor(transaction));
+          })
           .catch((error: unknown) => {
             // Deferred constraints can fail at COMMIT, outside executor.query.
             lastQueryError = error;
