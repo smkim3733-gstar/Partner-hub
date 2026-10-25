@@ -11,8 +11,10 @@ import {
 import {
   issueStandaloneAdminSession,
   readStandaloneAdminIdentity,
+  standaloneAdminIdentityStatement,
   standaloneAdminRevocations,
   standaloneAdminLifetimeSeconds,
+  type StandaloneAdminSessionLookup,
 } from './standalone-admin-store';
 
 // Selected only by opted-in Next dev; a second guard prevents accidental reuse.
@@ -41,17 +43,28 @@ export async function loginStandaloneAdmin(
     ),
   };
 }
-export async function standaloneAdminIdentity(request: Request) {
+export function standaloneAdminSessionLookup(
+  request: Request,
+): StandaloneAdminSessionLookup | null {
   if (!nextLocalStorageEnabled(process.env)) return null;
   const token = sessionToken(request);
   if (!token || !/^[a-f0-9]{64}$/.test(token)) return null;
-  const identity = await readStandaloneAdminIdentity(
-    await passwordDatabase(),
+  return {
     token,
+    statement: (db) => standaloneAdminIdentityStatement(db, token),
+    accept(identity) {
+      if (identity && !['GET', 'HEAD', 'OPTIONS'].includes(request.method))
+        assertPasswordOrigin(request);
+      return identity;
+    },
+  };
+}
+export async function standaloneAdminIdentity(request: Request) {
+  const lookup = standaloneAdminSessionLookup(request);
+  if (!lookup) return null;
+  return lookup.accept(
+    await readStandaloneAdminIdentity(await passwordDatabase(), lookup.token),
   );
-  if (identity && !['GET', 'HEAD', 'OPTIONS'].includes(request.method))
-    assertPasswordOrigin(request);
-  return identity;
 }
 export function standaloneAdminRevocationStatements(
   db: D1Database,

@@ -443,18 +443,23 @@ export function sessionCookie(
 ) {
   return `${cookieName(request)}=${clear ? '' : token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${clear ? 0 : lifetimeSeconds}${new URL(request.url).protocol === 'https:' ? '; Secure' : ''}`;
 }
-export async function passwordIdentity(request: Request) {
-  const token = sessionToken(request);
-  if (token === null) return null;
-  if (!/^[a-f0-9]{64}$/.test(token))
-    throw new PasswordError('다시 로그인해 주세요.', 401);
-  const db = await passwordDatabase();
-  const row = await db
+export type PasswordSessionIdentity = { member_id: string; email: string };
+/** Read-only lookup of a live partner password session (64-hex token). */
+export function passwordSessionStatement(
+  db: D1Database,
+  token: string,
+): D1PreparedStatement {
+  return db
     .prepare(`SELECT s.member_id, s.email FROM portal_password_sessions s
     JOIN portal_password_accounts a ON a.member_id = s.member_id AND a.credential_version = s.credential_version AND a.email = s.email
     WHERE s.token_hash = ?1 AND s.expires_at > ?2`)
-    .bind(tokenHash(token), Date.now())
-    .first<{ member_id: string; email: string }>();
+    .bind(tokenHash(token), Date.now());
+}
+/** Applies the checks that follow a partner session lookup. */
+export function acceptPasswordSession(
+  request: Request,
+  row: PasswordSessionIdentity | null | undefined,
+): PasswordSessionIdentity {
   if (!row)
     throw new PasswordError(
       '로그인이 만료되었습니다. 다시 로그인해 주세요.',
@@ -463,4 +468,15 @@ export async function passwordIdentity(request: Request) {
   if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method))
     assertPasswordOrigin(request);
   return row;
+}
+export async function passwordIdentity(request: Request) {
+  const token = sessionToken(request);
+  if (token === null) return null;
+  if (!/^[a-f0-9]{64}$/.test(token))
+    throw new PasswordError('다시 로그인해 주세요.', 401);
+  const db = await passwordDatabase();
+  return acceptPasswordSession(
+    request,
+    await passwordSessionStatement(db, token).first<PasswordSessionIdentity>(),
+  );
 }

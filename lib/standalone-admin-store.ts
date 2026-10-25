@@ -150,17 +150,44 @@ export async function issueStandaloneAdminSession(
   return results[0].meta.changes === 1 ? token : null;
 }
 
-export async function readStandaloneAdminIdentity(
+/**
+ * Read-only lookup of a live administrator session. Callers must pass a
+ * 64-hex session token; `readStandaloneAdminIdentity` checks it, and the
+ * combined session lookup in `portal-auth` checks it before batching.
+ */
+export function standaloneAdminIdentityStatement(
   db: D1Database,
-  token: string | null,
-): Promise<StandaloneAdminIdentity | null> {
-  if (!token || !/^[a-f0-9]{64}$/.test(token)) return null;
+  token: string,
+): D1PreparedStatement {
   return db
     .prepare(`SELECT a.id, a.email, a.display_name AS "displayName"
     FROM standalone_admin_sessions s JOIN standalone_admin_accounts a
     ON a.id = s.admin_id AND a.credential_version = s.credential_version
     WHERE s.token_hash = ?1 AND s.issued_at <= ?2 AND s.expires_at > ?2
     AND a.active = 1 AND a.id = ?3 AND a.email = ?4`)
-    .bind(tokenHash(token), Date.now(), standaloneAdminId, PORTAL_OWNER_EMAIL)
-    .first<StandaloneAdminIdentity>();
+    .bind(tokenHash(token), Date.now(), standaloneAdminId, PORTAL_OWNER_EMAIL);
 }
+
+export async function readStandaloneAdminIdentity(
+  db: D1Database,
+  token: string | null,
+): Promise<StandaloneAdminIdentity | null> {
+  if (!token || !/^[a-f0-9]{64}$/.test(token)) return null;
+  return standaloneAdminIdentityStatement(
+    db,
+    token,
+  ).first<StandaloneAdminIdentity>();
+}
+
+/**
+ * How the current platform looks up an administrator session. `null` means no
+ * administrator session can apply to this request (feature off, or no valid
+ * session token). `accept` applies the platform's post-lookup checks.
+ */
+export type StandaloneAdminSessionLookup = {
+  token: string;
+  statement(db: D1Database): D1PreparedStatement;
+  accept(
+    identity: StandaloneAdminIdentity | null,
+  ): StandaloneAdminIdentity | null;
+};

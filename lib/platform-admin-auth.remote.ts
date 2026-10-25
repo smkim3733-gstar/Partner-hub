@@ -12,8 +12,10 @@ import {
 import {
   issueStandaloneAdminSession,
   readStandaloneAdminIdentity,
+  standaloneAdminIdentityStatement,
   standaloneAdminRevocations,
   standaloneAdminLifetimeSeconds,
+  type StandaloneAdminSessionLookup,
 } from './standalone-admin-store';
 
 function configuredRequest(request: Request) {
@@ -45,11 +47,24 @@ export async function loginStandaloneAdmin(
     ),
   };
 }
-export async function standaloneAdminIdentity(request: Request) {
+export function standaloneAdminSessionLookup(
+  request: Request,
+): StandaloneAdminSessionLookup | null {
   configuredRequest(request);
   const token = sessionToken(request);
   if (!token || !/^[a-f0-9]{64}$/.test(token)) return null;
-  return readStandaloneAdminIdentity(await passwordDatabase(), token);
+  return {
+    token,
+    statement: (db) => standaloneAdminIdentityStatement(db, token),
+    accept: (identity) => identity,
+  };
+}
+export async function standaloneAdminIdentity(request: Request) {
+  const lookup = standaloneAdminSessionLookup(request);
+  if (!lookup) return null;
+  return lookup.accept(
+    await readStandaloneAdminIdentity(await passwordDatabase(), lookup.token),
+  );
 }
 export function standaloneAdminRevocationStatements(
   db: D1Database,
