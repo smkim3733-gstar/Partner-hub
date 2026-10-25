@@ -52,6 +52,25 @@ node scripts/supabase-backup.mjs verify --pg-bin "C:\Users\smkim\AppData\Local\P
 
 복원 비교가 실패하면 내용이나 SQL을 출력하지 않고 달라진 테이블·정의 범주만 표시한다. 백업 파일 변조·잘못된 복구 키·잘린 파일은 복호화 단계에서 거절한다. 정상 중단 신호는 진행 중 작업을 중단하고 정리 경로로 연결한다. 기동 중 중단은 제한 시간 안에 기동 작업이 끝난 후 정리한다. 전원 차단이나 강제 프로세스 종료처럼 처리할 수 없는 중단까지 자동 정리를 보장하지는 않는다.
 
+## 2026-10-25 새 PC 설정 (현재 기준)
+
+아래 일일 예약 실행의 9월 기록은 이전 PC(Codex 자동화) 기준이다. 현재 백업은 새 PC에서 다음과 같이 돈다.
+
+| 항목 | 값 |
+| --- | --- |
+| 작업 폴더 | `D:\dev\Partner-hub` — 예약 백업이 이 폴더의 코드를 실행하므로 **`main`에 둔다** |
+| PostgreSQL 도구 | `D:\dev\tools\postgresql-17.11\pgsql\bin` (EDB `postgresql-17.11-5-windows-x64-binaries.zip`, SHA-256 `80379b2c04d51c30225532e0ae04509899141e9957ed096fe749d7fd9df8f82f`) |
+| 백업·복구 키 | `C:\Users\usr\PartnerHubBackups`, `C:\Users\usr\PartnerHubRecoveryKeys` (현재 사용자·SYSTEM만 접근) |
+| 예약 | Windows 작업 스케줄러 `PartnerHub Daily Backup`, 매일 09:00, PC가 꺼져 있었으면 켜진 뒤 실행, 일반 사용자 권한 |
+| 실행 파일 | `D:\dev\Partner-hub-tools\daily-backup.cmd` → `daily-backup.ps1`. 로그는 `D:\dev\Partner-hub-tools\logs`, 실패 시 한글 알림 창 |
+| 연결값 | Git 제외 `D:\dev\Partner-hub\.env.local` (2026-10-24 재설정한 DB 비밀번호) |
+
+- 첫 검증 백업: 2026-10-25 13:09 KST, 38개 테이블·18행, Storage 0건, 로컬 PostgreSQL 복원 대조와 평문 정리 완료, 암호문 SHA-256 `5cb406de772deee474c9e6a0441ad52069d153517cf1abfd178eedb2444864a1`. 같은 날 예약 실행 파일 시험은 `already-verified-today`였다.
+- 두 번째 실행부터 실패하던 폴더 권한 재설정(`Set-Acl`의 `SeSecurityPrivilege` 요구)은 `SetAccessControl()`로 고쳤다.
+- Windows PowerShell 5.1은 BOM 없는 UTF-8 한글 `.ps1`을 잘못 읽고, `cmd`는 UTF-8 한글 `.cmd`를 깨뜨린다. 운영자 `.ps1`은 BOM 포함 UTF-8로, `.cmd`는 ASCII로만 쓴다.
+- `.env.local`에 키를 붙여넣을 때 여러 번 붙으면 Supabase가 401로 거절한다. Secret key는 41자다.
+- 이전 PC의 과거 백업·키 이관, PC 밖 사본 보관은 아직 남아 있다.
+
 ## 일일 예약 실행
 
 2026-09-11에 현재 Codex 작업의 heartbeat **파트너 허브 일일 백업·복원 검증**(`automation-2`)을 ACTIVE로 등록했다. 실행 시각은 매일 오전 9시, 시간대는 Asia/Seoul이다. 실패 실행 알림을 설정했고 정상 누적에는 반복 보고를 하지 않는다. 예약 등록과 첫 수동 실행 검증은 완료했지만 다음 예약 시각의 무인 실행 및 실제 OS 알림 수신은 아직 관찰 전이다. [OpenAI 공식 예약 안내](https://learn.chatgpt.com/docs/automations?surface=app)에 따라 로컬 파일을 사용하는 동안 PC와 앱이 켜져 있어야 한다. PC가 꺼진 동안 즉시 실패 알림을 보내는 외부 감시 장치는 아니다.
