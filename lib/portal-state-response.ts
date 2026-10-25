@@ -27,6 +27,8 @@ export type PortalStateReadPayload<TState> = {
   documentReviewWait: DocumentReviewWaitSummary | null;
   supportRequests: SupportRequestSummary | null;
   pipelineDropoff: PipelineDropoffSummary | null;
+  /** Administrator only: whole seconds until the login session expires. */
+  sessionExpiresInSeconds?: number;
 };
 
 export class PortalStateResponseError extends Error {
@@ -427,5 +429,8 @@ export async function readPortalStateResponse<TState>(
     documentReviewWait: optional(payload.documentReviewWait, isDocumentReview),
     supportRequests: optional(payload.supportRequests, isSupportRequests),
     pipelineDropoff: optional(payload.pipelineDropoff, isPipeline),
+    ...(count(payload.sessionExpiresInSeconds)
+      ? { sessionExpiresInSeconds: payload.sessionExpiresInSeconds as number }
+      : {}),
   };
 }

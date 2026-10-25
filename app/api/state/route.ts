@@ -29,6 +29,7 @@ import {
 import {
   mergeStateForPortalUser,
   PortalAccessError,
+  portalSessionExpiresInSeconds,
   requirePortalUser,
   stateForPortalUser,
   stateWithPortalLoginStats,
@@ -93,6 +94,12 @@ function accessErrorResponse(error: unknown, request: Request) {
     );
   }
   return null;
+}
+
+// Lets the administrator screen warn before the one-hour login expires.
+function sessionExpiry(user: Parameters<typeof portalSessionExpiresInSeconds>[0]) {
+  const seconds = portalSessionExpiresInSeconds(user);
+  return seconds === null ? {} : { sessionExpiresInSeconds: seconds };
 }
 
 export async function GET(request: Request) {
@@ -220,6 +227,7 @@ export async function GET(request: Request) {
             documentReviewWait,
             supportRequests,
             pipelineDropoff,
+            ...sessionExpiry(currentUser),
           }
         : {}),
     });
