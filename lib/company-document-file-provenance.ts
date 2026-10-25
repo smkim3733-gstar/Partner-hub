@@ -59,8 +59,8 @@ function sameLedgerFacts(document: IntegrityRecord, row: ProvenanceRow) {
   );
 }
 
-async function provenanceRow(id: string) {
-  return companyFileDatabase()
+async function provenanceRow(db: D1Database, id: string) {
+  return db
     .prepare(`SELECT f.id, f.storage_key, f.original_name, f.company,
       f.category, f.title, f.assigned_trainee, f.uploaded_by_user_id,
       f.uploaded_by_email, f.content_type, f.size_bytes, f.created_at,
@@ -82,12 +82,11 @@ export async function checkNewCompanyDocumentFileProvenance(
   if (documents.length === 0)
     return { requiresCommitGuard: false, error: null };
 
-  const db = companyFileDatabase();
-  await ensureCompanyFileTables(db);
+  const db = await ensureCompanyFileTables(companyFileDatabase());
   const bucket = companyFileBucket();
 
   for (const document of documents) {
-    const row = await provenanceRow(document.storageFileId as string);
+    const row = await provenanceRow(db, document.storageFileId as string);
     if (!row)
       return {
         requiresCommitGuard: true,

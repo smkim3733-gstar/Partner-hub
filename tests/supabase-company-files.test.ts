@@ -95,7 +95,8 @@ void test('PostgreSQL file ledgers preserve immutability, cascade, receipts and 
   await assert.rejects(f.engine.exec('TRUNCATE partner_hub.company_file_upload_requests'), /permission denied/);
   await f.engine.exec('RESET ROLE');
   await f.engine.exec('ALTER TABLE partner_hub.company_file_metadata DISABLE TRIGGER company_file_metadata_guard');
-  await assert.rejects(ensureCompanyFileTables(f.db), /OPERATION_FAILED/);
+  // The guard rides along with the next batch: that work must fail closed.
+  await assert.rejects((await ensureCompanyFileTables(f.db)).prepare('SELECT 1 AS ok').first(), /OPERATION_FAILED/);
 });
 
 void test('PostgreSQL file upload retries and authenticated downloads/deletion retain durable tombstones', async (t) => {

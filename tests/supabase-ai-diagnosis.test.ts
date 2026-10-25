@@ -59,7 +59,8 @@ void test('PostgreSQL AI requests keep case locks, exact retries, final evidence
   assert.equal(await db.prepare("SELECT count(*) AS n FROM ai_diagnosis_runs WHERE status = '생성실패'").first('n'), 2);
   await engine.exec('RESET ROLE');
   await engine.exec('ALTER TABLE partner_hub.ai_diagnosis_runs DISABLE TRIGGER ai_diagnosis_runs_guard');
-  await assert.rejects(ensureAiDiagnosisTables(db), /OPERATION_FAILED/);
+  // The guard rides along with the next batch: that work must fail closed.
+  await assert.rejects((await ensureAiDiagnosisTables(db)).prepare('SELECT 1 AS ok').first(), /OPERATION_FAILED/);
 });
 
 void test('PostgreSQL AI schema rejects malformed, duplicated, oversized and mutable evidence directly', async (t) => {

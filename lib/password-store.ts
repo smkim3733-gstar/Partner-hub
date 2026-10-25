@@ -1,6 +1,13 @@
 import { env } from '@/lib/platform-runtime';
 import { portalStateId } from '@/db/schema';
-import { passwordSchemaStatements } from './password-schema';
+import {
+  authSchemaGuardSql,
+  passwordSchemaStatements,
+} from './password-schema';
+import {
+  isPostgresDatabase,
+  postgresSchemaGuarded,
+} from './database-dialect';
 import { portalMemberExistsSql } from './portal-member-sql';
 import { normalizeLoginEmail } from '@/lib/member-email';
 import { tokenHash } from '@/lib/password-crypto';
@@ -20,6 +27,10 @@ export class PasswordError extends Error {
 export async function passwordDatabase() {
   const db = (env as unknown as { DB?: D1Database }).DB;
   if (!db) throw new PasswordError('계정 저장소를 사용할 수 없습니다.', 503);
+  // PostgreSQL checks the auth schema inside each later batch; legacy SQLite
+  // still creates its tables once here.
+  if (isPostgresDatabase(db))
+    return postgresSchemaGuarded(db, authSchemaGuardSql);
   await db.batch(passwordSchemaStatements(db));
   return db;
 }

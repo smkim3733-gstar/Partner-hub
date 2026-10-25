@@ -27,7 +27,10 @@ import {
 } from '@/lib/storage-limits';
 import { isSafeStoredText } from '@/lib/unicode-text';
 import { isUtcMillisecondTimestamp } from '@/lib/utc-timestamp';
-import { isPostgresDatabase } from './database-dialect';
+import {
+  isPostgresDatabase,
+  postgresSchemaGuarded,
+} from './database-dialect';
 
 export type StepZeroResult = {
   companyOverview: string;
@@ -75,11 +78,12 @@ type AiDiagnosisRunRow = {
   created_at: string;
 };
 
-export async function ensureAiDiagnosisTables(db: D1Database) {
-  if (isPostgresDatabase(db)) {
-    await db.prepare('SELECT partner_hub.assert_ai_diagnosis_schema() AS ready').first();
-    return;
-  }
+export async function ensureAiDiagnosisTables(db: D1Database): Promise<D1Database> {
+  if (isPostgresDatabase(db))
+    return postgresSchemaGuarded(
+      db,
+      'SELECT partner_hub.assert_ai_diagnosis_schema() AS ready',
+    );
   await db.batch([
     db.prepare(aiDiagnosisRunsTableSql),
     db.prepare(aiDiagnosisRunsCaseIndexSql),
@@ -97,6 +101,7 @@ export async function ensureAiDiagnosisTables(db: D1Database) {
     db.prepare(aiDiagnosisRunsResultTextTriggerSql),
     db.prepare(aiDiagnosisRunsNoDeleteTriggerSql),
   ]);
+  return db;
 }
 
 function boundedIdentity(value: string, maximum: number) {
@@ -304,8 +309,7 @@ function runFromRow(row: AiDiagnosisRunRow): SavedStepZeroRun | null {
 }
 
 async function diagnosisRun(id: string) {
-  const db = companyFileDatabase();
-  await ensureAiDiagnosisTables(db);
+  const db = await ensureAiDiagnosisTables(companyFileDatabase());
   return db
     .prepare(`
     SELECT id, case_id, company, stage, status, instruction_version, model,
@@ -365,8 +369,7 @@ export async function claimStepZeroRequest(
   input: StepZeroClaimInput,
 ): Promise<StepZeroClaim> {
   assertValidStepZeroClaimInput(input);
-  const db = companyFileDatabase();
-  await ensureAiDiagnosisTables(db);
+  const db = await ensureAiDiagnosisTables(companyFileDatabase());
   const staleBefore = new Date(
     Date.parse(input.createdAt) - STEP_ZERO_PENDING_STALE_MS,
   ).toISOString();
@@ -472,8 +475,7 @@ export async function completeStepZeroRequest(
     STEP_ZERO_RESULT_LIMIT_BYTES
   )
     throw new Error('AI 진단 완료 결과 허용 용량을 초과했습니다.');
-  const db = companyFileDatabase();
-  await ensureAiDiagnosisTables(db);
+  const db = await ensureAiDiagnosisTables(companyFileDatabase());
   const result = await db
     .prepare(`
     UPDATE ai_diagnosis_runs SET status = ?1, instruction_version = ?2,
@@ -506,8 +508,7 @@ export async function failStepZeroRequest(
   createdByUserId: string,
   requestFingerprint: string,
 ) {
-  const db = companyFileDatabase();
-  await ensureAiDiagnosisTables(db);
+  const db = await ensureAiDiagnosisTables(companyFileDatabase());
   await db
     .prepare(`
     UPDATE ai_diagnosis_runs SET status = '생성실패'
@@ -521,8 +522,7 @@ export async function failStepZeroRequest(
 export async function readLatestStepZeroRun(
   caseId: string,
 ): Promise<SavedStepZeroRun | null> {
-  const db = companyFileDatabase();
-  await ensureAiDiagnosisTables(db);
+  const db = await ensureAiDiagnosisTables(companyFileDatabase());
   const row = await db
     .prepare(`
     SELECT id, case_id, company, stage, status, instruction_version, model,

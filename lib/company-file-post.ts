@@ -199,8 +199,7 @@ export async function postCompanyFile(
         legacyRequestKeys = keys.legacyKeys;
       }
     }
-    const db = companyFileDatabase();
-    await ensureCompanyFileTables(db);
+    const db = await ensureCompanyFileTables(companyFileDatabase());
     const stored = await storeCompanyUpload(
       db,
       companyFileBucket(),

@@ -187,9 +187,8 @@ export async function DELETE(
     const currentUser = await requirePortalUser(request, state);
     const { id: rawId } = await context.params;
     const id = readRouteParam(rawId, 120, '기업자료 식별값을 확인해 주세요.');
-    const db = companyFileDatabase();
+    const db = await ensureCompanyFileTables(companyFileDatabase());
     const nullSafeComparison = isPostgresDatabase(db) ? 'IS NOT DISTINCT FROM' : 'IS';
-    await ensureCompanyFileTables(db);
     const row = await findCompanyFile(id);
     const access = await currentFileAccess(request, currentUser);
     if (!row) {

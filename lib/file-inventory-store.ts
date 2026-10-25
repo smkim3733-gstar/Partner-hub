@@ -12,10 +12,10 @@ import {
   type CompanyFileRow,
 } from './company-files';
 import {
-  flowDatabase,
   flowFileObjectMatchesIntegrity,
   readFlow,
   readFlowFileObjectIntegrity,
+  withFlowSchemaGuard,
 } from './consulting-flow-store';
 import {
   FLOW_FIELD_LIMITS,
@@ -246,10 +246,9 @@ export async function requireInventoryAdmin(request: Request) {
   return state;
 }
 async function inventoryDatabase() {
-  const db = companyFileDatabase();
-  await ensureCompanyFileTables(db);
-  await flowDatabase();
-  return db;
+  return withFlowSchemaGuard(
+    await ensureCompanyFileTables(companyFileDatabase()),
+  );
 }
 function parseQuery(url: URL) {
   const filter = readSingleQueryParam(url, 'status', 20) ?? 'unlinked';

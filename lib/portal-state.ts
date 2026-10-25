@@ -1,5 +1,8 @@
 import { env } from '@/lib/platform-runtime';
-import { isPostgresDatabase } from './database-dialect';
+import {
+  isPostgresDatabase,
+  postgresSchemaGuarded,
+} from './database-dialect';
 
 import {
   aiDiagnosisRunsCaseIndexSql,
@@ -61,11 +64,12 @@ function database(): D1Database {
   return binding;
 }
 
-async function ensurePortalTables(db: D1Database) {
-  if (isPostgresDatabase(db)) {
-    await db.prepare('SELECT partner_hub.assert_portal_schema() AS ready').first();
-    return;
-  }
+async function ensurePortalTables(db: D1Database): Promise<D1Database> {
+  if (isPostgresDatabase(db))
+    return postgresSchemaGuarded(
+      db,
+      'SELECT partner_hub.assert_portal_schema() AS ready',
+    );
   await db.batch([
     db.prepare(portalStateTableSql),
     db.prepare(portalStateInsertTriggerSql),
@@ -95,6 +99,7 @@ async function ensurePortalTables(db: D1Database) {
     db.prepare(aiDiagnosisRunsResultTextTriggerSql),
     db.prepare(aiDiagnosisRunsNoDeleteTriggerSql),
   ]);
+  return db;
 }
 
 export async function readPortalState(): Promise<unknown> {
@@ -103,8 +108,7 @@ export async function readPortalState(): Promise<unknown> {
 
 /** The exact stored payload is also usable as a conditional-write guard. */
 export async function readPortalStateSnapshot() {
-  const db = database();
-  await ensurePortalTables(db);
+  const db = await ensurePortalTables(database());
   const row = await db
     .prepare('SELECT payload FROM portal_state WHERE id = ?1')
     .bind(portalStateId)
@@ -117,8 +121,7 @@ export async function readPortalStateSnapshot() {
 }
 
 export async function writePortalState(state: unknown) {
-  const db = database();
-  await ensurePortalTables(db);
+  const db = await ensurePortalTables(database());
   const updatedAt = new Date().toISOString();
   await db
     .prepare(`
@@ -168,8 +171,7 @@ export async function mutatePortalState<T>(
   ) => D1PreparedStatement[],
   commitConditions?: () => readonly PortalStateCommitCondition[],
 ) {
-  const db = database();
-  await ensurePortalTables(db);
+  const db = await ensurePortalTables(database());
   for (let attempt = 0; attempt < 4; attempt++) {
     const row = await db
       .prepare('SELECT payload FROM portal_state WHERE id = ?1')
@@ -232,8 +234,7 @@ export async function mutatePortalState<T>(
 }
 
 export async function recordPortalLogin(memberId: string) {
-  const db = database();
-  await ensurePortalTables(db);
+  const db = await ensurePortalTables(database());
   const observedAt = Date.now();
   const lastLoginAt = new Date(observedAt).toISOString();
   const sessionCutoff = new Date(
@@ -261,8 +262,7 @@ export async function recordPortalLogin(memberId: string) {
 }
 
 export async function readPortalLoginStats(): Promise<PortalLoginStat[]> {
-  const db = database();
-  await ensurePortalTables(db);
+  const db = await ensurePortalTables(database());
   const result = await db
     .prepare(
       'SELECT member_id, last_login_at, login_count FROM portal_login_stats ORDER BY last_login_at DESC',

@@ -1,5 +1,8 @@
 import { env } from '@/lib/platform-runtime';
-import { isPostgresDatabase } from './database-dialect';
+import {
+  isPostgresDatabase,
+  postgresSchemaGuarded,
+} from './database-dialect';
 
 import {
   companyFileAssignmentsNoDirectDeleteTriggerSql,
@@ -115,11 +118,12 @@ export function companyFileBucket() {
   return binding;
 }
 
-export async function ensureCompanyFileTables(db: D1Database) {
-  if (isPostgresDatabase(db)) {
-    await db.prepare('SELECT partner_hub.assert_company_file_schema() AS ready').first();
-    return;
-  }
+export async function ensureCompanyFileTables(db: D1Database): Promise<D1Database> {
+  if (isPostgresDatabase(db))
+    return postgresSchemaGuarded(
+      db,
+      'SELECT partner_hub.assert_company_file_schema() AS ready',
+    );
   await db.batch([
     db.prepare(companyFileObjectsTableSql),
     db.prepare(companyFileObjectsNoUpdateTriggerSql),
@@ -147,6 +151,7 @@ export async function ensureCompanyFileTables(db: D1Database) {
     db.prepare(companyFileUploadRequestsLifecycleTriggerSql),
     db.prepare(companyFileUploadRequestsNoDeleteTriggerSql),
   ]);
+  return db;
 }
 
 const storedCompanyFileIntegrityError = () =>
@@ -356,8 +361,7 @@ export function mayReadCompanyFile(
 }
 
 export async function findCompanyFile(id: string) {
-  const db = companyFileDatabase();
-  await ensureCompanyFileTables(db);
+  const db = await ensureCompanyFileTables(companyFileDatabase());
   const row = await db
     .prepare(`
       SELECT f.id, storage_key, original_name, company, category, title,
@@ -401,8 +405,7 @@ export function companyFileIntakeFilter(db: D1Database) {
 }
 
 export async function isCompanyFileIntakeVisible(id: string) {
-  const db = companyFileDatabase();
-  await ensureCompanyFileTables(db);
+  const db = await ensureCompanyFileTables(companyFileDatabase());
   return Boolean(
     await db
       .prepare(`SELECT f.id FROM company_file_objects f

@@ -147,7 +147,10 @@ void test('native FLOW root executes the full 21-command application workflow wi
       .first('n'),
     flow.files.length,
   );
-  assert.equal(await flowDatabase(), f.db);
+  assert.equal(
+    await (await flowDatabase()).prepare('SELECT 1 AS ok').first('ok'),
+    1,
+  );
   const metrics = await readConsultingFlowMetricRows();
   assert.equal(metrics.length, 1);
   const { request_metrics_json, ...summary } = metrics[0];
@@ -410,7 +413,8 @@ void test('native root final file guard rolls back missing ledgers and exact por
   await f.engine.exec(
     'RESET ROLE; ALTER TABLE partner_hub.consulting_flows DISABLE TRIGGER consulting_flows_file_commit',
   );
-  await assert.rejects(flowDatabase(), /OPERATION_FAILED/);
+  // The guard rides along with the next batch: that work must fail closed.
+  await assert.rejects((await flowDatabase()).prepare('SELECT 1 AS ok').first(), /OPERATION_FAILED/);
 });
 
 function request(path: string, body?: unknown, cookie = '') {

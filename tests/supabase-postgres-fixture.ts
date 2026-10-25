@@ -13,6 +13,8 @@ export async function postgresFixture(options: { flowRoot?: boolean } = {}) {
     parsers: { 20: (value) => BigInt(value) },
   });
   let lastQueryError: unknown;
+  // Statements of each adapter batch (one PostgreSQL transaction), in order.
+  const batches: string[][] = [];
   try {
     await engine.exec(`CREATE ROLE anon; CREATE ROLE authenticated;
       CREATE ROLE service_role BYPASSRLS;`);
@@ -46,9 +48,11 @@ export async function postgresFixture(options: { flowRoot?: boolean } = {}) {
     }
     function executor(
       connection: Pick<PGlite, 'query'>,
+      batch?: string[],
     ): SupabasePostgresExecutor {
       return {
         async unsafe(query, parameters = []) {
+          batch?.push(query);
           const result = await connection
             .query<Record<string, unknown>>(query, [...parameters])
             .catch((error: unknown) => {
@@ -74,7 +78,9 @@ export async function postgresFixture(options: { flowRoot?: boolean } = {}) {
             // postgres.js sends the mode as part of BEGIN; PGlite opens the
             // transaction itself, so apply the same level as its first command.
             await transaction.query('SET TRANSACTION ISOLATION LEVEL SERIALIZABLE');
-            return callback(executor(transaction));
+            const batch: string[] = [];
+            batches.push(batch);
+            return callback(executor(transaction, batch));
           })
           .catch((error: unknown) => {
             // Deferred constraints can fail at COMMIT, outside executor.query.
@@ -87,6 +93,7 @@ export async function postgresFixture(options: { flowRoot?: boolean } = {}) {
       engine,
       db,
       lastQueryError: () => lastQueryError,
+      batches,
       close: () => engine.close(),
     };
   } catch (error) {
