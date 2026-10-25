@@ -69,7 +69,8 @@ node scripts/supabase-backup.mjs verify --pg-bin "C:\Users\smkim\AppData\Local\P
 - 두 번째 실행부터 실패하던 폴더 권한 재설정(`Set-Acl`의 `SeSecurityPrivilege` 요구)은 `SetAccessControl()`로 고쳤다.
 - Windows PowerShell 5.1은 BOM 없는 UTF-8 한글 `.ps1`을 잘못 읽고, `cmd`는 UTF-8 한글 `.cmd`를 깨뜨린다. 운영자 `.ps1`은 BOM 포함 UTF-8로, `.cmd`는 ASCII로만 쓴다.
 - `.env.local`에 키를 붙여넣을 때 여러 번 붙으면 Supabase가 401로 거절한다. Secret key는 41자다.
-- 이전 PC의 과거 백업·키 이관, PC 밖 사본 보관은 아직 남아 있다.
+- **PC 밖 사본(2026-10-25):** 예약 실행이 성공하면 `daily-backup.ps1`이 암호화된 백업 파일만 `%OneDrive%\PartnerHubBackupCopies`로, 복구 키만 Google Drive 데스크톱의 `G:\내 드라이브\PartnerHubRecoveryKeys`로 복사한다(서로 다른 회사, 새 파일만 추가, 해시 확인). 복사에 실패하면 백업 성공과 별도로 알림 창을 띄운다. OneDrive 사본과 Google Drive 키만으로 로컬 PostgreSQL 복원 대조(38개 테이블·18행)에 성공했다.
+- 이전 PC의 과거 백업·키 이관은 아직 남아 있다.
 
 ## 일일 예약 실행
 
