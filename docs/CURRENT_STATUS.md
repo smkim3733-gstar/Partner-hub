@@ -1,5 +1,12 @@
 # 현재 구현과 다음 확인 순서
 
+**2026-10-25 업무 흐름 검증·성능·인계 정비:**
+
+- **전체 업무 흐름 검증 통과:** 운영과 분리된 시험 Supabase 프로젝트 + 로컬 HTTPS 서버에서 가입 → 승인 전 로그인 차단 → 대표 승인 → 협업신청(첨부 2건) → 상담 FLOW 15단계(보고서 1~6차, 공동분석, 초회·계약상담, 녹취 전사문, 진행솔루션, 추가서류 요청·보완·재제출·검토, 계약 체결, 계약금 일부 입금 시 대기 유지·잔액 입금, 수행·사후관리) → 다른 파트너 접근 차단(403)·비로그인 차단(401)까지 확인했다. 앱 결함은 없었다. 이 과정은 [tools/business-flow](../tools/business-flow/README.md)의 자동 시나리오로 다시 돌릴 수 있다.
+- **성능(PR #12):** Supabase 질의 묶음마다 DB 왕복이 7번(BEGIN·설정 4번·질의·COMMIT)이던 것을 3번(격리 수준을 BEGIN에 포함, 설정 1개로 통합, 질의 파이프라이닝)으로 줄였다. 시험 환경에서 화면 데이터 3.9→1.9초, 상담 FLOW 5.3→2.7초, 첨부 업로드 37→18초. 운영(싱가포르)에서 DB 대기 시간은 약 40% 줄었다. 로그인한 요청마다 DB 묶음이 아직 6번(구조 확인 포함) 나가므로 다음 개선 후보다.
+- **인계 정비:** 새 PC 순서를 [CONTINUE_ON_ANOTHER_COMPUTER.md](CONTINUE_ON_ANOTHER_COMPUTER.md)에 다시 정리하고, Claude Code용 [CLAUDE.md](../CLAUDE.md), 경로 자동 인식 Windows 도구([tools/windows](../tools/windows/)), 시험 환경 준비 도구([tools/test-env](../tools/test-env/))를 저장소에 넣었다.
+- 관찰: 관리자 로그인은 1시간 고정 만료다(보안 설계). C 드라이브가 꽉 차 시험이 멈춘 적이 있어 개발 캐시·임시 파일은 D 드라이브에 둔다.
+
 **2026-10-25 보안·CI 정비:** 모두 CI 7개 작업 통과 후 `main`에 병합했고, 병합마다 운영 점검 7/7을 확인했다.
 
 - **보안:** Next.js 16.3.4 → 16.4.3(PR #4). 인증 없는 원격 코드 실행 등 critical/high 취약점을 수정했다. 개발 도구(oxfmt, wrangler, Cloudflare Vite 플러그인, shadcn, vite)도 갱신하고, 하위 의존성은 `pnpm-workspace.yaml` overrides로 패치판을 고정했다(PR #6). `pnpm audit` 결과는 "No known vulnerabilities found"다.

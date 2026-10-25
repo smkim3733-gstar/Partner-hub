@@ -71,6 +71,7 @@ node scripts/supabase-backup.mjs verify --pg-bin "C:\Users\smkim\AppData\Local\P
 - `.env.local`에 키를 붙여넣을 때 여러 번 붙으면 Supabase가 401로 거절한다. Secret key는 41자다.
 - **PC 밖 사본(2026-10-25):** 예약 실행이 성공하면 `daily-backup.ps1`이 암호화된 백업 파일만 `%OneDrive%\PartnerHubBackupCopies`로, 복구 키만 Google Drive 데스크톱의 `G:\내 드라이브\PartnerHubRecoveryKeys`로 복사한다(서로 다른 회사, 새 파일만 추가, 해시 확인). 복사에 실패하면 백업 성공과 별도로 알림 창을 띄운다. OneDrive 사본과 Google Drive 키만으로 로컬 PostgreSQL 복원 대조(38개 테이블·18행)에 성공했다.
 - 이전 PC의 과거 백업·키 이관은 아직 남아 있다.
+- **새 PC에서 다시 설정할 때(2026-10-25 추가):** 위 `D:\dev\Partner-hub-tools`의 도구는 저장소 [tools/windows](../tools/windows/)에 경로 자동 인식판으로 들어 있다. 저장소를 받은 PC에서 `tools\windows\save-production-keys.cmd`(열쇠 저장) → `tools\windows\register-daily-backup.cmd`(예약 등록) 순서로 실행한다. PostgreSQL 도구는 저장소 옆 `..\tools\postgresql-17*\pgsql\bin`에서 자동으로 찾고, 다른 위치면 `PARTNER_HUB_PG_BIN`으로 지정한다. 기록은 `work\backup-logs\`. 백업은 한 대의 PC에서만 돌린다. 순서 전체: [새 PC 인계](CONTINUE_ON_ANOTHER_COMPUTER.md#4-매일-백업-옮기기).
 
 ## 일일 예약 실행
 
